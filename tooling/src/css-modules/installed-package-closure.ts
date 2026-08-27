@@ -10,6 +10,7 @@ import {
   realpathSync,
   type BigIntStats,
 } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -157,6 +158,11 @@ export interface InstalledPackageClosureTestHooks {
   readonly afterFirstCapture?: () => void;
   readonly afterFileRead?: (subject: string) => void;
   readonly maxRetainedPathBytes?: number;
+  readonly maxRetainedResolutionPathBytes?: number;
+  readonly resolvePaths?: (input: {
+    readonly fromDirectory: string;
+    readonly packageName: string;
+  }) => readonly string[] | null;
   readonly readFileChunk?: (input: {
     readonly descriptor: number;
     readonly buffer: Buffer;
@@ -178,6 +184,11 @@ const ABSOLUTE_LIMITS: InstalledPackageClosureLimits = Object.freeze({
 
 const MAX_PACKAGE_METADATA_BYTES = 1024 * 1024;
 const MAX_RETAINED_PATH_BYTES = 32 * 1024 * 1024;
+const MAX_RESOLUTION_SEARCH_PATHS = 4100;
+const MAX_RESOLUTION_PATH_CODE_UNITS =
+  4 * ABSOLUTE_LIMITS.maxPathBytes + 64;
+const MAX_RETAINED_RESOLUTION_PATH_BYTES = 32 * 1024 * 1024;
+const MAX_AMBIENT_RESOLUTION_PATHS = 3;
 const FILE_READ_CHUNK_BYTES = 64 * 1024;
 const MAX_RESOLUTION_BASE_URL_CODE_UNITS =
   4 * ABSOLUTE_LIMITS.maxPathBytes + 64;
@@ -304,8 +315,10 @@ function validateResolutionEnvironment(): void {
   }
   const unsupported = new Set([
     "--experimental-loader",
+    "--experimental-policy",
     "--import",
     "--loader",
+    "--policy-integrity",
     "--preserve-symlinks",
     "--preserve-symlinks-main",
     "--require",
@@ -772,18 +785,26 @@ function parsePackageMetadata(
   });
 }
 
-function caseAliasedNodeModules(
+type CaseAliasedEntryKind = "directory" | "file";
+
+function caseAliasedEntry(
   parent: string,
   listedName: string,
+  canonicalName: string,
   listedBefore: BigIntStats,
+  kind: CaseAliasedEntryKind,
   subject: string,
 ): boolean {
-  if (listedName === "node_modules") return true;
-  if (listedName.toLowerCase() !== "node_modules") return false;
-  if (!listedBefore.isDirectory() || listedBefore.isSymbolicLink()) return false;
+  if (listedName === canonicalName) return true;
+  if (listedName.toLowerCase() !== canonicalName) return false;
+  const hasExpectedKind = (value: BigIntStats): boolean =>
+    kind === "directory" ? value.isDirectory() : value.isFile();
+  if (!hasExpectedKind(listedBefore) || listedBefore.isSymbolicLink()) {
+    return false;
+  }
 
   const listedPath = path.join(parent, listedName);
-  const lowercasePath = path.join(parent, "node_modules");
+  const lowercasePath = path.join(parent, canonicalName);
   let lowercaseBefore: BigIntStats;
   try {
     lowercaseBefore = lstatSync(lowercasePath, { bigint: true });
@@ -792,7 +813,7 @@ function caseAliasedNodeModules(
     if (code === "ENOENT" || code === "ENOTDIR") return false;
     return fail("package-filesystem-unsupported", subject);
   }
-  if (!lowercaseBefore.isDirectory() || lowercaseBefore.isSymbolicLink()) {
+  if (!hasExpectedKind(lowercaseBefore) || lowercaseBefore.isSymbolicLink()) {
     return false;
   }
 
@@ -818,12 +839,103 @@ function caseAliasedNodeModules(
   );
 }
 
-function nodeModulesSearchDirectories(fromDirectory: string): readonly string[] {
+function caseAliasedNodeModules(
+  parent: string,
+  listedName: string,
+  listedBefore: BigIntStats,
+  subject: string,
+): boolean {
+  return caseAliasedEntry(
+    parent,
+    listedName,
+    "node_modules",
+    listedBefore,
+    "directory",
+    subject,
+  );
+}
+
+function caseAliasedPackageMetadata(
+  parent: string,
+  listedName: string,
+  listedBefore: BigIntStats,
+  subject: string,
+): boolean {
+  return caseAliasedEntry(
+    parent,
+    listedName,
+    "package.json",
+    listedBefore,
+    "file",
+    subject,
+  );
+}
+
+interface ResolutionPathBudget {
+  retainedBytes: number;
+}
+
+interface ResolutionSearchPlan {
+  readonly directories: readonly string[];
+  readonly ancestorCount: number;
+}
+
+function retainedResolutionPath(
+  value: unknown,
+  budget: ResolutionPathBudget,
+  maximumRetainedBytes: number,
+): string {
+  if (typeof value !== "string") {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  const bytes = Buffer.from(value, "utf8");
+  if (
+    value.length > MAX_RESOLUTION_PATH_CODE_UNITS ||
+    bytes.length > MAX_RESOLUTION_PATH_CODE_UNITS
+  ) {
+    return fail("package-closure-limit", "maxResolutionPathBytes");
+  }
+  if (
+    bytes.toString("utf8") !== value ||
+    !path.isAbsolute(value)
+  ) {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  budget.retainedBytes += bytes.length;
+  if (budget.retainedBytes > maximumRetainedBytes) {
+    return fail(
+      "package-closure-limit",
+      "maxRetainedResolutionPathBytes",
+    );
+  }
+  return value;
+}
+
+function nodeModulesSearchDirectories(
+  fromDirectory: string,
+  budget: ResolutionPathBudget,
+  maximumRetainedBytes: number,
+): readonly string[] {
   const result: string[] = [];
   let current = fromDirectory;
   while (true) {
     if (path.basename(current) !== "node_modules") {
-      result.push(path.join(current, "node_modules"));
+      if (result.length >= MAX_RESOLUTION_SEARCH_PATHS) {
+        return fail("package-closure-limit", "maxResolutionSearchPaths");
+      }
+      result.push(
+        retainedResolutionPath(
+          path.join(current, "node_modules"),
+          budget,
+          maximumRetainedBytes,
+        ),
+      );
     }
     const parent = path.dirname(current);
     if (parent === current) break;
@@ -832,42 +944,218 @@ function nodeModulesSearchDirectories(fromDirectory: string): readonly string[] 
   return Object.freeze(result);
 }
 
+function observedResolutionPaths(
+  fromDirectory: string,
+  packageName: string,
+  budget: ResolutionPathBudget,
+  maximumRetainedBytes: number,
+  hooks: InstalledPackageClosureTestHooks | undefined,
+): readonly string[] {
+  let source: readonly string[] | null;
+  try {
+    source = hooks?.resolvePaths === undefined
+      ? createRequire(
+        path.join(fromDirectory, "__genes_installed_closure__.cjs"),
+      ).resolve.paths(packageName)
+      : hooks.resolvePaths({ fromDirectory, packageName });
+  } catch {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  if (source === null || !Array.isArray(source)) {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  let count: number;
+  try {
+    count = source.length;
+  } catch {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  if (!Number.isSafeInteger(count) || count < 0) {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  if (count > MAX_RESOLUTION_SEARCH_PATHS) {
+    return fail("package-closure-limit", "maxResolutionSearchPaths");
+  }
+  const result: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    let value: unknown;
+    try {
+      if (!Object.hasOwn(source, index)) {
+        return fail(
+          "resolution-profile-unsupported",
+          INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        );
+      }
+      value = source[index];
+    } catch (error) {
+      if (error instanceof InstalledPackageClosureError) throw error;
+      return fail(
+        "resolution-profile-unsupported",
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      );
+    }
+    result.push(
+      retainedResolutionPath(value, budget, maximumRetainedBytes),
+    );
+  }
+  return Object.freeze(result);
+}
+
+/** Observes Node's order but authorizes only its verified ancestor prefix. */
+function resolutionSearchPlan(
+  fromDirectory: string,
+  packageName: string,
+  hooks: InstalledPackageClosureTestHooks | undefined,
+): ResolutionSearchPlan {
+  const budget: ResolutionPathBudget = { retainedBytes: 0 };
+  const maximumRetainedBytes =
+    hooks?.maxRetainedResolutionPathBytes ??
+    MAX_RETAINED_RESOLUTION_PATH_BYTES;
+  const ancestors = nodeModulesSearchDirectories(
+    fromDirectory,
+    budget,
+    maximumRetainedBytes,
+  );
+  const observed = observedResolutionPaths(
+    fromDirectory,
+    packageName,
+    budget,
+    maximumRetainedBytes,
+    hooks,
+  );
+  if (
+    observed.length < ancestors.length ||
+    observed.length - ancestors.length > MAX_AMBIENT_RESOLUTION_PATHS
+  ) {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  for (let index = 0; index < ancestors.length; index += 1) {
+    if (observed[index] !== ancestors[index]) {
+      return fail(
+        "resolution-profile-unsupported",
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      );
+    }
+  }
+  return Object.freeze({
+    directories: observed,
+    ancestorCount: ancestors.length,
+  });
+}
+
+interface StableResolutionEntry {
+  readonly kind: "directory" | "file";
+  readonly realpath: string;
+}
+
+function stableResolutionEntry(
+  absolute: string,
+  subject: string,
+): StableResolutionEntry | null {
+  let before: BigIntStats;
+  try {
+    before = lstatSync(absolute, { bigint: true });
+  } catch (error) {
+    const code = nativeErrorCode(error);
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    return fail("package-filesystem-unsupported", subject);
+  }
+  if (
+    !before.isDirectory() &&
+    !before.isFile() &&
+    !before.isSymbolicLink()
+  ) {
+    return fail("package-filesystem-unsupported", subject);
+  }
+  let resolved: string;
+  try {
+    resolved = realpathSync.native(absolute);
+  } catch {
+    return fail("package-filesystem-unsupported", subject);
+  }
+  const linked = lstatAfterRead(absolute, subject);
+  const target = lstatAfterRead(resolved, subject);
+  if (!sameFile(before, linked)) {
+    return fail("package-closure-changed", subject);
+  }
+  if (!target.isDirectory() && !target.isFile()) {
+    return fail("package-filesystem-unsupported", subject);
+  }
+  if (!linked.isSymbolicLink() && !sameFile(linked, target)) {
+    return fail("package-closure-changed", subject);
+  }
+  return Object.freeze({
+    kind: target.isDirectory() ? "directory" : "file",
+    realpath: resolved,
+  });
+}
+
+function packageRootCandidate(
+  searchDirectory: string,
+  segments: readonly string[],
+  subject: string,
+): string | null {
+  const candidate = path.join(searchDirectory, ...segments);
+  const exact = stableResolutionEntry(candidate, subject);
+  if (exact?.kind === "file") {
+    return fail(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    );
+  }
+  // Default CommonJS can select one of these files before a package directory.
+  // Reject every stable candidate instead of reproducing package-exports rules.
+  for (const extension of [".js", ".json", ".node"] as const) {
+    const legacy = stableResolutionEntry(`${candidate}${extension}`, subject);
+    if (legacy?.kind === "file") {
+      return fail(
+        "resolution-profile-unsupported",
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      );
+    }
+  }
+  return exact?.kind === "directory" ? exact.realpath : null;
+}
+
 function findInstalledPackageRoot(
   fromDirectory: string,
   packageName: string,
   optional: boolean,
   subject: string,
+  hooks: InstalledPackageClosureTestHooks | undefined,
 ): string | null {
   const segments = packageKeySegments(packageName);
   if (segments === null) {
     return fail("package-metadata-invalid", subject);
   }
-  for (const searchDirectory of nodeModulesSearchDirectories(fromDirectory)) {
-    const candidate = path.join(searchDirectory, ...segments);
-    let before: BigIntStats;
-    try {
-      before = lstatSync(candidate, { bigint: true });
-    } catch (error) {
-      const code = nativeErrorCode(error);
-      if (code === "ENOENT" || code === "ENOTDIR") continue;
-      return fail("package-filesystem-unsupported", subject);
-    }
-    if (!before.isDirectory() && !before.isSymbolicLink()) {
-      return fail("package-filesystem-unsupported", subject);
-    }
-    let root: string;
-    try {
-      root = realpathSync.native(candidate);
-    } catch {
-      return fail("package-filesystem-unsupported", subject);
-    }
-    const linked = lstatBigInt(candidate, subject);
-    const target = lstatBigInt(root, subject);
-    if (!sameFile(before, linked)) {
-      return fail("package-closure-changed", subject);
-    }
-    if (!target.isDirectory()) {
-      return fail("package-filesystem-unsupported", subject);
+  const plan = resolutionSearchPlan(fromDirectory, packageName, hooks);
+  for (let index = 0; index < plan.directories.length; index += 1) {
+    const root = packageRootCandidate(
+      plan.directories[index]!,
+      segments,
+      subject,
+    );
+    if (root === null) continue;
+    if (index >= plan.ancestorCount) {
+      return fail(
+        "resolution-profile-unsupported",
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      );
     }
     return root;
   }
@@ -1018,7 +1306,17 @@ function capturePackage(
         return fail("package-closure-limit", "maxFiles");
       }
       const remaining = limits.maxBytes - budget.bytes;
-      const isPackageMetadata = relativePath === "package.json";
+      const isPackageMetadata =
+        directory.relativePath.length === 0 &&
+        caseAliasedPackageMetadata(
+          absoluteDirectory,
+          name.text,
+          descriptor,
+          entrySubject,
+        );
+      if (isPackageMetadata && metadata !== undefined) {
+        return fail("package-metadata-invalid", subject);
+      }
       const captured = safeReadFile(
         absolute,
         entrySubject,
@@ -1154,6 +1452,7 @@ function discoverGraph(
         root.packageName,
         false,
         root.packageName,
+        hooks,
       )!;
       const node = intern(installedRoot, root.packageName);
       if (
@@ -1169,12 +1468,19 @@ function discoverGraph(
     const node = queue[index]!;
     const edges: DependencyEdge[] = [];
     for (const specification of node.specifications) {
+      if (specification.key === node.metadata.name) {
+        return fail(
+          "resolution-profile-unsupported",
+          INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        );
+      }
       const subject = `${node.metadata.name}:${specification.key}`;
       const installedRoot = findInstalledPackageRoot(
         node.root,
         specification.key,
         specification.optional,
         subject,
+        hooks,
       );
       edges.push(
         Object.freeze({

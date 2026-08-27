@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   lstatSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -123,6 +125,32 @@ function request(
     roots: Object.freeze([Object.freeze(root)]),
     limits,
   });
+}
+
+function resolverPathsWithAmbient(
+  fromDirectory: string,
+  packageName: string,
+  ambient?: readonly string[],
+): readonly string[] {
+  const observed = createRequire(
+    path.join(fromDirectory, "genes-test-resolver.cjs"),
+  ).resolve.paths(packageName);
+  assert.notEqual(observed, null);
+  const ancestors: string[] = [];
+  let current = fromDirectory;
+  while (true) {
+    if (path.basename(current) !== "node_modules") {
+      ancestors.push(path.join(current, "node_modules"));
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  assert.deepEqual(observed!.slice(0, ancestors.length), ancestors);
+  return Object.freeze([
+    ...(ambient === undefined ? observed! : ancestors),
+    ...(ambient ?? []),
+  ]);
 }
 
 function expectFailure(
@@ -501,6 +529,481 @@ try {
     () => measureInstalledPackageClosure(request(mandatoryPeer, "peer-root")),
   );
 
+  const builtinProject = projectRoot("genes-package-builtin-");
+  temporaryRoots.push(builtinProject);
+  createPackage(packageRoot(builtinProject, "fs"), { name: "fs" });
+  assert.equal(
+    createRequire(path.join(builtinProject, "consumer.cjs")).resolve("fs"),
+    "fs",
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () => measureInstalledPackageClosure(request(builtinProject, "fs")),
+  );
+
+  for (const extension of ["", ".js", ".json", ".node"] as const) {
+    const packageName = `legacy-file${extension.replace(".", "-") || "-exact"}`;
+    const legacyFileProject = projectRoot(
+      `genes-package-legacy-file${extension.replace(".", "-") || "-exact"}-`,
+    );
+    temporaryRoots.push(legacyFileProject);
+    const candidate = `${packageRoot(legacyFileProject, packageName)}${extension}`;
+    if (extension.length > 0) {
+      createPackage(packageRoot(legacyFileProject, packageName), {
+        name: packageName,
+      });
+    }
+    write(candidate, extension === ".json" ? "{}\n" : "module.exports = 1;\n");
+    assert.equal(
+      createRequire(path.join(legacyFileProject, "consumer.cjs")).resolve(
+        packageName,
+      ),
+      candidate,
+    );
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(
+          request(legacyFileProject, packageName),
+        ),
+    );
+  }
+  const exportedLegacyFile = projectRoot(
+    "genes-package-legacy-file-exported-",
+  );
+  temporaryRoots.push(exportedLegacyFile);
+  createPackage(packageRoot(exportedLegacyFile, "exported-package"), {
+    name: "exported-package",
+    extraMetadata: { exports: "./index.cjs" },
+  });
+  write(
+    `${packageRoot(exportedLegacyFile, "exported-package")}.js`,
+    "module.exports = 1;\n",
+  );
+  assert.equal(
+    realpathSync.native(
+      createRequire(path.join(exportedLegacyFile, "consumer.cjs")).resolve(
+        "exported-package",
+      ),
+    ),
+    realpathSync.native(
+      path.join(
+        packageRoot(exportedLegacyFile, "exported-package"),
+        "index.cjs",
+      ),
+    ),
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosure(
+        request(exportedLegacyFile, "exported-package"),
+      ),
+  );
+
+  for (const dependencyKind of ["mandatory", "optional"] as const) {
+    const selfProject = projectRoot(`genes-package-self-${dependencyKind}-`);
+    temporaryRoots.push(selfProject);
+    const packageName = `self-${dependencyKind}`;
+    createPackage(packageRoot(selfProject, packageName), {
+      name: packageName,
+      ...(dependencyKind === "mandatory"
+        ? { dependencies: { [packageName]: "1.0.0" } }
+        : { optionalDependencies: { [packageName]: "1.0.0" } }),
+      extraMetadata: { exports: "./index.cjs" },
+    });
+    assert.equal(
+      realpathSync.native(
+        createRequire(
+          path.join(packageRoot(selfProject, packageName), "consumer.cjs"),
+        ).resolve(packageName),
+      ),
+      realpathSync.native(
+        path.join(packageRoot(selfProject, packageName), "index.cjs"),
+      ),
+    );
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () => measureInstalledPackageClosure(request(selfProject, packageName)),
+    );
+  }
+
+  const globalHome = projectRoot("genes-package-global-home-");
+  const globalProject = projectRoot("genes-package-global-project-");
+  temporaryRoots.push(globalHome, globalProject);
+  const globalPackageName = "global-only-root";
+  const globalPackage = createPackage(
+    path.join(globalHome, ".node_modules", globalPackageName),
+    { name: globalPackageName },
+  );
+  const closureModuleUrl = new URL(
+    "./css-modules/installed-package-closure.js",
+    import.meta.url,
+  ).href;
+  const globalProbeSource = `
+    import { createRequire } from "node:module";
+    import path from "node:path";
+    import { pathToFileURL } from "node:url";
+    import {
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      measureInstalledPackageClosure,
+    } from ${JSON.stringify(closureModuleUrl)};
+    const project = ${JSON.stringify(globalProject)};
+    const packageName = ${JSON.stringify(globalPackageName)};
+    const resolved = createRequire(path.join(project, "consumer.cjs"))
+      .resolve(packageName);
+    let failureCode = null;
+    try {
+      measureInstalledPackageClosure({
+        providerKind: "genes.test.processor",
+        resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        resolutionBaseUrl: pathToFileURL(path.join(project, "anchor.mjs")).href,
+        roots: [{ packageName, expectedVersion: "1.0.0" }],
+        limits: ${JSON.stringify(LIMITS)},
+      });
+    } catch (error) {
+      failureCode = error?.code ?? null;
+    }
+    console.log(JSON.stringify({ resolved, failureCode }));
+  `;
+  const globalProbe = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", globalProbeSource],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: globalHome,
+        USERPROFILE: globalHome,
+        NODE_OPTIONS: "",
+        NODE_PATH: "",
+      },
+    },
+  );
+  assert.equal(globalProbe.status, 0, globalProbe.stderr);
+  const globalProbeResult = JSON.parse(globalProbe.stdout) as {
+    readonly resolved: string;
+    readonly failureCode: string | null;
+  };
+  assert.equal(
+    realpathSync.native(globalProbeResult.resolved),
+    realpathSync.native(path.join(globalPackage, "index.cjs")),
+  );
+  assert.equal(
+    globalProbeResult.failureCode,
+    "resolution-profile-unsupported",
+  );
+
+  const ambientSearchDirectory = path.join(globalHome, ".node_modules");
+  const ambientResolvePaths = ({
+    fromDirectory,
+    packageName,
+  }: {
+    readonly fromDirectory: string;
+    readonly packageName: string;
+  }): readonly string[] =>
+    resolverPathsWithAmbient(
+      fromDirectory,
+      packageName,
+      [ambientSearchDirectory],
+    );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(globalProject, globalPackageName),
+        { resolvePaths: ambientResolvePaths },
+      ),
+    globalHome,
+  );
+
+  for (const edgeKind of [
+    "dependency",
+    "optional",
+    "peer",
+    "optional-peer",
+  ] as const) {
+    const edgeProject = projectRoot(`genes-package-global-${edgeKind}-`);
+    temporaryRoots.push(edgeProject);
+    const rootName = `global-${edgeKind}-root`;
+    const edgeName = `global-${edgeKind}-runtime`;
+    createPackage(packageRoot(edgeProject, rootName), {
+      name: rootName,
+      ...(edgeKind === "dependency"
+        ? { dependencies: { [edgeName]: "1.0.0" } }
+        : edgeKind === "optional"
+          ? { optionalDependencies: { [edgeName]: "1.0.0" } }
+          : {
+            peerDependencies: { [edgeName]: "1.0.0" },
+            ...(edgeKind === "optional-peer"
+              ? { peerDependenciesMeta: { [edgeName]: { optional: true } } }
+              : {}),
+          }),
+    });
+    createPackage(path.join(ambientSearchDirectory, edgeName), {
+      name: edgeName,
+    });
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosureWithHooks(
+          request(edgeProject, rootName),
+          { resolvePaths: ambientResolvePaths },
+        ),
+      globalHome,
+    );
+  }
+
+  const unrelatedAmbient = projectRoot("genes-package-global-unrelated-");
+  temporaryRoots.push(unrelatedAmbient);
+  createPackage(packageRoot(unrelatedAmbient, "unrelated-root"), {
+    name: "unrelated-root",
+    optionalDependencies: { "never-ambient-runtime": "1.0.0" },
+  });
+  assert.deepEqual(
+    measureInstalledPackageClosureWithHooks(
+      request(unrelatedAmbient, "unrelated-root"),
+      { resolvePaths: ambientResolvePaths },
+    ),
+    measureInstalledPackageClosure(
+      request(unrelatedAmbient, "unrelated-root"),
+    ),
+  );
+
+  const shadowedAmbient = projectRoot("genes-package-global-shadowed-");
+  temporaryRoots.push(shadowedAmbient);
+  createPackage(packageRoot(shadowedAmbient, "shadow-root"), {
+    name: "shadow-root",
+    dependencies: { "shadow-runtime": "1.0.0" },
+  });
+  createPackage(packageRoot(shadowedAmbient, "shadow-runtime"), {
+    name: "shadow-runtime",
+    files: { "value.txt": "local\n" },
+  });
+  const ambientShadowRoot = createPackage(
+    path.join(ambientSearchDirectory, "shadow-runtime"),
+    {
+      name: "shadow-runtime",
+      files: { "value.txt": "ambient-before\n" },
+    },
+  );
+  const localShadowMeasurement = measureInstalledPackageClosure(
+    request(shadowedAmbient, "shadow-root"),
+  );
+  assert.deepEqual(
+    measureInstalledPackageClosureWithHooks(
+      request(shadowedAmbient, "shadow-root"),
+      { resolvePaths: ambientResolvePaths },
+    ),
+    localShadowMeasurement,
+  );
+  write(path.join(ambientShadowRoot, "value.txt"), "ambient-after\n");
+  assert.deepEqual(
+    measureInstalledPackageClosureWithHooks(
+      request(shadowedAmbient, "shadow-root"),
+      { resolvePaths: ambientResolvePaths },
+    ),
+    localShadowMeasurement,
+  );
+
+  const changingLocal = projectRoot("genes-package-global-changing-local-");
+  temporaryRoots.push(changingLocal);
+  createPackage(packageRoot(changingLocal, "changing-local-root"), {
+    name: "changing-local-root",
+    dependencies: { "changing-local-runtime": "1.0.0" },
+  });
+  const changingLocalRuntime = createPackage(
+    packageRoot(changingLocal, "changing-local-runtime"),
+    { name: "changing-local-runtime" },
+  );
+  createPackage(
+    path.join(ambientSearchDirectory, "changing-local-runtime"),
+    { name: "changing-local-runtime" },
+  );
+  expectFailure(
+    "package-closure-changed",
+    "genes.test.processor",
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(changingLocal, "changing-local-root"),
+        {
+          resolvePaths: ambientResolvePaths,
+          afterFirstCapture: () =>
+            rmSync(changingLocalRuntime, { recursive: true, force: true }),
+        },
+      ),
+    globalHome,
+  );
+
+  const changingAmbient = projectRoot(
+    "genes-package-global-changing-ambient-",
+  );
+  temporaryRoots.push(changingAmbient);
+  createPackage(packageRoot(changingAmbient, "changing-ambient-root"), {
+    name: "changing-ambient-root",
+    optionalDependencies: { "changing-ambient-runtime": "1.0.0" },
+  });
+  expectFailure(
+    "package-closure-changed",
+    "genes.test.processor",
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(changingAmbient, "changing-ambient-root"),
+        {
+          resolvePaths: ambientResolvePaths,
+          afterFirstCapture: () =>
+            createPackage(
+              path.join(ambientSearchDirectory, "changing-ambient-runtime"),
+              { name: "changing-ambient-runtime" },
+            ),
+        },
+      ),
+    globalHome,
+  );
+
+  const ambientFileProject = projectRoot("genes-package-global-file-");
+  temporaryRoots.push(ambientFileProject);
+  createPackage(packageRoot(ambientFileProject, "ambient-file-root"), {
+    name: "ambient-file-root",
+    optionalDependencies: { "ambient-file-runtime": "1.0.0" },
+  });
+  write(
+    path.join(ambientSearchDirectory, "ambient-file-runtime.js"),
+    "module.exports = 1;\n",
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(ambientFileProject, "ambient-file-root"),
+        { resolvePaths: ambientResolvePaths },
+      ),
+    globalHome,
+  );
+
+  const lookupPlanProject = projectRoot("genes-package-lookup-plan-");
+  temporaryRoots.push(lookupPlanProject);
+  createPackage(packageRoot(lookupPlanProject, "lookup-plan-root"), {
+    name: "lookup-plan-root",
+  });
+  let lookupPlanCalls = 0;
+  measureInstalledPackageClosureWithHooks(
+    request(lookupPlanProject, "lookup-plan-root"),
+    {
+      resolvePaths: ({ fromDirectory, packageName }) => {
+        lookupPlanCalls += 1;
+        return resolverPathsWithAmbient(
+          fromDirectory,
+          packageName,
+        );
+      },
+    },
+  );
+  assert.equal(lookupPlanCalls, 2, "each complete capture rebuilds lookup paths");
+
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        {
+          resolvePaths: ({ fromDirectory, packageName }) => {
+            const observed = [
+              ...resolverPathsWithAmbient(
+                fromDirectory,
+                packageName,
+              ),
+            ];
+            observed[0] = path.join(fromDirectory, "wrong-node-modules");
+            return observed;
+          },
+        },
+      ),
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        { resolvePaths: () => ["relative-node-modules"] },
+      ),
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        { resolvePaths: () => null },
+      ),
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        {
+          resolvePaths: ({ fromDirectory, packageName }) => [
+            ...resolverPathsWithAmbient(fromDirectory, packageName, []),
+            path.join(path.parse(fromDirectory).root, "ambient-a"),
+            path.join(path.parse(fromDirectory).root, "ambient-b"),
+            path.join(path.parse(fromDirectory).root, "ambient-c"),
+            path.join(path.parse(fromDirectory).root, "ambient-d"),
+          ],
+        },
+      ),
+  );
+  expectFailure(
+    "package-closure-limit",
+    "maxResolutionSearchPaths",
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        {
+          resolvePaths: ({ fromDirectory }) =>
+            Array.from(
+              { length: 4_101 },
+              () => path.parse(fromDirectory).root,
+            ),
+        },
+      ),
+  );
+  expectFailure(
+    "package-closure-limit",
+    "maxResolutionPathBytes",
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        {
+          resolvePaths: ({ fromDirectory }) => [
+            path.join(
+              path.parse(fromDirectory).root,
+              "a".repeat(4 * 4_096 + 65),
+            ),
+          ],
+        },
+      ),
+  );
+  expectFailure(
+    "package-closure-limit",
+    "maxRetainedResolutionPathBytes",
+    () =>
+      measureInstalledPackageClosureWithHooks(
+        request(lookupPlanProject, "lookup-plan-root"),
+        { maxRetainedResolutionPathBytes: 1 },
+      ),
+  );
+
   const linkedProject = projectRoot("genes-package-root-link-");
   const directProject = projectRoot("genes-package-root-direct-");
   temporaryRoots.push(linkedProject, directProject);
@@ -520,6 +1023,17 @@ try {
       .installedClosureIntegrity,
     measureInstalledPackageClosure(request(directProject, "linked-root"))
       .installedClosureIntegrity,
+  );
+  createPackage(path.join(ambientSearchDirectory, "linked-root"), {
+    name: "linked-root",
+    files: { "ambient.txt": "not selected\n" },
+  });
+  assert.deepEqual(
+    measureInstalledPackageClosureWithHooks(
+      request(linkedProject, "linked-root"),
+      { resolvePaths: ambientResolvePaths },
+    ),
+    measureInstalledPackageClosure(request(linkedProject, "linked-root")),
   );
 
   const internalLink = projectRoot("genes-package-internal-link-");
@@ -1416,6 +1930,96 @@ try {
         .installedClosureIntegrity,
       preservedMeasurement.installedClosureIntegrity,
     );
+
+    const lowercaseMetadataProject = projectRoot(
+      "genes-package-metadata-lowercase-",
+    );
+    const uppercaseMetadataProject = projectRoot(
+      "genes-package-metadata-uppercase-",
+    );
+    const mixedMetadataProject = projectRoot(
+      "genes-package-metadata-mixed-",
+    );
+    temporaryRoots.push(
+      lowercaseMetadataProject,
+      uppercaseMetadataProject,
+      mixedMetadataProject,
+    );
+    createPackage(packageRoot(lowercaseMetadataProject, "metadata-root"), {
+      name: "metadata-root",
+    });
+    const uppercaseMetadataRoot = createPackage(
+      packageRoot(uppercaseMetadataProject, "metadata-root"),
+      { name: "metadata-root" },
+    );
+    renameSync(
+      path.join(uppercaseMetadataRoot, "package.json"),
+      path.join(uppercaseMetadataRoot, "PACKAGE.JSON"),
+    );
+    const mixedMetadataRoot = createPackage(
+      packageRoot(mixedMetadataProject, "metadata-root"),
+      { name: "metadata-root" },
+    );
+    renameSync(
+      path.join(mixedMetadataRoot, "package.json"),
+      path.join(mixedMetadataRoot, "Package.Json"),
+    );
+    const lowercaseMetadata = measureInstalledPackageClosure(
+      request(lowercaseMetadataProject, "metadata-root"),
+    );
+    const uppercaseMetadata = measureInstalledPackageClosure(
+      request(uppercaseMetadataProject, "metadata-root"),
+    );
+    const mixedMetadata = measureInstalledPackageClosure(
+      request(mixedMetadataProject, "metadata-root"),
+    );
+    assert.notEqual(
+      lowercaseMetadata.installedClosureIntegrity,
+      uppercaseMetadata.installedClosureIntegrity,
+      "the actual metadata spelling remains canonical package content",
+    );
+    assert.notEqual(
+      uppercaseMetadata.installedClosureIntegrity,
+      mixedMetadata.installedClosureIntegrity,
+    );
+    write(
+      path.join(uppercaseMetadataRoot, "PACKAGE.JSON"),
+      `${JSON.stringify({
+        name: "metadata-root",
+        version: "1.0.0",
+        description: "changed bytes",
+      })}\n`,
+    );
+    assert.notEqual(
+      measureInstalledPackageClosure(
+        request(uppercaseMetadataProject, "metadata-root"),
+      ).installedClosureIntegrity,
+      uppercaseMetadata.installedClosureIntegrity,
+    );
+
+    const renamedMetadataProject = projectRoot(
+      "genes-package-metadata-renamed-",
+    );
+    temporaryRoots.push(renamedMetadataProject);
+    const renamedMetadataRoot = createPackage(
+      packageRoot(renamedMetadataProject, "metadata-root"),
+      { name: "metadata-root" },
+    );
+    expectFailure(
+      "package-closure-changed",
+      "genes.test.processor",
+      () =>
+        measureInstalledPackageClosureWithHooks(
+          request(renamedMetadataProject, "metadata-root"),
+          {
+            afterFirstCapture: () =>
+              renameSync(
+                path.join(renamedMetadataRoot, "package.json"),
+                path.join(renamedMetadataRoot, "PACKAGE.JSON"),
+              ),
+          },
+        ),
+    );
   } else {
     const sensitiveProject = projectRoot("genes-package-case-sensitive-");
     temporaryRoots.push(sensitiveProject);
@@ -1440,6 +2044,51 @@ try {
       measureInstalledPackageClosure(request(sensitiveProject, "case-root"))
         .installedClosureIntegrity,
       before.installedClosureIntegrity,
+    );
+
+    const uppercaseMetadataProject = projectRoot(
+      "genes-package-metadata-uppercase-sensitive-",
+    );
+    temporaryRoots.push(uppercaseMetadataProject);
+    const uppercaseMetadataRoot = createPackage(
+      packageRoot(uppercaseMetadataProject, "metadata-root"),
+      { name: "metadata-root" },
+    );
+    renameSync(
+      path.join(uppercaseMetadataRoot, "package.json"),
+      path.join(uppercaseMetadataRoot, "PACKAGE.JSON"),
+    );
+    expectFailure(
+      "package-metadata-invalid",
+      "metadata-root",
+      () =>
+        measureInstalledPackageClosure(
+          request(uppercaseMetadataProject, "metadata-root"),
+        ),
+    );
+
+    const dualMetadataProject = projectRoot(
+      "genes-package-metadata-dual-sensitive-",
+    );
+    temporaryRoots.push(dualMetadataProject);
+    const dualMetadataRoot = createPackage(
+      packageRoot(dualMetadataProject, "metadata-root"),
+      { name: "metadata-root" },
+    );
+    write(path.join(dualMetadataRoot, "PACKAGE.JSON"), "ordinary-before\n");
+    write(
+      path.join(dualMetadataRoot, "nested", "Package.Json"),
+      "nested-before\n",
+    );
+    const dualMetadataBefore = measureInstalledPackageClosure(
+      request(dualMetadataProject, "metadata-root"),
+    );
+    write(path.join(dualMetadataRoot, "PACKAGE.JSON"), "ordinary-after\n");
+    assert.notEqual(
+      measureInstalledPackageClosure(
+        request(dualMetadataProject, "metadata-root"),
+      ).installedClosureIntegrity,
+      dualMetadataBefore.installedClosureIntegrity,
     );
   }
   console.log(
@@ -1538,6 +2187,43 @@ try {
       process.execArgv.pop(),
       "--experimental_loader=data:text/javascript,",
     );
+  }
+  for (const argument of [
+    "--experimental-policy",
+    "--experimental_policy",
+    "--experimental-policy=policy.json",
+    "--experimental_policy=policy.json",
+    "--policy-integrity",
+    "--policy_integrity",
+    "--policy-integrity=sha256-example",
+    "--policy_integrity=sha256-example",
+  ]) {
+    process.execArgv.push(argument);
+    try {
+      expectFailure(
+        "resolution-profile-unsupported",
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        () =>
+          measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+      );
+    } finally {
+      assert.equal(process.execArgv.pop(), argument);
+    }
+  }
+  for (const argument of [
+    "--policy",
+    "--experimental-policy-extra",
+    "--policy-integrity-extra",
+  ]) {
+    process.execArgv.push(argument);
+    try {
+      assert.deepEqual(
+        measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+        hoistedMeasurement,
+      );
+    } finally {
+      assert.equal(process.execArgv.pop(), argument);
+    }
   }
 
   const typeScriptRequest: InstalledPackageClosureRequest = {

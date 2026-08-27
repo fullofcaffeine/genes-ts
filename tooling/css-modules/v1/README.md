@@ -47,11 +47,26 @@ local package bytes or runtime module resolution change.
 
 Tooling provides a narrower prerequisite. It can capture the installed package
 closure under the `node-modules-realpath-v1` profile. This profile uses ordinary
-ancestor `node_modules` directories and default realpath behavior. Nonempty
-`NODE_OPTIONS`, `NODE_PATH`, `NODE_PRESERVE_SYMLINKS`,
+ancestor `node_modules` directories and default realpath behavior. It asks Node
+for the ordered lookup paths for each bare package key. The ancestor list must
+be an exact prefix of Node's result.
+
+Node can append user-home and installation-prefix package directories. The
+helper checks those ambient directories only to prevent false absence. If an
+ambient package or legacy package file would win, the profile fails. It does
+not include ambient package bytes in the closure.
+
+Built-in modules, declared self-edges, and default legacy package files are
+also unsupported. Legacy files are the exact key and its `.js`, `.json`, or
+`.node` forms. The profile conservatively rejects these files beside a package
+directory, even when package exports would choose the directory. This rule
+keeps the helper from becoming a second CommonJS loader.
+
+Nonempty `NODE_OPTIONS`, `NODE_PATH`, `NODE_PRESERVE_SYMLINKS`,
 `NODE_PRESERVE_SYMLINKS_MAIN`, and Plug'n'Play cause failure. The profile also
 rejects the
-`--loader`, `--experimental-loader`, `--import`, `--require`, `-r`,
+`--loader`, `--experimental-loader`, `--experimental-policy`, `--import`,
+`--policy-integrity`, `--require`, `-r`,
 `--preserve-symlinks`, and `--preserve-symlinks-main` process flags.
 Internal package links and invalid package roots also cause failure.
 
@@ -72,6 +87,12 @@ packages, dependency edges, directory entries, files, bytes, and path lengths.
 The helper copies and validates each request field once before the first
 capture. Later work uses only that immutable copy.
 
+Each package lookup has fixed internal limits. It permits at most 4,100 lookup
+directories and three ambient suffix directories. One lookup path can use at
+most 16,448 UTF-8 bytes and 16,448 code units. The helper retains at most 32
+MiB of lookup-path state for one plan. Lookup paths never enter the digest or a
+public error.
+
 The helper reads directories incrementally. It limits retained relative-path
 state to 32 MiB. It does not retain absolute directory paths after each local
 enumeration check.
@@ -90,6 +111,11 @@ The helper identifies case variants of nested `node_modules` directories by
 filesystem identity before it excludes their contents. Ancestor resolution
 still follows Node's lexical rule. Therefore, a mixed-case ancestor can add a
 nested lowercase search path even on a case-insensitive filesystem.
+
+The helper applies the same identity rule to root-level `package.json` case
+aliases. It parses the alias only when the listed file and lexical lowercase
+path are one unchanged regular file. The digest keeps the listed spelling. On
+a case-sensitive filesystem, an uppercase-only file is not package metadata.
 
 Each complete pass resolves the base directory and every package locator again.
 Each directory and file also has local before-and-after checks. The capture does
