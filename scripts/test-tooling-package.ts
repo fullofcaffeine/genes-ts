@@ -734,6 +734,9 @@ const witnesses = [
 if (witnesses.slice(0, 9).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
+if ("measureInstalledPackageClosure" in cssModules) {
+  throw new Error("the internal installed package closure helper became public");
+}
 if (
   typeof root.createGenesDevelopmentSession !== "function" ||
   typeof session.createGenesDevelopmentSession !== "function" ||

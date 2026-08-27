@@ -28,6 +28,15 @@ a small JSON file that records the exact exported keys plus the source,
 processor, configuration, and hashes that produced them. If a stylesheet
 changes without a new manifest, tooling rejects the stale data.
 
+The final processor identity must describe the implementation that ran. A
+package version, registry checksum, or declared dependency graph cannot prove
+that fact after local bytes or runtime resolution change. Tooling can capture a
+bounded installed package closure as prerequisite evidence. A provider must
+also admit execution from those measured bytes before it reports
+`processorIntegrity`. The
+[protocol guide](../tooling/css-modules/v1/README.md#installed-closure-evidence)
+defines this boundary.
+
 ## Why Genes does not parse the stylesheet
 
 Reading `.card` selectors looks simple until real CSS Module behavior enters the

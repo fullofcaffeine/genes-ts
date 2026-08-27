@@ -34,6 +34,133 @@ Haxe companion plus a precise per-file TypeScript declaration. “Closed” mean
 only the listed fields exist: `styles.card` compiles while `styles.missing`
 fails in Haxe, and strict TypeScript sees the same required keys.
 
+## Installed closure evidence
+
+The manifest separates processor code from processor configuration.
+`processorIntegrity` identifies the implementation that the provider admitted
+to run. `configurationSha256` identifies the normalized, data-only options that
+the processor used.
+
+A package version, lock file, registry checksum, or declared dependency graph
+cannot establish final processor identity. Those facts can stay constant while
+local package bytes or runtime module resolution change.
+
+Tooling provides a narrower prerequisite. It can capture the installed package
+closure under the `node-modules-realpath-v1` profile. This profile uses ordinary
+ancestor `node_modules` directories and default realpath behavior. It asks Node
+for the ordered lookup paths for each bare package key. The ancestor list must
+be an exact prefix of Node's result.
+
+Package keys use a profile-frozen, historical npm-compatible ASCII structure.
+This structure is not exact npm publication policy or arbitrary Node specifier
+syntax. A key is either one unscoped name or exactly `@scope/package`.
+`@` and `/` are structural delimiters. Each body permits letters, digits,
+periods, `!`, `'`, `(`, `)`, `*`, `_`, `~`, and `-`.
+
+| Position | Additional rule |
+| --- | --- |
+| Unscoped name | It must not start with `.`, `_`, or `-`. |
+| Scope body | It has no additional first-character restriction. |
+| Scoped package body | It must not start with `.`. |
+
+The grammar rejects URLs, imports-map keys, package subpaths, percent input,
+backslashes, controls, replacement characters, and non-ASCII text. The helper
+does not trim, lowercase, decode, or normalize an accepted key.
+
+The same grammar checks request roots, expected names, installed metadata
+names, dependency keys, optional dependency keys, peer keys, and peer metadata
+keys. A logical alias key can differ from its installed metadata name.
+Dependency declaration values stay opaque and do not select a filesystem path.
+Lexical acceptance does not override later built-in, self-edge, ambient, or
+filesystem checks.
+
+Node can append user-home and installation-prefix package directories. The
+helper checks those ambient directories only to prevent false absence. If an
+ambient package or legacy package file would win, the profile fails. It does
+not include ambient package bytes in the closure.
+
+Built-in modules, root package self-references, declared self-edges, and default
+legacy package files are also unsupported. A root self-reference exists when
+the nearest package scope has the requested name and a non-null `exports`
+value. This conservative rule keeps the profile stable where supported Node
+releases disagree about invalid primitive values. Legacy files are the exact
+key and its `.js`, `.json`, or `.node` forms. The profile conservatively rejects
+these files beside a package directory, even when package exports would choose
+the directory. This rule keeps the helper from becoming a second CommonJS
+loader.
+
+Nonempty `NODE_OPTIONS`, `NODE_PATH`, `NODE_PRESERVE_SYMLINKS`,
+`NODE_PRESERVE_SYMLINKS_MAIN`, and Plug'n'Play cause failure. The profile also
+rejects the
+`--loader`, `--experimental-loader`, `--experimental-policy`, `--import`,
+`--policy-integrity`, `--require`, `-r`,
+`--preserve-symlinks`, and `--preserve-symlinks-main` process flags.
+Internal package links and invalid package roots also cause failure.
+
+The installed closure contains fixed roots, declared runtime dependencies,
+present optional dependencies, resolved peers, and optional absence. It also
+contains every package-owned regular file except files below nested
+`node_modules` directories. The canonical SHA-256 SRI contains logical
+dependency paths and exact file hashes. It does not contain installation paths,
+timestamps, inode numbers, or package manager layout. Equivalent hoisted,
+nested, or package-root-link layouts therefore keep one installed-closure
+identity.
+
+Package file names must have one lossless UTF-8 representation. Control
+characters, backslashes, and the Unicode replacement character cause failure.
+
+Each capture has reviewed maximums and caller-selected lower limits for
+packages, dependency edges, directory entries, files, bytes, and path lengths.
+The helper copies and validates each request field once before the first
+capture. Later work uses only that immutable copy.
+
+Each package lookup has fixed internal limits. It permits at most 4,100 lookup
+directories and three ambient suffix directories. One lookup path can use at
+most 16,448 UTF-8 bytes and 16,448 code units.
+
+One complete capture permits at most 262,144 resolution work units. One Node
+lookup request, one generated or observed path, one package-scope metadata
+candidate, and one exact or legacy package candidate each use one unit. The 32
+MiB retained lookup-path limit also applies to the complete capture.
+Verification starts a second complete capture with fresh limits. Lookup paths
+never enter the digest or a public error.
+
+The helper reads directories incrementally. It limits retained relative-path
+state to 32 MiB. It does not retain absolute directory paths after each local
+enumeration check.
+
+Regular files use a fixed 64 KiB read buffer. An overflow check reads at most
+one byte past the active allowance. Only `package.json` bytes are retained for
+parsing. Each `package.json` has a fixed 1 MiB limit. Measured package metadata
+also counts against the caller's cumulative byte limit. Nearest package-scope
+metadata is resolution work and does not enter the measured closure totals.
+
+Dependency maps and peer metadata share the remaining edge-work limit for each
+package. Dependency specification text is opaque because it does not select a
+filesystem path. Metadata reads ignore inherited host properties and unrelated
+fields.
+
+The helper identifies case variants of nested `node_modules` directories by
+filesystem identity before it excludes their contents. Ancestor resolution
+still follows Node's lexical rule. Therefore, a mixed-case ancestor can add a
+nested lowercase search path even on a case-insensitive filesystem.
+
+The helper applies the same identity rule to root-level `package.json` case
+aliases. It parses the alias only when the listed file and lexical lowercase
+path are one unchanged regular file. The digest keeps the listed spelling. On
+a case-sensitive filesystem, an uppercase-only file is not package metadata.
+
+Each complete pass resolves the base directory and every package locator again.
+Each directory and file also has local before-and-after checks. The capture does
+not use a path, size, or timestamp cache.
+
+Installed-closure identity is not final `processorIntegrity`. Package metadata
+can omit a module that Node later loads, and equal endpoint snapshots cannot
+prove which transient bytes existed between checks. A provider must separately
+constrain execution to measured module bytes. The provider returns no manifest
+when it cannot prove that admission. Registry-pristine policy remains with the
+host.
+
 ## Complete one-shot flow
 
 ```text

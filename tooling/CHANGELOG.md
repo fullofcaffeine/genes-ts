@@ -4,6 +4,22 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
+## Unreleased
+
+- Add internal bounded installed package closure measurement for CSS Modules
+  tooling. It records deterministic evidence for installed package bytes. A
+  separate execution-admission step must establish final processor identity.
+  Request values are copied once. Chunked file reads, package metadata, map
+  work, resolution work, and retained path state have fixed whole-capture
+  limits. Resolver-directory aliases follow the host filesystem's case
+  behavior. Node's ordered lookup paths now prevent ambient global packages
+  from becoming false absence. The local-only profile rejects effective global
+  winners, built-ins, legacy package files, root package self-references,
+  declared self-edges, policy flags, and unsupported lookup shapes. Root
+  package metadata aliases require filesystem-identity proof. Root, alias,
+  dependency, peer, and metadata names use one position-sensitive, historical
+  npm-compatible ASCII grammar.
+
 ## 0.5.0
 
 - Export the exact Genes output inventory reader and unowned-file guard from
