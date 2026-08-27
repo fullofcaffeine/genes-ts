@@ -6,7 +6,7 @@ import {
   lstatSync,
   openSync,
   opendirSync,
-  readFileSync,
+  readSync,
   realpathSync,
   type BigIntStats,
 } from "node:fs";
@@ -78,17 +78,22 @@ export interface InstalledPackageClosureMeasurement {
 
 type DependencyKind = "dependency" | "optional" | "peer";
 
+interface ValidatedInstalledPackageClosureRequest {
+  readonly providerKind: string;
+  readonly resolutionProfile: typeof INSTALLED_PACKAGE_RESOLUTION_PROFILE;
+  readonly baseDirectoryLocator: string;
+  readonly roots: readonly Readonly<InstalledPackageRoot>[];
+  readonly limits: Readonly<InstalledPackageClosureLimits>;
+}
+
 interface ParsedPackageMetadata {
   readonly name: string;
   readonly version: string;
-  readonly dependencies: ReadonlyMap<string, string>;
-  readonly optionalDependencies: ReadonlyMap<string, string>;
-  readonly peerDependencies: ReadonlyMap<string, string>;
-  readonly optionalPeers: ReadonlySet<string>;
+  readonly specifications: readonly DependencySpecification[];
 }
 
 interface CapturedFile {
-  readonly relativePath: string;
+  readonly relativePath: Buffer;
   readonly sizeBytes: number;
   readonly sha256: Buffer;
 }
@@ -125,17 +130,39 @@ interface InventoryBudget {
   entries: number;
   files: number;
   bytes: number;
+  relativePathBytes: number;
+}
+
+interface MetadataWorkBudget {
+  remaining: number;
 }
 
 interface PendingDirectory {
-  readonly absolute: string;
-  readonly segments: readonly string[];
+  readonly relativePath: string;
+  readonly relativePathBytes: number;
 }
 
-interface ObservedDirectory {
-  readonly absolute: string;
-  readonly before: BigIntStats;
-  readonly subject: string;
+interface DirectoryName {
+  readonly text: string;
+  readonly bytes: Buffer;
+}
+
+interface StableFileCapture {
+  readonly sizeBytes: number;
+  readonly sha256: Buffer;
+  readonly retainedBytes?: Buffer;
+}
+
+export interface InstalledPackageClosureTestHooks {
+  readonly afterFirstCapture?: () => void;
+  readonly afterFileRead?: (subject: string) => void;
+  readonly maxRetainedPathBytes?: number;
+  readonly readFileChunk?: (input: {
+    readonly descriptor: number;
+    readonly buffer: Buffer;
+    readonly requestedBytes: number;
+    readonly subject: string;
+  }) => number | undefined;
 }
 
 type Locator = readonly string[];
@@ -148,6 +175,12 @@ const ABSOLUTE_LIMITS: InstalledPackageClosureLimits = Object.freeze({
   maxBytes: 512 * 1024 * 1024,
   maxPathBytes: 4096,
 });
+
+const MAX_PACKAGE_METADATA_BYTES = 1024 * 1024;
+const MAX_RETAINED_PATH_BYTES = 32 * 1024 * 1024;
+const FILE_READ_CHUNK_BYTES = 64 * 1024;
+const MAX_RESOLUTION_BASE_URL_CODE_UNITS =
+  4 * ABSOLUTE_LIMITS.maxPathBytes + 64;
 
 function fail(
   code: InstalledPackageClosureFailureCode,
@@ -189,23 +222,31 @@ function ownValue(
 function cleanIdentity(value: string): boolean {
   return (
     value.length > 0 &&
+    value.length <= 512 &&
     Buffer.byteLength(value, "utf8") <= 512 &&
     Buffer.from(value, "utf8").toString("utf8") === value &&
     !/[\u0000-\u001f\u007f\\]/u.test(value)
   );
 }
 
-function safeEntryName(value: string): boolean {
-  return (
-    value.length > 0 &&
-    Buffer.from(value, "utf8").toString("utf8") === value &&
-    !/[\u0000-\u001f\u007f\uFFFD/\\]/u.test(value)
-  );
+function safeEntryNameBytes(value: string): Buffer | null {
+  if (value.length === 0 || value.length > ABSOLUTE_LIMITS.maxPathBytes) {
+    return null;
+  }
+  const bytes = Buffer.from(value, "utf8");
+  if (
+    bytes.length > ABSOLUTE_LIMITS.maxPathBytes ||
+    bytes.toString("utf8") !== value ||
+    /[\u0000-\u001f\u007f\uFFFD/\\]/u.test(value)
+  ) {
+    return null;
+  }
+  return bytes;
 }
 
 function packageSegment(value: string): boolean {
   return (
-    /^[A-Za-z0-9][A-Za-z0-9._~-]*$/u.test(value) &&
+    /^[A-Za-z0-9!'()*][A-Za-z0-9.!'()*_~-]*$/u.test(value) &&
     value !== "." &&
     value !== ".."
   );
@@ -235,18 +276,14 @@ function positiveSafeInteger(value: number, maximum: number): boolean {
   );
 }
 
-function validateLimits(
-  limits: InstalledPackageClosureLimits,
-  rootCount: number,
-): void {
+function validateLimits(limits: InstalledPackageClosureLimits): void {
   if (
     !positiveSafeInteger(limits.maxPackages, ABSOLUTE_LIMITS.maxPackages) ||
     !positiveSafeInteger(limits.maxEdges, ABSOLUTE_LIMITS.maxEdges) ||
     !positiveSafeInteger(limits.maxEntries, ABSOLUTE_LIMITS.maxEntries) ||
     !positiveSafeInteger(limits.maxFiles, ABSOLUTE_LIMITS.maxFiles) ||
     !positiveSafeInteger(limits.maxBytes, ABSOLUTE_LIMITS.maxBytes) ||
-    !positiveSafeInteger(limits.maxPathBytes, ABSOLUTE_LIMITS.maxPathBytes) ||
-    rootCount > limits.maxPackages
+    !positiveSafeInteger(limits.maxPathBytes, ABSOLUTE_LIMITS.maxPathBytes)
   ) {
     return fail("invalid-request", "limits");
   }
@@ -289,26 +326,163 @@ function validateResolutionEnvironment(): void {
   }
 }
 
-function validateRequest(request: InstalledPackageClosureRequest): string {
-  if (!cleanIdentity(request.providerKind)) {
+function requestRecord(
+  value: unknown,
+  subject: string,
+): Readonly<Record<string, unknown>> {
+  try {
+    if (plainRecord(value)) return value;
+  } catch {
+    // A caller-owned proxy can throw while its prototype is inspected.
+  }
+  return fail("invalid-request", subject);
+}
+
+function requestValue(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  subject: string,
+): unknown {
+  try {
+    return record[key];
+  } catch {
+    return fail("invalid-request", subject);
+  }
+}
+
+function snapshotAndValidateRequest(
+  request: InstalledPackageClosureRequest,
+): ValidatedInstalledPackageClosureRequest {
+  const source = requestRecord(request, "request");
+  const providerKind = requestValue(source, "providerKind", "providerKind");
+  const resolutionProfile = requestValue(
+    source,
+    "resolutionProfile",
+    "resolutionProfile",
+  );
+  const resolutionBaseUrl = requestValue(
+    source,
+    "resolutionBaseUrl",
+    "resolutionBaseUrl",
+  );
+  const rootsValue = requestValue(source, "roots", "roots");
+  const limitsValue = requestValue(source, "limits", "limits");
+
+  const limitSource = requestRecord(limitsValue, "limits");
+  const maxPackages = requestValue(limitSource, "maxPackages", "limits");
+  const maxEdges = requestValue(limitSource, "maxEdges", "limits");
+  const maxEntries = requestValue(limitSource, "maxEntries", "limits");
+  const maxFiles = requestValue(limitSource, "maxFiles", "limits");
+  const maxBytes = requestValue(limitSource, "maxBytes", "limits");
+  const maxPathBytes = requestValue(limitSource, "maxPathBytes", "limits");
+  if (
+    typeof maxPackages !== "number" ||
+    typeof maxEdges !== "number" ||
+    typeof maxEntries !== "number" ||
+    typeof maxFiles !== "number" ||
+    typeof maxBytes !== "number" ||
+    typeof maxPathBytes !== "number"
+  ) {
+    return fail("invalid-request", "limits");
+  }
+  const limits: InstalledPackageClosureLimits = Object.freeze({
+    maxPackages,
+    maxEdges,
+    maxEntries,
+    maxFiles,
+    maxBytes,
+    maxPathBytes,
+  });
+  validateLimits(limits);
+
+  let rootsAreArray = false;
+  try {
+    rootsAreArray = Array.isArray(rootsValue);
+  } catch {
+    return fail("invalid-request", "roots");
+  }
+  if (!rootsAreArray) return fail("invalid-request", "roots");
+  const rootSource = rootsValue as readonly unknown[];
+  let rootCount: unknown;
+  try {
+    rootCount = rootSource.length;
+  } catch {
+    return fail("invalid-request", "roots");
+  }
+  if (
+    typeof rootCount !== "number" ||
+    !Number.isSafeInteger(rootCount) ||
+    rootCount < 1 ||
+    rootCount > ABSOLUTE_LIMITS.maxPackages ||
+    rootCount > limits.maxPackages
+  ) {
+    return fail("invalid-request", "roots");
+  }
+
+  const roots: InstalledPackageRoot[] = [];
+  const rootNames = new Set<string>();
+  for (let index = 0; index < rootCount; index += 1) {
+    let rootValue: unknown;
+    try {
+      rootValue = rootSource[index];
+    } catch {
+      return fail("invalid-request", "roots");
+    }
+    const root = requestRecord(rootValue, "roots");
+    const packageName = requestValue(root, "packageName", "roots");
+    const expectedPackageName = requestValue(
+      root,
+      "expectedPackageName",
+      "roots",
+    );
+    const expectedVersion = requestValue(root, "expectedVersion", "roots");
+    if (
+      typeof packageName !== "string" ||
+      packageKeySegments(packageName) === null ||
+      (expectedPackageName !== undefined &&
+        (typeof expectedPackageName !== "string" ||
+          packageKeySegments(expectedPackageName) === null)) ||
+      typeof expectedVersion !== "string" ||
+      !cleanIdentity(expectedVersion) ||
+      rootNames.has(packageName)
+    ) {
+      return fail("invalid-request", "roots");
+    }
+    rootNames.add(packageName);
+    roots.push(
+      Object.freeze({
+        packageName,
+        ...(expectedPackageName === undefined ? {} : { expectedPackageName }),
+        expectedVersion,
+      }),
+    );
+  }
+
+  if (typeof providerKind !== "string" || !cleanIdentity(providerKind)) {
     return fail("invalid-request", "providerKind");
   }
-  if (request.resolutionProfile !== INSTALLED_PACKAGE_RESOLUTION_PROFILE) {
+  if (resolutionProfile !== INSTALLED_PACKAGE_RESOLUTION_PROFILE) {
     return fail("invalid-request", "resolutionProfile");
   }
-  validateLimits(request.limits, request.roots.length);
-  if (request.roots.length === 0) {
-    return fail("invalid-request", "roots");
+  if (
+    typeof resolutionBaseUrl !== "string" ||
+    resolutionBaseUrl.length > MAX_RESOLUTION_BASE_URL_CODE_UNITS
+  ) {
+    return fail("invalid-request", "resolutionBaseUrl");
   }
 
   let baseDirectoryLocator: string;
   try {
-    const base = new URL(request.resolutionBaseUrl);
+    const base = new URL(resolutionBaseUrl);
     if (base.protocol !== "file:") {
       return fail("invalid-request", "resolutionBaseUrl");
     }
     const baseFile = fileURLToPath(base);
-    if (!path.isAbsolute(baseFile)) {
+    if (
+      !path.isAbsolute(baseFile) ||
+      baseFile.length > ABSOLUTE_LIMITS.maxPathBytes ||
+      Buffer.byteLength(baseFile, "utf8") > ABSOLUTE_LIMITS.maxPathBytes
+    ) {
       return fail("invalid-request", "resolutionBaseUrl");
     }
     baseDirectoryLocator = path.dirname(baseFile);
@@ -317,21 +491,14 @@ function validateRequest(request: InstalledPackageClosureRequest): string {
     return fail("invalid-request", "resolutionBaseUrl");
   }
 
-  const rootNames = new Set<string>();
-  for (const root of request.roots) {
-    if (
-      packageKeySegments(root.packageName) === null ||
-      (root.expectedPackageName !== undefined &&
-        packageKeySegments(root.expectedPackageName) === null) ||
-      !cleanIdentity(root.expectedVersion) ||
-      rootNames.has(root.packageName)
-    ) {
-      return fail("invalid-request", "roots");
-    }
-    rootNames.add(root.packageName);
-  }
   validateResolutionEnvironment();
-  return baseDirectoryLocator;
+  return Object.freeze({
+    providerKind,
+    resolutionProfile,
+    baseDirectoryLocator,
+    roots: Object.freeze(roots),
+    limits,
+  });
 }
 
 function resolveBaseDirectory(baseDirectoryLocator: string): string {
@@ -352,6 +519,10 @@ function sameFile(left: BigIntStats, right: BigIntStats): boolean {
     left.mtimeNs === right.mtimeNs &&
     left.ctimeNs === right.ctimeNs
   );
+}
+
+function sameFilesystemObject(left: BigIntStats, right: BigIntStats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function lstatBigInt(absolute: string, subject: string): BigIntStats {
@@ -381,11 +552,32 @@ function closeDirectory(
   }
 }
 
+function lstatAfterRead(absolute: string, subject: string): BigIntStats {
+  try {
+    return lstatSync(absolute, { bigint: true });
+  } catch (error) {
+    const code = nativeErrorCode(error);
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return fail("package-closure-changed", subject);
+    }
+    return fail("package-filesystem-unsupported", subject);
+  }
+}
+
 function safeReadFile(
   absolute: string,
   subject: string,
   maxBytes: number,
-): Buffer {
+  retainBytes: boolean,
+  scratch: Buffer,
+  hooks: InstalledPackageClosureTestHooks | undefined,
+): StableFileCapture {
+  const metadataAllowance = retainBytes
+    ? MAX_PACKAGE_METADATA_BYTES
+    : Number.MAX_SAFE_INTEGER;
+  const allowance = Math.min(maxBytes, metadataAllowance);
+  const limitSubject =
+    maxBytes <= metadataAllowance ? "maxBytes" : "maxPackageMetadataBytes";
   const lexical = lstatBigInt(absolute, subject);
   if (lexical.isSymbolicLink()) {
     return fail("package-symlink-unsupported", subject);
@@ -393,8 +585,8 @@ function safeReadFile(
   if (!lexical.isFile()) {
     return fail("package-filesystem-unsupported", subject);
   }
-  if (lexical.size > BigInt(maxBytes)) {
-    return fail("package-closure-limit", "maxBytes");
+  if (lexical.size > BigInt(allowance)) {
+    return fail("package-closure-limit", limitSubject);
   }
   let descriptor: number | null = null;
   try {
@@ -403,26 +595,66 @@ function safeReadFile(
       constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
     );
     const before = fstatSync(descriptor, { bigint: true });
-    if (
-      !before.isFile() ||
-      before.dev !== lexical.dev ||
-      before.ino !== lexical.ino ||
-      before.size > BigInt(maxBytes)
-    ) {
+    if (!before.isFile() || !sameFile(lexical, before)) {
       return fail("package-closure-changed", subject);
     }
-    const bytes = readFileSync(descriptor);
+
+    const hash = createHash("sha256");
+    const retainedChunks: Buffer[] = [];
+    let totalRead = 0;
+    let overflow = false;
+    while (true) {
+      const requested = Math.min(scratch.length, allowance + 1 - totalRead);
+      if (requested <= 0) {
+        overflow = true;
+        break;
+      }
+      const overriddenCount = hooks?.readFileChunk?.({
+        descriptor,
+        buffer: scratch,
+        requestedBytes: requested,
+        subject,
+      });
+      const count =
+        overriddenCount ?? readSync(descriptor, scratch, 0, requested, null);
+      if (!Number.isInteger(count) || count < 0 || count > requested) {
+        return fail("package-filesystem-unsupported", subject);
+      }
+      if (count === 0) break;
+      const inBudget = Math.min(count, Math.max(0, allowance - totalRead));
+      if (inBudget > 0) {
+        const chunk = scratch.subarray(0, inBudget);
+        hash.update(chunk);
+        if (retainBytes) retainedChunks.push(Buffer.from(chunk));
+      }
+      totalRead += count;
+      if (totalRead > allowance) {
+        overflow = true;
+        break;
+      }
+    }
+    hooks?.afterFileRead?.(subject);
     const after = fstatSync(descriptor, { bigint: true });
-    const linked = lstatBigInt(absolute, subject);
+    const linked = lstatAfterRead(absolute, subject);
     if (
-      BigInt(bytes.length) !== after.size ||
       !sameFile(before, after) ||
       linked.isSymbolicLink() ||
+      !linked.isFile() ||
       !sameFile(after, linked)
     ) {
       return fail("package-closure-changed", subject);
     }
-    return bytes;
+    if (overflow) return fail("package-closure-limit", limitSubject);
+    if (BigInt(totalRead) !== after.size) {
+      return fail("package-filesystem-unsupported", subject);
+    }
+    return Object.freeze({
+      sizeBytes: totalRead,
+      sha256: hash.digest(),
+      ...(retainBytes
+        ? { retainedBytes: Buffer.concat(retainedChunks, totalRead) }
+        : {}),
+    });
   } catch (error) {
     if (error instanceof InstalledPackageClosureError) throw error;
     return fail("package-filesystem-unsupported", subject);
@@ -435,7 +667,7 @@ function stringMap(
   value: unknown,
   field: string,
   subject: string,
-  maximumEntries: number,
+  budget: MetadataWorkBudget,
 ): ReadonlyMap<string, string> {
   if (value === undefined) return new Map();
   if (!plainRecord(value)) {
@@ -445,15 +677,12 @@ function stringMap(
   const result = new Map<string, string>();
   for (const key in value) {
     if (!Object.hasOwn(value, key)) continue;
-    if (result.size >= maximumEntries) {
+    if (budget.remaining === 0) {
       return fail("package-closure-limit", "maxEdges");
     }
+    budget.remaining -= 1;
     const entry = value[key];
-    if (
-      packageKeySegments(key) === null ||
-      typeof entry !== "string" ||
-      !cleanIdentity(entry)
-    ) {
+    if (packageKeySegments(key) === null || typeof entry !== "string") {
       return fail("package-metadata-invalid", `${subject}:${field}`);
     }
     result.set(key, entry);
@@ -488,11 +717,24 @@ function parsePackageMetadata(
   ) {
     return fail("package-metadata-invalid", subject);
   }
+  const budget: MetadataWorkBudget = { remaining: maximumEdges };
+  const dependencies = stringMap(
+    ownValue(parsed, "dependencies"),
+    "dependencies",
+    subject,
+    budget,
+  );
+  const optionalDependencies = stringMap(
+    ownValue(parsed, "optionalDependencies"),
+    "optionalDependencies",
+    subject,
+    budget,
+  );
   const peerDependencies = stringMap(
     ownValue(parsed, "peerDependencies"),
     "peerDependencies",
     subject,
-    maximumEdges,
+    budget,
   );
   const optionalPeers = new Set<string>();
   const peerMetadata = ownValue(parsed, "peerDependenciesMeta");
@@ -501,13 +743,12 @@ function parsePackageMetadata(
       return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
     }
     Object.setPrototypeOf(peerMetadata, null);
-    let peerMetadataEntries = 0;
     for (const key in peerMetadata) {
       if (!Object.hasOwn(peerMetadata, key)) continue;
-      if (peerMetadataEntries >= maximumEdges) {
+      if (budget.remaining === 0) {
         return fail("package-closure-limit", "maxEdges");
       }
-      peerMetadataEntries += 1;
+      budget.remaining -= 1;
       if (packageKeySegments(key) === null) {
         return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
       }
@@ -527,21 +768,59 @@ function parsePackageMetadata(
   return Object.freeze({
     name,
     version,
-    dependencies: stringMap(
-      ownValue(parsed, "dependencies"),
-      "dependencies",
-      subject,
-      maximumEdges,
+    specifications: edgeSpecifications(
+      dependencies,
+      optionalDependencies,
+      peerDependencies,
+      optionalPeers,
     ),
-    optionalDependencies: stringMap(
-      ownValue(parsed, "optionalDependencies"),
-      "optionalDependencies",
-      subject,
-      maximumEdges,
-    ),
-    peerDependencies,
-    optionalPeers,
   });
+}
+
+function caseAliasedNodeModules(
+  parent: string,
+  listedName: string,
+  listedBefore: BigIntStats,
+  subject: string,
+): boolean {
+  if (listedName === "node_modules") return true;
+  if (listedName.toLowerCase() !== "node_modules") return false;
+  if (!listedBefore.isDirectory() || listedBefore.isSymbolicLink()) return false;
+
+  const listedPath = path.join(parent, listedName);
+  const lowercasePath = path.join(parent, "node_modules");
+  let lowercaseBefore: BigIntStats;
+  try {
+    lowercaseBefore = lstatSync(lowercasePath, { bigint: true });
+  } catch (error) {
+    const code = nativeErrorCode(error);
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    return fail("package-filesystem-unsupported", subject);
+  }
+  if (!lowercaseBefore.isDirectory() || lowercaseBefore.isSymbolicLink()) {
+    return false;
+  }
+
+  let listedRealpath: string;
+  let lowercaseRealpath: string;
+  try {
+    listedRealpath = realpathSync.native(listedPath);
+    lowercaseRealpath = realpathSync.native(lowercasePath);
+  } catch {
+    return fail("package-filesystem-unsupported", subject);
+  }
+  const listedAfter = lstatAfterRead(listedPath, subject);
+  const lowercaseAfter = lstatAfterRead(lowercasePath, subject);
+  if (
+    !sameFile(listedBefore, listedAfter) ||
+    !sameFile(lowercaseBefore, lowercaseAfter)
+  ) {
+    return fail("package-closure-changed", subject);
+  }
+  return (
+    sameFilesystemObject(listedAfter, lowercaseAfter) &&
+    listedRealpath === lowercaseRealpath
+  );
 }
 
 function nodeModulesSearchDirectories(fromDirectory: string): readonly string[] {
@@ -601,31 +880,44 @@ function findInstalledPackageRoot(
 }
 
 function readDirectoryNames(
+  absolute: string,
   directory: PendingDirectory,
   subject: string,
   limits: InstalledPackageClosureLimits,
   budget: InventoryBudget,
-  observedDirectories: ObservedDirectory[],
-): readonly string[] {
-  const before = lstatBigInt(directory.absolute, subject);
+  maximumRetainedPathBytes: number,
+): readonly DirectoryName[] {
+  const before = lstatBigInt(absolute, subject);
   if (!before.isDirectory() || before.isSymbolicLink()) {
     return fail("package-filesystem-unsupported", subject);
   }
-  const names: string[] = [];
+  const names: DirectoryName[] = [];
   let handle: ReturnType<typeof opendirSync> | null = null;
   try {
-    handle = opendirSync(directory.absolute);
+    handle = opendirSync(absolute);
     while (true) {
       const entry = handle.readSync();
       if (entry === null) break;
-      if (!safeEntryName(entry.name)) {
+      const bytes = safeEntryNameBytes(entry.name);
+      if (bytes === null) {
         return fail("package-filesystem-unsupported", subject);
       }
       budget.entries += 1;
       if (budget.entries > limits.maxEntries) {
         return fail("package-closure-limit", "maxEntries");
       }
-      names.push(entry.name);
+      const relativePathBytes =
+        directory.relativePathBytes +
+        (directory.relativePathBytes === 0 ? 0 : 1) +
+        bytes.length;
+      if (relativePathBytes > limits.maxPathBytes) {
+        return fail("package-closure-limit", "maxPathBytes");
+      }
+      budget.relativePathBytes += relativePathBytes;
+      if (budget.relativePathBytes > maximumRetainedPathBytes) {
+        return fail("package-closure-limit", "maxRetainedPathBytes");
+      }
+      names.push(Object.freeze({ text: entry.name, bytes }));
     }
   } catch (error) {
     if (error instanceof InstalledPackageClosureError) throw error;
@@ -633,12 +925,13 @@ function readDirectoryNames(
   } finally {
     if (handle !== null) closeDirectory(handle, subject);
   }
-  const after = lstatBigInt(directory.absolute, subject);
+  const after = lstatBigInt(absolute, subject);
   if (!sameFile(before, after)) {
     return fail("package-closure-changed", subject);
   }
-  observedDirectories.push({ absolute: directory.absolute, before, subject });
-  return Object.freeze(names.sort(compareUtf8));
+  return Object.freeze(
+    names.sort((left, right) => Buffer.compare(left.bytes, right.bytes)),
+  );
 }
 
 function capturePackage(
@@ -647,40 +940,60 @@ function capturePackage(
   limits: InstalledPackageClosureLimits,
   budget: InventoryBudget,
   maximumEdges: number,
+  scratch: Buffer,
+  hooks: InstalledPackageClosureTestHooks | undefined,
 ): CapturedPackage {
   const files: CapturedFile[] = [];
-  const directories: PendingDirectory[] = [{ absolute: root, segments: [] }];
-  const observedDirectories: ObservedDirectory[] = [];
-  let metadataBytes: Buffer | undefined;
+  const directories: PendingDirectory[] = [
+    { relativePath: "", relativePathBytes: 0 },
+  ];
+  let metadata: ParsedPackageMetadata | undefined;
 
   while (directories.length > 0) {
     const directory = directories.pop()!;
+    const absoluteDirectory =
+      directory.relativePath.length === 0
+        ? root
+        : path.join(root, directory.relativePath);
     const directorySubject =
-      directory.segments.length === 0
+      directory.relativePath.length === 0
         ? subject
-        : `${subject}:${directory.segments.join("/")}`;
+        : `${subject}:${directory.relativePath}`;
     const names = readDirectoryNames(
+      absoluteDirectory,
       directory,
       directorySubject,
       limits,
       budget,
-      observedDirectories,
+      hooks?.maxRetainedPathBytes ?? MAX_RETAINED_PATH_BYTES,
     );
     const nextDirectories: PendingDirectory[] = [];
     for (const name of names) {
-      const segments = [...directory.segments, name];
-      const relativePath = segments.join("/");
-      if (Buffer.byteLength(relativePath, "utf8") > limits.maxPathBytes) {
-        return fail("package-closure-limit", "maxPathBytes");
-      }
-      const absolute = path.join(directory.absolute, name);
+      const relativePath =
+        directory.relativePath.length === 0
+          ? name.text
+          : `${directory.relativePath}/${name.text}`;
+      const relativePathBytes =
+        directory.relativePathBytes +
+        (directory.relativePathBytes === 0 ? 0 : 1) +
+        name.bytes.length;
+      const absolute = path.join(absoluteDirectory, name.text);
       const entrySubject = `${subject}:${relativePath}`;
       const descriptor = lstatBigInt(absolute, entrySubject);
       if (descriptor.isSymbolicLink()) {
         return fail("package-symlink-unsupported", entrySubject);
       }
       if (descriptor.isDirectory()) {
-        if (name === "node_modules") continue;
+        if (
+          caseAliasedNodeModules(
+            absoluteDirectory,
+            name.text,
+            descriptor,
+            entrySubject,
+          )
+        ) {
+          continue;
+        }
         let realDirectory: string;
         try {
           realDirectory = realpathSync.native(absolute);
@@ -699,7 +1012,7 @@ function capturePackage(
         ) {
           return fail("package-symlink-unsupported", entrySubject);
         }
-        nextDirectories.push({ absolute, segments });
+        nextDirectories.push({ relativePath, relativePathBytes });
         continue;
       }
       if (!descriptor.isFile()) {
@@ -710,17 +1023,31 @@ function capturePackage(
         return fail("package-closure-limit", "maxFiles");
       }
       const remaining = limits.maxBytes - budget.bytes;
-      const bytes = safeReadFile(absolute, entrySubject, remaining);
-      budget.bytes += bytes.length;
+      const isPackageMetadata = relativePath === "package.json";
+      const captured = safeReadFile(
+        absolute,
+        entrySubject,
+        remaining,
+        isPackageMetadata,
+        scratch,
+        hooks,
+      );
+      budget.bytes += captured.sizeBytes;
       if (budget.bytes > limits.maxBytes) {
         return fail("package-closure-limit", "maxBytes");
       }
-      if (relativePath === "package.json") metadataBytes = bytes;
+      if (isPackageMetadata) {
+        metadata = parsePackageMetadata(
+          captured.retainedBytes!,
+          subject,
+          maximumEdges,
+        );
+      }
       files.push(
         Object.freeze({
-          relativePath,
-          sizeBytes: bytes.length,
-          sha256: createHash("sha256").update(bytes).digest(),
+          relativePath: Buffer.from(relativePath, "utf8"),
+          sizeBytes: captured.sizeBytes,
+          sha256: captured.sha256,
         }),
       );
     }
@@ -729,42 +1056,39 @@ function capturePackage(
     }
   }
 
-  for (const directory of observedDirectories) {
-    const after = lstatBigInt(directory.absolute, directory.subject);
-    if (!sameFile(directory.before, after)) {
-      return fail("package-closure-changed", directory.subject);
-    }
-  }
-  if (metadataBytes === undefined) {
+  if (metadata === undefined) {
     return fail("package-metadata-invalid", subject);
   }
   return Object.freeze({
     root,
-    metadata: parsePackageMetadata(metadataBytes, subject, maximumEdges),
+    metadata,
     files: Object.freeze(
       files.sort((left, right) =>
-        compareUtf8(left.relativePath, right.relativePath),
+        Buffer.compare(left.relativePath, right.relativePath),
       ),
     ),
   });
 }
 
 function edgeSpecifications(
-  metadata: ParsedPackageMetadata,
+  dependencies: ReadonlyMap<string, string>,
+  optionalDependencies: ReadonlyMap<string, string>,
+  peerDependencies: ReadonlyMap<string, string>,
+  optionalPeers: ReadonlySet<string>,
 ): readonly DependencySpecification[] {
   const result: DependencySpecification[] = [];
-  for (const key of sortedStrings(metadata.dependencies.keys())) {
-    if (metadata.optionalDependencies.has(key)) continue;
+  for (const key of sortedStrings(dependencies.keys())) {
+    if (optionalDependencies.has(key)) continue;
     result.push({ kind: "dependency", key, optional: false });
   }
-  for (const key of sortedStrings(metadata.optionalDependencies.keys())) {
+  for (const key of sortedStrings(optionalDependencies.keys())) {
     result.push({ kind: "optional", key, optional: true });
   }
-  for (const key of sortedStrings(metadata.peerDependencies.keys())) {
+  for (const key of sortedStrings(peerDependencies.keys())) {
     result.push({
       kind: "peer",
       key,
-      optional: metadata.optionalPeers.has(key),
+      optional: optionalPeers.has(key),
     });
   }
   return Object.freeze(
@@ -776,8 +1100,9 @@ function edgeSpecifications(
 }
 
 function discoverGraph(
-  request: InstalledPackageClosureRequest,
+  request: ValidatedInstalledPackageClosureRequest,
   baseDirectory: string,
+  hooks: InstalledPackageClosureTestHooks | undefined,
 ): {
   readonly roots: readonly RootRecord[];
   readonly nodes: readonly PackageNode[];
@@ -787,7 +1112,13 @@ function discoverGraph(
   const limits = request.limits;
   const nodesByRoot = new Map<string, PackageNode>();
   const queue: PackageNode[] = [];
-  const budget: InventoryBudget = { entries: 0, files: 0, bytes: 0 };
+  const budget: InventoryBudget = {
+    entries: 0,
+    files: 0,
+    bytes: 0,
+    relativePathBytes: 0,
+  };
+  const scratch = Buffer.allocUnsafe(FILE_READ_CHUNK_BYTES);
   let edgeCount = 0;
 
   const intern = (root: string, subject: string): PackageNode => {
@@ -802,8 +1133,10 @@ function discoverGraph(
       limits,
       budget,
       limits.maxEdges - edgeCount,
+      scratch,
+      hooks,
     );
-    const specifications = edgeSpecifications(captured.metadata);
+    const specifications = captured.metadata.specifications;
     if (specifications.length > limits.maxEdges - edgeCount) {
       return fail("package-closure-limit", "maxEdges");
     }
@@ -950,7 +1283,7 @@ class FramedSha256 {
 }
 
 function canonicalIntegrity(
-  request: InstalledPackageClosureRequest,
+  request: ValidatedInstalledPackageClosureRequest,
   roots: readonly RootRecord[],
   nodes: readonly PackageNode[],
 ): `sha256-${string}` {
@@ -974,7 +1307,7 @@ function canonicalIntegrity(
     writer.text(node.metadata.version);
     writer.integer(node.files.length);
     for (const file of node.files) {
-      writer.text(file.relativePath);
+      writer.bytes(file.relativePath);
       writer.integer(file.sizeBytes);
       writer.bytes(file.sha256);
     }
@@ -1001,13 +1334,21 @@ function canonicalIntegrity(
 export function measureInstalledPackageClosure(
   request: InstalledPackageClosureRequest,
 ): InstalledPackageClosureMeasurement {
-  const baseDirectoryLocator = validateRequest(request);
+  return measureInstalledPackageClosureWithHooks(request);
+}
+
+/** Internal deterministic race seam; this module is not package-exported. */
+export function measureInstalledPackageClosureWithHooks(
+  request: InstalledPackageClosureRequest,
+  hooks?: InstalledPackageClosureTestHooks,
+): InstalledPackageClosureMeasurement {
+  const validated = snapshotAndValidateRequest(request);
   const capture = (): InstalledPackageClosureMeasurement => {
-    const baseDirectory = resolveBaseDirectory(baseDirectoryLocator);
-    const graph = discoverGraph(request, baseDirectory);
+    const baseDirectory = resolveBaseDirectory(validated.baseDirectoryLocator);
+    const graph = discoverGraph(validated, baseDirectory, hooks);
     return Object.freeze({
       installedClosureIntegrity: canonicalIntegrity(
-        request,
+        validated,
         graph.roots,
         graph.nodes,
       ),
@@ -1021,12 +1362,13 @@ export function measureInstalledPackageClosure(
   // A package captured early can change while a later dependency is scanned.
   // Repeating resolution and inventory makes that stale first view fail closed.
   const first = capture();
+  hooks?.afterFirstCapture?.();
   let verified: InstalledPackageClosureMeasurement;
   try {
     verified = capture();
   } catch (error) {
     if (error instanceof InstalledPackageClosureError) {
-      return fail("package-closure-changed", request.providerKind);
+      return fail("package-closure-changed", validated.providerKind);
     }
     throw error;
   }
@@ -1038,7 +1380,7 @@ export function measureInstalledPackageClosure(
     first.fileCount !== verified.fileCount ||
     first.totalBytes !== verified.totalBytes
   ) {
-    return fail("package-closure-changed", request.providerKind);
+    return fail("package-closure-changed", validated.providerKind);
   }
   return verified;
 }

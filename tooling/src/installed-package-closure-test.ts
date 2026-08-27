@@ -1,21 +1,25 @@
 import assert from "node:assert/strict";
 import {
   mkdirSync,
+  lstatSync,
   mkdtempSync,
   realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import {
   INSTALLED_PACKAGE_RESOLUTION_PROFILE,
   InstalledPackageClosureError,
   measureInstalledPackageClosure,
+  measureInstalledPackageClosureWithHooks,
   type InstalledPackageClosureLimits,
   type InstalledPackageClosureMeasurement,
   type InstalledPackageClosureRequest,
@@ -256,7 +260,7 @@ try {
   for (const project of [optionalAbsent, optionalPresent]) {
     createPackage(packageRoot(project, "optional-root"), {
       name: "optional-root",
-      optionalDependencies: { "optional-runtime": "1.0.0" },
+      optionalDependencies: { "optional-runtime": "" },
     });
   }
   createPackage(packageRoot(optionalPresent, "optional-runtime"), {
@@ -282,18 +286,25 @@ try {
   temporaryRoots.push(mandatorySubpath);
   createPackage(packageRoot(mandatorySubpath, "subpath-root"), {
     name: "subpath-root",
-    dependencies: { "subpath-runtime": "1.0.0" },
+    dependencies: { "subpath-runtime": "" },
   });
   createPackage(packageRoot(mandatorySubpath, "subpath-runtime"), {
     name: "subpath-runtime",
     entry: null,
     files: { "feature.js": 'module.exports = "PRESENT";\n' },
   });
-  assert.equal(
-    measureInstalledPackageClosure(
-      request(mandatorySubpath, "subpath-root"),
-    ).packageCount,
-    2,
+  const emptySpecificationMeasurement = measureInstalledPackageClosure(
+    request(mandatorySubpath, "subpath-root"),
+  );
+  assert.equal(emptySpecificationMeasurement.packageCount, 2);
+  createPackage(packageRoot(mandatorySubpath, "subpath-root"), {
+    name: "subpath-root",
+    dependencies: { "subpath-runtime": "*" },
+  });
+  assert.notEqual(
+    measureInstalledPackageClosure(request(mandatorySubpath, "subpath-root"))
+      .installedClosureIntegrity,
+    emptySpecificationMeasurement.installedClosureIntegrity,
   );
 
   const importOnly = projectRoot("genes-package-import-only-");
@@ -355,7 +366,7 @@ try {
   for (const project of [peerAbsent, peerPresent]) {
     createPackage(packageRoot(project, "peer-root"), {
       name: "peer-root",
-      peerDependencies: { "peer-runtime": "1.0.0" },
+      peerDependencies: { "peer-runtime": "" },
       peerDependenciesMeta: { "peer-runtime": { optional: true } },
     });
   }
@@ -642,6 +653,27 @@ try {
       ),
   );
 
+  const cumulativeMetadataWork = projectRoot(
+    "genes-package-cumulative-metadata-work-",
+  );
+  temporaryRoots.push(cumulativeMetadataWork);
+  createPackage(packageRoot(cumulativeMetadataWork, "edge-root"), {
+    name: "edge-root",
+    dependencies: { a: "1", b: "1" },
+    optionalDependencies: { a: "1", b: "1" },
+  });
+  expectFailure(
+    "package-closure-limit",
+    "maxEdges",
+    () =>
+      measureInstalledPackageClosure(
+        request(cumulativeMetadataWork, "edge-root", "genes.test.processor", {
+          ...LIMITS,
+          maxEdges: 2,
+        }),
+      ),
+  );
+
   const exactCeiling = projectRoot("genes-package-exact-ceiling-");
   temporaryRoots.push(exactCeiling);
   createPackage(packageRoot(exactCeiling, "ceiling-root"), {
@@ -698,6 +730,91 @@ try {
     );
   });
 
+  const metadataCeiling = projectRoot("genes-package-metadata-ceiling-");
+  temporaryRoots.push(metadataCeiling);
+  const metadataPrefix =
+    '{"name":"metadata-root","version":"1.0.0","padding":"';
+  const metadataSuffix = '"}';
+  const oneMiB = 1024 * 1024;
+  const exactMetadataDocument =
+    metadataPrefix +
+    "a".repeat(oneMiB - metadataPrefix.length - metadataSuffix.length) +
+    metadataSuffix;
+  createPackage(packageRoot(metadataCeiling, "metadata-root"), {
+    name: "metadata-root",
+    entry: null,
+    packageJsonText: exactMetadataDocument,
+  });
+  assert.equal(
+    measureInstalledPackageClosure(
+      request(metadataCeiling, "metadata-root", "genes.test.processor", {
+        ...LIMITS,
+        maxBytes: oneMiB,
+      }),
+    ).totalBytes,
+    oneMiB,
+  );
+  writeFileSync(
+    path.join(packageRoot(metadataCeiling, "metadata-root"), "package.json"),
+    exactMetadataDocument.slice(0, -metadataSuffix.length) +
+      "a" +
+      metadataSuffix,
+    "utf8",
+  );
+  const originalJsonParse = JSON.parse;
+  let oversizedJsonParseCalls = 0;
+  Object.defineProperty(JSON, "parse", {
+    configurable: true,
+    writable: true,
+    value: (...arguments_: Parameters<typeof JSON.parse>): unknown => {
+      oversizedJsonParseCalls += 1;
+      return originalJsonParse(...arguments_);
+    },
+  });
+  try {
+    expectFailure("package-closure-limit", "maxPackageMetadataBytes", () => {
+      measureInstalledPackageClosure(
+        request(metadataCeiling, "metadata-root", "genes.test.processor", {
+          ...LIMITS,
+          maxBytes: 2 * oneMiB,
+        }),
+      );
+    });
+    assert.equal(oversizedJsonParseCalls, 0);
+    expectFailure("package-closure-limit", "maxBytes", () => {
+      measureInstalledPackageClosure(
+        request(metadataCeiling, "metadata-root", "genes.test.processor", {
+          ...LIMITS,
+          maxBytes: oneMiB - 1,
+        }),
+      );
+    });
+  } finally {
+    Object.defineProperty(JSON, "parse", {
+      configurable: true,
+      writable: true,
+      value: originalJsonParse,
+    });
+  }
+
+  const retainedPaths = projectRoot("genes-package-retained-paths-");
+  temporaryRoots.push(retainedPaths);
+  createPackage(packageRoot(retainedPaths, "path-root"), {
+    name: "path-root",
+    entry: null,
+    files: { a: "" },
+  });
+  measureInstalledPackageClosureWithHooks(
+    request(retainedPaths, "path-root"),
+    { maxRetainedPathBytes: 13 },
+  );
+  expectFailure("package-closure-limit", "maxRetainedPathBytes", () => {
+    measureInstalledPackageClosureWithHooks(
+      request(retainedPaths, "path-root"),
+      { maxRetainedPathBytes: 12 },
+    );
+  });
+
   expectFailure(
     "invalid-request",
     "limits",
@@ -720,6 +837,15 @@ try {
   );
   expectFailure(
     "invalid-request",
+    "resolutionBaseUrl",
+    () =>
+      measureInstalledPackageClosure({
+        ...request(hoisted, "fixture-root"),
+        resolutionBaseUrl: "a".repeat(4 * 4096 + 65),
+      }),
+  );
+  expectFailure(
+    "invalid-request",
     "roots",
     () =>
       measureInstalledPackageClosure({
@@ -727,12 +853,60 @@ try {
         roots: [{ packageName: "../fixture-root", expectedVersion: "1.0.0" }],
       }),
   );
+  for (const invalidPackageKey of ["scheme:value", "encoded%value"]) {
+    expectFailure("invalid-request", "roots", () => {
+      measureInstalledPackageClosure({
+        ...request(hoisted, "fixture-root"),
+        roots: [{
+          packageName: invalidPackageKey,
+          expectedVersion: "1.0.0",
+        }],
+      });
+    });
+  }
+
+  const legacyKeys = projectRoot("genes-package-legacy-keys-");
+  temporaryRoots.push(legacyKeys);
+  const legacyRootName = "legacy!*'()";
+  createPackage(packageRoot(legacyKeys, legacyRootName), {
+    name: legacyRootName,
+    optionalDependencies: {
+      "optional!": "",
+      "optional*": "",
+      "optional'": "",
+      "optional(": "",
+      "optional)": "",
+    },
+  });
+  assert.equal(
+    measureInstalledPackageClosure(request(legacyKeys, legacyRootName))
+      .packageCount,
+    1,
+  );
+  const scopedLegacyRoot = "@scope!/name*'()";
+  createPackage(packageRoot(legacyKeys, scopedLegacyRoot), {
+    name: scopedLegacyRoot,
+  });
+  assert.equal(
+    measureInstalledPackageClosure(request(legacyKeys, scopedLegacyRoot))
+      .packageCount,
+    1,
+  );
+
   expectFailure(
     "invalid-request",
     "providerKind",
     () =>
       measureInstalledPackageClosure(
         request(hoisted, "fixture-root", ""),
+      ),
+  );
+  expectFailure(
+    "invalid-request",
+    "providerKind",
+    () =>
+      measureInstalledPackageClosure(
+        request(hoisted, "fixture-root", "a".repeat(513)),
       ),
   );
   expectFailure(
@@ -786,6 +960,130 @@ try {
     unsafeNameProject,
   );
 
+  const requestReads = new Map<string, number>();
+  const readOnce = <T>(field: string, value: T): T => {
+    requestReads.set(field, (requestReads.get(field) ?? 0) + 1);
+    return value;
+  };
+  const accessorRoot: InstalledPackageRoot = {
+    get packageName(): string {
+      return readOnce("root.packageName", "fixture-root");
+    },
+    get expectedPackageName(): string | undefined {
+      return readOnce("root.expectedPackageName", undefined);
+    },
+    get expectedVersion(): string {
+      return readOnce("root.expectedVersion", "1.0.0");
+    },
+  };
+  const accessorRoots = new Proxy([accessorRoot], {
+    get(target, key, receiver): unknown {
+      if (key === Symbol.iterator) throw new Error("iterator must not be read");
+      if (key === "length") readOnce("roots.length", undefined);
+      if (key === "0") readOnce("roots.0", undefined);
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const accessorLimits: InstalledPackageClosureLimits = {
+    get maxPackages(): number {
+      return readOnce("limits.maxPackages", LIMITS.maxPackages);
+    },
+    get maxEdges(): number {
+      return readOnce("limits.maxEdges", LIMITS.maxEdges);
+    },
+    get maxEntries(): number {
+      return readOnce("limits.maxEntries", LIMITS.maxEntries);
+    },
+    get maxFiles(): number {
+      return readOnce("limits.maxFiles", LIMITS.maxFiles);
+    },
+    get maxBytes(): number {
+      return readOnce("limits.maxBytes", LIMITS.maxBytes);
+    },
+    get maxPathBytes(): number {
+      return readOnce("limits.maxPathBytes", LIMITS.maxPathBytes);
+    },
+  };
+  const accessorRequest: InstalledPackageClosureRequest = {
+    get providerKind(): string {
+      return readOnce("request.providerKind", "genes.test.processor");
+    },
+    get resolutionProfile(): typeof INSTALLED_PACKAGE_RESOLUTION_PROFILE {
+      return readOnce(
+        "request.resolutionProfile",
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      );
+    },
+    get resolutionBaseUrl(): string {
+      return readOnce(
+        "request.resolutionBaseUrl",
+        pathToFileURL(path.join(hoisted, "anchor.mjs")).href,
+      );
+    },
+    get roots(): readonly InstalledPackageRoot[] {
+      return readOnce("request.roots", accessorRoots);
+    },
+    get limits(): InstalledPackageClosureLimits {
+      return readOnce("request.limits", accessorLimits);
+    },
+  };
+  measureInstalledPackageClosure(accessorRequest);
+  for (const [field, count] of requestReads) {
+    assert.equal(count, 1, `${field} is captured exactly once`);
+  }
+  assert.equal(requestReads.size, 16);
+
+  const revokedRoots = Proxy.revocable<InstalledPackageRoot[]>([], {});
+  revokedRoots.revoke();
+  expectFailure("invalid-request", "roots", () => {
+    measureInstalledPackageClosure({
+      ...request(hoisted, "fixture-root"),
+      roots: revokedRoots.proxy,
+    });
+  });
+
+  const changingLimitProject = projectRoot("genes-package-changing-limit-");
+  temporaryRoots.push(changingLimitProject);
+  createPackage(packageRoot(changingLimitProject, "limit-root"), {
+    name: "limit-root",
+  });
+  let maxFilesReads = 0;
+  const changingLimits: InstalledPackageClosureLimits = {
+    ...LIMITS,
+    get maxFiles(): number {
+      maxFilesReads += 1;
+      return maxFilesReads === 1 ? 1 : LIMITS.maxFiles;
+    },
+  };
+  expectFailure("package-closure-limit", "maxFiles", () => {
+    measureInstalledPackageClosure(
+      request(
+        changingLimitProject,
+        "limit-root",
+        "genes.test.processor",
+        changingLimits,
+      ),
+    );
+  });
+  assert.equal(maxFilesReads, 1);
+
+  expectFailure(
+    "invalid-request",
+    "providerKind",
+    () => {
+      measureInstalledPackageClosure({
+        get providerKind(): string {
+          throw new Error("caller-private-message");
+        },
+        resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        resolutionBaseUrl: pathToFileURL(path.join(hoisted, "anchor.mjs")).href,
+        roots: [{ packageName: "fixture-root", expectedVersion: "1.0.0" }],
+        limits: LIMITS,
+      });
+    },
+    "caller-private-message",
+  );
+
   const changingClosure = projectRoot("genes-package-changing-closure-");
   temporaryRoots.push(changingClosure);
   const earlyRoot = createPackage(packageRoot(changingClosure, "a-early"), {
@@ -797,9 +1095,6 @@ try {
   const changingRequest: InstalledPackageClosureRequest = {
     get providerKind(): string {
       providerKindReads += 1;
-      if (providerKindReads === 2) {
-        writeFileSync(changedFile, "after!\n", "utf8");
-      }
       return "genes.test.processor";
     },
     resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
@@ -812,9 +1107,13 @@ try {
   expectFailure(
     "package-closure-changed",
     "genes.test.processor",
-    () => measureInstalledPackageClosure(changingRequest),
+    () =>
+      measureInstalledPackageClosureWithHooks(changingRequest, {
+        afterFirstCapture: () => writeFileSync(changedFile, "after!\n", "utf8"),
+      }),
     changingClosure,
   );
+  assert.equal(providerKindReads, 1);
 
   const firstBase = projectRoot("genes-package-base-first-");
   const secondBase = projectRoot("genes-package-base-second-");
@@ -834,10 +1133,6 @@ try {
   const changingBaseRequest: InstalledPackageClosureRequest = {
     get providerKind(): string {
       baseProviderKindReads += 1;
-      if (baseProviderKindReads === 2) {
-        rmSync(linkedBase, { force: true });
-        symlinkSync(secondBase, linkedBase, "dir");
-      }
       return "genes.test.processor";
     },
     resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
@@ -848,8 +1143,242 @@ try {
   expectFailure(
     "package-closure-changed",
     "genes.test.processor",
-    () => measureInstalledPackageClosure(changingBaseRequest),
+    () =>
+      measureInstalledPackageClosureWithHooks(changingBaseRequest, {
+        afterFirstCapture: () => {
+          unlinkSync(linkedBase);
+          symlinkSync(secondBase, linkedBase, "dir");
+        },
+      }),
     baseLinkOwner,
+  );
+  assert.equal(baseProviderKindReads, 1);
+
+  const virtualRead = projectRoot("genes-package-virtual-read-");
+  temporaryRoots.push(virtualRead);
+  const virtualMetadata = `${JSON.stringify({
+    name: "virtual-root",
+    version: "1.0.0",
+  })}\n`;
+  createPackage(packageRoot(virtualRead, "virtual-root"), {
+    name: "virtual-root",
+    entry: null,
+    packageJsonText: virtualMetadata,
+    files: { "virtual.bin": "" },
+  });
+  const overflowRequests: number[] = [];
+  expectFailure("package-closure-limit", "maxBytes", () => {
+    measureInstalledPackageClosureWithHooks(
+      request(virtualRead, "virtual-root", "genes.test.processor", {
+        ...LIMITS,
+        maxBytes: Buffer.byteLength(virtualMetadata),
+      }),
+      {
+        readFileChunk: ({ requestedBytes, subject }) => {
+          if (!subject.endsWith(":virtual.bin")) return undefined;
+          overflowRequests.push(requestedBytes);
+          return requestedBytes;
+        },
+      },
+    );
+  });
+  assert.deepEqual(overflowRequests, [1]);
+
+  let inconsistentReadCalls = 0;
+  expectFailure(
+    "package-filesystem-unsupported",
+    "virtual-root:virtual.bin",
+    () => {
+      measureInstalledPackageClosureWithHooks(
+        request(virtualRead, "virtual-root", "genes.test.processor", {
+          ...LIMITS,
+          maxBytes: Buffer.byteLength(virtualMetadata) + 8,
+        }),
+        {
+          readFileChunk: ({ buffer, subject }) => {
+            if (!subject.endsWith(":virtual.bin")) return undefined;
+            inconsistentReadCalls += 1;
+            if (inconsistentReadCalls > 1) return 0;
+            buffer[0] = 0x61;
+            return 1;
+          },
+        },
+      );
+    },
+    virtualRead,
+  );
+  assert.equal(inconsistentReadCalls, 2);
+
+  for (const [race, mutate] of [
+    ["truncate", (file: string): void => writeFileSync(file, "", "utf8")],
+    [
+      "grow",
+      (file: string): void => writeFileSync(file, "before-after\n", "utf8"),
+    ],
+    ["delete", (file: string): void => rmSync(file, { force: true })],
+    [
+      "replace",
+      (file: string): void => {
+        rmSync(file, { force: true });
+        writeFileSync(file, "replacement\n", "utf8");
+      },
+    ],
+  ] as const) {
+    const raceProject = projectRoot(`genes-package-reader-${race}-`);
+    temporaryRoots.push(raceProject);
+    const raceRoot = createPackage(packageRoot(raceProject, "race-root"), {
+      name: "race-root",
+      files: { "race.txt": "before\n" },
+    });
+    const raceFile = path.join(raceRoot, "race.txt");
+    let changed = false;
+    expectFailure(
+      "package-closure-changed",
+      "race-root:race.txt",
+      () =>
+        measureInstalledPackageClosureWithHooks(
+          request(raceProject, "race-root"),
+          {
+            afterFileRead: (subject) => {
+              if (!changed && subject === "race-root:race.txt") {
+                changed = true;
+                mutate(raceFile);
+              }
+            },
+          },
+        ),
+      raceProject,
+    );
+    assert.equal(changed, true);
+  }
+
+  const caseProbe = projectRoot("genes-package-case-probe-");
+  temporaryRoots.push(caseProbe);
+  const preservedNodeModules = path.join(caseProbe, "Node_Modules");
+  mkdirSync(preservedNodeModules);
+  let caseInsensitive = false;
+  try {
+    const preserved = lstatSync(preservedNodeModules, { bigint: true });
+    const lowercase = lstatSync(path.join(caseProbe, "node_modules"), {
+      bigint: true,
+    });
+    caseInsensitive =
+      preserved.dev === lowercase.dev && preserved.ino === lowercase.ino;
+  } catch {
+    caseInsensitive = false;
+  }
+
+  if (caseInsensitive) {
+    const createCaseAliasLayout = (
+      project: string,
+      resolverName: "node_modules" | "Node_Modules",
+    ): {
+      readonly root: string;
+      readonly actual: string;
+      readonly ignored: string;
+      readonly decoy: string;
+    } => {
+      const resolverRoot = path.join(project, resolverName);
+      const root = createPackage(path.join(resolverRoot, "case-root"), {
+        name: "case-root",
+        dependencies: { "case-dependency": "1.0.0" },
+      });
+      const actual = createPackage(path.join(resolverRoot, "case-dependency"), {
+        name: "case-dependency",
+      });
+      const decoy = createPackage(
+        path.join(resolverRoot, "node_modules", "case-dependency"),
+        { name: "decoy-dependency" },
+      );
+      const nestedResolver = path.join(root, resolverName);
+      mkdirSync(nestedResolver, { recursive: true });
+      const ignored = path.join(nestedResolver, "ignored.txt");
+      writeFileSync(ignored, "ignored-before\n", "utf8");
+      return {
+        root,
+        actual: path.join(actual, "index.cjs"),
+        ignored,
+        decoy: path.join(decoy, "index.cjs"),
+      };
+    };
+    const preservedProject = projectRoot("genes-package-case-preserved-");
+    const lowercaseProject = projectRoot("genes-package-case-lowercase-");
+    temporaryRoots.push(preservedProject, lowercaseProject);
+    const preservedLayout = createCaseAliasLayout(
+      preservedProject,
+      "Node_Modules",
+    );
+    const lowercaseLayout = createCaseAliasLayout(
+      lowercaseProject,
+      "node_modules",
+    );
+    const preservedMeasurement = measureInstalledPackageClosure(
+      request(preservedProject, "case-root"),
+    );
+    const lowercaseMeasurement = measureInstalledPackageClosure(
+      request(lowercaseProject, "case-root"),
+    );
+    assert.notEqual(
+      preservedMeasurement.installedClosureIntegrity,
+      lowercaseMeasurement.installedClosureIntegrity,
+    );
+    assert.equal(
+      realpathSync.native(
+        createRequire(path.join(preservedLayout.root, "consumer.cjs")).resolve(
+          "case-dependency",
+        ),
+      ),
+      realpathSync.native(preservedLayout.decoy),
+    );
+    assert.equal(
+      realpathSync.native(
+        createRequire(path.join(lowercaseLayout.root, "consumer.cjs")).resolve(
+          "case-dependency",
+        ),
+      ),
+      realpathSync.native(lowercaseLayout.actual),
+    );
+    writeFileSync(preservedLayout.ignored, "ignored-after\n", "utf8");
+    assert.deepEqual(
+      measureInstalledPackageClosure(request(preservedProject, "case-root")),
+      preservedMeasurement,
+    );
+    writeFileSync(preservedLayout.decoy, "decoy-after\n", "utf8");
+    assert.notEqual(
+      measureInstalledPackageClosure(request(preservedProject, "case-root"))
+        .installedClosureIntegrity,
+      preservedMeasurement.installedClosureIntegrity,
+    );
+  } else {
+    const sensitiveProject = projectRoot("genes-package-case-sensitive-");
+    temporaryRoots.push(sensitiveProject);
+    const sensitiveRoot = createPackage(
+      packageRoot(sensitiveProject, "case-root"),
+      { name: "case-root" },
+    );
+    const ordinaryUppercase = path.join(sensitiveRoot, "Node_Modules");
+    const skippedLowercase = path.join(sensitiveRoot, "node_modules");
+    write(path.join(ordinaryUppercase, "owned.txt"), "owned-before\n");
+    write(path.join(skippedLowercase, "ignored.txt"), "ignored-before\n");
+    const before = measureInstalledPackageClosure(
+      request(sensitiveProject, "case-root"),
+    );
+    write(path.join(skippedLowercase, "ignored.txt"), "ignored-after\n");
+    assert.deepEqual(
+      measureInstalledPackageClosure(request(sensitiveProject, "case-root")),
+      before,
+    );
+    write(path.join(ordinaryUppercase, "owned.txt"), "owned-after\n");
+    assert.notEqual(
+      measureInstalledPackageClosure(request(sensitiveProject, "case-root"))
+        .installedClosureIntegrity,
+      before.installedClosureIntegrity,
+    );
+  }
+  console.log(
+    `installed-package-closure:filesystem-case=${
+      caseInsensitive ? "insensitive" : "sensitive"
+    }`,
   );
 
   process.env.NODE_PATH = path.join(hoisted, "node_modules");

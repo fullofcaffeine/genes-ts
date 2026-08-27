@@ -69,17 +69,38 @@ characters, backslashes, and the Unicode replacement character cause failure.
 
 Each capture has reviewed maximums and caller-selected lower limits for
 packages, dependency edges, directory entries, files, bytes, and path lengths.
-It reads directories incrementally, charges package metadata to the same byte
-budget, and processes dependency maps and peer metadata under the edge limit.
-Package metadata reads ignore inherited host properties and unrelated fields.
+The helper copies and validates each request field once before the first
+capture. Later work uses only that immutable copy.
+
+The helper reads directories incrementally. It limits retained relative-path
+state to 32 MiB. It does not retain absolute directory paths after each local
+enumeration check.
+
+Regular files use a fixed 64 KiB read buffer. An overflow check reads at most
+one byte past the active allowance. Only `package.json` bytes are retained for
+parsing. Each `package.json` has a fixed 1 MiB limit and still counts against
+the cumulative byte limit.
+
+Dependency maps and peer metadata share the remaining edge-work limit for each
+package. Dependency specification text is opaque because it does not select a
+filesystem path. Metadata reads ignore inherited host properties and unrelated
+fields.
+
+The helper identifies case variants of nested `node_modules` directories by
+filesystem identity before it excludes their contents. Ancestor resolution
+still follows Node's lexical rule. Therefore, a mixed-case ancestor can add a
+nested lowercase search path even on a case-insensitive filesystem.
+
 Each complete pass resolves the base directory and every package locator again.
-The capture does not use a path, size, or timestamp cache.
+Each directory and file also has local before-and-after checks. The capture does
+not use a path, size, or timestamp cache.
 
 Installed-closure identity is not final `processorIntegrity`. Package metadata
 can omit a module that Node later loads, and equal endpoint snapshots cannot
-prove which transient bytes executed. A provider must separately constrain
-execution to measured module bytes. The provider returns no manifest when it
-cannot prove that admission. Registry-pristine policy remains with the host.
+prove which transient bytes existed between checks. A provider must separately
+constrain execution to measured module bytes. The provider returns no manifest
+when it cannot prove that admission. Registry-pristine policy remains with the
+host.
 
 ## Complete one-shot flow
 

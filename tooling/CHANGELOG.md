@@ -9,6 +9,9 @@ it.
 - Add internal bounded installed package closure measurement for CSS Modules
   tooling. It records deterministic evidence for installed package bytes. A
   separate execution-admission step must establish final processor identity.
+  Request values are copied once. Chunked file reads, package metadata, map
+  work, and retained path state have fixed limits. Resolver-directory aliases
+  follow the host filesystem's case behavior.
 
 ## 0.5.0
 
