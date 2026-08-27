@@ -339,12 +339,16 @@ function requestRecord(
 }
 
 function requestValue(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
+  record: object,
+  key: PropertyKey,
   subject: string,
+  required = true,
 ): unknown {
   try {
-    return record[key];
+    if (!Object.hasOwn(record, key)) {
+      return required ? fail("invalid-request", subject) : undefined;
+    }
+    return Reflect.get(record, key);
   } catch {
     return fail("invalid-request", subject);
   }
@@ -403,12 +407,7 @@ function snapshotAndValidateRequest(
   }
   if (!rootsAreArray) return fail("invalid-request", "roots");
   const rootSource = rootsValue as readonly unknown[];
-  let rootCount: unknown;
-  try {
-    rootCount = rootSource.length;
-  } catch {
-    return fail("invalid-request", "roots");
-  }
+  const rootCount = requestValue(rootSource, "length", "roots");
   if (
     typeof rootCount !== "number" ||
     !Number.isSafeInteger(rootCount) ||
@@ -422,18 +421,14 @@ function snapshotAndValidateRequest(
   const roots: InstalledPackageRoot[] = [];
   const rootNames = new Set<string>();
   for (let index = 0; index < rootCount; index += 1) {
-    let rootValue: unknown;
-    try {
-      rootValue = rootSource[index];
-    } catch {
-      return fail("invalid-request", "roots");
-    }
+    const rootValue = requestValue(rootSource, String(index), "roots");
     const root = requestRecord(rootValue, "roots");
     const packageName = requestValue(root, "packageName", "roots");
     const expectedPackageName = requestValue(
       root,
       "expectedPackageName",
       "roots",
+      false,
     );
     const expectedVersion = requestValue(root, "expectedVersion", "roots");
     if (
@@ -449,13 +444,13 @@ function snapshotAndValidateRequest(
       return fail("invalid-request", "roots");
     }
     rootNames.add(packageName);
-    roots.push(
-      Object.freeze({
-        packageName,
-        ...(expectedPackageName === undefined ? {} : { expectedPackageName }),
-        expectedVersion,
-      }),
-    );
+    const rootSnapshot: InstalledPackageRoot = {
+      packageName,
+      ...(expectedPackageName === undefined ? {} : { expectedPackageName }),
+      expectedVersion,
+    };
+    Object.setPrototypeOf(rootSnapshot, null);
+    roots.push(Object.freeze(rootSnapshot));
   }
 
   if (typeof providerKind !== "string" || !cleanIdentity(providerKind)) {

@@ -960,6 +960,73 @@ try {
     unsafeNameProject,
   );
 
+  const withInheritedRequestValue = <T>(
+    key: string,
+    value: unknown,
+    action: () => T,
+  ): T => {
+    assert.equal(Object.hasOwn(Object.prototype, key), false);
+    Object.defineProperty(Object.prototype, key, {
+      configurable: true,
+      value,
+      writable: true,
+    });
+    try {
+      return action();
+    } finally {
+      assert.equal(Reflect.deleteProperty(Object.prototype, key), true);
+    }
+  };
+  withInheritedRequestValue(
+    "expectedPackageName",
+    "inherited-wrong-package",
+    () => {
+      assert.equal(
+        measureInstalledPackageClosure(request(hoisted, "fixture-root"))
+          .packageCount,
+        2,
+      );
+    },
+  );
+  const completeRequest = request(hoisted, "fixture-root");
+  const requestWithoutProvider = {
+    resolutionProfile: completeRequest.resolutionProfile,
+    resolutionBaseUrl: completeRequest.resolutionBaseUrl,
+    roots: completeRequest.roots,
+    limits: completeRequest.limits,
+  } as unknown as InstalledPackageClosureRequest;
+  withInheritedRequestValue("providerKind", "genes.test.processor", () => {
+    expectFailure("invalid-request", "providerKind", () =>
+      measureInstalledPackageClosure(requestWithoutProvider),
+    );
+  });
+  const limitsWithoutFiles = {
+    maxPackages: LIMITS.maxPackages,
+    maxEdges: LIMITS.maxEdges,
+    maxEntries: LIMITS.maxEntries,
+    maxBytes: LIMITS.maxBytes,
+    maxPathBytes: LIMITS.maxPathBytes,
+  } as unknown as InstalledPackageClosureLimits;
+  withInheritedRequestValue("maxFiles", LIMITS.maxFiles, () => {
+    expectFailure("invalid-request", "limits", () =>
+      measureInstalledPackageClosure({
+        ...completeRequest,
+        limits: limitsWithoutFiles,
+      }),
+    );
+  });
+  const rootWithoutPackageName = {
+    expectedVersion: "1.0.0",
+  } as unknown as InstalledPackageRoot;
+  withInheritedRequestValue("packageName", "fixture-root", () => {
+    expectFailure("invalid-request", "roots", () =>
+      measureInstalledPackageClosure({
+        ...completeRequest,
+        roots: [rootWithoutPackageName],
+      }),
+    );
+  });
+
   const requestReads = new Map<string, number>();
   const readOnce = <T>(field: string, value: T): T => {
     requestReads.set(field, (requestReads.get(field) ?? 0) + 1);
