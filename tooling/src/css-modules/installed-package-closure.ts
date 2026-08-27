@@ -4,10 +4,13 @@ import {
   constants,
   fstatSync,
   lstatSync,
+  mkdirSync,
   openSync,
   opendirSync,
   readSync,
   realpathSync,
+  symlinkSync,
+  writeSync,
   type BigIntStats,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -25,6 +28,7 @@ export type InstalledPackageClosureFailureCode =
   | "package-metadata-invalid"
   | "package-filesystem-unsupported"
   | "package-symlink-unsupported"
+  | "package-materialization-unsupported"
   | "package-closure-limit"
   | "package-closure-changed";
 
@@ -77,6 +81,16 @@ export interface InstalledPackageClosureMeasurement {
   readonly totalBytes: number;
 }
 
+/** Private paths and exact-file evidence for one verified disposable copy. */
+export interface MaterializedInstalledPackageClosure {
+  readonly providerKind: string;
+  readonly measurement: InstalledPackageClosureMeasurement;
+  readonly entryDirectory: string;
+  readonly admittedFiles: readonly string[];
+  readonly rootPackageNames: readonly string[];
+  readonly linkCount: number;
+}
+
 type DependencyKind = "dependency" | "optional" | "peer";
 
 interface ValidatedInstalledPackageClosureRequest {
@@ -103,6 +117,7 @@ interface CapturedPackage {
   readonly root: string;
   readonly metadata: ParsedPackageMetadata;
   readonly files: readonly CapturedFile[];
+  readonly materializedRoot?: string;
 }
 
 interface DependencyEdge {
@@ -552,6 +567,32 @@ function closeFileDescriptor(descriptor: number, subject: string): void {
   }
 }
 
+function writeComplete(
+  descriptor: number,
+  bytes: Uint8Array,
+  subject: string,
+): void {
+  let offset = 0;
+  try {
+    while (offset < bytes.byteLength) {
+      const count = writeSync(
+        descriptor,
+        bytes,
+        offset,
+        bytes.byteLength - offset,
+        null,
+      );
+      if (!Number.isInteger(count) || count <= 0) {
+        return fail("package-materialization-unsupported", subject);
+      }
+      offset += count;
+    }
+  } catch (error) {
+    if (error instanceof InstalledPackageClosureError) throw error;
+    return fail("package-materialization-unsupported", subject);
+  }
+}
+
 function closeDirectory(
   handle: ReturnType<typeof opendirSync>,
   subject: string,
@@ -582,6 +623,7 @@ function safeReadFile(
   retainBytes: boolean,
   scratch: Buffer,
   hooks: InstalledPackageClosureTestHooks | undefined,
+  destination?: string,
 ): StableFileCapture {
   const metadataAllowance = retainBytes
     ? MAX_PACKAGE_METADATA_BYTES
@@ -600,6 +642,7 @@ function safeReadFile(
     return fail("package-closure-limit", limitSubject);
   }
   let descriptor: number | null = null;
+  let destinationDescriptor: number | null = null;
   try {
     descriptor = openSync(
       absolute,
@@ -608,6 +651,21 @@ function safeReadFile(
     const before = fstatSync(descriptor, { bigint: true });
     if (!before.isFile() || !sameFile(lexical, before)) {
       return fail("package-closure-changed", subject);
+    }
+    if (destination !== undefined) {
+      try {
+        mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+        destinationDescriptor = openSync(
+          destination,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            (constants.O_NOFOLLOW ?? 0),
+          0o600,
+        );
+      } catch {
+        return fail("package-materialization-unsupported", subject);
+      }
     }
 
     const hash = createHash("sha256");
@@ -636,6 +694,9 @@ function safeReadFile(
       if (inBudget > 0) {
         const chunk = scratch.subarray(0, inBudget);
         hash.update(chunk);
+        if (destinationDescriptor !== null) {
+          writeComplete(destinationDescriptor, chunk, subject);
+        }
         if (retainBytes) retainedChunks.push(Buffer.from(chunk));
       }
       totalRead += count;
@@ -670,6 +731,9 @@ function safeReadFile(
     if (error instanceof InstalledPackageClosureError) throw error;
     return fail("package-filesystem-unsupported", subject);
   } finally {
+    if (destinationDescriptor !== null) {
+      closeFileDescriptor(destinationDescriptor, subject);
+    }
     if (descriptor !== null) closeFileDescriptor(descriptor, subject);
   }
 }
@@ -1307,6 +1371,7 @@ function capturePackage(
   maximumEdges: number,
   scratch: Buffer,
   hooks: InstalledPackageClosureTestHooks | undefined,
+  materializedRoot?: string,
 ): CapturedPackage {
   const files: CapturedFile[] = [];
   const directories: PendingDirectory[] = [
@@ -1406,6 +1471,9 @@ function capturePackage(
         isPackageMetadata,
         scratch,
         hooks,
+        materializedRoot === undefined
+          ? undefined
+          : path.join(materializedRoot, ...relativePath.split("/")),
       );
       budget.bytes += captured.sizeBytes;
       if (budget.bytes > limits.maxBytes) {
@@ -1437,6 +1505,7 @@ function capturePackage(
   return Object.freeze({
     root,
     metadata,
+    ...(materializedRoot === undefined ? {} : { materializedRoot }),
     files: Object.freeze(
       files.sort((left, right) =>
         Buffer.compare(left.relativePath, right.relativePath),
@@ -1478,6 +1547,7 @@ function discoverGraph(
   request: ValidatedInstalledPackageClosureRequest,
   baseDirectory: string,
   hooks: InstalledPackageClosureTestHooks | undefined,
+  materializationPackagesRoot?: string,
 ): {
   readonly roots: readonly RootRecord[];
   readonly nodes: readonly PackageNode[];
@@ -1516,6 +1586,20 @@ function discoverGraph(
     if (nodesByRoot.size >= limits.maxPackages) {
       return fail("package-closure-limit", "maxPackages");
     }
+    const materializedRoot =
+      materializationPackagesRoot === undefined
+        ? undefined
+        : path.join(
+            materializationPackagesRoot,
+            `package-${nodesByRoot.size.toString(16).padStart(4, "0")}`,
+          );
+    if (materializedRoot !== undefined) {
+      try {
+        mkdirSync(materializedRoot, { mode: 0o700 });
+      } catch {
+        return fail("package-materialization-unsupported", subject);
+      }
+    }
     const captured = capturePackage(
       root,
       subject,
@@ -1524,6 +1608,7 @@ function discoverGraph(
       limits.maxEdges - edgeCount,
       scratch,
       hooks,
+      materializedRoot,
     );
     const specifications = captured.metadata.specifications;
     if (specifications.length > limits.maxEdges - edgeCount) {
@@ -1732,6 +1817,202 @@ function canonicalIntegrity(
   return `sha256-${writer.finish().toString("base64")}`;
 }
 
+type DiscoveredGraph = ReturnType<typeof discoverGraph>;
+
+function measurementForGraph(
+  request: ValidatedInstalledPackageClosureRequest,
+  graph: DiscoveredGraph,
+): InstalledPackageClosureMeasurement {
+  return Object.freeze({
+    installedClosureIntegrity: canonicalIntegrity(
+      request,
+      graph.roots,
+      graph.nodes,
+    ),
+    packageCount: graph.nodes.length,
+    edgeCount: graph.edgeCount,
+    entryCount: graph.budget.entries,
+    fileCount: graph.budget.files,
+    totalBytes: graph.budget.bytes,
+  });
+}
+
+function sameMeasurement(
+  first: InstalledPackageClosureMeasurement,
+  verified: InstalledPackageClosureMeasurement,
+): boolean {
+  return (
+    first.installedClosureIntegrity === verified.installedClosureIntegrity &&
+    first.packageCount === verified.packageCount &&
+    first.edgeCount === verified.edgeCount &&
+    first.entryCount === verified.entryCount &&
+    first.fileCount === verified.fileCount &&
+    first.totalBytes === verified.totalBytes
+  );
+}
+
+function verifiedCapture(
+  validated: ValidatedInstalledPackageClosureRequest,
+  hooks: InstalledPackageClosureTestHooks | undefined,
+  materializationPackagesRoot?: string,
+): {
+  readonly measurement: InstalledPackageClosureMeasurement;
+  readonly graph: DiscoveredGraph;
+} {
+  const capture = (destination?: string): DiscoveredGraph => {
+    const baseDirectory = resolveBaseDirectory(validated.baseDirectoryLocator);
+    return discoverGraph(validated, baseDirectory, hooks, destination);
+  };
+  // The second capture is also the execution copy. Every copied byte is the
+  // same byte passed to the digest, so a later source replacement is inert.
+  const first = measurementForGraph(validated, capture());
+  hooks?.afterFirstCapture?.();
+  let graph: DiscoveredGraph;
+  try {
+    graph = capture(materializationPackagesRoot);
+  } catch (error) {
+    if (error instanceof InstalledPackageClosureError) {
+      if (error.code === "package-materialization-unsupported") throw error;
+      return fail("package-closure-changed", validated.providerKind);
+    }
+    throw error;
+  }
+  const verified = measurementForGraph(validated, graph);
+  if (!sameMeasurement(first, verified)) {
+    return fail("package-closure-changed", validated.providerKind);
+  }
+  return Object.freeze({ measurement: verified, graph });
+}
+
+function initializeMaterializationRoot(targetRoot: string): {
+  readonly packages: string;
+  readonly entry: string;
+} {
+  let root: string;
+  try {
+    const lexical = lstatSync(targetRoot, { bigint: true });
+    if (!lexical.isDirectory() || lexical.isSymbolicLink()) {
+      return fail("package-materialization-unsupported", "target");
+    }
+    root = realpathSync.native(targetRoot);
+    const handle = opendirSync(root);
+    try {
+      if (handle.readSync() !== null) {
+        return fail("package-materialization-unsupported", "target");
+      }
+    } finally {
+      handle.closeSync();
+    }
+    const packages = path.join(root, "packages");
+    const entry = path.join(root, "entry");
+    mkdirSync(packages, { mode: 0o700 });
+    mkdirSync(entry, { mode: 0o700 });
+    return Object.freeze({ packages, entry });
+  } catch (error) {
+    if (error instanceof InstalledPackageClosureError) throw error;
+    return fail("package-materialization-unsupported", "target");
+  }
+}
+
+function createPackageLink(
+  parent: string,
+  packageName: string,
+  target: string,
+  subject: string,
+): void {
+  const segments = packageKeySegments(packageName);
+  if (segments === null) {
+    return fail("package-materialization-unsupported", subject);
+  }
+  try {
+    const nodeModules = path.join(parent, "node_modules");
+    mkdirSync(nodeModules, { recursive: true, mode: 0o700 });
+    const container =
+      segments.length === 1 ? nodeModules : path.join(nodeModules, segments[0]!);
+    mkdirSync(container, { recursive: true, mode: 0o700 });
+    const link = path.join(container, segments[segments.length - 1]!);
+    symlinkSync(
+      target,
+      link,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const lexical = lstatSync(link, { bigint: true });
+    const resolved = realpathSync.native(link);
+    if (!lexical.isSymbolicLink() || resolved !== target) {
+      return fail("package-materialization-unsupported", subject);
+    }
+  } catch (error) {
+    if (error instanceof InstalledPackageClosureError) throw error;
+    return fail("package-materialization-unsupported", subject);
+  }
+}
+
+function finishMaterializedGraph(
+  layout: ReturnType<typeof initializeMaterializationRoot>,
+  graph: DiscoveredGraph,
+  measurement: InstalledPackageClosureMeasurement,
+  providerKind: string,
+): MaterializedInstalledPackageClosure {
+  let linkCount = 0;
+  for (const node of graph.nodes) {
+    const parent = node.materializedRoot;
+    if (parent === undefined) {
+      return fail("package-materialization-unsupported", "package");
+    }
+    for (const edge of node.edges) {
+      if (edge.target === null) continue;
+      const target = edge.target.materializedRoot;
+      if (target === undefined) {
+        return fail("package-materialization-unsupported", "package");
+      }
+      createPackageLink(parent, edge.key, target, edge.key);
+      linkCount += 1;
+    }
+  }
+  for (const root of graph.roots) {
+    const target = root.node.materializedRoot;
+    if (target === undefined) {
+      return fail("package-materialization-unsupported", "package");
+    }
+    createPackageLink(layout.entry, root.packageName, target, root.packageName);
+    linkCount += 1;
+  }
+
+  const admittedFiles: string[] = [];
+  for (const node of graph.nodes) {
+    const materializedRoot = node.materializedRoot!;
+    for (const file of node.files) {
+      const relative = file.relativePath.toString("utf8");
+      const absolute = path.join(materializedRoot, ...relative.split("/"));
+      try {
+        const lexical = lstatSync(absolute, { bigint: true });
+        if (
+          lexical.isSymbolicLink() ||
+          !lexical.isFile() ||
+          realpathSync.native(absolute) !== absolute
+        ) {
+          return fail("package-materialization-unsupported", "package");
+        }
+      } catch (error) {
+        if (error instanceof InstalledPackageClosureError) throw error;
+        return fail("package-materialization-unsupported", "package");
+      }
+      admittedFiles.push(absolute);
+    }
+  }
+  admittedFiles.sort(compareUtf8);
+  return Object.freeze({
+    providerKind,
+    measurement,
+    entryDirectory: layout.entry,
+    admittedFiles: Object.freeze(admittedFiles),
+    rootPackageNames: Object.freeze(
+      graph.roots.map((root) => root.packageName),
+    ),
+    linkCount,
+  });
+}
+
 /**
  * Measures one bounded closure from two matching, path-free captures.
  * This evidence does not prove which module bytes a provider later executes.
@@ -1748,44 +2029,30 @@ export function measureInstalledPackageClosureWithHooks(
   hooks?: InstalledPackageClosureTestHooks,
 ): InstalledPackageClosureMeasurement {
   const validated = snapshotAndValidateRequest(request);
-  const capture = (): InstalledPackageClosureMeasurement => {
-    const baseDirectory = resolveBaseDirectory(validated.baseDirectoryLocator);
-    const graph = discoverGraph(validated, baseDirectory, hooks);
-    return Object.freeze({
-      installedClosureIntegrity: canonicalIntegrity(
-        validated,
-        graph.roots,
-        graph.nodes,
-      ),
-      packageCount: graph.nodes.length,
-      edgeCount: graph.edgeCount,
-      entryCount: graph.budget.entries,
-      fileCount: graph.budget.files,
-      totalBytes: graph.budget.bytes,
-    });
-  };
-  // A package captured early can change while a later dependency is scanned.
-  // Repeating resolution and inventory makes that stale first view fail closed.
-  const first = capture();
-  hooks?.afterFirstCapture?.();
-  let verified: InstalledPackageClosureMeasurement;
-  try {
-    verified = capture();
-  } catch (error) {
-    if (error instanceof InstalledPackageClosureError) {
-      return fail("package-closure-changed", validated.providerKind);
-    }
-    throw error;
-  }
-  if (
-    first.installedClosureIntegrity !== verified.installedClosureIntegrity ||
-    first.packageCount !== verified.packageCount ||
-    first.edgeCount !== verified.edgeCount ||
-    first.entryCount !== verified.entryCount ||
-    first.fileCount !== verified.fileCount ||
-    first.totalBytes !== verified.totalBytes
-  ) {
-    return fail("package-closure-changed", validated.providerKind);
-  }
-  return verified;
+  return verifiedCapture(validated, hooks).measurement;
+}
+
+/** Internal execution prerequisite; the caller owns deletion of targetRoot. */
+export function materializeInstalledPackageClosure(
+  request: InstalledPackageClosureRequest,
+  targetRoot: string,
+): MaterializedInstalledPackageClosure {
+  return materializeInstalledPackageClosureWithHooks(request, targetRoot);
+}
+
+/** Internal deterministic race seam; this module is not package-exported. */
+export function materializeInstalledPackageClosureWithHooks(
+  request: InstalledPackageClosureRequest,
+  targetRoot: string,
+  hooks?: InstalledPackageClosureTestHooks,
+): MaterializedInstalledPackageClosure {
+  const validated = snapshotAndValidateRequest(request);
+  const layout = initializeMaterializationRoot(targetRoot);
+  const captured = verifiedCapture(validated, hooks, layout.packages);
+  return finishMaterializedGraph(
+    layout,
+    captured.graph,
+    captured.measurement,
+    validated.providerKind,
+  );
 }

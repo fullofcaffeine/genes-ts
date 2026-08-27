@@ -1,0 +1,10 @@
+{
+  "name": "@genes-ts/test-postcss-execution-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.cjs",
+  "dependencies": {
+    "postcss": "8.5.25",
+    "postcss-modules": "9.0.1"
+  }
+}

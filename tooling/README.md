@@ -98,7 +98,7 @@ watch/loop pair, or only the owned Haxe server.
 | `@genes-ts/tooling/loop` | Debounces bursts and prevents overlapping rebuilds | How change causes merge and what one rebuild performs |
 | `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
 | `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
-| `@genes-ts/tooling/css-modules` | Checks processor-owned export manifests and generates closed Haxe companions plus exact per-file TypeScript declarations | CSS parsing, processor choice, framework placement, and runtime loader agreement |
+| `@genes-ts/tooling/css-modules` | Checks processor-owned export manifests and generates closed Haxe companions plus exact per-file TypeScript declarations; repository-owned providers can use an internal measured-child admission seam | CSS parsing, processor choice, registry policy, framework placement, and runtime loader agreement |
 | `@genes-ts/tooling/lix` | Resolves one ordered library group through a project-installed Lix `haxelib` command | Installing packages, choosing versions, and presenting host-specific errors |
 | `@genes-ts/tooling/session` | Runs one admitted-generation lifecycle over the five primitives above | Haxe location/arguments, validation policy, framework lifecycle, diagnostics, and top-level signals |
 

@@ -737,6 +737,9 @@ if (witnesses.slice(0, 9).some((value) => typeof value !== "function")) {
 if ("measureInstalledPackageClosure" in cssModules) {
   throw new Error("the internal installed package closure helper became public");
 }
+if ("executeAdmittedProcessor" in cssModules) {
+  throw new Error("the internal processor execution seam became public");
+}
 if (
   typeof root.createGenesDevelopmentSession !== "function" ||
   typeof session.createGenesDevelopmentSession !== "function" ||
