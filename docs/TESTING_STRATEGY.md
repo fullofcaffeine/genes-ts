@@ -70,6 +70,14 @@ without letting one substitute for another:
   copied, measured package closure; the host process never loads that optional
   processor, and the closure digest becomes the manifest's
   `processorIntegrity` only after successful execution;
+- the reusable PostCSS provider proves bounded composition discovery, local
+  versus global source ownership, escaped names, all CSS newline forms,
+  classless-export rejection, stale-input rejection, inert configuration, and
+  deterministic manifests;
+- the reusable declaration adapter proves one exact readonly string object,
+  no-emit public TypeScript diagnostics, exact source locations, and rejection
+  of wildcard, record, index, initializer, optional, mutable, duplicate, and
+  non-string shapes;
 - host tooling validates that manifest, checks source hashes, and generates the
   closed Haxe companion twice to prove deterministic bytes;
 - Haxe accepts valid fields and rejects missing, untyped, wrong-owner,
@@ -118,6 +126,11 @@ custom-scheme, native-addon, and later-hook loads, invalid result data,
 public and private network entry points, oversized output, and timeout. It runs
 on the reviewed Node 22 and Node 24 lanes and records materialization, child,
 cleanup, file, and byte costs.
+
+`yarn test:tooling-package` also installs the packed package in a clean
+consumer. It imports both provider subpaths before optional peers exist. It
+then installs exact peers and runs both packed adapters on a reviewed Node
+lane. Node 20 proves the same imports and the stable pre-capture rejection.
 
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the

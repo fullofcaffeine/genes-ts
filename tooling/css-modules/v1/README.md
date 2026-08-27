@@ -203,6 +203,91 @@ public CSS Modules subpath does not discover or choose processors; the next
 finite provider layer owns when to call this internal seam. A provider returns
 no manifest when admission fails.
 
+## Reusable manifest providers
+
+Two public subpaths implement that finite provider layer. Both functions are
+asynchronous and return `CssModuleExportsManifestV1`. Neither function writes
+files.
+
+### Fixed PostCSS Modules provider
+
+Install the exact optional peers:
+
+```bash
+npm install --save-exact postcss@8.5.25 postcss-modules@9.0.1 postcss-selector-parser@7.1.4
+```
+
+Import `createPostcssModulesManifest` from
+`@genes-ts/tooling/css-modules/postcss-modules`.
+
+The provider accepts four configuration fields:
+
+- `generateScopedName`: one nonempty string pattern.
+- `scopeBehaviour`: `local` or `global`.
+- `exportGlobals`: one Boolean value.
+- `hashPrefix`: one string.
+
+The object must contain only inert data properties. Accessors, proxies,
+functions, symbols, and extra fields fail before execution. Application
+PostCSS configuration is outside this contract.
+
+The host reads one `.module.css` entry as an ordinary UTF-8 file. Each file is
+limited to 2 MiB. One manifest can use at most 256 files and 8 MiB of source
+text. Relative `.css` composition can use at most 32 levels and 32 fresh child
+runs. Absolute requests, package requests, queries, fragments, links, and
+paths outside the project fail.
+
+Each child gets only an inert in-memory file map. The fixed adapter records all
+missing composition paths and discards provisional tokens. The host reads those
+paths and starts another fresh measured child. The measured processor identity
+must stay unchanged across every run.
+
+The final normal pass supplies the exact runtime keys. A second pass replaces
+local classes with unique deterministic markers. Comparing authored and
+transformed selectors identifies local and global ownership. The first marker
+token owns a key. Duplicate eligible selectors use the earliest portable path
+and source offset.
+
+Source indexing is linear and recognizes LF, CR, CRLF, and form feed as CSS
+line breaks. Escaped names are decoded before marker lookup. A key without one
+eligible class selector fails. This includes classless ICSS, value-only, and
+composition-only exports.
+
+The manifest reports `postcss-modules` 9.0.1 as the processor. Its
+`processorIntegrity` covers the fixed adapter and every admitted installed
+package byte. The digest changes for a same-version local patch.
+
+The configuration digest contains only the normalized four-field policy and a
+domain tag. It excludes packages, source hashes, lock data, and machine paths.
+
+### Closed TypeScript declaration adapter
+
+Install exact optional TypeScript 6.0.3:
+
+```bash
+npm install --save-exact typescript@6.0.3
+```
+
+Import `createTypeScriptDeclarationManifest` from
+`@genes-ts/tooling/css-modules/typescript-declaration`.
+
+The declaration path must be exactly `<entry>.d.ts`. The file must have two
+statements. The first is one `declare const` with no initializer and one direct
+object type. The second default-exports that constant.
+
+Every object member must be a required `readonly` identifier or string-literal
+property with the exact type `string`. The adapter rejects property
+initializers, wildcard modules, imports, index signatures, records, mapped
+types, optional or mutable fields, duplicate keys, and other value types.
+
+The fixed adapter uses TypeScript's public no-emit program diagnostics. It does
+not generate discarded JavaScript. Exact declaration locations become source
+facts. The CSS file and declaration are both hashed inputs.
+
+The TypeScript package loads only in the measured child. The host process does
+not import any optional processor. Importing either provider subpath stays safe
+on Node 20, but calling one there returns the stable unsupported-runtime error.
+
 ## Complete one-shot flow
 
 ```text
