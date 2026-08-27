@@ -51,6 +51,29 @@ ancestor `node_modules` directories and default realpath behavior. It asks Node
 for the ordered lookup paths for each bare package key. The ancestor list must
 be an exact prefix of Node's result.
 
+Package keys use a profile-frozen, historical npm-compatible ASCII structure.
+This structure is not exact npm publication policy or arbitrary Node specifier
+syntax. A key is either one unscoped name or exactly `@scope/package`.
+`@` and `/` are structural delimiters. Each body permits letters, digits,
+periods, `!`, `'`, `(`, `)`, `*`, `_`, `~`, and `-`.
+
+| Position | Additional rule |
+| --- | --- |
+| Unscoped name | It must not start with `.`, `_`, or `-`. |
+| Scope body | It has no additional first-character restriction. |
+| Scoped package body | It must not start with `.`. |
+
+The grammar rejects URLs, imports-map keys, package subpaths, percent input,
+backslashes, controls, replacement characters, and non-ASCII text. The helper
+does not trim, lowercase, decode, or normalize an accepted key.
+
+The same grammar checks request roots, expected names, installed metadata
+names, dependency keys, optional dependency keys, peer keys, and peer metadata
+keys. A logical alias key can differ from its installed metadata name.
+Dependency declaration values stay opaque and do not select a filesystem path.
+Lexical acceptance does not override later built-in, self-edge, ambient, or
+filesystem checks.
+
 Node can append user-home and installation-prefix package directories. The
 helper checks those ambient directories only to prevent false absence. If an
 ambient package or legacy package file would win, the profile fails. It does

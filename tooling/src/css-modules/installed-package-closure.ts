@@ -257,28 +257,29 @@ function safeEntryNameBytes(value: string): Buffer | null {
   return bytes;
 }
 
-function packageSegment(value: string): boolean {
-  return (
-    /^[A-Za-z0-9!'()*][A-Za-z0-9.!'()*_~-]*$/u.test(value) &&
-    value !== "." &&
-    value !== ".."
-  );
-}
+const UNSCOPED_PACKAGE_KEY = /^(?![._-])[A-Za-z0-9.!'()*_~-]+$/u;
+const SCOPE_BODY = /^[A-Za-z0-9.!'()*_~-]+$/u;
+const SCOPED_PACKAGE_BODY = /^(?!\.)[A-Za-z0-9.!'()*_~-]+$/u;
 
 function packageKeySegments(value: string): readonly string[] | null {
   if (!cleanIdentity(value)) return null;
-  if (value.startsWith("@")) {
-    const segments = value.split("/");
-    if (
-      segments.length !== 2 ||
-      !packageSegment(segments[0]!.slice(1)) ||
-      !packageSegment(segments[1]!)
-    ) {
-      return null;
-    }
-    return Object.freeze(segments);
+  if (!value.startsWith("@")) {
+    return UNSCOPED_PACKAGE_KEY.test(value)
+      ? Object.freeze([value])
+      : null;
   }
-  return packageSegment(value) ? Object.freeze([value]) : null;
+
+  const slash = value.indexOf("/");
+  if (slash < 0 || slash !== value.lastIndexOf("/")) return null;
+  const scopeBody = value.slice(1, slash);
+  const packageBody = value.slice(slash + 1);
+  if (
+    !SCOPE_BODY.test(scopeBody) ||
+    !SCOPED_PACKAGE_BODY.test(packageBody)
+  ) {
+    return null;
+  }
+  return Object.freeze([`@${scopeBody}`, packageBody]);
 }
 
 function positiveSafeInteger(value: number, maximum: number): boolean {

@@ -169,6 +169,32 @@ function expectFailure(
   });
 }
 
+function assertBarePackageResolvers(
+  project: string,
+  packageNames: readonly string[],
+): void {
+  const requireFromProject = createRequire(path.join(project, "resolver.cjs"));
+  const expectedUrls: string[] = [];
+  for (const packageName of packageNames) {
+    const entry = realpathSync.native(
+      path.join(packageRoot(project, packageName), "index.cjs"),
+    );
+    assert.equal(requireFromProject.resolve(packageName), entry);
+    expectedUrls.push(pathToFileURL(entry).href);
+  }
+
+  const probe = path.join(project, "resolver.mjs");
+  write(
+    probe,
+    `const packageNames = ${JSON.stringify(packageNames)};\n` +
+      "console.log(JSON.stringify(packageNames.map((name) => " +
+      "import.meta.resolve(name))));\n",
+  );
+  const resolved = spawnSync(process.execPath, [probe], { encoding: "utf8" });
+  assert.equal(resolved.status, 0, "ESM package-key resolution probe failed");
+  assert.deepEqual(JSON.parse(resolved.stdout), expectedUrls);
+}
+
 function graphFixture(project: string, nested: boolean): void {
   const root = createPackage(packageRoot(project, "fixture-root"), {
     name: "fixture-root",
@@ -1428,7 +1454,29 @@ try {
         roots: [{ packageName: "../fixture-root", expectedVersion: "1.0.0" }],
       }),
   );
-  for (const invalidPackageKey of ["scheme:value", "encoded%value"]) {
+  for (const invalidPackageKey of [
+    ".processor",
+    "_processor",
+    "-processor",
+    "../processor",
+    "./processor",
+    "/processor",
+    "scheme:value",
+    "node:fs",
+    "processor%name",
+    "processor?debug",
+    "processor#fragment",
+    "processor/subpath",
+    "@scope/processor/subpath",
+    "@scope/.processor",
+    "@scope/..",
+    "@scope//processor",
+    "@/processor",
+    "@scope/",
+    "processor\\child",
+    "proc\uFFFDessor",
+    "procéssor",
+  ]) {
     expectFailure("invalid-request", "roots", () => {
       measureInstalledPackageClosure({
         ...request(hoisted, "fixture-root"),
@@ -1467,6 +1515,118 @@ try {
       .packageCount,
     1,
   );
+
+  const positionalKeys = projectRoot("genes-package-positional-keys-");
+  temporaryRoots.push(positionalKeys);
+  const positionalRootName = "@-scope/_processor";
+  createPackage(packageRoot(positionalKeys, positionalRootName), {
+    name: positionalRootName,
+  });
+  assert.equal(
+    measureInstalledPackageClosure(
+      request(positionalKeys, positionalRootName),
+    ).packageCount,
+    1,
+  );
+
+  createPackage(packageRoot(positionalKeys, "grammar-root"), {
+    name: "grammar-root",
+    dependencies: {
+      "@_scope/-processor": "npm:actual-runtime@1.0.0",
+    },
+  });
+  createPackage(packageRoot(positionalKeys, "@_scope/-processor"), {
+    name: "actual-runtime",
+  });
+  const aliasGrammar = measureInstalledPackageClosure(
+    request(positionalKeys, "grammar-root"),
+  );
+  assert.equal(aliasGrammar.packageCount, 2);
+  assert.equal(aliasGrammar.edgeCount, 1);
+
+  createPackage(packageRoot(positionalKeys, "peer-grammar-root"), {
+    name: "peer-grammar-root",
+    peerDependencies: { "@.scope/~processor": "1.0.0" },
+    peerDependenciesMeta: {
+      "@.scope/~processor": { optional: true },
+    },
+  });
+  createPackage(packageRoot(positionalKeys, "@.scope/~processor"), {
+    name: "@.scope/~processor",
+  });
+  const peerGrammar = measureInstalledPackageClosure(
+    request(positionalKeys, "peer-grammar-root"),
+  );
+  assert.equal(peerGrammar.packageCount, 2);
+  assert.equal(peerGrammar.edgeCount, 1);
+
+  const resolverKeys = [
+    "~processor",
+    "@scope/_processor",
+    "@-scope/processor",
+    "@./processor",
+    "@../processor",
+  ] as const;
+  for (const packageName of resolverKeys) {
+    createPackage(packageRoot(positionalKeys, packageName), {
+      name: packageName,
+    });
+  }
+  assertBarePackageResolvers(positionalKeys, resolverKeys);
+
+  expectFailure("invalid-request", "roots", () => {
+    measureInstalledPackageClosure({
+      ...request(positionalKeys, "grammar-root"),
+      roots: [{
+        packageName: "grammar-root",
+        expectedPackageName: "@scope/.processor",
+        expectedVersion: "1.0.0",
+      }],
+    });
+  });
+
+  const invalidMetadata = projectRoot("genes-package-invalid-key-metadata-");
+  temporaryRoots.push(invalidMetadata);
+  createPackage(packageRoot(invalidMetadata, "invalid-name-root"), {
+    name: "@scope/.processor",
+  });
+  expectFailure("package-metadata-invalid", "invalid-name-root", () => {
+    measureInstalledPackageClosure(
+      request(invalidMetadata, "invalid-name-root"),
+    );
+  });
+  for (const [field, options] of [
+    [
+      "dependencies",
+      { dependencies: { "@scope/.processor": "1.0.0" } },
+    ],
+    [
+      "peerDependencies",
+      { peerDependencies: { "@scope/.processor": "1.0.0" } },
+    ],
+    [
+      "peerDependenciesMeta",
+      {
+        peerDependenciesMeta: {
+          "@scope/.processor": { optional: true },
+        },
+      },
+    ],
+  ] as const) {
+    const packageName = `invalid-${field}`;
+    createPackage(packageRoot(invalidMetadata, packageName), {
+      name: packageName,
+      ...options,
+    });
+    expectFailure(
+      "package-metadata-invalid",
+      `${packageName}:${field}`,
+      () =>
+        measureInstalledPackageClosure(
+          request(invalidMetadata, packageName),
+        ),
+    );
+  }
 
   expectFailure(
     "invalid-request",
