@@ -350,6 +350,7 @@ function sha512Integrity(file: string): string {
 }
 
 const protocolFiles = new Set([
+  "agent-guidance/v1/AGENTS.md",
   "artifact-transactions/v1/README.md",
   "artifact-transactions/v1/protocol.schema.json",
   "artifact-transactions/v1/vectors.json",
@@ -377,6 +378,8 @@ const metadataFiles = new Set([
 
 const expectedPublicExports = [
   ".",
+  "./agent-guidance/v1/AGENTS.md",
+  "./agents",
   "./artifact-transactions/v1/protocol.schema.json",
   "./artifact-transactions/v1/vectors.json",
   "./artifact-transactions/v1/vectors.schema.json",
@@ -420,7 +423,10 @@ function verifyInventory(result: PackResult): readonly string[] {
   }
   for (const file of result.files) {
     assert(file.size >= 0, `packed file has invalid size: ${file.path}`);
-    assert(file.mode === 0o644, `packed file must be read-only data: ${file.path}`);
+    assert(
+      file.mode === 0o644,
+      `packed file must be read-only data: ${file.path}`
+    );
   }
   const reviewedPaths = parseReviewedInventory();
   assert(
@@ -430,6 +436,9 @@ function verifyInventory(result: PackResult): readonly string[] {
   const requiredEntrypoints = [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/agents/index.js",
+    "dist/agents/index.d.ts",
+    "dist/cli.js",
     "dist/artifacts/index.js",
     "dist/artifacts/index.d.ts",
     "dist/css-modules/index.js",
@@ -512,6 +521,19 @@ function verifyPackageMetadata(): { name: string; version: string } {
       scripts.build === "npm exec --no -- tsc6 -p tsconfig.json" &&
       scripts.prepare === "npm run build",
     "Git-source installation must build the tooling subpackage without repository-root scripts"
+  );
+  for (const lifecycle of ["preinstall", "install", "postinstall"]) {
+    assert(
+      scripts[lifecycle] === undefined,
+      `tooling package must not define ${lifecycle}`
+    );
+  }
+  const bin = packageJson.bin;
+  assert(
+    isRecord(bin) &&
+      bin.genes === "./dist/cli.js" &&
+      Object.keys(bin).length === 1,
+    "tooling package must expose the reviewed genes CLI"
   );
   const devDependencies = packageJson.devDependencies;
   assert(
@@ -639,6 +661,11 @@ function verifyCleanConsumer(tarball: string, tempRoot: string): void {
     type: "module",
   };
   mkdirSync(consumer, { recursive: true });
+  const authoredAgentGuide = Buffer.from(
+    "# Consumer rules\r\n\r\nKeep café and 雪 unchanged.\r\n",
+    "utf8"
+  );
+  writeFileSync(path.join(consumer, "AGENTS.md"), authoredAgentGuide);
   writeFileSync(
     path.join(consumer, "package.json"),
     `${JSON.stringify(packageJson, null, 2)}\n`,
@@ -671,6 +698,11 @@ function verifyCleanConsumer(tarball: string, tempRoot: string): void {
   type DevelopmentEvent,
   type PublicationPlan,
 } from "@genes-ts/tooling";
+import {
+  checkGenesAgentGuidance,
+  installGenesAgentGuidance,
+  type GenesAgentGuidanceCheck,
+} from "@genes-ts/tooling/agents";
 import { recoverArtifacts } from "@genes-ts/tooling/artifacts";
 import {
   generateCssModuleCompanion,
@@ -732,6 +764,8 @@ import cssModuleSchema from "@genes-ts/tooling/css-modules/v1/exports.schema.jso
 
 const runtimeValues = [
   publishArtifacts,
+  checkGenesAgentGuidance,
+  installGenesAgentGuidance,
   recoverArtifacts,
   generateCssModuleCompanion,
   createPostcssModulesManifest,
@@ -780,6 +814,7 @@ const typeWitness:
   | CssModuleExportsManifestV1
   | PostcssModulesManifestOptions
   | TypeScriptDeclarationManifestOptions
+  | GenesAgentGuidanceCheck
   | undefined = undefined;
 void runtimeValues;
 void typeWitness;
@@ -792,6 +827,7 @@ void typeWitness;
 import {
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -799,6 +835,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import * as root from "@genes-ts/tooling";
+import * as agents from "@genes-ts/tooling/agents";
 import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as cssModules from "@genes-ts/tooling/css-modules";
 import * as postcssProvider from "@genes-ts/tooling/css-modules/postcss-modules";
@@ -825,9 +862,12 @@ const sessionProtocol = requireJson("@genes-ts/tooling/development-session/v1/pr
 const sessionVectors = requireJson("@genes-ts/tooling/development-session/v1/vectors.json");
 const sessionVectorSchema = requireJson("@genes-ts/tooling/development-session/v1/vectors.schema.json");
 const cssModuleSchema = requireJson("@genes-ts/tooling/css-modules/v1/exports.schema.json");
+const guidancePath = requireJson.resolve("@genes-ts/tooling/agent-guidance/v1/AGENTS.md");
 
 const witnesses = [
   root.publishArtifacts,
+  agents.checkGenesAgentGuidance,
+  agents.installGenesAgentGuidance,
   artifacts.recoverArtifacts,
   cssModules.generateCssModuleCompanion,
   postcssProvider.createPostcssModulesManifest,
@@ -845,7 +885,7 @@ const witnesses = [
   session.readGenesOutput,
   session.assertCandidateContainsOnlyOwnedFiles,
 ];
-if (witnesses.slice(0, 11).some((value) => typeof value !== "function")) {
+if (witnesses.slice(0, 13).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
 if ("measureInstalledPackageClosure" in cssModules) {
@@ -863,6 +903,13 @@ if (
   typeof session.assertCandidateContainsOnlyOwnedFiles !== "function"
 ) {
   throw new Error("a public development-session runtime export is missing");
+}
+if (
+  typeof root.installGenesAgentGuidance !== "function" ||
+  typeof agents.installGenesAgentGuidance !== "function" ||
+  !readFileSync(guidancePath, "utf8").includes("genes-agent-guidance-version: 1")
+) {
+  throw new Error("the public packaged agent guidance is missing");
 }
 if (
   root.DEVELOPMENT_SESSION_EVENT_PROTOCOL !==
@@ -943,7 +990,6 @@ console.log("tooling-packed-consumer:ok");
     "npm",
     [
       "install",
-      "--ignore-scripts",
       "--no-audit",
       "--no-fund",
       "--package-lock=false",
@@ -951,6 +997,10 @@ console.log("tooling-packed-consumer:ok");
     ],
     consumer,
     "install packed @genes-ts/tooling"
+  );
+  assert(
+    readFileSync(path.join(consumer, "AGENTS.md")).equals(authoredAgentGuide),
+    "installing the package changed consumer AGENTS.md without an explicit command"
   );
   const consumerRequire = createRequire(path.join(consumer, "absence-probe.cjs"));
   for (const packageName of [
@@ -972,6 +1022,33 @@ console.log("tooling-packed-consumer:ok");
     "typecheck packed consumer"
   );
   run(process.execPath, ["runtime.mjs"], consumer, "run packed consumer");
+  run(
+    "npm",
+    ["exec", "--no", "--", "genes", "agents", "install", "--root", consumer],
+    consumer,
+    "install packed Genes agent guidance"
+  );
+  const installedAgentGuide = readFileSync(path.join(consumer, "AGENTS.md"));
+  assert(
+    installedAgentGuide.subarray(0, authoredAgentGuide.length).equals(authoredAgentGuide),
+    "packed CLI changed project-authored AGENTS.md bytes"
+  );
+  run(
+    "npm",
+    ["exec", "--no", "--", "genes", "agents", "check", "--root", consumer],
+    consumer,
+    "check packed Genes agent guidance"
+  );
+  run(
+    "npm",
+    ["exec", "--no", "--", "genes", "agents", "install", "--root", consumer],
+    consumer,
+    "repeat packed Genes agent guidance installation"
+  );
+  assert(
+    readFileSync(path.join(consumer, "AGENTS.md")).equals(installedAgentGuide),
+    "repeated packed guidance installation changed AGENTS.md"
+  );
   run(
     "npm",
     [

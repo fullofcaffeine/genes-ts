@@ -3,6 +3,9 @@
   "version": "0.5.0",
   "description": "Framework-neutral host tooling for Haxe-to-JavaScript and Haxe-to-TypeScript projects.",
   "type": "module",
+  "bin": {
+    "genes": "./dist/cli.js"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,6 +24,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js"
+    },
+    "./agent-guidance/v1/AGENTS.md": "./agent-guidance/v1/AGENTS.md",
     "./artifacts": {
       "types": "./dist/artifacts/index.d.ts",
       "import": "./dist/artifacts/index.js"
@@ -76,10 +84,17 @@
   "files": [
     "CHANGELOG.md",
     "LICENSE",
+    "agent-guidance/v1/AGENTS.md",
+    "dist/cli.js",
+    "dist/cli.js.map",
     "dist/index.d.ts",
     "dist/index.d.ts.map",
     "dist/index.js",
     "dist/index.js.map",
+    "dist/agents/**/*.d.ts",
+    "dist/agents/**/*.d.ts.map",
+    "dist/agents/**/*.js",
+    "dist/agents/**/*.js.map",
     "dist/artifacts/**/*.d.ts",
     "dist/artifacts/**/*.d.ts.map",
     "dist/artifacts/**/*.js",
@@ -129,7 +144,7 @@
   "scripts": {
     "build": "npm exec --no -- tsc6 -p tsconfig.json",
     "prepare": "npm run build",
-    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/lix-test.js && node dist/css-modules-test.js && node dist/installed-package-closure-test.js && node dist/processor-execution-admission-test.js && node dist/css-module-providers-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/session-vector-test.js && node dist/session-runtime-vector-test.js && node dist/session-test.js && node dist/session-integration-test.js",
+    "test": "yarn build && node dist/agents-test.js && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/lix-test.js && node dist/css-modules-test.js && node dist/installed-package-closure-test.js && node dist/processor-execution-admission-test.js && node dist/css-module-providers-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/session-vector-test.js && node dist/session-runtime-vector-test.js && node dist/session-test.js && node dist/session-integration-test.js",
     "pack:check": "yarn build && node ../scripts/dist/test-tooling-package.js"
   },
   "peerDependencies": {
