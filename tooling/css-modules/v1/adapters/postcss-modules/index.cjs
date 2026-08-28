@@ -303,7 +303,6 @@ function stringTokens(value) {
     }
     tokens.set(key, descriptor.value);
   }
-  if (tokens.size === 0) fail("exports-empty");
   return tokens;
 }
 
@@ -316,16 +315,19 @@ function missingResult(missing) {
   };
 }
 
-async function processFile(parsed, entry, generateScopedName) {
+async function processFile(metrics, parsed, entry, generateScopedName) {
+  metrics.processorPasses += 1;
   const missing = new Map();
   const used = new Set([entry]);
   const virtualFiles = new Map(
     [...parsed.files].map(([filePath, text]) => [virtualPath(filePath), text]),
   );
+  let loader;
 
   class MemoryLoader extends FileSystemLoader {
     constructor(root, plugins, resolve) {
       super(root, plugins, resolve);
+      loader = this;
       this.fs = {
         readFile: (filename, _encoding, callback) => {
           const absolute = path.resolve(filename);
@@ -392,9 +394,22 @@ async function processFile(parsed, entry, generateScopedName) {
   if (!record(output) || typeof output.css !== "string") {
     fail("processor-result-invalid");
   }
+  if (loader === undefined) fail("processor-result-invalid");
+  const cssByPath = new Map([[entry, output.css]]);
+  for (const [absolute, source] of Object.entries(loader.sources)) {
+    if (typeof source !== "string") fail("processor-result-invalid");
+    cssByPath.set(fromVirtual(absolute), source);
+  }
+  if (
+    cssByPath.size !== used.size ||
+    [...used].some((sourcePath) => !cssByPath.has(sourcePath))
+  ) {
+    fail("processor-result-invalid");
+  }
   return {
     kind: "processed",
     css: output.css,
+    cssByPath,
     tokens: stringTokens(output.tokens),
     used,
   };
@@ -411,13 +426,14 @@ function compareCandidate(left, right) {
 async function run(input) {
   validateVersions();
   const parsed = parseInput(input);
+  const metrics = { processorPasses: 0 };
   const authoredByPath = new Map();
   for (const [sourcePath, source] of parsed.files) {
     authoredByPath.set(sourcePath, authoredClasses(source, sourcePath));
   }
   const markers = markerTable(authoredByPath);
   const scoped = parsed.configuration.generateScopedName;
-  const actual = await processFile(parsed, parsed.entry, scoped);
+  const actual = await processFile(metrics, parsed, parsed.entry, scoped);
   if (actual.kind === "needs-inputs") return actual;
   const probeName = (name, filename) => {
     const sourcePath = fromVirtual(filename);
@@ -425,21 +441,28 @@ async function run(input) {
     if (marker === undefined) fail("selector-ownership-ambiguous");
     return marker;
   };
-  const probe = await processFile(parsed, parsed.entry, probeName);
+  const probe = await processFile(metrics, parsed, parsed.entry, probeName);
   if (probe.kind !== "processed") fail("processor-result-invalid");
   const actualKeys = [...actual.tokens.keys()];
   const probeKeys = [...probe.tokens.keys()];
-  if (actualKeys.join("\n") !== probeKeys.join("\n")) {
+  const actualInputs = [...actual.used].sort(compareUtf8);
+  const probeInputs = [...probe.used].sort(compareUtf8);
+  if (
+    actualKeys.join("\n") !== probeKeys.join("\n") ||
+    actualInputs.join("\n") !== probeInputs.join("\n")
+  ) {
     fail("probe-export-mismatch");
   }
 
   const localCandidates = new Map();
   const globalCandidates = new Map();
-  for (const sourcePath of [...actual.used].sort(compareUtf8)) {
-    const classification = await processFile(parsed, sourcePath, probeName);
-    if (classification.kind !== "processed") fail("processor-result-invalid");
+  for (const sourcePath of actualInputs) {
     const authored = authoredByPath.get(sourcePath);
-    const transformed = transformedClasses(classification.css, sourcePath);
+    const transformedSource = probe.cssByPath.get(sourcePath);
+    if (!Array.isArray(authored) || typeof transformedSource !== "string") {
+      fail("processor-result-invalid");
+    }
+    const transformed = transformedClasses(transformedSource, sourcePath);
     if (authored.length !== transformed.length) {
       fail("selector-class-count-mismatch");
     }
@@ -470,10 +493,12 @@ async function run(input) {
     candidates.sort(compareCandidate);
     exports.push({ name, source: candidates[0].source });
   }
+  if (metrics.processorPasses !== 2) fail("processor-result-invalid");
   return {
     kind: "success",
     exports,
-    inputs: [...actual.used].sort(compareUtf8),
+    inputs: actualInputs,
+    processorPasses: metrics.processorPasses,
     processorId: "postcss-modules",
     processorVersion: POSTCSS_MODULES_VERSION,
   };

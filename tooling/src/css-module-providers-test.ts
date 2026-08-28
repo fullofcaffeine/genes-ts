@@ -12,6 +12,10 @@ import {
   createTypeScriptDeclarationManifest,
   type TypeScriptDeclarationManifestOptions,
 } from "./css-modules/typescript-declaration-provider.js";
+import {
+  POSTCSS_MODULES_MAX_DISCOVERY_RUNS,
+  POSTCSS_MODULES_MAX_IMPORT_DEPTH,
+} from "./css-modules/postcss-modules-policy.js";
 import { generateCssModuleCompanion } from "./css-modules/index.js";
 
 const projectRoot = mkdtempSync(path.join(os.tmpdir(), "genes-css-providers-"));
@@ -134,6 +138,29 @@ try {
       (field) => field.runtimeName,
     ),
     ["card", "error-state", "escaped+name", "public-banner"],
+  );
+
+  const emptyExportsEntry = "styles/empty.module.css";
+  write(emptyExportsEntry, "button { color: red; }\n");
+  const emptyExports = await createPostcssModulesManifest({
+    ...postcssOptions,
+    entry: emptyExportsEntry,
+    binding: binding(
+      "../styles/empty.module.css",
+      "src-gen/styles/empty.module.css",
+      "app.EmptyStyles",
+    ),
+    configuration: {
+      ...postcssOptions.configuration,
+      exportGlobals: false,
+    },
+  });
+  assert.deepEqual(emptyExports.exports, [], "a valid module can export no class names");
+
+  assert.equal(
+    POSTCSS_MODULES_MAX_DISCOVERY_RUNS,
+    POSTCSS_MODULES_MAX_IMPORT_DEPTH + 1,
+    "the maximum composition depth reserves one final complete run",
   );
 
   rmSync(path.join(projectRoot, ...postcssDependency.split("/")));

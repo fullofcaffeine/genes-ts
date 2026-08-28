@@ -233,17 +233,19 @@ PostCSS configuration is outside this contract.
 
 The host reads one `.module.css` entry as an ordinary UTF-8 file. Each file is
 limited to 2 MiB. One manifest can use at most 256 files and 8 MiB of source
-text. Relative `.css` composition can use at most 32 levels and 32 fresh child
-runs. Absolute requests, package requests, queries, fragments, links, and
-paths outside the project fail.
+text. Relative `.css` composition can use at most 32 levels and 33 fresh child
+runs, including the final complete run. Absolute requests, package requests,
+queries, fragments, links, and paths outside the project fail.
 
 Each child gets only an inert in-memory file map. The fixed adapter records all
 missing composition paths and discards provisional tokens. The host reads those
 paths and starts another fresh measured child. The measured processor identity
 must stay unchanged across every run.
 
-The final normal pass supplies the exact runtime keys. A second pass replaces
-local classes with unique deterministic markers. Comparing authored and
+The final complete child runs exactly two processor passes, independent of the
+number of composition inputs. The normal pass supplies the exact runtime keys.
+The marker pass replaces local classes with unique deterministic markers and
+retains each transformed input for classification. Comparing authored and
 transformed selectors identifies local and global ownership. The first marker
 token owns a key. Duplicate eligible selectors use the earliest portable path
 and source offset.

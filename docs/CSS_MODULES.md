@@ -95,10 +95,11 @@ packages, fixed adapter, and supplied stylesheet text. The host checks every
 input again before it returns the manifest. A changed or removed file rejects
 publication.
 
-The provider runs one normal processor pass and one marker pass. The normal
-pass owns the runtime export keys. The marker pass distinguishes local and
-global selectors and ties each key to an exact source location. Classless ICSS
-exports, incomplete inputs, and ambiguous ownership fail closed.
+The final complete child runs one normal processor pass and one marker pass,
+regardless of the number of composition inputs. The normal pass owns the
+runtime export keys. The marker pass distinguishes local and global selectors
+and ties each key to an exact source location. Classless ICSS exports,
+incomplete inputs, and ambiguous ownership fail closed.
 
 `processorIntegrity` is the SHA-256 identity of the copied adapter and complete
 installed package closure that ran. It is not a registry checksum. A local

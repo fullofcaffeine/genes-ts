@@ -3,6 +3,12 @@ import { validateCssModuleExportsManifest } from "./companion.js";
 import { cssModuleFailure } from "./error.js";
 import { executePackagedProviderAdapter } from "./provider-execution.js";
 import {
+  POSTCSS_MODULES_MAX_DISCOVERY_RUNS,
+  POSTCSS_MODULES_MAX_IMPORT_DEPTH,
+  POSTCSS_MODULES_MAX_INPUT_BYTES,
+  POSTCSS_MODULES_MAX_INPUTS,
+} from "./postcss-modules-policy.js";
+import {
   assertProviderFileUnchanged,
   MAX_PROVIDER_FILE_BYTES,
   providerBinding,
@@ -29,10 +35,6 @@ const ADAPTER_DIRECTORY = new URL(
 );
 const ADAPTER_PROTOCOL = "genes.css-module-postcss-adapter.v1";
 const POSTCSS_MODULES_VERSION = "9.0.1";
-const MAX_INPUTS = 256;
-const MAX_INPUT_BYTES = 8 * 1024 * 1024;
-const MAX_IMPORT_DEPTH = 32;
-const MAX_DISCOVERY_ROUNDS = 32;
 
 export interface PostcssModulesManifestConfiguration {
   readonly generateScopedName: string;
@@ -63,6 +65,7 @@ interface MissingInput {
 interface FinalAdapterResult {
   readonly exports: readonly CssModuleExport[];
   readonly inputs: readonly string[];
+  readonly processorPasses: 2;
   readonly processorId: "postcss-modules";
   readonly processorVersion: typeof POSTCSS_MODULES_VERSION;
 }
@@ -180,6 +183,7 @@ function finalResult(value: Readonly<Record<string, unknown>>): FinalAdapterResu
   if (
     new Set(inputs).size !== inputs.length ||
     [...inputs].sort(compareUtf8).join("\n") !== inputs.join("\n") ||
+    value.processorPasses !== 2 ||
     stringField(value, "processorId") !== "postcss-modules" ||
     stringField(value, "processorVersion") !== POSTCSS_MODULES_VERSION
   ) {
@@ -188,13 +192,18 @@ function finalResult(value: Readonly<Record<string, unknown>>): FinalAdapterResu
   return Object.freeze({
     exports: Object.freeze(exports),
     inputs: Object.freeze(inputs),
+    processorPasses: 2,
     processorId: "postcss-modules",
     processorVersion: POSTCSS_MODULES_VERSION,
   });
 }
 
 function missingInputs(value: unknown): readonly MissingInput[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_INPUTS) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > POSTCSS_MODULES_MAX_INPUTS
+  ) {
     return providerFailure("The fixed PostCSS adapter returned invalid missing inputs.", "inputs");
   }
   return Object.freeze(value.map((candidate) => {
@@ -215,18 +224,18 @@ function addInput(
   inputPath: string,
   depth: number,
 ): void {
-  if (depth > MAX_IMPORT_DEPTH) {
+  if (depth > POSTCSS_MODULES_MAX_IMPORT_DEPTH) {
     return providerFailure(
-      `CSS Module composition exceeds the ${MAX_IMPORT_DEPTH}-level depth limit.`,
+      `CSS Module composition exceeds the ${POSTCSS_MODULES_MAX_IMPORT_DEPTH}-level depth limit.`,
       inputPath,
     );
   }
   const previousDepth = depths.get(inputPath);
   if (previousDepth === undefined || depth < previousDepth) depths.set(inputPath, depth);
   if (files.has(inputPath)) return;
-  if (files.size >= MAX_INPUTS) {
+  if (files.size >= POSTCSS_MODULES_MAX_INPUTS) {
     return providerFailure(
-      `CSS Module composition exceeds the ${MAX_INPUTS}-file input limit.`,
+      `CSS Module composition exceeds the ${POSTCSS_MODULES_MAX_INPUTS}-file input limit.`,
       inputPath,
     );
   }
@@ -235,9 +244,12 @@ function addInput(
     (bytes, current) => bytes + current.bytes.byteLength,
     file.bytes.byteLength,
   );
-  if (total > MAX_INPUT_BYTES || file.bytes.byteLength > MAX_PROVIDER_FILE_BYTES) {
+  if (
+    total > POSTCSS_MODULES_MAX_INPUT_BYTES ||
+    file.bytes.byteLength > MAX_PROVIDER_FILE_BYTES
+  ) {
     return providerFailure(
-      `CSS Module composition exceeds the ${MAX_INPUT_BYTES}-byte input limit.`,
+      `CSS Module composition exceeds the ${POSTCSS_MODULES_MAX_INPUT_BYTES}-byte input limit.`,
       inputPath,
     );
   }
@@ -292,7 +304,7 @@ export async function createPostcssModulesManifest(
 
   let processorIntegrity: `sha256-${string}` | undefined;
   let final: FinalAdapterResult | undefined;
-  for (let round = 0; round < MAX_DISCOVERY_ROUNDS; round += 1) {
+  for (let round = 0; round < POSTCSS_MODULES_MAX_DISCOVERY_RUNS; round += 1) {
     const execution = await execute(files, entryPath, snapshot.configuration);
     if (
       processorIntegrity !== undefined &&
@@ -341,7 +353,7 @@ export async function createPostcssModulesManifest(
   }
   if (final === undefined || processorIntegrity === undefined) {
     return providerFailure(
-      `CSS Module composition exceeds the ${MAX_DISCOVERY_ROUNDS}-round discovery limit.`,
+      `CSS Module composition exceeds the ${POSTCSS_MODULES_MAX_DISCOVERY_RUNS}-round discovery limit.`,
       entryPath,
     );
   }
