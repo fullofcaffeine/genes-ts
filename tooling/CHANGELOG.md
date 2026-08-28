@@ -6,6 +6,13 @@ it.
 
 ## Unreleased
 
+- Add optional PostCSS Modules and TypeScript declaration providers for the
+  version-one CSS Module manifest. Both run fixed adapters from measured copied
+  package bytes in fresh children. The PostCSS provider discovers bounded
+  relative composition inputs from inert file maps and uses a processor probe
+  for exact local or global source ownership. The declaration provider accepts
+  only one closed readonly string object and uses no-emit TypeScript
+  diagnostics. Optional processor packages never load in the host process.
 - Add an internal execution-admission step for fixed processor adapters. It
   copies the second verified package capture into a private graph, runs the
   adapter in a fresh permission-limited child, and returns final

@@ -49,6 +49,102 @@ The configured CSS Modules processor is the only honest authority for those
 keys. Genes validates the exact list it reports; it does not build a second CSS
 parser that could disagree with the application.
 
+## Reusable manifest providers
+
+Tooling includes two optional provider subpaths. Both return a checked version
+one manifest and write no files.
+
+For a pinned PostCSS Modules project, install these exact optional peers:
+
+```bash
+npm install --save-exact \
+  postcss@8.5.25 \
+  postcss-modules@9.0.1 \
+  postcss-selector-parser@7.1.4
+```
+
+Then call the fixed provider:
+
+```ts
+import { createPostcssModulesManifest } from
+  "@genes-ts/tooling/css-modules/postcss-modules"
+
+const manifest = await createPostcssModulesManifest({
+  projectRoot,
+  entry: "styles/card.module.css",
+  binding,
+  configuration: {
+    generateScopedName: "app_[name]__[local]",
+    scopeBehaviour: "local",
+    exportGlobals: false,
+    hashPrefix: "app",
+  },
+})
+```
+
+The configuration is data only. The provider never imports an application
+PostCSS file or executes an application callback.
+
+The host reads the entry file first. A fresh admitted child can request only
+relative `.css` composition inputs below the project root. The host reads those
+files under fixed path, file, byte, depth, and retry limits. It then starts a
+new admitted child with the expanded inert file map.
+
+The child cannot read the project checkout. It sees only the copied processor
+packages, fixed adapter, and supplied stylesheet text. The host checks every
+input again before it returns the manifest. A changed or removed file rejects
+publication.
+
+The private child request carries exact UTF-8 source bytes as canonical base64,
+so JSON escaping does not reduce the documented 8 MiB source allowance. The
+child rechecks each decoded file and the aggregate byte limit. The final
+complete child then runs one normal processor pass and one marker pass,
+regardless of the number of composition inputs. The normal pass owns the
+runtime export keys. The marker pass distinguishes local and global selectors
+and ties each key to an exact source location. Classless ICSS exports,
+incomplete inputs, and ambiguous ownership fail closed.
+
+`processorIntegrity` is the SHA-256 identity of the copied adapter and complete
+installed package closure that ran. It is not a registry checksum. A local
+same-version patch therefore gets a different identity.
+
+`configurationSha256` covers only the normalized four-field policy above. It
+does not include source bytes, package bytes, absolute paths, or lock data.
+Those facts have separate owners.
+
+For one exact per-file TypeScript declaration, install the other optional peer:
+
+```bash
+npm install --save-exact typescript@6.0.3
+```
+
+Then call the declaration adapter:
+
+```ts
+import { createTypeScriptDeclarationManifest } from
+  "@genes-ts/tooling/css-modules/typescript-declaration"
+
+const manifest = await createTypeScriptDeclarationManifest({
+  projectRoot,
+  entry: "styles/card.module.css",
+  declaration: "styles/card.module.css.d.ts",
+  binding,
+})
+```
+
+The declaration must contain one `declare const` with a direct object type.
+Every member must be required, named, `readonly`, and exactly `string`. The
+second statement must default-export that constant.
+
+Wildcard modules, imports, records, index signatures, mapped types, property
+initializers, optional properties, mutable properties, duplicate keys, and
+other value types fail. The adapter parses with measured TypeScript 6.0.3 in a
+fresh child. TypeScript does not load in the host process.
+
+The provider subpaths remain importable on Node 20. Calls require reviewed Node
+22.22+ or Node 24.10+ execution and otherwise fail before package capture. The
+core `@genes-ts/tooling/css-modules` path loads no optional processor.
+
 ## Tested authoring flow
 
 The maintained fixture uses this authored Haxe module:
@@ -257,6 +353,8 @@ Examples of early failures include:
 - `GENES-CSS-MODULE-BINDING-010` — the companion belongs to another module or stylesheet;
 - `GENES-CSS-MODULE-MANIFEST-STALE-004` — an input file no longer matches its recorded hash;
 - `GENES-CSS-MODULE-NAME-COLLISION-006` — two runtime keys would become the same Haxe field;
+- `GENES-CSS-MODULE-PROVIDER-016` — a fixed processor request, input, or result is outside the supported provider contract;
+- `GENES-CSS-MODULE-DECLARATION-017` — a per-file declaration is broad, invalid, or unrelated to the entry;
 - the normal Haxe `has no field ...` error — application code used a class name the processor did not report.
 
 Each compiler-side error points into the authored Haxe call or field access.

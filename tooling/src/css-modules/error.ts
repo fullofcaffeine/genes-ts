@@ -5,9 +5,11 @@ export type CssModuleFailureCode =
   | "GENES-CSS-MODULE-NAME-COLLISION-006"
   | "GENES-CSS-MODULE-BINDING-010"
   | "GENES-CSS-MODULE-PATH-011"
-  | "GENES-CSS-MODULE-MANIFEST-015";
+  | "GENES-CSS-MODULE-MANIFEST-015"
+  | "GENES-CSS-MODULE-PROVIDER-016"
+  | "GENES-CSS-MODULE-DECLARATION-017";
 
-/** A friendly, stable failure from manifest checking or companion generation. */
+/** A friendly, stable failure from CSS Module tooling. */
 export class CssModuleCompanionError extends Error {
   readonly code: CssModuleFailureCode;
   readonly subject: string;

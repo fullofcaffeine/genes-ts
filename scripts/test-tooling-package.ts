@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  cpSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -11,6 +12,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { toolchains } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +56,19 @@ interface TarballListOptions {
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+const apiBridge = toolchains.typescript.apiBridge;
+
+function requiredProgramApiEngine() {
+  const engine = apiBridge.programApiEngine;
+  assert(
+    engine !== undefined && engine !== null,
+    "the TypeScript API bridge must declare its Program API engine"
+  );
+  return engine;
+}
+
+const programApiEngine = requiredProgramApiEngine();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -366,6 +382,8 @@ const expectedPublicExports = [
   "./artifact-transactions/v1/vectors.schema.json",
   "./artifacts",
   "./css-modules",
+  "./css-modules/postcss-modules",
+  "./css-modules/typescript-declaration",
   "./css-modules/v1/exports.schema.json",
   "./development-session/v1/protocol.schema.json",
   "./development-session/v1/vectors.json",
@@ -416,6 +434,14 @@ function verifyInventory(result: PackResult): readonly string[] {
     "dist/artifacts/index.d.ts",
     "dist/css-modules/index.js",
     "dist/css-modules/index.d.ts",
+    "dist/css-modules/postcss-modules-provider.js",
+    "dist/css-modules/postcss-modules-provider.d.ts",
+    "dist/css-modules/typescript-declaration-provider.js",
+    "dist/css-modules/typescript-declaration-provider.d.ts",
+    "css-modules/v1/adapters/postcss-modules/index.cjs",
+    "css-modules/v1/adapters/postcss-modules/package.json",
+    "css-modules/v1/adapters/typescript-declaration/index.cjs",
+    "css-modules/v1/adapters/typescript-declaration/package.json",
     "dist/hxml/index.js",
     "dist/hxml/index.d.ts",
     "dist/lix/index.js",
@@ -492,9 +518,30 @@ function verifyPackageMetadata(): { name: string; version: string } {
     isRecord(devDependencies) &&
       devDependencies["@types/node"] === "20.19.30" &&
       devDependencies.ajv === "8.20.0" &&
-      devDependencies.typescript === "npm:@typescript/typescript6@6.0.2" &&
-      Object.keys(devDependencies).length === 3,
+      devDependencies.typescript === programApiEngine.version &&
+      devDependencies["typescript-build"] ===
+        `npm:${apiBridge.package}@${apiBridge.version}` &&
+      Object.keys(devDependencies).length === 4,
     "Git-source build dependencies must stay exact and self-contained"
+  );
+  const peerDependencies = packageJson.peerDependencies;
+  const peerDependenciesMeta = packageJson.peerDependenciesMeta;
+  assert(
+    isRecord(peerDependencies) &&
+      peerDependencies.postcss === "8.5.25" &&
+      peerDependencies["postcss-modules"] === "9.0.1" &&
+      peerDependencies["postcss-selector-parser"] === "7.1.4" &&
+      peerDependencies.typescript === programApiEngine.version &&
+      Object.keys(peerDependencies).length === 4 &&
+      isRecord(peerDependenciesMeta) &&
+      Object.keys(peerDependenciesMeta).length === 4 &&
+      Object.values(peerDependenciesMeta).every(
+        (value) =>
+          isRecord(value) &&
+          value.optional === true &&
+          Object.keys(value).length === 1
+      ),
+    "CSS Module processor peers must stay exact and optional"
   );
   const repository = packageJson.repository;
   assert(
@@ -513,6 +560,57 @@ function verifyPackageMetadata(): { name: string; version: string } {
     "tooling public exports changed without extending the packed-consumer contract"
   );
   return { name, version };
+}
+
+function verifyGitSourceBuild(tempRoot: string): void {
+  const sourceRoot = path.join(tempRoot, "git-source-tooling");
+  cpSync(toolingRoot, sourceRoot, {
+    recursive: true,
+    filter(source) {
+      const relative = path.relative(toolingRoot, source);
+      return (
+        relative !== "dist" &&
+        !relative.startsWith(`dist${path.sep}`) &&
+        relative !== "node_modules" &&
+        !relative.startsWith(`node_modules${path.sep}`)
+      );
+    },
+  });
+  run(
+    "npm",
+    [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--package-lock=false",
+    ],
+    sourceRoot,
+    "install isolated Git-source tooling build dependencies"
+  );
+  const sourceRequire = createRequire(path.join(sourceRoot, "absence-probe.cjs"));
+  for (const packageName of [
+    "postcss",
+    "postcss-modules",
+    "postcss-selector-parser",
+  ]) {
+    let present = true;
+    try {
+      sourceRequire.resolve(packageName);
+    } catch {
+      present = false;
+    }
+    assert(
+      !present,
+      `isolated Git-source build unexpectedly installed optional peer ${packageName}`
+    );
+  }
+  run(
+    "npm",
+    ["run", "build"],
+    sourceRoot,
+    "build isolated Git-source tooling package"
+  );
 }
 
 function pack(destination: string): { result: PackResult; tarball: string } {
@@ -578,6 +676,14 @@ import {
   generateCssModuleCompanion,
   type CssModuleExportsManifestV1,
 } from "@genes-ts/tooling/css-modules";
+import {
+  createPostcssModulesManifest,
+  type PostcssModulesManifestOptions,
+} from "@genes-ts/tooling/css-modules/postcss-modules";
+import {
+  createTypeScriptDeclarationManifest,
+  type TypeScriptDeclarationManifestOptions,
+} from "@genes-ts/tooling/css-modules/typescript-declaration";
 import { inventoryHxml, type HxmlInventory } from "@genes-ts/tooling/hxml";
 import {
   resolveLixLibraryGroup,
@@ -628,6 +734,8 @@ const runtimeValues = [
   publishArtifacts,
   recoverArtifacts,
   generateCssModuleCompanion,
+  createPostcssModulesManifest,
+  createTypeScriptDeclarationManifest,
   inventoryHxml,
   resolveLixLibraryGroup,
   SerializedDirtyLoop,
@@ -670,6 +778,8 @@ const typeWitness:
   | CompilerDataFile
   | ValidationTree
   | CssModuleExportsManifestV1
+  | PostcssModulesManifestOptions
+  | TypeScriptDeclarationManifestOptions
   | undefined = undefined;
 void runtimeValues;
 void typeWitness;
@@ -691,6 +801,8 @@ import path from "node:path";
 import * as root from "@genes-ts/tooling";
 import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as cssModules from "@genes-ts/tooling/css-modules";
+import * as postcssProvider from "@genes-ts/tooling/css-modules/postcss-modules";
+import * as declarationProvider from "@genes-ts/tooling/css-modules/typescript-declaration";
 import * as hxml from "@genes-ts/tooling/hxml";
 import * as lix from "@genes-ts/tooling/lix";
 import * as loop from "@genes-ts/tooling/loop";
@@ -718,6 +830,8 @@ const witnesses = [
   root.publishArtifacts,
   artifacts.recoverArtifacts,
   cssModules.generateCssModuleCompanion,
+  postcssProvider.createPostcssModulesManifest,
+  declarationProvider.createTypeScriptDeclarationManifest,
   hxml.inventoryHxml,
   lix.resolveLixLibraryGroup,
   loop.SerializedDirtyLoop,
@@ -731,7 +845,7 @@ const witnesses = [
   session.readGenesOutput,
   session.assertCandidateContainsOnlyOwnedFiles,
 ];
-if (witnesses.slice(0, 9).some((value) => typeof value !== "function")) {
+if (witnesses.slice(0, 11).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
 if ("measureInstalledPackageClosure" in cssModules) {
@@ -838,6 +952,18 @@ console.log("tooling-packed-consumer:ok");
     consumer,
     "install packed @genes-ts/tooling"
   );
+  const consumerRequire = createRequire(path.join(consumer, "absence-probe.cjs"));
+  for (const packageName of [
+    "postcss",
+    "postcss-modules",
+    "postcss-selector-parser",
+    "typescript",
+  ]) {
+    expectFailure(
+      () => consumerRequire.resolve(packageName),
+      `clean packed consumer unexpectedly installed optional peer ${packageName}`
+    );
+  }
   const typescriptRunner = path.join(repoRoot, "scripts", "run-typescript.mjs");
   run(
     process.execPath,
@@ -846,6 +972,149 @@ console.log("tooling-packed-consumer:ok");
     "typecheck packed consumer"
   );
   run(process.execPath, ["runtime.mjs"], consumer, "run packed consumer");
+  run(
+    "npm",
+    [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--package-lock=false",
+      "postcss@8.5.25",
+      "postcss-modules@9.0.1",
+      "postcss-selector-parser@7.1.4",
+      `typescript@${programApiEngine.version}`,
+    ],
+    consumer,
+    "install packed CSS Module provider peers"
+  );
+  writeFileSync(
+    path.join(consumer, "provider-runtime.mjs"),
+    `import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { createPostcssModulesManifest } from "@genes-ts/tooling/css-modules/postcss-modules";
+import { createTypeScriptDeclarationManifest } from "@genes-ts/tooling/css-modules/typescript-declaration";
+
+const requireForTest = createRequire(import.meta.url);
+const processorEntries = [
+  requireForTest.resolve("postcss"),
+  requireForTest.resolve("postcss-modules"),
+  requireForTest.resolve("postcss-selector-parser"),
+  requireForTest.resolve("typescript"),
+];
+for (const entry of processorEntries) {
+  if (requireForTest.cache[entry] !== undefined) {
+    throw new Error("a provider peer loaded in the packed host before execution");
+  }
+}
+
+const projectRoot = mkdtempSync(path.join(os.tmpdir(), "genes-packed-provider-"));
+const write = (relativePath, content) => {
+  const absolute = path.join(projectRoot, ...relativePath.split("/"));
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(absolute, content, "utf8");
+};
+const binding = (request, hostModulePath, companionType) => ({
+  haxeOwner: "app.Packed",
+  generatedModule: "app/Packed",
+  request,
+  hostModulePath,
+  companionType,
+});
+const postcssOptions = {
+  projectRoot,
+  entry: "styles/packed.module.css",
+  binding: binding(
+    "../styles/packed.module.css",
+    "src-gen/styles/packed.module.css",
+    "app.PackedStyles",
+  ),
+  configuration: {
+    generateScopedName: "genes_[name]__[local]",
+    scopeBehaviour: "local",
+    exportGlobals: false,
+    hashPrefix: "packed-provider",
+  },
+};
+write("styles/base.module.css", ".base { color: black; }\\n");
+write(
+  postcssOptions.entry,
+  ".packed { composes: base from \\"./base.module.css\\"; color: red; }\\n",
+);
+write("styles/declared.module.css", ".declared {}\\n");
+write(
+  "styles/declared.module.css.d.ts",
+  "declare const styles: { readonly declared: string }; export default styles;\\n",
+);
+
+const supported = (() => {
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  return (major === 22 && minor >= 22) || (major === 24 && minor >= 10);
+})();
+try {
+  if (!supported) {
+    let rejected = false;
+    try {
+      await createPostcssModulesManifest(postcssOptions);
+    } catch (error) {
+      rejected =
+        error instanceof Error &&
+        error.message.includes("GENES-CSS-MODULE-PROVIDER-016") &&
+        error.message.includes("requires Node");
+    }
+    if (!rejected) throw new Error("unsupported provider runtime did not fail closed");
+  } else {
+    const postcssManifest = await createPostcssModulesManifest(postcssOptions);
+    if (
+      postcssManifest.exports.map((item) => item.name).join(",") !== "packed" ||
+      postcssManifest.source.inputs.map((item) => item.path).join(",") !==
+        "styles/base.module.css,styles/packed.module.css" ||
+      !/^sha256-/.test(postcssManifest.producer.processorIntegrity)
+    ) {
+      throw new Error("packed PostCSS provider returned the wrong manifest");
+    }
+    const declarationManifest = await createTypeScriptDeclarationManifest({
+      projectRoot,
+      entry: "styles/declared.module.css",
+      declaration: "styles/declared.module.css.d.ts",
+      binding: binding(
+        "../styles/declared.module.css",
+        "src-gen/styles/declared.module.css",
+        "app.DeclaredStyles",
+      ),
+    });
+    if (
+      declarationManifest.exports.map((item) => item.name).join(",") !== "declared" ||
+      !/^sha256-/.test(declarationManifest.producer.processorIntegrity)
+    ) {
+      throw new Error("packed declaration provider returned the wrong manifest");
+    }
+  }
+  for (const entry of processorEntries) {
+    if (requireForTest.cache[entry] !== undefined) {
+      throw new Error("a provider peer loaded in the packed host process");
+    }
+  }
+} finally {
+  rmSync(projectRoot, { recursive: true, force: true });
+}
+console.log("tooling-packed-providers:ok");
+`,
+    "utf8"
+  );
+  run(
+    process.execPath,
+    ["provider-runtime.mjs"],
+    consumer,
+    "run packed CSS Module providers"
+  );
 }
 
 interface SuppliedPackage {
@@ -907,6 +1176,7 @@ const suppliedPackage = parseSuppliedPackage(process.argv.slice(2));
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "genes-tooling-package-"));
 try {
   const expected = verifyPackageMetadata();
+  verifyGitSourceBuild(tempRoot);
   if (suppliedPackage !== null) {
     verifySuppliedPackage(suppliedPackage, expected, tempRoot);
   } else {
