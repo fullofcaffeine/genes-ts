@@ -237,10 +237,13 @@ text. Relative `.css` composition can use at most 32 levels and 33 fresh child
 runs, including the final complete run. Absolute requests, package requests,
 queries, fragments, links, and paths outside the project fail.
 
-Each child gets only an inert in-memory file map. The fixed adapter records all
-missing composition paths and discards provisional tokens. The host reads those
-paths and starts another fresh measured child. The measured processor identity
-must stay unchanged across every run.
+Each child gets only an inert in-memory file map. Exact UTF-8 source bytes use
+canonical base64 in the private adapter request, so JSON escaping cannot reduce
+the documented 8 MiB source allowance. The adapter decodes and rechecks the
+per-file and aggregate byte limits before processing. It records all missing
+composition paths and discards provisional tokens. The host reads those paths
+and starts another fresh measured child. The measured processor identity must
+stay unchanged across every run.
 
 The final complete child runs exactly two processor passes, independent of the
 number of composition inputs. The normal pass supplies the exact runtime keys.

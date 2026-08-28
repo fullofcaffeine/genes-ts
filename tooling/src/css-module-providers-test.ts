@@ -15,7 +15,9 @@ import {
 import {
   POSTCSS_MODULES_MAX_DISCOVERY_RUNS,
   POSTCSS_MODULES_MAX_IMPORT_DEPTH,
+  POSTCSS_MODULES_MAX_INPUT_BYTES,
 } from "./css-modules/postcss-modules-policy.js";
+import { MAX_PROVIDER_FILE_BYTES } from "./css-modules/provider-files.js";
 import { generateCssModuleCompanion } from "./css-modules/index.js";
 
 const projectRoot = mkdtempSync(path.join(os.tmpdir(), "genes-css-providers-"));
@@ -34,6 +36,22 @@ function write(relativePath: string, content: string): void {
   const absolute = path.join(projectRoot, ...relativePath.split("/"));
   mkdirSync(path.dirname(absolute), { recursive: true });
   writeFileSync(absolute, content, "utf8");
+}
+
+function escapedCssAtFileLimit(rule: string): string {
+  const prefix = `${rule}\n/*`;
+  const suffix = "*/\n";
+  const padding = MAX_PROVIDER_FILE_BYTES -
+    Buffer.byteLength(prefix, "utf8") -
+    Buffer.byteLength(suffix, "utf8");
+  assert.ok(padding >= 0, "the escaped-source fixture rule fits the file bound");
+  const source = `${prefix}${"\\".repeat(padding)}${suffix}`;
+  assert.equal(
+    Buffer.byteLength(source, "utf8"),
+    MAX_PROVIDER_FILE_BYTES,
+    "the escaped-source fixture reaches the exact file bound",
+  );
+  return source;
 }
 
 function binding(request: string, hostModulePath: string, companionType: string) {
@@ -161,6 +179,45 @@ try {
     POSTCSS_MODULES_MAX_DISCOVERY_RUNS,
     POSTCSS_MODULES_MAX_IMPORT_DEPTH + 1,
     "the maximum composition depth reserves one final complete run",
+  );
+
+  const escapedTransportFiles = [
+    [
+      "transport/entry.module.css",
+      '.entry { composes: dependency0 from "./dependency0.css"; ' +
+        'composes: dependency1 from "./dependency1.css"; ' +
+        'composes: dependency2 from "./dependency2.css"; }',
+    ],
+    ["transport/dependency0.css", ".dependency0 { color: red; }"],
+    ["transport/dependency1.css", ".dependency1 { color: blue; }"],
+    ["transport/dependency2.css", ".dependency2 { color: red; }"],
+  ] as const;
+  for (const [filePath, rule] of escapedTransportFiles) {
+    write(filePath, escapedCssAtFileLimit(rule));
+  }
+  assert.equal(
+    escapedTransportFiles.length * MAX_PROVIDER_FILE_BYTES,
+    POSTCSS_MODULES_MAX_INPUT_BYTES,
+    "the escaped-source fixture reaches the complete documented source bound",
+  );
+  const escapedTransport = await createPostcssModulesManifest({
+    ...postcssOptions,
+    entry: escapedTransportFiles[0][0],
+    binding: binding(
+      "../transport/entry.module.css",
+      "src-gen/transport/entry.module.css",
+      "app.EscapedTransportStyles",
+    ),
+  });
+  assert.deepEqual(
+    escapedTransport.exports.map((item) => item.name),
+    ["entry"],
+    "the full source allowance survives bounded adapter transport",
+  );
+  assert.deepEqual(
+    escapedTransport.source.inputs.map((item) => item.path),
+    escapedTransportFiles.map(([filePath]) => filePath).sort(),
+    "the full source allowance retains every composition input",
   );
 
   rmSync(path.join(projectRoot, ...postcssDependency.split("/")));

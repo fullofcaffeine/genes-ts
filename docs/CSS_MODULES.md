@@ -95,7 +95,10 @@ packages, fixed adapter, and supplied stylesheet text. The host checks every
 input again before it returns the manifest. A changed or removed file rejects
 publication.
 
-The final complete child runs one normal processor pass and one marker pass,
+The private child request carries exact UTF-8 source bytes as canonical base64,
+so JSON escaping does not reduce the documented 8 MiB source allowance. The
+child rechecks each decoded file and the aggregate byte limit. The final
+complete child then runs one normal processor pass and one marker pass,
 regardless of the number of composition inputs. The normal pass owns the
 runtime export keys. The marker pass distinguishes local and global selectors
 and ties each key to an exact source location. Classless ICSS exports,

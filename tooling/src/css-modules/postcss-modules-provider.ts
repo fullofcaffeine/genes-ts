@@ -277,7 +277,14 @@ async function execute(
         scopeBehaviour: policy.scopeBehaviour,
       }),
       files: Object.freeze([...files].sort(([left], [right]) => compareUtf8(left, right)).map(
-        ([filePath, file]) => Object.freeze({ path: filePath, text: file.text }),
+        ([filePath, file]) => Object.freeze({
+          path: filePath,
+          // Canonical base64 gives source bytes a finite encoded bound. The
+          // 8 MiB source across 256 files, bounded paths, and bounded
+          // configuration remain below the admitted execution request's
+          // unchanged 16 MiB ceiling, including per-file base64 padding.
+          bytesBase64: file.bytes.toString("base64"),
+        }),
       )),
     }),
   });

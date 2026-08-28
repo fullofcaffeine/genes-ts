@@ -12,6 +12,9 @@ const PROTOCOL = "genes.css-module-postcss-adapter.v1";
 const POSTCSS_VERSION = "8.5.25";
 const POSTCSS_MODULES_VERSION = "9.0.1";
 const SELECTOR_PARSER_VERSION = "7.1.4";
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_INPUT_BYTES = 8 * 1024 * 1024;
+const MAX_BASE64_FILE_BYTES = 4 * Math.ceil(MAX_FILE_BYTES / 3);
 // The admitted child always starts in its private materialized entry directory.
 // Keeping virtual project paths below that fixed context makes string-pattern
 // hashes independent of the real checkout and temporary-directory name.
@@ -161,19 +164,32 @@ function parseInput(input) {
     fail("invalid-input");
   }
   const files = new Map();
+  let totalBytes = 0;
   let previous;
   for (const value of source.files) {
-    const file = exactRecord(value, ["path", "text"]);
+    const file = exactRecord(value, ["bytesBase64", "path"]);
     const filePath = portablePath(file.path);
     if (
-      typeof file.text !== "string" ||
+      typeof file.bytesBase64 !== "string" ||
+      Buffer.byteLength(file.bytesBase64, "utf8") > MAX_BASE64_FILE_BYTES ||
       (previous !== undefined && compareUtf8(filePath, previous) <= 0) ||
       files.has(filePath)
     ) {
       fail("invalid-input");
     }
+    const bytes = Buffer.from(file.bytesBase64, "base64");
+    if (
+      bytes.toString("base64") !== file.bytesBase64 ||
+      bytes.byteLength > MAX_FILE_BYTES
+    ) {
+      fail("invalid-input");
+    }
+    totalBytes += bytes.byteLength;
+    if (totalBytes > MAX_INPUT_BYTES) fail("invalid-input");
+    const text = bytes.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(bytes)) fail("invalid-input");
     previous = filePath;
-    files.set(filePath, file.text);
+    files.set(filePath, text);
   }
   if (!files.has(entry)) fail("invalid-entry");
   return { configuration, entry, files };
