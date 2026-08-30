@@ -204,6 +204,123 @@ You usually do **not** need it when:
 Start with the direct compiler workflow. Add host tooling only after the project
 has a concrete watch, warm-compilation, or publication requirement.
 
+## Run the generation-only watch command
+
+Use `genes watch` when a project needs safe, long-lived Genes generation but
+does not have a framework adapter. The command uses the public
+`DevelopmentSession` API. It does not create a second watcher, compiler server,
+or publication path.
+
+The session owns the development output path. Therefore, use one shared HXML
+file and two small entry files:
+
+```hxml
+# build.shared.hxml
+-lib genes-ts
+-cp src
+-main Main
+-D genes.ts
+```
+
+```hxml
+# build.watch.hxml
+build.shared.hxml
+```
+
+```hxml
+# build.hxml
+build.shared.hxml
+-js src-gen/index.ts
+```
+
+Start the development command from the project root:
+
+```bash
+npm exec --no -- genes watch \
+  --project-id my-app/web \
+  --hxml build.watch.hxml \
+  --output src-gen/index.ts \
+  --lix
+```
+
+`--lix` uses the project-installed Lix package to resolve ordered `-lib`
+requests. It does not install packages or use a shell. Omit this option when
+the HXML closure has no library requests.
+
+The default validator is explicit Haxe-only admission. A successful Haxe and
+Genes run can publish, but no host type checker or framework build checks the
+candidate. The command prints this limit when it starts.
+
+Use a reviewed JavaScript module when the project needs another admission
+check:
+
+```js
+// genes.watch.mjs
+export default {
+  policyFacts: {
+    validator: "project-typecheck",
+    version: 1,
+  },
+
+  async validate(tree, { signal, recovery }) {
+    const result = await validateCandidate(tree, { signal, recovery });
+    return result.ok
+      ? { ok: true }
+      : { ok: false, diagnostic: result.diagnostic };
+  },
+};
+```
+
+Then add `--validator genes.watch.mjs`. The module must stay inside the project
+root. Its default export must contain a `validate` function and JSON
+`policyFacts`. The result can accept the candidate or reject it with one JSON
+diagnostic. The command does not accept artifact writers or shell command
+strings.
+
+The command loads the module once. Restart the command after the module or one
+of its imported validator dependencies changes. Keep enough identity in
+`policyFacts` to explain the active validation policy.
+
+Human output presents the same lifecycle facts as short status lines:
+`BUILDING`, `BLOCKED`, `READY`, `DEGRADED`, `CLOSING`, and `CLOSED`. A
+recoverable `BLOCKED` or `DEGRADED` state stays alive for a repair. A degraded
+session keeps the last accepted output tree unchanged.
+
+Use JSON-lines mode for automation:
+
+```bash
+npm exec --no -- genes watch \
+  --project-id my-app/web \
+  --hxml build.watch.hxml \
+  --output src-gen/index.ts \
+  --lix \
+  --json-lines
+```
+
+Every stdout line is one unchanged `DevelopmentEvent` version-one record.
+Status prose and ANSI text never enter stdout in this mode. Automation can use
+the event sequence, revision, generation, failure phase, and retained
+generation directly.
+
+The command uses these exit codes:
+
+- `0`: the session closed normally;
+- `1`: a fatal session or shutdown failure;
+- `2`: invalid arguments, Haxe selection, Lix setup, or validator setup;
+- `130`: clean closure after `SIGINT`; and
+- `143`: clean closure after `SIGTERM`.
+
+Recoverable compile and validation failures do not exit. Repair the input and
+wait for a later `generation-accepted` event.
+
+`genes watch` is a development command. It does not replace the production
+build, validator, or test gates. Run the ordinary output-owning HXML file for
+production:
+
+```bash
+haxe build.hxml
+```
+
 ## A first development session
 
 The smallest useful host supplies three project facts:
@@ -234,7 +351,7 @@ const session = createGenesDevelopmentSession<Diagnostic>({
 
   resolveInvocation: async ({ signal }) => ({
     // Use the native Haxe executable selected by your package manager. The
-    // later `genes watch` CLI owns this discovery for ordinary projects.
+    // The `genes watch` command owns this discovery for ordinary projects.
     executable: "/absolute/path/to/haxe",
     cwd: "/workspace/my-app",
     args: ["build.hxml"],

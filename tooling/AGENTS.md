@@ -18,6 +18,7 @@ host workflow, package boundary, examples, and current distribution status.
 | Serialized newest-state rebuilds | `src/loop/` |
 | Owned Haxe `--wait` lifecycle | `src/haxe-server/`, `haxe-wait-server/v1/` |
 | Admitted-generation session contract | `src/session/`, `development-session/v1/` |
+| Generation-only command and presentation | `src/cli.ts`, `src/commands/watch.ts` |
 | Public exports and package shape | `src/index.ts`, `package.json` |
 
 The versioned JSON corpora are public conformance contracts for host adapters.
