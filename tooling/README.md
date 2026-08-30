@@ -300,7 +300,8 @@ npm exec --no -- genes watch \
 Every stdout line is one unchanged `DevelopmentEvent` version-one record.
 Status prose and ANSI text never enter stdout in this mode. Automation can use
 the event sequence, revision, generation, failure phase, and retained
-generation directly.
+generation directly. If the stdout consumer disconnects, the command closes
+its session and owned compiler before it exits normally.
 
 The command uses these exit codes:
 
@@ -311,7 +312,9 @@ The command uses these exit codes:
 - `143`: clean closure after `SIGTERM`.
 
 Recoverable compile and validation failures do not exit. Repair the input and
-wait for a later `generation-accepted` event.
+wait for a later `generation-accepted` event. A validator module that returns
+an invalid result shape is a setup error, not a recoverable rejection, and
+exits with code `2` after session cleanup.
 
 `genes watch` is a development command. It does not replace the production
 build, validator, or test gates. Run the ordinary output-owning HXML file for

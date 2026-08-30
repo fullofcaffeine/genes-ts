@@ -21,7 +21,9 @@ import {
   formatWatchEvent,
   loadWatchValidator,
   parseWatchArguments,
+  selectWatchExitCode,
   WatchCommandUsageError,
+  watchOutputErrorExitCode,
 } from "./commands/watch.js";
 import type {
   DevelopmentEvent,
@@ -156,6 +158,16 @@ try {
   assert.match(help.stdout, /genes watch --project-id/u);
   assert.match(help.stdout, /Haxe-only admission/u);
   assert.match(help.stdout, /never starts a framework server/u);
+  assert.equal(selectWatchExitCode(undefined, 143), 143);
+  assert.equal(selectWatchExitCode(143, 1), 1);
+  assert.equal(selectWatchExitCode(0, 1), 1);
+  assert.equal(selectWatchExitCode(1, 143), 1);
+  assert.equal(selectWatchExitCode(143, 2), 2);
+  assert.equal(
+    watchOutputErrorExitCode(Object.assign(new Error("closed"), { code: "EPIPE" })),
+    0,
+  );
+  assert.equal(watchOutputErrorExitCode(new Error("broken stdout")), 1);
 
   const validatorRoot = project("validator module");
   const validatorPath = path.join(validatorRoot, "validator.mjs");
@@ -222,6 +234,25 @@ try {
       path.relative(validatorRoot, outsideValidator),
     ),
     /must stay inside the project root/u,
+  );
+  const changingValidator = path.join(validatorRoot, "changing.mjs");
+  writeFileSync(
+    changingValidator,
+    [
+      'import { writeFileSync } from "node:fs";',
+      'import { fileURLToPath } from "node:url";',
+      'const current = fileURLToPath(new URL("./changing.mjs", import.meta.url));',
+      "writeFileSync(",
+      "  current,",
+      '  "export default { policyFacts: {}, async validate() { return { ok: true }; } };\\n",',
+      ");",
+      "export default { policyFacts: {}, async validate() { return { ok: true }; } };",
+      "",
+    ].join("\n"),
+  );
+  await assert.rejects(
+    loadWatchValidator(validatorRoot, "changing.mjs"),
+    /changed while it was loading/u,
   );
 
   const fixtureRoot = watchFixtureRoot;
@@ -462,6 +493,160 @@ try {
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
   }
+
+  const disconnectedOutput = spawn(
+    process.execPath,
+    [
+      cli,
+      "watch",
+      "--root",
+      fixtureRoot,
+      "--project-id",
+      "disconnected-output-fixture",
+      "--hxml",
+      "build.hxml",
+      "--output",
+      "disconnected-output-gen/index.js",
+      "--state",
+      ".genes/disconnected-output-state",
+      "--lix",
+      "--json-lines",
+    ],
+    { cwd: repositoryRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  disconnectedOutput.stdout.setEncoding("utf8");
+  disconnectedOutput.stderr.setEncoding("utf8");
+  let disconnectedBuffer = "";
+  let disconnectedStderr = "";
+  let disconnectedPort = -1;
+  disconnectedOutput.stderr.on("data", (chunk: string) => {
+    disconnectedStderr += chunk;
+  });
+  const disconnectedStarted = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `Timed out waiting for the disconnected-output server. stderr=${JSON.stringify(disconnectedStderr)}`,
+        ),
+      );
+    }, 180_000);
+    disconnectedOutput.stdout.on("data", (chunk: string) => {
+      disconnectedBuffer += chunk;
+      while (disconnectedBuffer.includes("\n")) {
+        const newline = disconnectedBuffer.indexOf("\n");
+        const line = disconnectedBuffer.slice(0, newline);
+        disconnectedBuffer = disconnectedBuffer.slice(newline + 1);
+        if (line.length === 0) continue;
+        const event = JSON.parse(line) as DevelopmentEvent<JsonValue>;
+        if (
+          event.event.kind !== "compiler-lifecycle" ||
+          event.event.event.kind !== "started"
+        ) {
+          continue;
+        }
+        clearTimeout(timer);
+        disconnectedPort = event.event.event.endpoint.port;
+        disconnectedOutput.stdout.destroy();
+        resolve();
+        return;
+      }
+    });
+  });
+  const disconnectedExit = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve) =>
+    disconnectedOutput.once("exit", (code, signal) => resolve({ code, signal })),
+  );
+  let disconnectedExitTimer: NodeJS.Timeout | undefined;
+  try {
+    await disconnectedStarted;
+    const closed = await Promise.race([
+      disconnectedExit,
+      new Promise<never>((_resolve, reject) => {
+        disconnectedExitTimer = setTimeout(
+          () => reject(new Error("Disconnected stdout did not close the session.")),
+          180_000,
+        );
+      }),
+    ]);
+    clearTimeout(disconnectedExitTimer);
+    disconnectedExitTimer = undefined;
+    assert.deepEqual(closed, { code: 0, signal: null }, disconnectedStderr);
+    assert.equal(
+      await portClosed(disconnectedPort),
+      true,
+      "stdout disconnection must close the owned Haxe server",
+    );
+  } finally {
+    clearTimeout(disconnectedExitTimer);
+    if (
+      disconnectedOutput.exitCode === null &&
+      disconnectedOutput.signalCode === null
+    ) {
+      disconnectedOutput.kill("SIGKILL");
+    }
+  }
+
+  writeFileSync(
+    path.join(fixtureRoot, "invalid-result.mjs"),
+    [
+      "export default {",
+      "  policyFacts: { fixture: 'invalid-result' },",
+      "  async validate() { return { ok: true, unexpected: true }; },",
+      "};",
+      "",
+    ].join("\n"),
+  );
+  const invalidValidator = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "watch",
+      "--root",
+      fixtureRoot,
+      "--project-id",
+      "invalid-validator-fixture",
+      "--hxml",
+      "build.hxml",
+      "--output",
+      "invalid-validator-gen/index.js",
+      "--state",
+      ".genes/invalid-validator-state",
+      "--validator",
+      "invalid-result.mjs",
+      "--lix",
+      "--json-lines",
+    ],
+    { cwd: repositoryRoot, encoding: "utf8", timeout: 180_000 },
+  );
+  assert.equal(invalidValidator.status, 2, invalidValidator.stderr);
+  assert.match(
+    invalidValidator.stdout,
+    /GENES_WATCH_VALIDATOR_RESULT_INVALID/u,
+    "a structural validator result failure must remain machine-readable",
+  );
+  const invalidValidatorEvents = invalidValidator.stdout
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as DevelopmentEvent<JsonValue>);
+  const invalidValidatorStarted = invalidValidatorEvents.find(
+    (event) =>
+      event.event.kind === "compiler-lifecycle" &&
+      event.event.event.kind === "started",
+  );
+  const invalidValidatorPort =
+    invalidValidatorStarted?.event.kind === "compiler-lifecycle" &&
+    invalidValidatorStarted.event.event.kind === "started"
+      ? invalidValidatorStarted.event.event.endpoint.port
+      : -1;
+  assert.notEqual(invalidValidatorPort, -1);
+  assert.equal(
+    await portClosed(invalidValidatorPort),
+    true,
+    "invalid validator setup must still close the owned Haxe server",
+  );
 
   writeFileSync(path.join(fixtureRoot, "fatal.hxml"), "--cmd=echo forbidden\n");
   const fatal = spawnSync(
