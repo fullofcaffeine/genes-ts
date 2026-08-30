@@ -692,9 +692,13 @@ rolled back, the other output can start normally.
 
   The tree form intentionally has no glob language. Declare a narrower root
   when only one subtree belongs to the build.
-- `resolveInvocation().executable` is the native Haxe compiler binary that
-  supports `--server-listen` and `--connect`, not a shell command string. The
-  process is spawned with structured arguments and `shell: false`.
+- `resolveInvocation().executable` is an absolute native Haxe compiler binary
+  that supports `--server-listen` and `--connect`, not a shell command string.
+  On POSIX, tooling starts a trusted Node handoff with no inherited environment,
+  transfers the exact Haxe environment over a private pipe, and replaces that
+  same child with Haxe through raw `execve`. An `ENOEXEC` failure is reported;
+  it is never reinterpreted as a shell script. On Windows, tooling starts the
+  canonical `.exe` directly with structured arguments and `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
   or stale. An unrelated file beside generated output is preserved. If a new
   generated path is already occupied by an unowned file, publication fails
@@ -815,12 +819,11 @@ yarn test:tooling-package
 clean temporary project, type-checks every code subpath, imports every runtime
 and conformance-data subpath, and verifies the reviewed file inventory.
 
-The required Genes CI repeats the packed-consumer check on Node 20.9.0, which
+The required Genes CI repeats the packed-consumer check on Node 22.22.0, which
 is the package's oldest supported Node release. The runtime fixture loads JSON
-exports through Node's `createRequire` API because Node 20.9 predates the newer
-`with { type: "json" }` import syntax. The strict TypeScript consumer still
-checks the modern static-import form. Both paths resolve the same public
-package exports.
+exports through Node's `createRequire` API, while the strict TypeScript
+consumer checks the modern static-import form. Both paths resolve the same
+public package exports.
 
 Install an exact reviewed GitHub commit from another Node project with npm
 11.18.0:

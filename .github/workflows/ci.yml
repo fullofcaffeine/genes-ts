@@ -366,11 +366,11 @@ jobs:
       - name: Select the tooling package's oldest supported Node release
         uses: actions/setup-node@v4
         with:
-          node-version: 20.9.0
-      - name: Verify the packed tooling package on Node 20.9
+          node-version: 22.22.0
+      - name: Verify the packed tooling package on Node 22.22
         run: |
           set -euo pipefail
-          test "$(node --version)" = "v20.9.0"
+          test "$(node --version)" = "v22.22.0"
           node scripts/dist/test-tooling-package.js \
             --tarball "$TOOLING_MINIMUM_TARBALL" \
             --pack-json "$TOOLING_MINIMUM_PACK_JSON"

@@ -153,7 +153,7 @@ jobs:
       - name: Verify the exact archive on the oldest supported Node.js release
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 20.9.0
+          node-version: 22.22.0
           package-manager-cache: false
       - name: Run the clean npm 10 consumer
         env:

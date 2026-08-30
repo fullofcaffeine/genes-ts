@@ -17,7 +17,7 @@
     "url": "https://github.com/fullofcaffeine/genes-ts/issues"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": "^22.22.0 || ^24.10.0"
   },
   "exports": {
     ".": {
@@ -144,7 +144,7 @@
   "scripts": {
     "build": "npm exec --no -- tsc6 -p tsconfig.json",
     "prepare": "npm run build",
-    "test": "yarn build && node dist/agents-test.js && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/lix-test.js && node dist/css-modules-test.js && node dist/installed-package-closure-test.js && node dist/processor-execution-admission-test.js && node dist/css-module-providers-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/session-vector-test.js && node dist/session-runtime-vector-test.js && node dist/session-test.js && node dist/session-integration-test.js",
+    "test": "yarn build && node dist/agents-test.js && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/lix-test.js && node dist/css-modules-test.js && node dist/installed-package-closure-test.js && node dist/processor-execution-admission-test.js && node dist/css-module-providers-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/haxe-launch-test.js && node dist/session-vector-test.js && node dist/session-runtime-vector-test.js && node dist/session-test.js && node dist/session-integration-test.js",
     "pack:check": "yarn build && node ../scripts/dist/test-tooling-package.js"
   },
   "peerDependencies": {
@@ -168,7 +168,7 @@
     }
   },
   "devDependencies": {
-    "@types/node": "20.19.30",
+    "@types/node": "22.20.1",
     "ajv": "8.20.0",
     "typescript": "6.0.3",
     "typescript-build": "npm:@typescript/typescript6@6.0.2"

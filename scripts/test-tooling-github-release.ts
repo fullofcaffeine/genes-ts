@@ -131,7 +131,7 @@ assert.match(workflow, /go-version: "1\.26\.5"/);
 assert.match(workflow, /npm pack \.\/tooling --json/);
 assert.match(workflow, /cmp .*first.*second/s);
 assert.match(workflow, /node scripts\/dist\/test-tooling-package\.js/);
-assert.match(workflow, /node-version: 20\.9\.0/);
+assert.match(workflow, /node-version: 22\.22\.0/);
 assert.match(workflow, /test "\$\(npm --version \| cut -d\. -f1\)" = "10"/);
 assert.doesNotMatch(
   workflow,

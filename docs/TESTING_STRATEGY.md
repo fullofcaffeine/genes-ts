@@ -130,7 +130,8 @@ cleanup, file, and byte costs.
 `yarn test:tooling-package` also installs the packed package in a clean
 consumer. It imports both provider subpaths before optional peers exist. It
 then installs exact peers and runs both packed adapters on a reviewed Node
-lane. Node 20 proves the same imports and the stable pre-capture rejection.
+lane. The minimum-runtime lane repeats those imports and adapter checks on Node
+22.22.
 
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the

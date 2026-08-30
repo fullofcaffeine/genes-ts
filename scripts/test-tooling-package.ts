@@ -515,6 +515,13 @@ function verifyPackageMetadata(): { name: string; version: string } {
     packageJson.dependencies === undefined,
     "@genes-ts/tooling must remain dependency-free unless release policy is explicitly expanded"
   );
+  const engines = packageJson.engines;
+  assert(
+    isRecord(engines) &&
+      engines.node === "^22.22.0 || ^24.10.0" &&
+      Object.keys(engines).length === 1,
+    "tooling must declare the reviewed Node 22 and Node 24 LTS lines"
+  );
   const scripts = packageJson.scripts;
   assert(
     isRecord(scripts) &&
@@ -538,7 +545,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
   const devDependencies = packageJson.devDependencies;
   assert(
     isRecord(devDependencies) &&
-      devDependencies["@types/node"] === "20.19.30" &&
+      devDependencies["@types/node"] === "22.20.1" &&
       devDependencies.ajv === "8.20.0" &&
       devDependencies.typescript === programApiEngine.version &&
       devDependencies["typescript-build"] ===
@@ -847,9 +854,8 @@ import * as server from "@genes-ts/tooling/haxe-server";
 import * as session from "@genes-ts/tooling/session";
 import * as watch from "@genes-ts/tooling/watch";
 
-// Node 20.9 predates the 'with { type: "json" }' import syntax. createRequire
-// still resolves the package export map and loads the real JSON value, so this
-// fixture can prove every declared runtime without raising the package floor.
+// createRequire resolves the package export map and loads the real JSON value.
+// Keep this runtime probe independent from evolving static JSON import syntax.
 const requireJson = createRequire(import.meta.url);
 const artifactProtocol = requireJson("@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json");
 const artifactVectors = requireJson("@genes-ts/tooling/artifact-transactions/v1/vectors.json");

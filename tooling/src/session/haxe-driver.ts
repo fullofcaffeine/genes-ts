@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import {
@@ -15,6 +15,7 @@ import {
   type BoundHaxeInvocation,
 } from "./effective-invocation.js";
 import { COMPILER_DATA_DEFINE } from "./compiler-data.js";
+import { launchHaxe } from "./haxe-launch.js";
 
 const LOG_LIMIT = 128_000;
 
@@ -222,15 +223,24 @@ function runCommand(
       reject(new Error("Haxe compilation was cancelled"));
       return;
     }
-    const child = spawn(invocation.executable, [...args], {
+    const launch = launchHaxe(invocation.executable, args, {
       cwd: invocation.cwd,
-      env: invocation.environment,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      environment: invocation.environment,
+      stdout: "pipe",
+      stderr: "pipe",
     });
+    const { child } = launch;
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let handoffComplete = false;
+    let closedResult: CommandResult | undefined;
+    const finish = (): void => {
+      if (settled || !handoffComplete || closedResult === undefined) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      resolve(closedResult);
+    };
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout = append(stdout, chunk);
     });
@@ -255,14 +265,27 @@ function runCommand(
     });
     child.once("close", (code, childSignal) => {
       if (settled) return;
-      settled = true;
-      signal.removeEventListener("abort", abort);
       if (signal.aborted) {
+        settled = true;
+        signal.removeEventListener("abort", abort);
         reject(new Error("Haxe compilation was cancelled"));
       } else {
-        resolve({ code, signal: childSignal, stdout, stderr });
+        closedResult = { code, signal: childSignal, stdout, stderr };
+        finish();
       }
     });
+    void launch.handoff.then(
+      () => {
+        handoffComplete = true;
+        finish();
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
   });
 }
 
@@ -354,22 +377,29 @@ export class HaxeSessionCompiler implements SessionCompiler {
     return this.#request;
   }
 
-  #start(endpoint: HaxeWaitEndpoint): Promise<OwnedHaxeWaitProcess> {
-    const { invocation } = this.#current();
-    const child = spawn(
-      invocation.executable,
+  async #start(endpoint: HaxeWaitEndpoint): Promise<OwnedHaxeWaitProcess> {
+    const request = this.#current();
+    await request.assertInvocationCurrent?.();
+    if (request.signal.aborted) {
+      throw new Error("Haxe compilation was cancelled");
+    }
+    const launch = launchHaxe(
+      request.invocation.executable,
       ["--server-listen", endpoint.argument],
       {
-        cwd: invocation.cwd,
-        env: invocation.environment,
-        shell: false,
-        stdio: ["ignore", "ignore", "ignore"],
+        cwd: request.invocation.cwd,
+        environment: request.invocation.environment,
+        stdout: "ignore",
+        stderr: "ignore",
       },
     );
-    return new Promise((resolve, reject) => {
-      child.once("spawn", () => resolve(new ChildWaitProcess(child)));
-      child.once("error", reject);
-    });
+    const processHandle = new ChildWaitProcess(launch.child);
+    await launch.handoff;
+    if (request.signal.aborted) {
+      await terminate(launch.child, this.#shutdownTimeoutMs);
+      throw new Error("Haxe compilation was cancelled");
+    }
+    return processHandle;
   }
 
   async #probeServer(endpoint: HaxeWaitEndpoint): Promise<boolean> {
