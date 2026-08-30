@@ -524,9 +524,9 @@ The protocol is intentionally friendly to unattended tools:
 - `close()` and read-lease release are idempotent;
 - human terminal formatting is an adapter over the same event records.
 
-The later `genes watch` command will expose these records as a JSON-lines mode.
-Its human mode may be friendlier, but agents will not need to strip ANSI or
-guess whether a log sentence means success.
+The `genes watch --json-lines` command exposes these records without changing
+their schema. Its human mode presents shorter state lines. Agents do not need
+to strip ANSI text or guess whether a log sentence means success.
 
 An in-process client closes the attachment race by subscribing first and then
 calling synchronous `inspect()`. It keeps buffered events with a sequence
@@ -542,8 +542,7 @@ For example, if a compiler fallback is delivered to the subscription while
 is kept, or its sequence is covered by `lastSequence` and the same fallback is
 present in `lastCompilerEvent`. The conformance corpus includes this race.
 
-An automation client should follow this pattern once the runtime and CLI are
-implemented:
+An automation client should follow this pattern:
 
 ```text
 start the session

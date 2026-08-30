@@ -16,6 +16,14 @@ it.
   runtime contract from Node 20.9 to Node 26.1+, where Node fixes failed raw
   process replacement without a process abort. Deep configured temporary paths
   use a private length-bounded POSIX socket directory.
+- Add the generation-only `genes watch` command over the public development
+  session. Structured project, HXML, and output options select one session.
+  Optional Lix resolution reuses the existing shell-free resolver. An explicit
+  JavaScript module can validate a complete candidate without accepting a
+  shell command string. Human status and JSON-lines output consume the same
+  version-one events. Recoverable failures stay alive and keep the last good
+  output, while documented exit codes distinguish setup, fatal, and signal
+  closure results.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,
