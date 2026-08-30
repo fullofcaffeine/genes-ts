@@ -23,7 +23,9 @@ it.
   shell command string. Human status and JSON-lines output consume the same
   version-one events. Recoverable failures stay alive and keep the last good
   output, while documented exit codes distinguish setup, fatal, and signal
-  closure results.
+  closure results. Invalid validator result shapes and stdout disconnection
+  close owned resources instead of leaving a permanently blocked or orphaned
+  session. The recorded validator digest is rechecked after module loading.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,

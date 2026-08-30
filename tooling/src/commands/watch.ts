@@ -23,6 +23,8 @@ import { resolveLixLibraryGroup } from "../lix/index.js";
 
 const WATCH_VALIDATION_PROTOCOL = "genes.tooling.watch-validation" as const;
 const WATCH_VALIDATION_VERSION = 1 as const;
+const WATCH_VALIDATOR_RESULT_INVALID =
+  "GENES_WATCH_VALIDATOR_RESULT_INVALID" as const;
 const HAXE_VERSION = "4.3.7" as const;
 
 export class WatchCommandUsageError extends Error {
@@ -298,6 +300,45 @@ function checkedAdmission(value: unknown): AdmissionResult<JsonValue> {
   );
 }
 
+function invalidValidatorResult(message: string): AdmissionResult<JsonValue> {
+  return Object.freeze({
+    ok: false,
+    diagnostic: Object.freeze({
+      protocol: WATCH_VALIDATION_PROTOCOL,
+      version: WATCH_VALIDATION_VERSION,
+      code: WATCH_VALIDATOR_RESULT_INVALID,
+      message,
+    }),
+  });
+}
+
+function jsonRecord(
+  value: JsonValue | undefined,
+): { readonly [key: string]: JsonValue } | undefined {
+  return value !== null &&
+    value !== undefined &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+    ? (value as { readonly [key: string]: JsonValue })
+    : undefined;
+}
+
+function isInvalidValidatorResult(event: DevelopmentEvent<JsonValue>): boolean {
+  if (
+    event.event.kind !== "failed" ||
+    event.event.failure.phase !== "validate"
+  ) {
+    return false;
+  }
+  const failure = jsonRecord(event.event.failure.diagnostic);
+  const details = jsonRecord(failure?.["details"]);
+  return (
+    details?.["protocol"] === WATCH_VALIDATION_PROTOCOL &&
+    details["version"] === WATCH_VALIDATION_VERSION &&
+    details["code"] === WATCH_VALIDATOR_RESULT_INVALID
+  );
+}
+
 function portableRelative(root: string, file: string): string {
   const relative = path.relative(root, file);
   return relative.split(path.sep).join("/");
@@ -357,6 +398,22 @@ export async function loadWatchValidator(
       `Cannot load validator module ${modulePath}: ${message}`,
     );
   }
+  let loadedDigest: string;
+  try {
+    loadedDigest = createHash("sha256")
+      .update(readFileSync(canonical))
+      .digest("hex");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new WatchCommandUsageError(
+      `Cannot verify validator module ${modulePath} after loading: ${message}`,
+    );
+  }
+  if (loadedDigest !== digest) {
+    throw new WatchCommandUsageError(
+      `Validator module ${modulePath} changed while it was loading; restart with stable reviewed bytes.`,
+    );
+  }
   const namespace = record(imported, "validator module namespace");
   const definition = record(
     namespace.default,
@@ -395,8 +452,17 @@ export async function loadWatchValidator(
     validate: async (
       tree: ValidationTree,
       context: { readonly signal: AbortSignal; readonly recovery: boolean },
-    ) =>
-      checkedAdmission(await validate(tree, context)),
+    ) => {
+      const result = await validate(tree, context);
+      try {
+        return checkedAdmission(result);
+      } catch (error) {
+        if (error instanceof WatchCommandUsageError) {
+          return invalidValidatorResult(error.message);
+        }
+        throw error;
+      }
+    },
   });
 }
 
@@ -603,6 +669,26 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function selectWatchExitCode(
+  current: number | undefined,
+  requested: number,
+): number {
+  if (current === undefined || requested === 1) return requested;
+  if (current === 1) return current;
+  if (requested === 2) return requested;
+  if (current === 2) return current;
+  return current;
+}
+
+export function watchOutputErrorExitCode(error: unknown): 0 | 1 {
+  return error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "EPIPE"
+    ? 0
+    : 1;
+}
+
 export async function runWatchCommand(
   options: WatchCommandOptions,
 ): Promise<number> {
@@ -675,7 +761,7 @@ export async function runWatchCommand(
     finish = resolve;
   });
   const requestClose = (exitCode: number): void => {
-    if (requestedExitCode === undefined) requestedExitCode = exitCode;
+    requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
     closePromise ??= session.close()
       .catch((error: unknown) => {
         requestedExitCode = 1;
@@ -683,18 +769,35 @@ export async function runWatchCommand(
       })
       .then(() => finish?.());
   };
+  let outputOpen = true;
+  const onStdoutError = (error: Error): void => {
+    outputOpen = false;
+    const exitCode = watchOutputErrorExitCode(error);
+    if (exitCode !== 0) {
+      process.stderr.write(`genes watch: stdout failed: ${errorText(error)}\n`);
+    }
+    requestClose(exitCode);
+  };
   const onSigint = (): void => requestClose(130);
   const onSigterm = (): void => requestClose(143);
+  process.stdout.on("error", onStdoutError);
   process.once("SIGINT", onSigint);
   process.once("SIGTERM", onSigterm);
   const unsubscribe = session.subscribe((event) => {
-    if (options.jsonLines) {
-      process.stdout.write(`${JSON.stringify(event)}\n`);
-    } else {
-      const line = formatWatchEvent(event);
-      if (line !== null) process.stdout.write(`${line}\n`);
+    if (outputOpen) {
+      if (options.jsonLines) {
+        process.stdout.write(`${JSON.stringify(event)}\n`);
+      } else {
+        const line = formatWatchEvent(event);
+        if (line !== null) process.stdout.write(`${line}\n`);
+      }
     }
-    if (event.event.kind === "failed" && !event.event.failure.recoverable) {
+    if (isInvalidValidatorResult(event)) {
+      requestClose(2);
+    } else if (
+      event.event.kind === "failed" &&
+      !event.event.failure.recoverable
+    ) {
       requestClose(1);
     }
     if (event.event.kind === "closed") finish?.();
@@ -714,6 +817,7 @@ export async function runWatchCommand(
     return requestedExitCode ?? 0;
   } finally {
     unsubscribe();
+    process.stdout.removeListener("error", onStdoutError);
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);
   }
