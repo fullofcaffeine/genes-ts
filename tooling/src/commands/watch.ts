@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import {
   accessSync,
+  closeSync,
   constants,
+  fstatSync,
   lstatSync,
+  openSync,
   readFileSync,
+  readSync,
   realpathSync,
   statSync,
 } from "node:fs";
@@ -27,6 +31,10 @@ const WATCH_VALIDATION_VERSION = 1 as const;
 const WATCH_VALIDATOR_RESULT_INVALID =
   "GENES_WATCH_VALIDATOR_RESULT_INVALID" as const;
 const HAXE_VERSION = "4.3.7" as const;
+const MAX_FAT_MACH_O_SLICES = 64;
+const WATCH_OUTPUT_MAX_PENDING_RECORDS = 1_024;
+const WATCH_OUTPUT_MAX_PENDING_BYTES = 8 * 1024 * 1024;
+const WATCH_OUTPUT_DRAIN_TIMEOUT_MS = 30_000;
 
 export class WatchCommandUsageError extends Error {
   constructor(message: string) {
@@ -66,14 +74,14 @@ Usage:
 
 Required options:
   --project-id <id>       Stable identity for this project and output owner.
-  --hxml <file>           Ordered top-level HXML file. Repeat to add an entry.
+  --hxml <file>           Ordered lowercase .hxml entry. Repeat to add an entry.
   --output <file>         Project-relative public Genes entry file.
 
 Options:
   --root <directory>      Project root. Default: current working directory.
   --state <directory>     Private session state. Default: .genes/dev.
   --allow-root <path>     Additional trusted HXML or source root. Repeatable.
-  --haxe <executable>     Haxe 4.3.7 executable. Default: haxe.
+  --haxe <executable>     Native Haxe 4.3.7 binary. Default: haxe.
   --lix                   Resolve HXML libraries through project-installed Lix.
   --validator <module>    Explicit JavaScript validator module.
   --json-lines            Write only DevelopmentEvent v1 records to stdout.
@@ -103,6 +111,15 @@ function assignOnce(
   }
   if (value.length === 0) {
     throw new WatchCommandUsageError(`${option} cannot be empty.`);
+  }
+  return value;
+}
+
+function checkedHxmlArgument(value: string): string {
+  if (value.trim().length === 0 || !value.endsWith(".hxml")) {
+    throw new WatchCommandUsageError(
+      "--hxml requires a non-empty path ending in .hxml.",
+    );
   }
   return value;
 }
@@ -138,7 +155,7 @@ export function parseWatchArguments(
         index += 1;
         break;
       case "--hxml":
-        hxmlFiles.push(takeValue(args, index, argument));
+        hxmlFiles.push(checkedHxmlArgument(takeValue(args, index, argument)));
         index += 1;
         break;
       case "--output":
@@ -486,6 +503,233 @@ function resolveExecutable(
   throw new WatchCommandUsageError(`Cannot find Haxe executable ${executable}.`);
 }
 
+interface ExecutableFileIdentity {
+  readonly device: number;
+  readonly inode: number;
+  readonly size: number;
+  readonly modifiedAt: number;
+  readonly changedAt: number;
+}
+
+function readExecutableRange(
+  descriptor: number,
+  fileSize: number,
+  position: number,
+  length: number,
+): Buffer | undefined {
+  if (
+    !Number.isSafeInteger(position) ||
+    position < 0 ||
+    !Number.isSafeInteger(length) ||
+    length < 0 ||
+    position > fileSize - length
+  ) {
+    return undefined;
+  }
+  const bytes = Buffer.alloc(length);
+  return readSync(descriptor, bytes, 0, length, position) === length
+    ? bytes
+    : undefined;
+}
+
+function uint64(
+  bytes: Buffer,
+  offset: number,
+  littleEndian: boolean,
+): number | undefined {
+  const value = littleEndian
+    ? bytes.readBigUInt64LE(offset)
+    : bytes.readBigUInt64BE(offset);
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+}
+
+function isElfExecutable(
+  descriptor: number,
+  fileSize: number,
+): boolean {
+  const header = readExecutableRange(descriptor, fileSize, 0, 20);
+  if (
+    header === undefined ||
+    !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
+    (header[4] !== 1 && header[4] !== 2) ||
+    (header[5] !== 1 && header[5] !== 2) ||
+    header[6] !== 1
+  ) {
+    return false;
+  }
+  const type = header[5] === 1
+    ? header.readUInt16LE(16)
+    : header.readUInt16BE(16);
+  return type === 2 || type === 3;
+}
+
+function thinMachOEndian(header: Buffer): "little" | "big" | undefined {
+  switch (header.subarray(0, 4).toString("hex")) {
+    case "feedface":
+    case "feedfacf":
+      return "big";
+    case "cefaedfe":
+    case "cffaedfe":
+      return "little";
+    default:
+      return undefined;
+  }
+}
+
+function isThinMachOExecutable(
+  descriptor: number,
+  fileSize: number,
+  position: number,
+): boolean {
+  const header = readExecutableRange(descriptor, fileSize, position, 16);
+  if (header === undefined) return false;
+  const endian = thinMachOEndian(header);
+  if (endian === undefined) return false;
+  const fileType = endian === "little"
+    ? header.readUInt32LE(12)
+    : header.readUInt32BE(12);
+  return fileType === 2;
+}
+
+function isMachOExecutable(
+  descriptor: number,
+  fileSize: number,
+): boolean {
+  if (isThinMachOExecutable(descriptor, fileSize, 0)) return true;
+  const header = readExecutableRange(descriptor, fileSize, 0, 8);
+  if (header === undefined) return false;
+  const magic = header.subarray(0, 4).toString("hex");
+  const littleEndian = magic === "bebafeca" || magic === "bfbafeca";
+  const sixtyFourBit = magic === "cafebabf" || magic === "bfbafeca";
+  if (
+    magic !== "cafebabe" &&
+    magic !== "bebafeca" &&
+    magic !== "cafebabf" &&
+    magic !== "bfbafeca"
+  ) {
+    return false;
+  }
+  const sliceCount = littleEndian
+    ? header.readUInt32LE(4)
+    : header.readUInt32BE(4);
+  if (sliceCount === 0 || sliceCount > MAX_FAT_MACH_O_SLICES) return false;
+  const entryBytes = sixtyFourBit ? 32 : 20;
+  const entries = readExecutableRange(
+    descriptor,
+    fileSize,
+    8,
+    sliceCount * entryBytes,
+  );
+  if (entries === undefined) return false;
+  for (let index = 0; index < sliceCount; index += 1) {
+    const entry = index * entryBytes;
+    const position = sixtyFourBit
+      ? uint64(entries, entry + 8, littleEndian)
+      : littleEndian
+        ? entries.readUInt32LE(entry + 8)
+        : entries.readUInt32BE(entry + 8);
+    const size = sixtyFourBit
+      ? uint64(entries, entry + 16, littleEndian)
+      : littleEndian
+        ? entries.readUInt32LE(entry + 12)
+        : entries.readUInt32BE(entry + 12);
+    if (
+      position !== undefined &&
+      size !== undefined &&
+      size >= 16 &&
+      position <= fileSize - size &&
+      isThinMachOExecutable(descriptor, fileSize, position)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isPeExecutable(
+  descriptor: number,
+  fileSize: number,
+  executable: string,
+): boolean {
+  if (!executable.toLowerCase().endsWith(".exe")) return false;
+  const dos = readExecutableRange(descriptor, fileSize, 0, 64);
+  if (dos === undefined || dos.subarray(0, 2).toString("ascii") !== "MZ") {
+    return false;
+  }
+  const peOffset = dos.readUInt32LE(0x3c);
+  const header = readExecutableRange(descriptor, fileSize, peOffset, 26);
+  if (
+    header === undefined ||
+    header.subarray(0, 4).toString("binary") !== "PE\0\0" ||
+    header.readUInt16LE(20) < 2 ||
+    (header.readUInt16LE(22) & 0x0002) === 0
+  ) {
+    return false;
+  }
+  const optionalMagic = header.readUInt16LE(24);
+  return optionalMagic === 0x010b || optionalMagic === 0x020b;
+}
+
+function executableIdentity(
+  descriptor: number,
+): ExecutableFileIdentity | undefined {
+  const stats = fstatSync(descriptor);
+  if (!stats.isFile()) return undefined;
+  return Object.freeze({
+    device: stats.dev,
+    inode: stats.ino,
+    size: stats.size,
+    modifiedAt: stats.mtimeMs,
+    changedAt: stats.ctimeMs,
+  });
+}
+
+/**
+ * Checks the bounded headers that make the current OS load a native image.
+ * This rejects script launchers. It does not attest a trusted compiler binary.
+ */
+function inspectNativeExecutable(
+  executable: string,
+  platform: NodeJS.Platform,
+): ExecutableFileIdentity | undefined {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(executable, "r");
+    const identity = executableIdentity(descriptor);
+    if (identity === undefined) return undefined;
+    const valid = platform === "linux"
+      ? isElfExecutable(descriptor, identity.size)
+      : platform === "darwin"
+        ? isMachOExecutable(descriptor, identity.size)
+        : platform === "win32"
+          ? isPeExecutable(descriptor, identity.size, executable)
+          : false;
+    return valid ? identity : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+export function inspectNativeExecutableFile(
+  executable: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return inspectNativeExecutable(executable, platform) !== undefined;
+}
+
+function sameExecutableIdentity(
+  before: ExecutableFileIdentity,
+  after: ExecutableFileIdentity,
+): boolean {
+  return before.device === after.device &&
+    before.inode === after.inode &&
+    before.size === after.size &&
+    before.modifiedAt === after.modifiedAt &&
+    before.changedAt === after.changedAt;
+}
+
 function probeHaxe(
   executable: string,
   projectRoot: string,
@@ -518,43 +762,59 @@ function checkHaxe(
 } {
   const environment = environmentSnapshot();
   const selected = resolveExecutable(executable, projectRoot, environment);
-  const version = probeHaxe(selected, projectRoot, environment);
-  if (version !== HAXE_VERSION) {
-    throw new WatchCommandUsageError(
-      `genes watch requires Haxe ${HAXE_VERSION}; ${executable} reported ${version || "no version"}.`,
-    );
-  }
-  const managedCandidate = environment.HAXE_STD_PATH === undefined
-    ? path.join(
-        homedir(),
-        "haxe",
-        "versions",
-        version,
-        process.platform === "win32" ? "haxe.exe" : "haxe",
-      )
-    : path.join(
-        path.dirname(environment.HAXE_STD_PATH),
-        process.platform === "win32" ? "haxe.exe" : "haxe",
-      );
-  let nativeExecutable = selected;
-  const launcherSelected = /\.(?:[cm]?js|cmd|bat)$/iu.test(selected);
-  if (launcherSelected) {
+  const admit = (
+    candidate: string,
+  ): { readonly executable: string; readonly version: string } | undefined => {
+    let canonical: string;
     try {
-      const canonicalManaged = realpathSync.native(managedCandidate);
-      accessSync(canonicalManaged, constants.X_OK);
-      if (probeHaxe(canonicalManaged, projectRoot, environment) === version) {
-        nativeExecutable = canonicalManaged;
-      }
+      canonical = realpathSync.native(candidate);
+      accessSync(canonical, constants.X_OK);
     } catch {
-      // A normal native Haxe installation does not need the Lix version layout.
+      return undefined;
+    }
+    const before = inspectNativeExecutable(canonical, process.platform);
+    if (before === undefined) return undefined;
+    const version = probeHaxe(canonical, projectRoot, environment);
+    const after = inspectNativeExecutable(canonical, process.platform);
+    if (after === undefined || !sameExecutableIdentity(before, after)) {
+      throw new WatchCommandUsageError(
+        `Haxe executable ${canonical} changed while genes watch admitted it.`,
+      );
+    }
+    return Object.freeze({ executable: canonical, version });
+  };
+
+  const selectedNative = admit(selected);
+  if (selectedNative !== undefined) {
+    if (selectedNative.version !== HAXE_VERSION) {
+      throw new WatchCommandUsageError(
+        `genes watch requires Haxe ${HAXE_VERSION}; ${executable} reported ${selectedNative.version || "no version"}.`,
+      );
+    }
+    return Object.freeze({
+      ...selectedNative,
+      environment,
+    });
+  }
+
+  const executableName = process.platform === "win32" ? "haxe.exe" : "haxe";
+  const managedCandidates = [
+    ...(environment.HAXE_STD_PATH === undefined ||
+        environment.HAXE_STD_PATH.length === 0
+      ? []
+      : [path.join(path.dirname(environment.HAXE_STD_PATH), executableName)]),
+    path.join(homedir(), "haxe", "versions", HAXE_VERSION, executableName),
+  ];
+  for (const candidate of [...new Set(managedCandidates)]) {
+    const managed = admit(candidate);
+    if (managed !== undefined && managed.version === HAXE_VERSION) {
+      return Object.freeze({ ...managed, environment });
     }
   }
-  if (/\.(?:[cm]?js|cmd|bat)$/iu.test(nativeExecutable)) {
-    throw new WatchCommandUsageError(
-      "genes watch resolved a Haxe launcher instead of the native compiler; use --haxe with the native Haxe 4.3.7 executable.",
-    );
-  }
-  return Object.freeze({ executable: nativeExecutable, version, environment });
+
+  throw new WatchCommandUsageError(
+    `genes watch requires a native Haxe ${HAXE_VERSION} executable; use --haxe with the native compiler binary.`,
+  );
 }
 
 interface LixConfiguration {
@@ -663,6 +923,234 @@ export function watchOutputErrorExitCode(error: unknown): 0 | 1 {
     error.code === "EPIPE"
     ? 0
     : 1;
+}
+
+interface WatchOutputStream {
+  write(
+    chunk: Buffer,
+    callback: (error?: Error | null) => void,
+  ): boolean;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: "drain", listener: () => void): this;
+  removeListener(event: "error", listener: (error: Error) => void): this;
+  removeListener(event: "drain", listener: () => void): this;
+  destroy(): void;
+}
+
+export interface WatchOutputFailure {
+  readonly exitCode: 0 | 1;
+  readonly message: string;
+}
+
+export interface WatchOutputWriterOptions {
+  readonly maxPendingRecords: number;
+  readonly maxPendingBytes: number;
+  readonly drainTimeoutMs: number;
+  readonly onFailure: (failure: WatchOutputFailure) => void;
+}
+
+/**
+ * Bridges synchronous development events to a backpressured Node writable.
+ * The queue retains one ordered prefix and fails closed instead of dropping
+ * records or growing for the lifetime of a watch process.
+ */
+export class WatchOutputWriter {
+  readonly #stream: WatchOutputStream;
+  readonly #options: WatchOutputWriterOptions;
+  readonly #pending: Buffer[] = [];
+  readonly #finishPromise: Promise<void>;
+  readonly #resolveFinish: () => void;
+  readonly #reportedFailures = new Set<string>();
+  #pendingBytes = 0;
+  #writesInFlight = 0;
+  #blocked = false;
+  #accepting = true;
+  #aborted = false;
+  #finishing = false;
+  #finishResolved = false;
+  #disposed = false;
+  #drainTimer: NodeJS.Timeout | undefined;
+
+  readonly #onDrain = (): void => {
+    if (this.#aborted || !this.#blocked) return;
+    this.#blocked = false;
+    this.#pump();
+  };
+
+  readonly #onError = (error: Error): void => {
+    this.#abort(
+      watchOutputErrorExitCode(error),
+      `stdout failed: ${errorText(error)}`,
+    );
+  };
+
+  constructor(stream: WatchOutputStream, options: WatchOutputWriterOptions) {
+    if (
+      !Number.isSafeInteger(options.maxPendingRecords) ||
+      options.maxPendingRecords <= 0 ||
+      !Number.isSafeInteger(options.maxPendingBytes) ||
+      options.maxPendingBytes <= 0 ||
+      !Number.isSafeInteger(options.drainTimeoutMs) ||
+      options.drainTimeoutMs <= 0
+    ) {
+      throw new Error("Watch output limits must be positive safe integers.");
+    }
+    this.#stream = stream;
+    this.#options = options;
+    let resolveFinish: (() => void) | undefined;
+    this.#finishPromise = new Promise<void>((resolve) => {
+      resolveFinish = resolve;
+    });
+    this.#resolveFinish = () => resolveFinish?.();
+    stream.on("error", this.#onError);
+    stream.on("drain", this.#onDrain);
+  }
+
+  writeLine(line: string): void {
+    if (!this.#accepting) return;
+    let record: Buffer;
+    try {
+      record = Buffer.from(`${line}\n`, "utf8");
+    } catch (error) {
+      this.fail(error, "cannot encode stdout record");
+      return;
+    }
+    if (!this.#blocked) {
+      this.#write(record);
+      return;
+    }
+    if (
+      this.#pending.length + 1 > this.#options.maxPendingRecords ||
+      this.#pendingBytes + record.byteLength > this.#options.maxPendingBytes
+    ) {
+      this.#accepting = false;
+      this.#reportFailure({
+        exitCode: 1,
+        message:
+          `stdout backpressure exceeded ${this.#options.maxPendingRecords} records and ${this.#options.maxPendingBytes} bytes; closing without dropping the retained prefix`,
+      });
+      return;
+    }
+    this.#pending.push(record);
+    this.#pendingBytes += record.byteLength;
+  }
+
+  fail(error: unknown, context: string): void {
+    this.#abort(1, `${context}: ${errorText(error)}`);
+  }
+
+  async finish(): Promise<void> {
+    if (!this.#finishing) {
+      this.#finishing = true;
+      this.#accepting = false;
+      this.#settleFinish();
+      if (!this.#finishResolved) {
+        this.#drainTimer = setTimeout(() => {
+          this.#drainTimer = undefined;
+          this.#pending.length = 0;
+          this.#pendingBytes = 0;
+          this.#blocked = false;
+          this.#aborted = true;
+          try {
+            this.#stream.destroy();
+          } catch {
+            // The timeout is already the authoritative output failure.
+          }
+          this.#reportFailure({
+            exitCode: 1,
+            message:
+              `stdout did not drain within ${this.#options.drainTimeoutMs} ms; the output stream was closed`,
+          });
+          this.#settleFinish();
+        }, this.#options.drainTimeoutMs);
+      }
+    }
+    await this.#finishPromise;
+  }
+
+  dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    if (this.#drainTimer !== undefined) clearTimeout(this.#drainTimer);
+    this.#stream.removeListener("error", this.#onError);
+    this.#stream.removeListener("drain", this.#onDrain);
+  }
+
+  #write(record: Buffer): void {
+    this.#writesInFlight += 1;
+    let callbackObserved = false;
+    try {
+      const writable = this.#stream.write(record, (error) => {
+        if (callbackObserved) return;
+        callbackObserved = true;
+        this.#writesInFlight -= 1;
+        if (error !== undefined && error !== null) {
+          this.#abort(
+            watchOutputErrorExitCode(error),
+            `stdout write failed: ${errorText(error)}`,
+          );
+        }
+        this.#settleFinish();
+      });
+      if (!writable) this.#blocked = true;
+    } catch (error) {
+      if (!callbackObserved) {
+        callbackObserved = true;
+        this.#writesInFlight -= 1;
+      }
+      this.#abort(
+        watchOutputErrorExitCode(error),
+        `stdout write failed: ${errorText(error)}`,
+      );
+    }
+  }
+
+  #pump(): void {
+    while (!this.#aborted && !this.#blocked && this.#pending.length > 0) {
+      const record = this.#pending.shift();
+      if (record === undefined) break;
+      this.#pendingBytes -= record.byteLength;
+      this.#write(record);
+    }
+    this.#settleFinish();
+  }
+
+  #abort(exitCode: 0 | 1, message: string): void {
+    if (this.#aborted) return;
+    this.#accepting = false;
+    this.#aborted = true;
+    this.#blocked = false;
+    this.#pending.length = 0;
+    this.#pendingBytes = 0;
+    this.#reportFailure({ exitCode, message });
+    this.#settleFinish();
+  }
+
+  #reportFailure(failure: WatchOutputFailure): void {
+    const key = `${failure.exitCode}:${failure.message}`;
+    if (this.#reportedFailures.has(key)) return;
+    this.#reportedFailures.add(key);
+    this.#options.onFailure(Object.freeze(failure));
+  }
+
+  #settleFinish(): void {
+    if (
+      !this.#finishing ||
+      this.#finishResolved ||
+      (!this.#aborted &&
+        (this.#blocked ||
+          this.#pending.length !== 0 ||
+          this.#writesInFlight !== 0))
+    ) {
+      return;
+    }
+    this.#finishResolved = true;
+    if (this.#drainTimer !== undefined) {
+      clearTimeout(this.#drainTimer);
+      this.#drainTimer = undefined;
+    }
+    this.#resolveFinish();
+  }
 }
 
 function checkedProjectRoot(projectRootOption: string): {
@@ -785,28 +1273,31 @@ export async function runWatchCommand(
       requestClose(2);
     });
   };
-  let outputOpen = true;
-  const onStdoutError = (error: Error): void => {
-    outputOpen = false;
-    const exitCode = watchOutputErrorExitCode(error);
-    if (exitCode !== 0) {
-      process.stderr.write(`genes watch: stdout failed: ${errorText(error)}\n`);
-    }
-    requestClose(exitCode);
-  };
+  const output = new WatchOutputWriter(process.stdout, {
+    maxPendingRecords: WATCH_OUTPUT_MAX_PENDING_RECORDS,
+    maxPendingBytes: WATCH_OUTPUT_MAX_PENDING_BYTES,
+    drainTimeoutMs: WATCH_OUTPUT_DRAIN_TIMEOUT_MS,
+    onFailure: (failure) => {
+      if (failure.exitCode !== 0) {
+        process.stderr.write(`genes watch: ${failure.message}\n`);
+      }
+      requestClose(failure.exitCode);
+    },
+  });
   const onSigint = (): void => requestClose(130);
   const onSigterm = (): void => requestClose(143);
-  process.stdout.on("error", onStdoutError);
   process.once("SIGINT", onSigint);
   process.once("SIGTERM", onSigterm);
   const unsubscribe = session.subscribe((event) => {
-    if (outputOpen) {
+    try {
       if (options.jsonLines) {
-        process.stdout.write(`${JSON.stringify(event)}\n`);
+        output.writeLine(JSON.stringify(event));
       } else {
         const line = formatWatchEvent(event);
-        if (line !== null) process.stdout.write(`${line}\n`);
+        if (line !== null) output.writeLine(line);
       }
+    } catch (error) {
+      output.fail(error, "cannot serialize stdout record");
     }
     if (
       event.event.kind === "failed" &&
@@ -829,11 +1320,12 @@ export async function runWatchCommand(
     }
     await finished;
     await closePromise;
+    await output.finish();
     return requestedExitCode ?? 0;
   } finally {
     if (invalidResultClose !== undefined) clearImmediate(invalidResultClose);
     unsubscribe();
-    process.stdout.removeListener("error", onStdoutError);
+    output.dispose();
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);
   }
