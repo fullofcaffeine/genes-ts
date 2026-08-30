@@ -528,6 +528,12 @@ The `genes watch --json-lines` command exposes these records without changing
 their schema. Its human mode presents shorter state lines. Agents do not need
 to strip ANSI text or guess whether a log sentence means success.
 
+The CLI adapts this synchronous event source to stdout with a bounded ordered
+queue. Temporary backpressure is lossless within 1,024 pending records and 8
+MiB. Crossing either limit closes the session as a fatal output failure instead
+of dropping records or retaining an unbounded backlog. This transport policy is
+CLI-owned and does not add pause authority to a session observer.
+
 An in-process client closes the attachment race by subscribing first and then
 calling synchronous `inspect()`. It keeps buffered events with a sequence
 greater than the snapshot's `lastSequence`; older buffered events describe

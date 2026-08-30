@@ -27,7 +27,12 @@ it.
   close owned resources instead of leaving a permanently blocked or orphaned
   session. Caller-owned diagnostics cannot impersonate that internal setup
   failure. The recorded validator digest is rechecked after module loading,
-  and project-root links fail before any tool or validator code runs.
+  and project-root links fail before any tool or validator code runs. Every
+  HXML argument is now checked before setup. The command rejects an
+  extensionless compiler launcher without running it. It uses a verified native
+  4.3.7 image instead. Human and JSON-lines output use one bounded, ordered
+  backpressure queue. Queue overflow and a final drain timeout close owned
+  resources with exit `1` instead of retaining an unbounded backlog.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,

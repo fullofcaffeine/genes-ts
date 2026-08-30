@@ -247,6 +247,21 @@ npm exec --no -- genes watch \
 requests. It does not install packages or use a shell. Omit this option when
 the HXML closure has no library requests.
 
+Each repeated `--hxml` value must be a nonempty path with the literal lowercase
+`.hxml` suffix. This lexical check happens before the command reads the project
+root or starts a tool. Existence, containment, and HXML contents remain part of
+the live session inventory, so a valid path can still appear during repair.
+
+The command admits one trusted native Haxe 4.3.7 image. Before it runs
+`--version`, it verifies a bounded current-platform ELF, Mach-O, or PE executable
+structure. A shell, Node, CMD, or BAT launcher is never run for discovery. When
+the requested entry is a launcher, the command can use the native binary beside
+`HAXE_STD_PATH` or under the managed `~/haxe/versions/4.3.7` layout. The
+canonical binary must stay unchanged through the exact version probe and is
+then passed unchanged to the session as its directly owned compiler child.
+This protects process ownership; it does not attest a hostile compiled proxy.
+As elsewhere in the tooling contract, the selected compiler is trusted input.
+
 The default validator is explicit Haxe-only admission. A successful Haxe and
 Genes run can publish, but no host type checker or framework build checks the
 candidate. The command prints this limit when it starts.
@@ -304,10 +319,19 @@ the event sequence, revision, generation, failure phase, and retained
 generation directly. If the stdout consumer disconnects, the command closes
 its session and owned compiler before it exits normally.
 
+A temporarily slow connected consumer is handled without reordering or
+duplicating records. After Node reports backpressure, the command retains at
+most 1,024 complete records and 8 MiB of UTF-8 record bytes, then resumes on
+`drain`. If the next record would cross either bound, stdout becomes a fatal
+transport: the command reports the limits on stderr, closes the session with
+exit `1`, and attempts to drain only the already-bounded ordered prefix. Final
+drain is limited to 30 seconds. The command then closes stdout rather than
+waiting forever. Human mode uses the same bounded writer.
+
 The command uses these exit codes:
 
 - `0`: the session closed normally;
-- `1`: a fatal session or shutdown failure;
+- `1`: a fatal session, stdout transport, or shutdown failure;
 - `2`: invalid arguments, Haxe selection, Lix setup, or validator setup;
 - `130`: clean closure after `SIGINT`; and
 - `143`: clean closure after `SIGTERM`.
@@ -360,7 +384,7 @@ const session = createGenesDevelopmentSession<Diagnostic>({
 
   resolveInvocation: async ({ signal }) => ({
     // Use the native Haxe executable selected by your package manager. The
-    // The `genes watch` command owns this discovery for ordinary projects.
+    // `genes watch` command owns this discovery for ordinary projects.
     executable: "/absolute/path/to/haxe",
     cwd: "/workspace/my-app",
     args: ["build.hxml"],
@@ -822,6 +846,11 @@ rolled back, the other output can start normally.
   when only one subtree belongs to the build.
 - `resolveInvocation().executable` is an absolute native Haxe compiler binary
   that supports `--server-listen` and `--connect`, not a shell command string.
+  The thin `genes watch` CLI inspects current-platform ELF, Mach-O, or PE
+  structure before its exact version probe. Thus, an extensionless launcher
+  cannot hide the owned compiler in an undisclosed child process. This is
+  process-shape evidence inside the documented trusted-compiler boundary, not
+  binary attestation.
   On POSIX, tooling starts a trusted Node handoff with no inherited environment,
   transfers the bounded Haxe environment over a private input pipe, and
   replaces that same child with Haxe through raw `execve`. A private control

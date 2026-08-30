@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,6 +15,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { EventEmitter } from "node:events";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -20,9 +23,11 @@ import { fileURLToPath } from "node:url";
 
 import {
   formatWatchEvent,
+  inspectNativeExecutableFile,
   loadWatchValidator,
   parseWatchArguments,
   selectWatchExitCode,
+  WatchOutputWriter,
   WatchCommandUsageError,
   watchOutputErrorExitCode,
 } from "./commands/watch.js";
@@ -94,6 +99,82 @@ function invalidMain(): string {
   ].join("\n");
 }
 
+function nativeFixture(
+  name: string,
+  bytes: Buffer,
+): string {
+  const file = path.join(root, name);
+  writeFileSync(file, bytes);
+  chmodSync(file, 0o755);
+  return file;
+}
+
+function elfFixture(): Buffer {
+  const bytes = Buffer.alloc(64);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  bytes.writeUInt16LE(3, 16);
+  return bytes;
+}
+
+function thinMachOFixture(): Buffer {
+  const bytes = Buffer.alloc(32);
+  bytes.writeUInt32LE(0xfeedfacf, 0);
+  bytes.writeUInt32LE(2, 12);
+  return bytes;
+}
+
+function fatMachOFixture(): Buffer {
+  const bytes = Buffer.alloc(64);
+  bytes.writeUInt32BE(0xcafebabe, 0);
+  bytes.writeUInt32BE(1, 4);
+  bytes.writeUInt32BE(28, 16);
+  bytes.writeUInt32BE(32, 20);
+  thinMachOFixture().copy(bytes, 28);
+  return bytes;
+}
+
+function peFixture(): Buffer {
+  const bytes = Buffer.alloc(256);
+  bytes.write("MZ", 0, "ascii");
+  bytes.writeUInt32LE(128, 0x3c);
+  bytes.write("PE\0\0", 128, "binary");
+  bytes.writeUInt16LE(2, 128 + 4 + 16);
+  bytes.writeUInt16LE(0x0002, 128 + 4 + 18);
+  bytes.writeUInt16LE(0x020b, 128 + 24);
+  return bytes;
+}
+
+class ControlledWatchOutput extends EventEmitter {
+  readonly chunks: Buffer[] = [];
+  readonly callbacks: Array<(error?: Error | null) => void> = [];
+  readonly results: boolean[] = [];
+  destroyed = 0;
+  autoComplete = true;
+  writeError: Error | undefined;
+
+  write(
+    chunk: Buffer,
+    callback: (error?: Error | null) => void,
+  ): boolean {
+    if (this.writeError !== undefined) throw this.writeError;
+    this.chunks.push(Buffer.from(chunk));
+    if (this.autoComplete) {
+      queueMicrotask(() => callback());
+    } else {
+      this.callbacks.push(callback);
+    }
+    return this.results.shift() ?? true;
+  }
+
+  destroy(): void {
+    this.destroyed += 1;
+  }
+}
+
+async function settles(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 interface EventWaiter {
   readonly predicate: (event: DevelopmentEvent<JsonValue>) => boolean;
   readonly resolve: (event: DevelopmentEvent<JsonValue>) => void;
@@ -151,6 +232,242 @@ try {
       error instanceof WatchCommandUsageError &&
       error.message === "At least one --hxml entry is required.",
   );
+  for (const malformed of ["", "   ", "build", "build.HXML"]) {
+    assert.throws(
+      () =>
+        parseWatchArguments(
+          [
+            "--project-id",
+            "malformed-hxml",
+            "--hxml",
+            "first.hxml",
+            "--hxml",
+            malformed,
+            "--output",
+            "src-gen/index.js",
+          ],
+          root,
+        ),
+      (error: unknown) =>
+        error instanceof WatchCommandUsageError &&
+        error.message === "--hxml requires a non-empty path ending in .hxml.",
+      `malformed repeated --hxml value ${JSON.stringify(malformed)} was accepted`,
+    );
+  }
+
+  if (process.platform !== "win32") {
+    const setupRoot = project("malformed-hxml-setup-order");
+    const setupMarker = path.join(setupRoot, "haxe-invoked");
+    const setupShim = path.join(setupRoot, "extensionless-haxe-shim");
+    writeFileSync(
+      setupShim,
+      [
+        `#!${process.execPath}`,
+        `require("node:fs").writeFileSync(${JSON.stringify(setupMarker)}, "invoked");`,
+        'process.stdout.write("4.3.7\\n");',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(setupShim, 0o755);
+    const malformedHxml = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "watch",
+        "--root",
+        setupRoot,
+        "--project-id",
+        "malformed-hxml-setup-order",
+        "--hxml",
+        "",
+        "--output",
+        "src-gen/index.js",
+        "--haxe",
+        setupShim,
+      ],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 30_000 },
+    );
+    assert.equal(malformedHxml.status, 2, malformedHxml.stderr);
+    assert.equal(
+      existsSync(setupMarker),
+      false,
+      "malformed HXML must fail before the Haxe executable is touched",
+    );
+  }
+
+  const elf = nativeFixture("native-linux", elfFixture());
+  const machO = nativeFixture("native-macos", thinMachOFixture());
+  const fatMachO = nativeFixture("native-universal", fatMachOFixture());
+  const pe = nativeFixture("native-windows.exe", peFixture());
+  const malformedPe = peFixture();
+  malformedPe.writeUInt32LE(252, 0x3c);
+  const malformedPePath = nativeFixture("malformed-windows.exe", malformedPe);
+  const javaClass = nativeFixture(
+    "java-class",
+    Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 61]),
+  );
+  const malformedElf = elfFixture();
+  malformedElf[6] = 0;
+  const malformedElfPath = nativeFixture("malformed-linux", malformedElf);
+  assert.equal(inspectNativeExecutableFile(elf, "linux"), true);
+  assert.equal(inspectNativeExecutableFile(malformedElfPath, "linux"), false);
+  assert.equal(inspectNativeExecutableFile(machO, "darwin"), true);
+  assert.equal(inspectNativeExecutableFile(fatMachO, "darwin"), true);
+  assert.equal(inspectNativeExecutableFile(javaClass, "darwin"), false);
+  assert.equal(inspectNativeExecutableFile(pe, "win32"), true);
+  assert.equal(inspectNativeExecutableFile(malformedPePath, "win32"), false);
+  assert.equal(inspectNativeExecutableFile(elf, "darwin"), false);
+
+  const orderedStream = new ControlledWatchOutput();
+  orderedStream.results.push(false, true);
+  const orderedFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const orderedWriter = new WatchOutputWriter(orderedStream, {
+    maxPendingRecords: 4,
+    maxPendingBytes: 64,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => orderedFailures.push(failure),
+  });
+  orderedWriter.writeLine('{"sequence":1}');
+  orderedWriter.writeLine('{"sequence":2}');
+  assert.deepEqual(
+    orderedStream.chunks.map((chunk) => chunk.toString("utf8")),
+    ['{"sequence":1}\n'],
+    "the false-returned record must not be rewritten and later records must wait",
+  );
+  orderedStream.emit("drain");
+  await settles();
+  assert.deepEqual(
+    orderedStream.chunks.map((chunk) => chunk.toString("utf8")),
+    ['{"sequence":1}\n', '{"sequence":2}\n'],
+  );
+  await orderedWriter.finish();
+  orderedWriter.dispose();
+  assert.deepEqual(orderedFailures, []);
+  assert.equal(orderedStream.listenerCount("error"), 0);
+  assert.equal(orderedStream.listenerCount("drain"), 0);
+
+  const boundedStream = new ControlledWatchOutput();
+  boundedStream.results.push(false, true, true);
+  const boundedFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const boundedWriter = new WatchOutputWriter(boundedStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 4,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => boundedFailures.push(failure),
+  });
+  boundedWriter.writeLine("0");
+  boundedWriter.writeLine("1");
+  boundedWriter.writeLine("2");
+  boundedWriter.writeLine("3");
+  boundedWriter.writeLine("ignored");
+  assert.equal(boundedFailures.length, 1, "overflow must fail exactly once");
+  assert.equal(boundedFailures[0]?.exitCode, 1);
+  assert.match(boundedFailures[0]?.message ?? "", /2 records and 4 bytes/u);
+  boundedStream.emit("drain");
+  await settles();
+  await boundedWriter.finish();
+  boundedWriter.dispose();
+  assert.deepEqual(
+    boundedStream.chunks.map((chunk) => chunk.toString("utf8")),
+    ["0\n", "1\n", "2\n"],
+    "overflow must retain one exact bounded prefix and ignore later records",
+  );
+
+  const unicodeStream = new ControlledWatchOutput();
+  unicodeStream.results.push(false, true);
+  const unicodeFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const unicodeWriter = new WatchOutputWriter(unicodeStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 3,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => unicodeFailures.push(failure),
+  });
+  unicodeWriter.writeLine("blocked");
+  unicodeWriter.writeLine("é");
+  unicodeWriter.writeLine("x");
+  assert.equal(unicodeFailures.length, 1, "queue bytes must use UTF-8 byte length");
+  unicodeStream.emit("drain");
+  await settles();
+  await unicodeWriter.finish();
+  unicodeWriter.dispose();
+
+  const epipedStream = new ControlledWatchOutput();
+  const epipedFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const epipedWriter = new WatchOutputWriter(epipedStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 16,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => epipedFailures.push(failure),
+  });
+  epipedStream.emit(
+    "error",
+    Object.assign(new Error("closed consumer"), { code: "EPIPE" }),
+  );
+  await epipedWriter.finish();
+  epipedWriter.dispose();
+  assert.equal(epipedFailures[0]?.exitCode, 0);
+
+  const erroredStream = new ControlledWatchOutput();
+  const emittedFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const erroredWriter = new WatchOutputWriter(erroredStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 16,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => emittedFailures.push(failure),
+  });
+  erroredStream.emit("error", new Error("stream failed"));
+  await erroredWriter.finish();
+  erroredWriter.dispose();
+  assert.equal(emittedFailures[0]?.exitCode, 1);
+
+  const throwingStream = new ControlledWatchOutput();
+  throwingStream.writeError = new Error("synchronous write failure");
+  const synchronousFailures: Array<{
+    readonly exitCode: 0 | 1;
+    readonly message: string;
+  }> = [];
+  const throwingWriter = new WatchOutputWriter(throwingStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 16,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => synchronousFailures.push(failure),
+  });
+  throwingWriter.writeLine("record");
+  await throwingWriter.finish();
+  throwingWriter.dispose();
+  assert.equal(synchronousFailures[0]?.exitCode, 1);
+
+  const callbackStream = new ControlledWatchOutput();
+  callbackStream.autoComplete = false;
+  const callbackFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const callbackWriter = new WatchOutputWriter(callbackStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 16,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => callbackFailures.push(failure),
+  });
+  callbackWriter.writeLine("record");
+  callbackStream.callbacks.shift()?.(new Error("callback failed"));
+  await callbackWriter.finish();
+  callbackWriter.dispose();
+  assert.equal(callbackFailures[0]?.exitCode, 1);
+
+  const timeoutStream = new ControlledWatchOutput();
+  timeoutStream.autoComplete = false;
+  timeoutStream.results.push(false);
+  const timeoutFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
+  const timeoutWriter = new WatchOutputWriter(timeoutStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 16,
+    drainTimeoutMs: 5,
+    onFailure: (failure) => timeoutFailures.push(failure),
+  });
+  timeoutWriter.writeLine("record");
+  await timeoutWriter.finish();
+  timeoutWriter.dispose();
+  assert.equal(timeoutStream.destroyed, 1);
+  assert.equal(timeoutFailures[0]?.exitCode, 1);
+  assert.match(timeoutFailures[0]?.message ?? "", /did not drain/u);
 
   const help = spawnSync(process.execPath, [cli, "watch", "--help"], {
     encoding: "utf8",
@@ -289,6 +606,59 @@ try {
   writeFileSync(path.join(fixtureRoot, "package.json"), '{"type":"module"}\n');
   const main = path.join(sourceRoot, "Main.hx");
   writeFileSync(main, invalidMain());
+
+  if (process.platform !== "win32") {
+    const launcherMarker = path.join(fixtureRoot, "launcher-invoked");
+    const extensionlessLauncher = path.join(fixtureRoot, "extensionless-haxe");
+    writeFileSync(
+      extensionlessLauncher,
+      [
+        `#!${process.execPath}`,
+        `require("node:fs").writeFileSync(${JSON.stringify(launcherMarker)}, "invoked");`,
+        'process.stdout.write("4.3.7\\n");',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(extensionlessLauncher, 0o755);
+    const isolatedHome = project("isolated-haxe-home");
+    const launcherEnvironment = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] =>
+          entry[1] !== undefined && entry[0] !== "HAXE_STD_PATH",
+      ),
+    );
+    launcherEnvironment.HOME = isolatedHome;
+    const extensionless = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "watch",
+        "--root",
+        fixtureRoot,
+        "--project-id",
+        "extensionless-launcher-fixture",
+        "--hxml",
+        "build.hxml",
+        "--output",
+        "extensionless-launcher-gen/index.js",
+        "--haxe",
+        extensionlessLauncher,
+      ],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: launcherEnvironment,
+        timeout: 30_000,
+      },
+    );
+    assert.equal(extensionless.status, 2, extensionless.stderr);
+    assert.equal(
+      existsSync(launcherMarker),
+      false,
+      "an extensionless launcher must be rejected without being invoked",
+    );
+    assert.match(extensionless.stderr, /native Haxe 4\.3\.7 executable/u);
+  }
 
   const linkedFixtureRoot = path.join(root, "linked-watch-root");
   symlinkSync(
