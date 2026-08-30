@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
   chmodSync,
@@ -7,6 +8,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -140,6 +142,29 @@ async function main(): Promise<void> {
         "utf8",
       );
       chmodSync(pseudoNative, 0o755);
+      const fallbackControl = spawnSync(pseudoNative, ["--version"], {
+        cwd: root,
+        encoding: "utf8",
+        env: {},
+        shell: false,
+      });
+      if (fallbackControl.status === 0) {
+        assert.equal(
+          existsSync(shellMarker),
+          true,
+          "a platform shell fallback must run the control fixture",
+        );
+        unlinkSync(shellMarker);
+      } else {
+        assert.equal(
+          fallbackControl.error !== undefined && "code" in fallbackControl.error
+            ? fallbackControl.error.code
+            : undefined,
+          "ENOEXEC",
+          fallbackControl.stderr,
+        );
+        assert.equal(existsSync(shellMarker), false);
+      }
       const rejected = runHaxeSync(pseudoNative, ["--version"], {
         cwd: root,
         environment: {},
