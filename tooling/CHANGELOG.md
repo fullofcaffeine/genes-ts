@@ -25,7 +25,9 @@ it.
   output, while documented exit codes distinguish setup, fatal, and signal
   closure results. Invalid validator result shapes and stdout disconnection
   close owned resources instead of leaving a permanently blocked or orphaned
-  session. The recorded validator digest is rechecked after module loading.
+  session. Caller-owned diagnostics cannot impersonate that internal setup
+  failure. The recorded validator digest is rechecked after module loading,
+  and project-root links fail before any tool or validator code runs.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,

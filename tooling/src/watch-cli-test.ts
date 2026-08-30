@@ -10,6 +10,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import net from "node:net";
@@ -288,6 +289,37 @@ try {
   writeFileSync(path.join(fixtureRoot, "package.json"), '{"type":"module"}\n');
   const main = path.join(sourceRoot, "Main.hx");
   writeFileSync(main, invalidMain());
+
+  const linkedFixtureRoot = path.join(root, "linked-watch-root");
+  symlinkSync(
+    fixtureRoot,
+    linkedFixtureRoot,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const linkedRoot = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "watch",
+      "--root",
+      linkedFixtureRoot,
+      "--project-id",
+      "linked-root-fixture",
+      "--hxml",
+      "build.hxml",
+      "--output",
+      "linked-root-gen/index.js",
+      "--haxe",
+      process.execPath,
+    ],
+    { cwd: repositoryRoot, encoding: "utf8", timeout: 30_000 },
+  );
+  assert.equal(linkedRoot.status, 2, linkedRoot.stderr);
+  assert.match(
+    linkedRoot.stderr,
+    /projectRoot must (?:be a real directory|not traverse a symbolic link)/u,
+    "the CLI must reject root symlink evidence before probing tools or loading policy",
+  );
 
   const child = spawn(
     process.execPath,
@@ -647,6 +679,117 @@ try {
     true,
     "invalid validator setup must still close the owned Haxe server",
   );
+
+  writeFileSync(
+    path.join(fixtureRoot, "colliding-result.mjs"),
+    [
+      "export default {",
+      "  policyFacts: { fixture: 'colliding-result' },",
+      "  async validate() {",
+      "    return {",
+      "      ok: false,",
+      "      diagnostic: {",
+      "        protocol: 'genes.tooling.watch-validation',",
+      "        version: 1,",
+      "        code: 'GENES_WATCH_VALIDATOR_RESULT_INVALID',",
+      "        message: 'caller-owned diagnostic',",
+      "      },",
+      "    };",
+      "  },",
+      "};",
+      "",
+    ].join("\n"),
+  );
+  const collidingValidator = spawn(
+    process.execPath,
+    [
+      cli,
+      "watch",
+      "--root",
+      fixtureRoot,
+      "--project-id",
+      "colliding-validator-fixture",
+      "--hxml",
+      "build.hxml",
+      "--output",
+      "colliding-validator-gen/index.js",
+      "--state",
+      ".genes/colliding-validator-state",
+      "--validator",
+      "colliding-result.mjs",
+      "--lix",
+      "--json-lines",
+    ],
+    { cwd: repositoryRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  collidingValidator.stdout.setEncoding("utf8");
+  collidingValidator.stderr.setEncoding("utf8");
+  let collidingBuffer = "";
+  let collidingStderr = "";
+  let collidingPort = -1;
+  collidingValidator.stderr.on("data", (chunk: string) => {
+    collidingStderr += chunk;
+  });
+  const collidingRejected = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Timed out waiting for the caller-owned validator rejection. stderr=${JSON.stringify(collidingStderr)}`,
+          ),
+        ),
+      180_000,
+    );
+    collidingValidator.stdout.on("data", (chunk: string) => {
+      collidingBuffer += chunk;
+      while (collidingBuffer.includes("\n")) {
+        const newline = collidingBuffer.indexOf("\n");
+        const line = collidingBuffer.slice(0, newline);
+        collidingBuffer = collidingBuffer.slice(newline + 1);
+        if (line.length === 0) continue;
+        const event = JSON.parse(line) as DevelopmentEvent<JsonValue>;
+        if (
+          event.event.kind === "compiler-lifecycle" &&
+          event.event.event.kind === "started"
+        ) {
+          collidingPort = event.event.event.endpoint.port;
+        }
+        if (
+          event.event.kind !== "failed" ||
+          event.event.failure.phase !== "validate"
+        ) {
+          continue;
+        }
+        clearTimeout(timer);
+        assert.notEqual(collidingPort, -1);
+        assert.equal(collidingValidator.kill("SIGTERM"), true);
+        resolve();
+        return;
+      }
+    });
+  });
+  const collidingExit = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve) =>
+    collidingValidator.once("exit", (code, signal) => resolve({ code, signal })),
+  );
+  try {
+    await collidingRejected;
+    assert.deepEqual(await collidingExit, { code: 143, signal: null }, collidingStderr);
+    assert.equal(
+      await portClosed(collidingPort),
+      true,
+      "a caller-owned marker-shaped rejection must remain recoverable and close on signal",
+    );
+  } finally {
+    if (
+      collidingValidator.exitCode === null &&
+      collidingValidator.signalCode === null
+    ) {
+      collidingValidator.kill("SIGKILL");
+    }
+  }
 
   writeFileSync(path.join(fixtureRoot, "fatal.hxml"), "--cmd=echo forbidden\n");
   const fatal = spawnSync(

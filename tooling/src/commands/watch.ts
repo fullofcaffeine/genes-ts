@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   accessSync,
   constants,
+  lstatSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -312,33 +313,6 @@ function invalidValidatorResult(message: string): AdmissionResult<JsonValue> {
   });
 }
 
-function jsonRecord(
-  value: JsonValue | undefined,
-): { readonly [key: string]: JsonValue } | undefined {
-  return value !== null &&
-    value !== undefined &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-    ? (value as { readonly [key: string]: JsonValue })
-    : undefined;
-}
-
-function isInvalidValidatorResult(event: DevelopmentEvent<JsonValue>): boolean {
-  if (
-    event.event.kind !== "failed" ||
-    event.event.failure.phase !== "validate"
-  ) {
-    return false;
-  }
-  const failure = jsonRecord(event.event.failure.diagnostic);
-  const details = jsonRecord(failure?.["details"]);
-  return (
-    details?.["protocol"] === WATCH_VALIDATION_PROTOCOL &&
-    details["version"] === WATCH_VALIDATION_VERSION &&
-    details["code"] === WATCH_VALIDATOR_RESULT_INVALID
-  );
-}
-
 function portableRelative(root: string, file: string): string {
   const relative = path.relative(root, file);
   return relative.split(path.sep).join("/");
@@ -347,6 +321,7 @@ function portableRelative(root: string, file: string): string {
 export async function loadWatchValidator(
   projectRoot: string,
   modulePath?: string,
+  onInvalidResultShape: (message: string) => void = () => undefined,
 ): Promise<WatchValidator> {
   if (modulePath === undefined) {
     return Object.freeze({
@@ -458,6 +433,7 @@ export async function loadWatchValidator(
         return checkedAdmission(result);
       } catch (error) {
         if (error instanceof WatchCommandUsageError) {
+          onInvalidResultShape(error.message);
           return invalidValidatorResult(error.message);
         }
         throw error;
@@ -689,22 +665,52 @@ export function watchOutputErrorExitCode(error: unknown): 0 | 1 {
     : 1;
 }
 
+function checkedProjectRoot(projectRootOption: string): {
+  readonly absolute: string;
+  readonly canonical: string;
+} {
+  const absolute = path.resolve(projectRootOption);
+  let canonical: string;
+  try {
+    const stats = lstatSync(absolute);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new WatchCommandUsageError("projectRoot must be a real directory");
+    }
+    canonical = realpathSync.native(absolute);
+  } catch (error) {
+    if (error instanceof WatchCommandUsageError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new WatchCommandUsageError(
+      `projectRoot must be a real directory: ${message}`,
+    );
+  }
+  if (path.normalize(canonical) !== path.normalize(absolute)) {
+    throw new WatchCommandUsageError(
+      "projectRoot must not traverse a symbolic link",
+    );
+  }
+  return Object.freeze({ absolute, canonical });
+}
+
 export async function runWatchCommand(
   options: WatchCommandOptions,
 ): Promise<number> {
-  const projectRoot = realpathSync.native(options.projectRoot);
+  const checkedRoot = checkedProjectRoot(options.projectRoot);
+  const projectRoot = checkedRoot.canonical;
   const haxe = checkHaxe(options.haxeExecutable, projectRoot);
   const lix = options.useLix ? loadLix(projectRoot) : undefined;
+  let handleInvalidResultShape = (_message: string): void => undefined;
   const validator = await loadWatchValidator(
     projectRoot,
     options.validatorModule,
+    (message) => handleInvalidResultShape(message),
   );
   const allowedRoots = Object.freeze([
     projectRoot,
     ...options.allowedRoots.map((root) => path.resolve(projectRoot, root)),
   ]);
   const session = createGenesDevelopmentSession<JsonValue>({
-    projectRoot,
+    projectRoot: checkedRoot.absolute,
     projectIdentity: options.projectIdentity,
     hxml: {
       allowedRoots,
@@ -756,6 +762,8 @@ export async function runWatchCommand(
 
   let requestedExitCode: number | undefined;
   let closePromise: Promise<void> | undefined;
+  let invalidResultClose: NodeJS.Immediate | undefined;
+  let invalidResultShapeObserved = false;
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => {
     finish = resolve;
@@ -768,6 +776,14 @@ export async function runWatchCommand(
         process.stderr.write(`genes watch: shutdown failed: ${errorText(error)}\n`);
       })
       .then(() => finish?.());
+  };
+  handleInvalidResultShape = () => {
+    invalidResultShapeObserved = true;
+    // Let the session publish its versioned failure event before closure.
+    invalidResultClose ??= setImmediate(() => {
+      invalidResultClose = undefined;
+      requestClose(2);
+    });
   };
   let outputOpen = true;
   const onStdoutError = (error: Error): void => {
@@ -792,9 +808,7 @@ export async function runWatchCommand(
         if (line !== null) process.stdout.write(`${line}\n`);
       }
     }
-    if (isInvalidValidatorResult(event)) {
-      requestClose(2);
-    } else if (
+    if (
       event.event.kind === "failed" &&
       !event.event.failure.recoverable
     ) {
@@ -808,14 +822,16 @@ export async function runWatchCommand(
     try {
       await session.start();
     } catch (error) {
-      requestedExitCode = 1;
+      const exitCode = invalidResultShapeObserved ? 2 : 1;
+      requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
       process.stderr.write(`genes watch: startup failed: ${errorText(error)}\n`);
-      requestClose(1);
+      requestClose(exitCode);
     }
     await finished;
     await closePromise;
     return requestedExitCode ?? 0;
   } finally {
+    if (invalidResultClose !== undefined) clearImmediate(invalidResultClose);
     unsubscribe();
     process.stdout.removeListener("error", onStdoutError);
     process.removeListener("SIGINT", onSigint);
