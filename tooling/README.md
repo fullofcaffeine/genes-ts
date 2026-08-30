@@ -275,7 +275,8 @@ Then add `--validator genes.watch.mjs`. The module must stay inside the project
 root. Its default export must contain a `validate` function and JSON
 `policyFacts`. The result can accept the candidate or reject it with one JSON
 diagnostic. The command does not accept artifact writers or shell command
-strings.
+strings. The diagnostic is caller-owned data. Its fields do not control the
+command lifecycle.
 
 The command loads the module once. Restart the command after the module or one
 of its imported validator dependencies changes. Keep enough identity in
@@ -315,6 +316,11 @@ Recoverable compile and validation failures do not exit. Repair the input and
 wait for a later `generation-accepted` event. A validator module that returns
 an invalid result shape is a setup error, not a recoverable rejection, and
 exits with code `2` after session cleanup.
+
+The project root must be a real directory and its path must not traverse a
+symbolic link. The command checks this before it probes Haxe, resolves Lix, or
+loads validator code. The public development session checks the same original
+absolute path again before it creates private state.
 
 `genes watch` is a development command. It does not replace the production
 build, validator, or test gates. Run the ordinary output-owning HXML file for
