@@ -93,6 +93,7 @@ watch/loop pair, or only the owned Haxe server.
 
 | Public subpath | What it does | What the host still decides |
 | --- | --- | --- |
+| `@genes-ts/tooling/agents` | Installs or checks one versioned Genes guidance block in root `AGENTS.md` | When to opt in and which narrower project rules to add |
 | `@genes-ts/tooling/hxml` | Resolves declared HXML inputs deterministically | Environment values, library resolution, and allowed roots |
 | `@genes-ts/tooling/watch` | Reconciles fast native events with authoritative snapshots | Which paths matter and what kind of change each path means |
 | `@genes-ts/tooling/loop` | Debounces bursts and prevents overlapping rebuilds | How change causes merge and what one rebuild performs |
@@ -157,6 +158,35 @@ mobile, server, or embedded host can refresh its own runtime or restart when
 its policy requires it. The generic session remains reusable because it owns
 only the validated file transition and structured lifecycle—not any
 framework's transport, module graph, device connection, or process policy.
+
+## Install the consumer agent guide
+
+An installed package does not change a project's agent instructions. Run the
+installer explicitly from the project root:
+
+```bash
+npm exec --no -- genes agents install
+```
+
+The command creates `AGENTS.md` when it is absent. Otherwise, it inserts or
+updates one clearly marked Genes block. It preserves every existing byte
+outside that block. Repeated installation makes no change.
+
+Use check mode in CI or a scaffold:
+
+```bash
+npm exec --no -- genes agents check
+```
+
+Check mode returns zero only for the current block. It returns one when the
+block is missing or stale. Invalid, missing, reversed, or duplicate markers
+return two and leave the file unchanged. The package never runs this command
+from `preinstall`, `install`, `postinstall`, or `prepare`.
+
+Use `--root <project-root>` when the command runs outside the consumer root.
+The programmatic API is available from `@genes-ts/tooling/agents`. The exact
+version-one source is also packaged at
+`@genes-ts/tooling/agent-guidance/v1/AGENTS.md`.
 
 ## When to use it
 
@@ -765,18 +795,13 @@ An `AGENTS.md` inside Genes or this npm package does not automatically govern a
 different repository. Agent instructions follow the consuming file's parent
 directories; they do not follow npm, Lix, or Git dependency edges.
 
-The later `genes watch` delivery therefore also owns an explicit,
-non-destructive install/check flow for a versioned Genes block in each
-consumer's repository-root `AGENTS.md`. It will create the file when missing or
-replace only its own marked block, preserve project-authored instructions, fail
-closed on malformed/duplicate markers, and never modify a checkout from npm
-`postinstall`. Frameworks may add narrower scoped guidance below the root, but
-that does not replace the generic Genes lifecycle rules.
-
-Until that managed flow ships, application maintainers must document their
-Genes command and ownership boundary in the consuming repository themselves;
-dependency-local instructions are useful reference material, not inherited
-policy.
+The tooling package therefore ships the explicit, non-destructive
+`genes agents install` and `genes agents check` flow documented above. It
+creates the file when missing or replaces only its own marked block, preserves
+project-authored instructions, fails closed on malformed or duplicate markers,
+and never modifies a checkout from npm `postinstall`. Frameworks may add
+narrower scoped guidance below the root, but that does not replace the generic
+Genes lifecycle rules.
 
 Repository development uses:
 

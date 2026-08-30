@@ -1,4 +1,5 @@
 export * from "./artifacts/index.js";
+export * from "./agents/index.js";
 export * from "./css-modules/index.js";
 export * from "./hxml/index.js";
 export * from "./lix/index.js";

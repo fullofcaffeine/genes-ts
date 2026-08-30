@@ -6,6 +6,11 @@ it.
 
 ## Unreleased
 
+- Add an explicit `genes agents install` command and a read-only check mode.
+  The command installs one versioned managed block in a consumer's root
+  `AGENTS.md`. It preserves all project-authored bytes outside that block,
+  upgrades only valid marker pairs, and fails without writes for malformed or
+  duplicate markers. The package has no install lifecycle hook.
 - Add optional PostCSS Modules and TypeScript declaration providers for the
   version-one CSS Module manifest. Both run fixed adapters from measured copied
   package bytes in fresh children. The PostCSS provider discovers bounded
