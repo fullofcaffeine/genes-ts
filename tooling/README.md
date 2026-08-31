@@ -665,7 +665,9 @@ rolled back, the other output can start normally.
   and passes those same values to Haxe. Changing `PATH`, `HAXELIB_PATH`,
   `HAXE_STD_PATH`, or another ambient value therefore cannot silently reuse a
   server started with older settings. Mutating a retained host array or object
-  later cannot change the command.
+  later cannot change the command. The combined UTF-8 environment names and
+  values must not exceed 64 KiB. This limit bounds the trusted handoff before
+  it retains or parses target credentials.
 - The host invocation contains only ordered top-level HXML files. Put build flags
   inside those HXML files; extra command-line flags are rejected because
   otherwise Haxe could compile files that the development loop did not know to
@@ -695,10 +697,13 @@ rolled back, the other output can start normally.
 - `resolveInvocation().executable` is an absolute native Haxe compiler binary
   that supports `--server-listen` and `--connect`, not a shell command string.
   On POSIX, tooling starts a trusted Node handoff with no inherited environment,
-  transfers the exact Haxe environment over a private pipe, and replaces that
-  same child with Haxe through raw `execve`. An `ENOEXEC` failure is reported;
-  it is never reinterpreted as a shell script. On Windows, tooling starts the
-  canonical `.exe` directly with structured arguments and `shell: false`.
+  transfers the bounded Haxe environment over a private input pipe, and
+  replaces that same child with Haxe through raw `execve`. A private control
+  socket closes during successful replacement, including for a long-lived
+  compiler server. A failed replacement reports a bounded error through the
+  same socket. An `ENOEXEC` failure is never reinterpreted as a shell script.
+  On Windows, tooling starts the canonical `.exe` directly with structured
+  arguments and `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
   or stale. An unrelated file beside generated output is preserved. If a new
   generated path is already occupied by an unowned file, publication fails

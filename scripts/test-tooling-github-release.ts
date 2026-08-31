@@ -104,6 +104,13 @@ assert.match(workflow, /NPM_RELEASE_INTEGRITY: "sha512-/);
 assert.match(workflow, /npm install --global "npm@\$\{NPM_RELEASE_VERSION\}"/);
 assert.match(workflow, /tooling-v\$\{RELEASE_VERSION\}/);
 assert.match(workflow, /yarn test:ci/);
+assert.match(workflow, /uses: \.\/release-controller\/\.github\/actions\/setup-yarn/);
+assert.doesNotMatch(workflow, /corepack|cache:\s*yarn/);
+assert(
+  workflow.indexOf("uses: ./release-controller/.github/actions/setup-yarn") <
+    workflow.indexOf("run: yarn install --frozen-lockfile"),
+  "standalone Yarn must be installed before the first Yarn command"
+);
 const goSetup = workflow.indexOf(
   "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"
 );
@@ -250,13 +257,24 @@ assert.match(releasePublisher, /"--target", commit/);
 assert.match(releasePublisher, /"--title", title/);
 assert.match(releasePublisher, /"--notes-file", notesFile/);
 
+const reviewedLocalAction = "./release-controller/.github/actions/setup-yarn";
+let reviewedLocalActionCount = 0;
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
+  if (reference[1] === reviewedLocalAction) {
+    reviewedLocalActionCount += 1;
+    continue;
+  }
   assert.match(
     reference[1],
     /@[0-9a-f]{40}$/,
     "GitHub-only tooling release actions must use reviewed full commit IDs"
   );
 }
+assert.equal(
+  reviewedLocalActionCount,
+  1,
+  "GitHub-only tooling release must use the one reviewed local Yarn action exactly once"
+);
 
 assert.equal(releaseHelpers.versionFromTag("tooling-v0.1.0"), "0.1.0");
 assert.throws(

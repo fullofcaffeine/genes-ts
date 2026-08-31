@@ -1,9 +1,12 @@
-import { readFileSync, writeSync } from "node:fs";
+import { readSync, writeSync } from "node:fs";
+import net, { type Socket } from "node:net";
 import path from "node:path";
 
-const CONTROL_FD = 3;
+import { HAXE_ENVIRONMENT_PAYLOAD_LIMIT } from "./haxe-exec-contract.js";
 
 class SafeRunnerError extends Error {}
+
+let failureStarted = false;
 
 function errorText(error: unknown): string {
   if (error instanceof SafeRunnerError) return error.message;
@@ -19,18 +22,58 @@ function errorText(error: unknown): string {
   return "Haxe raw-exec failed without a safe diagnostic";
 }
 
-function writeControl(message: string): void {
+function finishFailure(error: unknown, control?: Socket): void {
+  if (failureStarted) return;
+  failureStarted = true;
+  const detail = errorText(error);
   try {
-    writeSync(CONTROL_FD, message);
+    writeSync(2, `Genes could not raw-exec Haxe: ${detail}\n`);
   } catch {
-    // A direct diagnostic invocation can omit the private descriptor.
+    // The fixed control diagnostic remains available when stderr is closed.
   }
+  if (control === undefined || control.destroyed) process.exit(126);
+
+  const exit = (): void => process.exit(126);
+  control.once("error", exit);
+  control.end(`ERROR ${detail}\n`, exit);
+  setTimeout(exit, 100).unref();
 }
 
-function environmentFromStdin(): Record<string, string> {
+function environmentPayloadLength(value: string | undefined): number {
+  if (value === undefined || !/^(?:0|[1-9][0-9]*)$/u.test(value)) {
+    throw new SafeRunnerError(
+      "Haxe launch environment byte length is invalid",
+    );
+  }
+  const length = Number(value);
+  if (!Number.isSafeInteger(length) || length > HAXE_ENVIRONMENT_PAYLOAD_LIMIT) {
+    throw new SafeRunnerError(
+      "Haxe launch environment exceeds its byte limit",
+    );
+  }
+  return length;
+}
+
+function environmentPayloadFromStdin(length: number): string {
+  const payload = Buffer.allocUnsafe(length);
+  let offset = 0;
+  while (offset < length) {
+    const bytesRead = readSync(0, payload, offset, length - offset, null);
+    if (bytesRead === 0) {
+      throw new SafeRunnerError(
+        "Haxe launch environment ended before its declared byte length",
+      );
+    }
+    offset += bytesRead;
+  }
+  return payload.toString("utf8");
+}
+
+function environmentFromStdin(length: number): Record<string, string> {
+  const payload = environmentPayloadFromStdin(length);
   let decoded: unknown;
   try {
-    decoded = JSON.parse(readFileSync(0, "utf8"));
+    decoded = JSON.parse(payload);
   } catch {
     throw new SafeRunnerError("Haxe launch environment must be valid JSON");
   }
@@ -87,25 +130,67 @@ function recoverableExecve(): NonNullable<typeof process.execve> {
   );
 }
 
+function execute(
+  execve: NonNullable<typeof process.execve>,
+  executable: string,
+  args: readonly string[],
+  environment: Record<string, string>,
+  control?: Socket,
+): void {
+  if (control === undefined) {
+    try {
+      execve(executable, [executable, ...args], environment);
+    } catch (error) {
+      finishFailure(error);
+    }
+    return;
+  }
+  control.write("READY\n", (error?: Error | null) => {
+    if (error !== undefined && error !== null) {
+      finishFailure(
+        new SafeRunnerError("Haxe raw-exec control is unavailable"),
+        control,
+      );
+      return;
+    }
+    try {
+      execve(executable, [executable, ...args], environment);
+    } catch (execError) {
+      finishFailure(execError, control);
+    }
+  });
+}
+
 try {
-  const [executable, ...args] = process.argv.slice(2);
+  const [controlPath, payloadLengthText, executable, ...args] =
+    process.argv.slice(2);
+  const payloadLength = environmentPayloadLength(payloadLengthText);
   if (executable === undefined || !path.isAbsolute(executable)) {
     throw new SafeRunnerError("Haxe executable must be an absolute path");
   }
   const execve = recoverableExecve();
-  const environment = environmentFromStdin();
-  // READY means all launch input was validated and the raw exec call is next.
-  // Node 26.1+ returns normal errno-shaped failures, so the outer boundary can
-  // report a changed or removed target without aborting with this environment.
-  writeControl("READY\n");
-  execve(executable, [executable, ...args], environment);
-} catch (error) {
-  const detail = errorText(error);
-  writeControl(`ERROR ${detail}\n`);
-  try {
-    writeSync(2, `Genes could not raw-exec Haxe: ${detail}\n`);
-  } catch {
-    // The control descriptor remains the authoritative launch failure.
+  if (controlPath === "-") {
+    execute(execve, executable, args, environmentFromStdin(payloadLength));
+  } else {
+    if (controlPath === undefined || !path.isAbsolute(controlPath)) {
+      throw new SafeRunnerError("Haxe raw-exec control path is invalid");
+    }
+    const control = net.createConnection(controlPath);
+    control.once("error", () => {
+      finishFailure(new SafeRunnerError("Haxe raw-exec control is unavailable"));
+    });
+    control.once("connect", () => {
+      try {
+        const environment = environmentFromStdin(payloadLength);
+        // READY means all launch input was validated and execve is next. The
+        // runner-created socket closes on successful replacement. A failed
+        // exec remains in this process and appends a fixed ERROR record.
+        execute(execve, executable, args, environment, control);
+      } catch (error) {
+        finishFailure(error, control);
+      }
+    });
   }
-  process.exitCode = 126;
+} catch (error) {
+  finishFailure(error);
 }

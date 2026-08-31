@@ -25,7 +25,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  YARN_VERSION: "1.22.22"
   NPM_RELEASE_VERSION: "11.18.0"
   NPM_RELEASE_INTEGRITY: "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w=="
 
@@ -65,8 +64,7 @@ jobs:
             "$NPM_RELEASE_INTEGRITY"
           npm install --global "npm@${NPM_RELEASE_VERSION}"
           test "$(npm --version)" = "$NPM_RELEASE_VERSION"
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - run: yarn install --frozen-lockfile
       - name: Verify explicit release authorization and protected source
         env:

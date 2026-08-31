@@ -34,6 +34,13 @@ installation contract. Node 25 and earlier majors are intentionally rejected,
 even when an individual dependency can run there. Future majors likewise fail
 until the manifest, dependency engines, and CI deliberately admit them.
 
+Node 26 installations do not include Corepack. GitHub workflows therefore use
+the repository's `setup-yarn` action before the first Yarn command. The action
+checks the registry package against the SHA-512 digest in `package.json`,
+installs Yarn 1.22.22 without package scripts, and checks the installed version.
+The workflows do not ask `setup-node` to restore a Yarn cache before this step,
+because that cache lookup would itself require a Yarn executable.
+
 See the official [Node release table](https://nodejs.org/en/about/previous-releases)
 and [end-of-life policy](https://nodejs.org/en/about/eol) for the current
 upstream lifecycle status.
@@ -103,5 +110,5 @@ not a support promise.
 `yarn test:versions` verifies package aliases and installed versions, the
 stable `.haxerc`, the dts2hx package and embedded TypeScript version, modern
 tsconfig assumptions, adapter-only API imports, and workflow manifest
-consumption. It also rejects reintroduced hard-coded TypeScript versions in
-test runners.
+consumption. It also verifies standalone Yarn setup and rejects reintroduced
+hard-coded TypeScript versions in test runners.

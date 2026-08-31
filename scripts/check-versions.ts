@@ -96,6 +96,77 @@ function assertModernTsconfigs(): void {
   }
 }
 
+function assertStandaloneYarnWorkflows(packageManager: string): void {
+  const pin = /^yarn@([^+]+)\+sha512\.([0-9a-f]+)$/u.exec(packageManager);
+  if (pin === null) {
+    throw new Error(
+      "package.json packageManager must pin Yarn with a SHA-512 digest"
+    );
+  }
+  const expectedIntegrity =
+    `sha512-${Buffer.from(pin[2], "hex").toString("base64")}`;
+  const actionPath = ".github/actions/setup-yarn/action.yml";
+  const action = readFileSync(path.join(repoRoot, actionPath), "utf8");
+  for (const expected of [
+    `default: "${pin[1]}"`,
+    `default: "${expectedIntegrity}"`,
+    "npm install --global --ignore-scripts",
+    "test \"$(yarn --version)\" = \"$YARN_VERSION\""
+  ]) {
+    if (!action.includes(expected)) {
+      throw new Error(`${actionPath} does not enforce ${expected}`);
+    }
+  }
+
+  const workflows = new Map<string, string>([
+    [".github/workflows/ci.yml", "./.github/actions/setup-yarn"],
+    [".github/workflows/downstream.yml", "./genes/.github/actions/setup-yarn"],
+    [".github/workflows/release-tooling.yml", "./.github/actions/setup-yarn"],
+    [
+      ".github/workflows/release-tooling-github.yml",
+      "./release-controller/.github/actions/setup-yarn"
+    ]
+  ]);
+  for (const [workflow, setupAction] of workflows) {
+    const source = readFileSync(path.join(repoRoot, workflow), "utf8");
+    if (/corepack|cache:\s*yarn|cache-dependency-path/u.test(source)) {
+      throw new Error(
+        `${workflow} must not rely on Node-bundled Corepack or pre-install Yarn caching`
+      );
+    }
+    let nodeEpoch = 0;
+    let yarnEpoch = -1;
+    const lines = source.split("\n");
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line.includes("uses: actions/setup-node@")) nodeEpoch += 1;
+      if (line.includes(`uses: ${setupAction}`)) {
+        if (line.trim() !== `- uses: ${setupAction}`) {
+          throw new Error(
+            `${workflow} must use the canonical standalone Yarn step`
+          );
+        }
+        const actionIndent = line.search(/\S/u);
+        for (let child = index + 1; child < lines.length; child += 1) {
+          if (lines[child].trim() === "") continue;
+          if (lines[child].search(/\S/u) <= actionIndent) break;
+          throw new Error(
+            `${workflow} must not override the reviewed standalone Yarn action`
+          );
+        }
+        yarnEpoch = nodeEpoch;
+      }
+      const command = line.trim();
+      if (/^(?:(?:-\s*)?run:\s*)?yarn(?:\s|$)/u.test(command)
+        && yarnEpoch !== nodeEpoch) {
+        throw new Error(
+          `${workflow} runs Yarn before the standalone installer in Node epoch ${nodeEpoch}`
+        );
+      }
+    }
+  }
+}
+
 const pkg = readJson("package.json");
 const haxelib = readJson("haxelib.json");
 const devDependencies = asObject(pkg.devDependencies, "package.json devDependencies");
@@ -103,6 +174,7 @@ const resolutions = asObject(pkg.resolutions, "package.json resolutions");
 
 const pkgVersion = asString(pkg.version, "package.json version");
 const haxelibVersion = asString(haxelib.version, "haxelib.json version");
+const packageManager = asString(pkg.packageManager, "package.json packageManager");
 ensureSemver(pkgVersion);
 ensureSemver(haxelibVersion);
 if (pkgVersion !== "0.0.0-development" || haxelibVersion !== "0.0.0") {
@@ -399,6 +471,7 @@ for (const workflow of [
 
 assertNoDuplicatedToolchainLiterals();
 assertModernTsconfigs();
+assertStandaloneYarnWorkflows(packageManager);
 
 process.stdout.write(
   `versions:ok package=${pkgVersion} haxe=${toolchains.haxe.stable} `

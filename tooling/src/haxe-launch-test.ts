@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
   chmodSync,
@@ -12,9 +12,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
+import net from "node:net";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
+  HAXE_ENVIRONMENT_PAYLOAD_LIMIT,
+  HAXE_ENVIRONMENT_TEXT_LIMIT,
+} from "./session/haxe-exec-contract.js";
+import {
+  createRawExecControl,
   launchHaxe,
   runHaxeSync,
 } from "./session/haxe-launch.js";
@@ -118,6 +125,137 @@ async function main(): Promise<void> {
     });
 
     if (process.platform !== "win32") {
+      const runner = fileURLToPath(
+        new URL("./session/haxe-exec-runner.js", import.meta.url),
+      );
+      assert.throws(
+        () => launchHaxe(process.execPath, ["--version"], {
+          cwd: root,
+          environment: {
+            OVERSIZED_ENVIRONMENT: "x".repeat(
+              HAXE_ENVIRONMENT_TEXT_LIMIT + 1,
+            ),
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        }),
+        /environment exceeds its text byte limit/u,
+      );
+
+      const oversizedCredential = "must-not-appear-after-overflow";
+      const oversized = spawnSync(
+        process.execPath,
+        [
+          runner,
+          "-",
+          String(HAXE_ENVIRONMENT_PAYLOAD_LIMIT + 1),
+          process.execPath,
+          "--version",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {},
+          input: JSON.stringify({
+            GENES_SYNTHETIC_CREDENTIAL: oversizedCredential,
+          }),
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      const oversizedDiagnostic = oversized.stderr;
+      assert.equal(oversized.status, 126, oversizedDiagnostic);
+      assert.equal(oversized.signal, null, oversizedDiagnostic);
+      assert.match(oversizedDiagnostic, /byte limit/u);
+      assert.doesNotMatch(
+        oversizedDiagnostic,
+        new RegExp(oversizedCredential, "u"),
+      );
+
+      const absentControlMarker = path.join(root, "absent-control-ran");
+      const absentControl = spawnSync(
+        process.execPath,
+        [
+          runner,
+          path.join(root, "missing-control.sock"),
+          "2",
+          process.execPath,
+          "--eval",
+          `require("node:fs").writeFileSync(${JSON.stringify(absentControlMarker)}, "ran")`,
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {},
+          input: "{}",
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      assert.equal(absentControl.status, 126, absentControl.stderr);
+      assert.equal(absentControl.signal, null, absentControl.stderr);
+      assert.match(absentControl.stderr, /control is unavailable/u);
+      assert.equal(
+        existsSync(absentControlMarker),
+        false,
+        "the target must not start without READY publication",
+      );
+
+      const longLaunch = launchHaxe("/bin/sleep", ["10"], {
+        cwd: root,
+        environment: {},
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const longClosed = once(longLaunch.child, "close");
+      let timeout: NodeJS.Timeout | undefined;
+      const handoffTimeout = new Promise<string>((resolve) => {
+        timeout = setTimeout(() => resolve("timeout"), 3_000);
+      });
+      assert.equal(
+        await Promise.race([
+          longLaunch.handoff.then(() => "handoff"),
+          handoffTimeout,
+        ]),
+        "handoff",
+        "successful exec must close its private control before the target exits",
+      );
+      clearTimeout(timeout);
+      assert.equal(longLaunch.child.exitCode, null);
+      longLaunch.child.kill();
+      await longClosed;
+
+      const interruptedMarker = path.join(root, "interrupted-control-ran");
+      const interruptedChild = spawn(
+        process.execPath,
+        [
+          "--eval",
+          `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(interruptedMarker)}, "ran"), 250)`,
+        ],
+        {
+          cwd: root,
+          env: {},
+          shell: false,
+          stdio: ["pipe", "ignore", "ignore"],
+        },
+      );
+      const interruptedControl = createRawExecControl();
+      const interruptedHandoff = interruptedControl.handoff(interruptedChild);
+      const interruptedSocket = net.createConnection(interruptedControl.path);
+      await once(interruptedSocket, "connect");
+      interruptedSocket.end("INVALID\n");
+      const interruptedClosed = once(interruptedChild, "close");
+      await assert.rejects(
+        interruptedHandoff,
+        /did not confirm raw exec/u,
+      );
+      await interruptedClosed;
+      assert.equal(
+        existsSync(interruptedMarker),
+        false,
+        "a rejected parent handoff must terminate the target",
+      );
+
       const missingHaxe = path.join(root, "missing-haxe");
       const missingLaunch = launchHaxe(missingHaxe, ["--version"], {
         cwd: root,

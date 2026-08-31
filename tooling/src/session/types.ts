@@ -408,7 +408,8 @@ export interface HaxeInvocation {
   /**
    * Optional overrides for the current Node process environment. The session
    * copies the complete effective environment once per revision, includes it
-   * in the compiler-server identity, and uses those same bytes for Haxe.
+   * in the compiler-server identity, and uses those same bytes for Haxe. The
+   * combined UTF-8 names and values must not exceed 64 KiB.
    */
   readonly env?: Readonly<Record<string, string>>;
 

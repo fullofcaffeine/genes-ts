@@ -4,11 +4,20 @@ import {
   type ChildProcess,
   type SpawnSyncReturns,
 } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import net, { type Server, type Socket } from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  HAXE_ENVIRONMENT_PAYLOAD_LIMIT,
+  HAXE_ENVIRONMENT_TEXT_LIMIT,
+} from "./haxe-exec-contract.js";
+
 const RUNNER = fileURLToPath(new URL("./haxe-exec-runner.js", import.meta.url));
 const HANDOFF_LIMIT = 4_096;
+const CONTROL_DIRECTORY_PREFIX = "genes-haxe-exec-";
 
 type OutputMode = "ignore" | "pipe";
 
@@ -50,7 +59,22 @@ function assertExecutable(executable: string): void {
 function environmentBytes(
   environment: Readonly<Record<string, string>>,
 ): string {
-  return JSON.stringify(environment);
+  let textBytes = 0;
+  for (const [key, value] of Object.entries(environment)) {
+    textBytes += Buffer.byteLength(key) + Buffer.byteLength(value);
+    if (textBytes > HAXE_ENVIRONMENT_TEXT_LIMIT) {
+      throw new HaxeLaunchError(
+        "Haxe launch environment exceeds its text byte limit",
+      );
+    }
+  }
+  const payload = JSON.stringify(environment);
+  if (Buffer.byteLength(payload) > HAXE_ENVIRONMENT_PAYLOAD_LIMIT) {
+    throw new HaxeLaunchError(
+      "Haxe launch environment exceeds its serialized byte limit",
+    );
+  }
+  return payload;
 }
 
 function directHandoff(child: ChildProcess): Promise<void> {
@@ -60,53 +84,117 @@ function directHandoff(child: ChildProcess): Promise<void> {
   });
 }
 
-function rawExecHandoff(child: ChildProcess): Promise<void> {
-  const control = child.stdio[3];
-  const input = child.stdin;
-  if (control === undefined || control === null || input === null) {
-    child.kill();
-    return Promise.reject(
-      new HaxeLaunchError("Haxe raw-exec handoff pipes are unavailable"),
-    );
-  }
+export interface RawExecControl {
+  readonly path: string;
+  readonly handoff: (child: ChildProcess) => Promise<void>;
+}
+
+/** Creates one private control channel for a POSIX raw-exec launch. */
+export function createRawExecControl(): RawExecControl {
+  const directory = mkdtempSync(
+    path.join(os.tmpdir(), CONTROL_DIRECTORY_PREFIX),
+  );
+  const controlPath = path.join(directory, "control.sock");
+  const server = net.createServer();
+  server.maxConnections = 1;
+  server.listen(controlPath);
+  let bound = false;
+  return Object.freeze({
+    path: controlPath,
+    handoff(child: ChildProcess): Promise<void> {
+      if (bound) {
+        child.kill();
+        return Promise.reject(
+          new HaxeLaunchError("Haxe raw-exec control was already used"),
+        );
+      }
+      bound = true;
+      return rawExecHandoff(child, server, directory);
+    },
+  });
+}
+
+function rawExecHandoff(
+  child: ChildProcess,
+  server: Server,
+  directory: string,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let settled = false;
+    let socket: Socket | null = null;
+    const cleanup = (): void => {
+      if (server.listening) server.close();
+      socket?.destroy();
+      try {
+        rmSync(directory, { force: true, recursive: true });
+      } catch {
+        // Handoff evidence remains authoritative if temporary cleanup fails.
+      }
+    };
     const fail = (error: unknown): void => {
       if (settled) return;
       settled = true;
+      child.kill();
+      cleanup();
       const message = error instanceof Error ? error.message : String(error);
       reject(new HaxeLaunchError(message));
     };
-    control.on("data", (chunk: Buffer) => {
-      if (settled) return;
-      size += chunk.length;
-      if (size > HANDOFF_LIMIT) {
-        child.kill();
-        fail("Haxe raw-exec handoff exceeded its byte limit");
-        return;
-      }
-      chunks.push(chunk);
-    });
-    control.once("error", fail);
-    child.once("error", fail);
-    control.once("end", () => {
+    const rejectRunnerFailure = (detail: string): void => {
       if (settled) return;
       settled = true;
-      const transcript = Buffer.concat(chunks).toString("utf8");
-      if (transcript === "READY\n") {
-        resolve();
-        return;
-      }
-      const detail = transcript.startsWith("READY\nERROR ")
-        ? transcript.slice("READY\nERROR ".length).trim()
-        : transcript.startsWith("ERROR ")
-          ? transcript.slice("ERROR ".length).trim()
-          : "the handoff did not confirm raw exec";
+      cleanup();
       reject(new HaxeLaunchError(`Haxe raw-exec failed: ${detail}`));
+    };
+    if (child.stdin === null) {
+      fail("Haxe raw-exec input pipe is unavailable");
+      return;
+    }
+    child.stdin.once("error", fail);
+    server.once("error", fail);
+    server.once("connection", (connection) => {
+      socket = connection;
+      server.close();
+      connection.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > HANDOFF_LIMIT) {
+          fail("Haxe raw-exec handoff exceeded its byte limit");
+          return;
+        }
+        chunks.push(chunk);
+      });
+      connection.once("error", fail);
+      connection.once("end", () => {
+        if (settled) return;
+        const transcript = Buffer.concat(chunks).toString("utf8");
+        if (transcript === "READY\n") {
+          settled = true;
+          cleanup();
+          resolve();
+          return;
+        }
+        if (transcript.startsWith("READY\nERROR ")) {
+          rejectRunnerFailure(transcript.slice("READY\nERROR ".length).trim());
+          return;
+        }
+        if (transcript.startsWith("ERROR ")) {
+          rejectRunnerFailure(transcript.slice("ERROR ".length).trim());
+          return;
+        }
+        fail("Haxe raw-exec failed: the handoff did not confirm raw exec");
+      });
     });
-    input.once("error", fail);
+    child.once("error", fail);
+    child.once("close", (code, signal) => {
+      if (settled) return;
+      if (socket === null) {
+        fail(
+          `Haxe raw-exec exited before control: status ${String(code)}, signal ${String(signal)}`,
+        );
+      }
+    });
   });
 }
 
@@ -126,6 +214,7 @@ export function launchHaxe(
   options: HaxeLaunchOptions,
 ): HaxeLaunch {
   assertExecutable(executable);
+  const environment = environmentBytes(options.environment);
   if (process.platform === "win32") {
     const child = spawn(executable, [...args], {
       cwd: options.cwd,
@@ -137,18 +226,29 @@ export function launchHaxe(
     return Object.freeze({ child, handoff: directHandoff(child) });
   }
 
-  const child = spawn(process.execPath, [RUNNER, executable, ...args], {
-    cwd: options.cwd,
-    // The exact Haxe environment crosses stdin after Node has initialized.
-    // This prevents NODE_OPTIONS and loader variables intended for Haxe from
-    // changing the trusted handoff process itself.
-    env: {},
-    shell: false,
-    windowsHide: true,
-    stdio: ["pipe", options.stdout, options.stderr, "pipe"],
-  });
-  const handoff = rawExecHandoff(child);
-  child.stdin!.end(environmentBytes(options.environment), "utf8");
+  const control = createRawExecControl();
+  const child = spawn(
+    process.execPath,
+    [
+      RUNNER,
+      control.path,
+      String(Buffer.byteLength(environment)),
+      executable,
+      ...args,
+    ],
+    {
+      cwd: options.cwd,
+      // The exact Haxe environment crosses stdin after Node has initialized.
+      // This prevents NODE_OPTIONS and loader variables intended for Haxe from
+      // changing the trusted handoff process itself.
+      env: {},
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", options.stdout, options.stderr],
+    },
+  );
+  const handoff = control.handoff(child);
+  child.stdin!.end(environment, "utf8");
   return Object.freeze({ child, handoff });
 }
 
@@ -159,6 +259,7 @@ export function runHaxeSync(
   options: HaxeSyncOptions,
 ): SpawnSyncReturns<string> {
   assertExecutable(executable);
+  const environment = environmentBytes(options.environment);
   const common = {
     cwd: options.cwd,
     encoding: "utf8" as const,
@@ -172,10 +273,20 @@ export function runHaxeSync(
       env: options.environment,
     });
   }
-  return spawnSync(process.execPath, [RUNNER, executable, ...args], {
-    ...common,
-    env: {},
-    input: environmentBytes(options.environment),
-    stdio: ["pipe", "pipe", "pipe", "pipe"],
-  });
+  return spawnSync(
+    process.execPath,
+    [
+      RUNNER,
+      "-",
+      String(Buffer.byteLength(environment)),
+      executable,
+      ...args,
+    ],
+    {
+      ...common,
+      env: {},
+      input: environment,
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
 }
