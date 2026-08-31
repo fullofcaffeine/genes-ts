@@ -51,6 +51,26 @@ export class HaxeLaunchError extends Error {
   }
 }
 
+function assertStructuredInput(
+  executable: string,
+  args: readonly string[],
+  cwd: string,
+): void {
+  if (executable.includes("\0")) {
+    throw new HaxeLaunchError(
+      "Haxe executable must not contain NUL bytes",
+    );
+  }
+  if (cwd.includes("\0")) {
+    throw new HaxeLaunchError(
+      "Haxe working directory must not contain NUL bytes",
+    );
+  }
+  if (args.some((argument) => argument.includes("\0"))) {
+    throw new HaxeLaunchError("Haxe argument must not contain NUL bytes");
+  }
+}
+
 function assertExecutable(executable: string): void {
   if (!path.isAbsolute(executable)) {
     throw new HaxeLaunchError("Haxe executable must be an absolute path");
@@ -97,7 +117,11 @@ function createControlPath(): {
   readonly directory: string;
   readonly controlPath: string;
 } {
-  const bases = [...new Set([os.tmpdir(), "/tmp"])];
+  const configuredBase = os.tmpdir();
+  const bases = [
+    ...(path.isAbsolute(configuredBase) ? [configuredBase] : []),
+    "/tmp",
+  ];
   for (const base of bases) {
     let directory: string;
     try {
@@ -238,6 +262,7 @@ export function launchHaxe(
   args: readonly string[],
   options: HaxeLaunchOptions,
 ): HaxeLaunch {
+  assertStructuredInput(executable, args, options.cwd);
   assertExecutable(executable);
   const environment = environmentBytes(options.environment);
   if (process.platform === "win32") {
@@ -283,6 +308,7 @@ export function runHaxeSync(
   args: readonly string[],
   options: HaxeSyncOptions,
 ): SpawnSyncReturns<string> {
+  assertStructuredInput(executable, args, options.cwd);
   assertExecutable(executable);
   const environment = environmentBytes(options.environment);
   const common = {

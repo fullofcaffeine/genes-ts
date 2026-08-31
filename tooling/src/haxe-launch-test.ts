@@ -124,6 +124,34 @@ async function main(): Promise<void> {
       prototypeValue: "exact prototype value",
     });
 
+    assert.throws(
+      () => launchHaxe(`${process.execPath}\0suffix`, [], {
+        cwd: root,
+        environment: {},
+        stdout: "ignore",
+        stderr: "ignore",
+      }),
+      /executable must not contain NUL bytes/u,
+    );
+    assert.throws(
+      () => launchHaxe(process.execPath, [], {
+        cwd: `${root}\0suffix`,
+        environment: {},
+        stdout: "ignore",
+        stderr: "ignore",
+      }),
+      /working directory must not contain NUL bytes/u,
+    );
+    assert.throws(
+      () => launchHaxe(process.execPath, ["--version\0suffix"], {
+        cwd: root,
+        environment: {},
+        stdout: "ignore",
+        stderr: "ignore",
+      }),
+      /argument must not contain NUL bytes/u,
+    );
+
     if (process.platform !== "win32") {
       const runner = fileURLToPath(
         new URL("./session/haxe-exec-runner.js", import.meta.url),
@@ -152,6 +180,33 @@ async function main(): Promise<void> {
       } finally {
         if (previousTempDirectory === undefined) delete process.env.TMPDIR;
         else process.env.TMPDIR = previousTempDirectory;
+      }
+
+      const relativeTempDirectory = "relative-temp";
+      mkdirSync(path.join(root, relativeTempDirectory));
+      const previousWorkingDirectory = process.cwd();
+      const previousRelativeTempDirectory = process.env.TMPDIR;
+      try {
+        process.chdir(root);
+        process.env.TMPDIR = relativeTempDirectory;
+        const relativeTempResult = await captured(
+          process.execPath,
+          ["--eval", ""],
+          root,
+          {},
+        );
+        assert.equal(
+          relativeTempResult.code,
+          0,
+          "a relative TMPDIR must use the absolute POSIX control fallback",
+        );
+      } finally {
+        process.chdir(previousWorkingDirectory);
+        if (previousRelativeTempDirectory === undefined) {
+          delete process.env.TMPDIR;
+        } else {
+          process.env.TMPDIR = previousRelativeTempDirectory;
+        }
       }
 
       assert.throws(
