@@ -110,6 +110,8 @@ function directHandoff(child: ChildProcess): Promise<void> {
 
 export interface RawExecControl {
   readonly path: string;
+  /** Releases a control channel that has not transferred to a child. */
+  readonly dispose: () => void;
   readonly handoff: (child: ChildProcess) => Promise<void>;
 }
 
@@ -146,15 +148,48 @@ export function createRawExecControl(): RawExecControl {
   const { directory, controlPath } = createControlPath();
   const server = net.createServer();
   server.maxConnections = 1;
-  server.listen(controlPath);
   let bound = false;
+  let disposed = false;
+  const removeDirectory = (): void => {
+    try {
+      rmSync(directory, { force: true, recursive: true });
+    } catch {
+      // A launch error remains authoritative if temporary cleanup fails.
+    }
+  };
+  const closeDisposedServer = (): void => {
+    try {
+      server.close();
+    } catch {
+      // A pending listen is closed by the listening handler below.
+    }
+  };
+  const dispose = (): void => {
+    if (bound || disposed) return;
+    disposed = true;
+    // A pending Unix-socket listen can report its error on a later turn.
+    server.once("error", () => {});
+    closeDisposedServer();
+    removeDirectory();
+  };
+  server.once("listening", () => {
+    if (disposed) closeDisposedServer();
+  });
+  try {
+    server.listen(controlPath);
+  } catch (error) {
+    dispose();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new HaxeLaunchError(message);
+  }
   return Object.freeze({
     path: controlPath,
+    dispose,
     handoff(child: ChildProcess): Promise<void> {
-      if (bound) {
+      if (bound || disposed) {
         child.kill();
         return Promise.reject(
-          new HaxeLaunchError("Haxe raw-exec control was already used"),
+          new HaxeLaunchError("Haxe raw-exec control is no longer available"),
         );
       }
       bound = true;
@@ -277,26 +312,33 @@ export function launchHaxe(
   }
 
   const control = createRawExecControl();
-  const child = spawn(
-    process.execPath,
-    [
-      RUNNER,
-      control.path,
-      String(Buffer.byteLength(environment)),
-      executable,
-      ...args,
-    ],
-    {
-      cwd: options.cwd,
-      // The exact Haxe environment crosses stdin after Node has initialized.
-      // This prevents NODE_OPTIONS and loader variables intended for Haxe from
-      // changing the trusted handoff process itself.
-      env: {},
-      shell: false,
-      windowsHide: true,
-      stdio: ["pipe", options.stdout, options.stderr],
-    },
-  );
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      process.execPath,
+      [
+        RUNNER,
+        control.path,
+        String(Buffer.byteLength(environment)),
+        executable,
+        ...args,
+      ],
+      {
+        cwd: options.cwd,
+        // The exact Haxe environment crosses stdin after Node has initialized.
+        // This prevents NODE_OPTIONS and loader variables intended for Haxe from
+        // changing the trusted handoff process itself.
+        env: {},
+        shell: false,
+        windowsHide: true,
+        stdio: ["pipe", options.stdout, options.stderr],
+      },
+    );
+  } catch (error) {
+    control.dispose();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new HaxeLaunchError(message);
+  }
   const handoff = control.handoff(child);
   child.stdin!.end(environment, "utf8");
   return Object.freeze({ child, handoff });

@@ -223,6 +223,27 @@ async function main(): Promise<void> {
         /environment exceeds its text byte limit/u,
       );
 
+      const disposableControl = createRawExecControl();
+      const disposableControlDirectory = path.dirname(disposableControl.path);
+      disposableControl.dispose();
+      disposableControl.dispose();
+      assert.equal(
+        existsSync(disposableControlDirectory),
+        false,
+        "disposing an unused control must remove its private directory",
+      );
+
+      assert.throws(
+        () => launchHaxe(process.execPath, ["x".repeat(8 * 1024 * 1024)], {
+          cwd: root,
+          environment: {},
+          stdout: "ignore",
+          stderr: "ignore",
+        }),
+        /E2BIG|argument list too long/iu,
+        "a synchronous spawn failure must release its raw-exec control",
+      );
+
       const oversizedCredential = "must-not-appear-after-overflow";
       const oversized = spawnSync(
         process.execPath,
