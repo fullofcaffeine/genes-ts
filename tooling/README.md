@@ -819,7 +819,7 @@ yarn test:tooling-package
 clean temporary project, type-checks every code subpath, imports every runtime
 and conformance-data subpath, and verifies the reviewed file inventory.
 
-The required Genes CI repeats the packed-consumer check on Node 22.22.0, which
+The required Genes CI repeats the packed-consumer check on Node 26.1.0, which
 is the package's oldest supported Node release. The runtime fixture loads JSON
 exports through Node's `createRequire` API, while the strict TypeScript
 consumer checks the modern static-import form. Both paths resolve the same

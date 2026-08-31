@@ -279,7 +279,8 @@ commands. The first inline source check receives the GitHub token only to find
 an existing recovery Release. The final release command also receives the
 token. Repository code does not receive it before the final command. The
 workflow then verifies the package in clean consumers on the repository Node
-release and Node 22.22.0 with npm 10. The immutable GitHub Release contains
+release and Node 26.1.0 with an explicitly pinned npm 10.9.4 client. The
+immutable GitHub Release contains
 exactly:
 
 - `genes-ts-tooling-X.Y.Z.tgz`;
@@ -460,7 +461,7 @@ yarn test:tooling-package
 `yarn --cwd tooling pack:check` is the package-scoped equivalent.
 
 The required Genes CI also installs the exact packed candidate with Node
-22.22.0 and its npm 10 client. This separate check protects the minimum runtime
+26.1.0. This separate check protects the minimum runtime
 declared by `tooling/package.json`; the repository's compiler and build scripts
 continue to use their newer Node versions.
 

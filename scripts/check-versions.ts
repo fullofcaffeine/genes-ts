@@ -230,24 +230,22 @@ function nodeMajor(value: string, label: string): number {
 function admitsNodeMajor(
   candidate: number,
   supportedFloor: number,
-  latestLts: number
+  latestSupported: number
 ): boolean {
-  return candidate === supportedFloor || candidate === latestLts;
+  return candidate === supportedFloor || candidate === latestSupported;
 }
 
 /**
  * Exercises the complete manifest-defined boundary on every version-policy run.
  *
- * The hosted matrix proves the two LTS endpoints with real Node installations.
- * These derived cases additionally prove that only the two tested LTS majors
- * are admitted. An intervening odd release is not an LTS compatibility lane,
- * and accepting it would be false when a pinned build dependency excludes it.
- * Keeping the samples relative to the manifest avoids creating a second list
- * of Node versions that could drift from the policy owner.
+ * The hosted matrix proves the exact floor and latest release with real Node
+ * installations. These derived cases prove that only manifest-selected majors
+ * are admitted. Intervening majors remain excluded unless a future matrix adds
+ * them. Relative samples avoid a second version list that could drift.
  */
 function verifyNodeAdmissionBoundary(
   supportedFloor: number,
-  latestLts: number
+  latestSupported: number
 ): void {
   const cases: Array<{
     major: number;
@@ -265,31 +263,31 @@ function verifyNodeAdmissionBoundary(
       label: "supported floor",
     },
   ];
-  for (let major = supportedFloor + 1; major < latestLts; major += 1) {
+  for (let major = supportedFloor + 1; major < latestSupported; major += 1) {
     cases.push({
       major,
       expected: false,
       label: "untested intervening major",
     });
   }
-  cases.push(
-    {
-      major: latestLts,
+  if (latestSupported !== supportedFloor) {
+    cases.push({
+      major: latestSupported,
       expected: true,
-      label: "latest LTS",
-    },
-    {
-      major: latestLts + 1,
-      expected: false,
-      label: "unreviewed future major",
-    }
-  );
+      label: "latest supported release",
+    });
+  }
+  cases.push({
+    major: latestSupported + 1,
+    expected: false,
+    label: "unreviewed future major",
+  });
 
   for (const testCase of cases) {
     const actual = admitsNodeMajor(
       testCase.major,
       supportedFloor,
-      latestLts
+      latestSupported
     );
     if (actual !== testCase.expected) {
       throw new Error(
@@ -301,7 +299,7 @@ function verifyNodeAdmissionBoundary(
 }
 
 const supportedNodeFloor = nodeMajor(toolchains.node.stable, "node.stable");
-const latestNodeLts = nodeMajor(toolchains.node.nextLts, "node.nextLts");
+const latestSupportedNode = nodeMajor(toolchains.node.nextLts, "node.nextLts");
 ensureSemver(toolchains.node.minimumRuntime);
 ensureSemver(toolchains.node.nextLtsMinimumRuntime);
 const minimumNodeMajor = nodeMajor(
@@ -318,10 +316,10 @@ const nextLtsMinimumMajor = nodeMajor(
   toolchains.node.nextLtsMinimumRuntime.split(".")[0],
   "node.nextLtsMinimumRuntime major"
 );
-if (nextLtsMinimumMajor !== latestNodeLts) {
+if (nextLtsMinimumMajor !== latestSupportedNode) {
   throw new Error(
     `node.nextLtsMinimumRuntime (${toolchains.node.nextLtsMinimumRuntime}) `
-      + `must belong to the latest-LTS Node ${toolchains.node.nextLts} lane`
+      + `must belong to the latest supported Node ${toolchains.node.nextLts} lane`
   );
 }
 const engines = asObject(pkg.engines, "package.json engines");
@@ -334,20 +332,19 @@ if (actualNodeEngine !== expectedNodeEngine) {
 }
 const nodeVersionBoundaryCases: ReadonlyArray<readonly [string, boolean]> = [
   [toolchains.node.minimumRuntime, true],
-  ["22.22.1", true],
-  ["22.23.0", true],
+  ["26.1.1", true],
+  ["26.8.1", true],
   [toolchains.node.nextLtsMinimumRuntime, true],
-  ["24.10.1", true],
-  ["23.0.0", false],
-  ["24.9.99", false],
-  ["22.21.99", false],
-  ["21.99.99", false]
+  ["26.0.99", false],
+  ["25.99.99", false],
+  ["24.20.0", false],
+  ["27.0.0", false]
 ];
 for (const [candidate, expected] of nodeVersionBoundaryCases) {
   const major = Number(candidate.split(".")[0]);
   const floor = major === supportedNodeFloor
     ? toolchains.node.minimumRuntime
-    : major === latestNodeLts
+    : major === latestSupportedNode
       ? toolchains.node.nextLtsMinimumRuntime
       : null;
   const actual = floor !== null && isStableVersionAtLeast(candidate, floor);
@@ -358,7 +355,7 @@ for (const [candidate, expected] of nodeVersionBoundaryCases) {
     );
   }
 }
-for (const malformed of ["22.22.0-rc.1", "22.22.0suffix", "22.22"]) {
+for (const malformed of ["26.1.0-rc.1", "26.1.0suffix", "26.1"]) {
   try {
     isStableVersionAtLeast(malformed, toolchains.node.minimumRuntime);
     throw new Error(`Node patch-floor comparison admitted malformed version ${malformed}`);
@@ -369,21 +366,21 @@ for (const malformed of ["22.22.0-rc.1", "22.22.0suffix", "22.22"]) {
     }
   }
 }
-if (supportedNodeFloor >= latestNodeLts) {
+if (supportedNodeFloor > latestSupportedNode) {
   throw new Error(
-    `Expected node.stable (${supportedNodeFloor}) to precede node.nextLts (${latestNodeLts})`
+    `Expected node.stable (${supportedNodeFloor}) not to exceed node.nextLts (${latestSupportedNode})`
   );
 }
-verifyNodeAdmissionBoundary(supportedNodeFloor, latestNodeLts);
+verifyNodeAdmissionBoundary(supportedNodeFloor, latestSupportedNode);
 
 const runningNodeMajor = nodeMajor(
   process.versions.node.split(".")[0],
   "running Node major"
 );
 
-// CI owns both admitted LTS endpoints. Odd and future majors fail until the
-// manifest, dependency engines, and hosted lanes deliberately admit them.
-if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestNodeLts)) {
+// CI owns the exact safe floor and the latest release in its admitted major.
+// Older and future majors fail until the manifest and hosted lanes admit them.
+if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestSupportedNode)) {
   throw new Error(
     `Node ${process.versions.node} is outside the admitted major range `
       + `${toolchains.node.stable}-${toolchains.node.nextLts}`

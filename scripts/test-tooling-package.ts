@@ -77,13 +77,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Loads the pinned tar parser through a narrow checked boundary.
  *
- * `tar` 7 supports this repository's Node 22+ runtime, but its declarations
- * also mention Node's newer Zstandard APIs, which are absent from the
- * deliberately older `@types/node` 20 compatibility surface used to compile
- * every repository script. Importing those declarations would therefore
- * weaken or globally upgrade an unrelated contract. We validate the one
- * function used here and expose only the small synchronous-listing shape this
- * verifier needs.
+ * `tar` 7 exposes a much broader archive and compression API than this package
+ * verifier needs. Keep that dependency at one checked boundary and expose only
+ * the small synchronous-listing shape used to inspect the packed artifact.
  */
 function loadTarballList(): (options: TarballListOptions) => void {
   const loaded: unknown = createRequire(import.meta.url)("tar");
@@ -518,9 +514,9 @@ function verifyPackageMetadata(): { name: string; version: string } {
   const engines = packageJson.engines;
   assert(
     isRecord(engines) &&
-      engines.node === "^22.22.0 || ^24.10.0" &&
+      engines.node === "^26.1.0" &&
       Object.keys(engines).length === 1,
-    "tooling must declare the reviewed Node 22 and Node 24 LTS lines"
+    "tooling must declare the reviewed Node 26.1 raw-exec floor"
   );
   const scripts = packageJson.scripts;
   assert(
@@ -545,7 +541,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
   const devDependencies = packageJson.devDependencies;
   assert(
     isRecord(devDependencies) &&
-      devDependencies["@types/node"] === "22.20.1" &&
+      devDependencies["@types/node"] === "26.4.0" &&
       devDependencies.ajv === "8.20.0" &&
       devDependencies.typescript === programApiEngine.version &&
       devDependencies["typescript-build"] ===
@@ -1139,7 +1135,7 @@ write(
 
 const supported = (() => {
   const [major, minor] = process.versions.node.split(".").map(Number);
-  return (major === 22 && minor >= 22) || (major === 24 && minor >= 10);
+  return major === 26 && minor >= 1;
 })();
 try {
   if (!supported) {

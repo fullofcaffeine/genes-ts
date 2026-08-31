@@ -23,6 +23,8 @@ env:
   YARN_VERSION: "1.22.22"
   NPM_RELEASE_VERSION: "11.18.0"
   NPM_RELEASE_INTEGRITY: "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w=="
+  NPM_CONSUMER_VERSION: "10.9.4"
+  NPM_CONSUMER_INTEGRITY: "sha512-OnUG836FwboQIbqtefDNlyR0gTHzIfwRfE3DuiNewBvnMnWEpB0VEXwBlFVgqpNzIgYo/MHh3d2Hel/pszapAA=="
 
 jobs:
   release:
@@ -153,8 +155,15 @@ jobs:
       - name: Verify the exact archive on the oldest supported Node.js release
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 22.22.0
+          node-version: 26.1.0
           package-manager-cache: false
+      - name: Select the exact npm 10 consumer
+        run: |
+          set -euo pipefail
+          test "$(npm view "npm@${NPM_CONSUMER_VERSION}" dist.integrity)" = \
+            "$NPM_CONSUMER_INTEGRITY"
+          npm install --global --ignore-scripts "npm@${NPM_CONSUMER_VERSION}"
+          test "$(npm --version)" = "$NPM_CONSUMER_VERSION"
       - name: Run the clean npm 10 consumer
         env:
           RELEASE_VERSION: ${{ inputs.version }}

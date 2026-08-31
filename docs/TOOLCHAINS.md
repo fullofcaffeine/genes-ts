@@ -15,19 +15,24 @@ commands or workflow matrices.
 | dts2hx | declaration ingestion | 0.34.0 with TypeScript 5.9.3 | Deterministic `.d.ts` → Haxe extern bridge; exact source-audit revision is in the manifest |
 | Haxe | `stable` | 4.3.7 | Blocking compiler/runtime contract for classic JS and TS output |
 | Haxe | `preview` | 5.0.0-preview.1 | Visible, non-blocking early-warning lane |
-| Node | `stable` / `nextLts` | 22.22+ / 24.10+ | Blocking supported floor plus a reduced latest-LTS smoke lane |
+| Node | `stable` / `nextLts` | 26.1+ / latest 26 | Exact safe floor plus a reduced current/next-LTS smoke lane |
 
-Node 24 is the recommended local runtime and is selected by `.nvmrc`; the full
-local upgrade gate was run with Node 24.18.0. Node 22.22 is the exact supported
-floor because React Router 8—the Todo browser example's routing dependency—
-requires Node 22.22 or newer. `config/toolchains.json` records both admitted
-LTS majors and their exact minimum runtimes; the blocking stable CI lane runs
-`22.22.0`, while the latest-LTS lane must remain at least `24.10.0`.
-`package.json` records the matching `^22.22.0 || ^24.10.0` installation
-contract. Node 23 is intentionally rejected: it is end-of-life, has no hosted
-lane, and is excluded by the pinned semantic-release toolchain. Future majors
-likewise fail until the manifest, dependency engines, and CI deliberately
-admit them.
+Node 26 is the recommended local runtime and is selected by `.nvmrc`; the full
+local upgrade gate is checked on the latest Node 26 release. Node 26.1 is the
+exact supported floor because [Node #62878](https://github.com/nodejs/node/pull/62878)
+first made a failed `process.execve` throw a normal operating-system error
+instead of aborting. That behavior lets the tooling handoff report a removed or
+replaced Haxe image without putting the target environment into an aborting
+process.
+
+`config/toolchains.json` records `26.1.0` for the blocking exact-floor lane and
+`26` for the latest release in that major. The historical `stable` and
+`nextLts` keys and required-check names remain stable for branch protection;
+until Node 26 becomes LTS, `nextLts` means the current Node 26 release that is
+the next LTS candidate. `package.json` records the matching `^26.1.0`
+installation contract. Node 25 and earlier majors are intentionally rejected,
+even when an individual dependency can run there. Future majors likewise fail
+until the manifest, dependency engines, and CI deliberately admit them.
 
 See the official [Node release table](https://nodejs.org/en/about/previous-releases)
 and [end-of-life policy](https://nodejs.org/en/about/eol) for the current
@@ -75,9 +80,9 @@ directly in TypeScript and through standard Haxe, classic Genes, and genes-ts.
 This is feasibility and interop evidence, not a production translator port.
 The matrix is included in `yarn test:ci`.
 
-GitHub Actions reads the manifest before dependency installation. Node 22 and
-24 are blocking runtime lanes: the classic profile runs on both, while the
-latest-LTS genes-ts job runs a reduced acceptance smoke. Stable Haxe is
+GitHub Actions reads the manifest before dependency installation. The classic
+profile runs on exact Node 26.1 and the latest Node 26 release. The second
+genes-ts job runs a reduced current/next-LTS acceptance smoke. Stable Haxe is
 blocking in classic and genes-ts jobs. The Haxe preview job runs classic and
 minimal TS smoke tests with `continue-on-error`; a green preview is evidence,
 not a support promise.

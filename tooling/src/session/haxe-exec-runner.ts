@@ -2,11 +2,21 @@ import { readFileSync, writeSync } from "node:fs";
 import path from "node:path";
 
 const CONTROL_FD = 3;
-const ERROR_LIMIT = 2_048;
+
+class SafeRunnerError extends Error {}
 
 function errorText(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replaceAll(/\r|\n/gu, " ").slice(0, ERROR_LIMIT);
+  if (error instanceof SafeRunnerError) return error.message;
+  if (
+    error instanceof Error
+    && "code" in error
+    && typeof error.code === "string"
+    && "syscall" in error
+    && error.syscall === "execve"
+  ) {
+    return `execve failed with ${error.code}`;
+  }
+  return "Haxe raw-exec failed without a safe diagnostic";
 }
 
 function writeControl(message: string): void {
@@ -18,34 +28,77 @@ function writeControl(message: string): void {
 }
 
 function environmentFromStdin(): Record<string, string> {
-  const decoded: unknown = JSON.parse(readFileSync(0, "utf8"));
-  if (decoded === null || Array.isArray(decoded) || typeof decoded !== "object") {
-    throw new Error("Haxe launch environment must be a JSON object");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(readFileSync(0, "utf8"));
+  } catch {
+    throw new SafeRunnerError("Haxe launch environment must be valid JSON");
   }
-  const environment: Record<string, string> = {};
+  if (decoded === null || Array.isArray(decoded) || typeof decoded !== "object") {
+    throw new SafeRunnerError("Haxe launch environment must be a JSON object");
+  }
+  const entries: Array<[string, string]> = [];
   for (const [key, value] of Object.entries(decoded)) {
     if (typeof value !== "string") {
-      throw new Error("Haxe launch environment values must be strings");
+      throw new SafeRunnerError(
+        "Haxe launch environment values must be strings",
+      );
     }
-    environment[key] = value;
+    if (key.includes("\0") || value.includes("\0")) {
+      throw new SafeRunnerError(
+        "Haxe launch environment must not contain NUL bytes",
+      );
+    }
+    entries.push([key, value]);
   }
-  return environment;
+  // Object.fromEntries defines __proto__ as an ordinary own property. Direct
+  // assignment to a plain object would invoke its legacy prototype setter and
+  // silently omit that valid POSIX environment name.
+  return Object.fromEntries(entries);
+}
+
+function recoverableExecve(): NonNullable<typeof process.execve> {
+  const execve = process.execve;
+  if (typeof execve !== "function") {
+    throw new SafeRunnerError("This Node release does not provide process.execve");
+  }
+  try {
+    // The helper starts with an empty process environment. Prove this exact
+    // runtime returns from a failed system exec before target credentials are
+    // read from stdin. /dev/null cannot become a program on supported POSIX
+    // hosts; absence in a restricted root is also a normal execve failure.
+    execve("/dev/null", ["/dev/null"], {});
+  } catch (error) {
+    if (
+      error instanceof Error
+      && "code" in error
+      && typeof error.code === "string"
+      && "syscall" in error
+      && error.syscall === "execve"
+    ) {
+      return execve;
+    }
+    throw new SafeRunnerError(
+      "Node raw exec did not return an errno-shaped failure",
+    );
+  }
+  throw new SafeRunnerError(
+    "Node raw exec failure probe unexpectedly replaced the helper",
+  );
 }
 
 try {
   const [executable, ...args] = process.argv.slice(2);
   if (executable === undefined || !path.isAbsolute(executable)) {
-    throw new Error("Haxe executable must be an absolute path");
+    throw new SafeRunnerError("Haxe executable must be an absolute path");
   }
-  if (typeof process.execve !== "function") {
-    throw new Error("This Node release does not provide process.execve");
-  }
+  const execve = recoverableExecve();
   const environment = environmentFromStdin();
   // READY means all launch input was validated and the raw exec call is next.
-  // Reviewed Node 22/24 releases abort this process if the OS call fails, so
-  // the parent also requires child completion or server readiness as evidence.
+  // Node 26.1+ returns normal errno-shaped failures, so the outer boundary can
+  // report a changed or removed target without aborting with this environment.
   writeControl("READY\n");
-  process.execve(executable, [executable, ...args], environment);
+  execve(executable, [executable, ...args], environment);
 } catch (error) {
   const detail = errorText(error);
   writeControl(`ERROR ${detail}\n`);

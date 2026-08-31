@@ -26,7 +26,7 @@
         "p95Seconds": 1803
       },
       {
-        "name": "genes-ts smoke (Node latest LTS)",
+        "name": "genes-ts smoke (Node current / next LTS)",
         "samplesSeconds": [912, 1145, 1163, 1165, 1196, 1210, 1210, 1214, 1226, 1241],
         "p50Seconds": 1196,
         "p95Seconds": 1241

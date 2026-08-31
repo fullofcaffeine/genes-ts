@@ -304,10 +304,7 @@ function supportedRuntime(version: string): boolean {
   if (match === null) return false;
   const major = Number(match[1]);
   const minor = Number(match[2]);
-  return (
-    (major === 22 && minor >= 22) ||
-    (major === 24 && minor >= 10)
-  );
+  return major === 26 && minor >= 1;
 }
 
 function launcherSource(): string {

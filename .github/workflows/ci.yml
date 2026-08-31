@@ -366,11 +366,11 @@ jobs:
       - name: Select the tooling package's oldest supported Node release
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.0
-      - name: Verify the packed tooling package on Node 22.22
+          node-version: 26.1.0
+      - name: Verify the packed tooling package on Node 26.1
         run: |
           set -euo pipefail
-          test "$(node --version)" = "v22.22.0"
+          test "$(node --version)" = "v26.1.0"
           node scripts/dist/test-tooling-package.js \
             --tarball "$TOOLING_MINIMUM_TARBALL" \
             --pack-json "$TOOLING_MINIMUM_PACK_JSON"
@@ -415,7 +415,7 @@ jobs:
       - run: yarn test:library-profile
 
   genes-ts-smoke-next-lts:
-    name: genes-ts smoke (Node latest LTS)
+    name: genes-ts smoke (Node current / next LTS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

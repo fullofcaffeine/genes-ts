@@ -95,14 +95,18 @@ async function main(): Promise<void> {
       "  pid: process.pid,",
       "  argv0: process.argv0,",
       "  cwd: process.cwd(),",
-      "  value: process.env.GENES_LAUNCH_VALUE",
+      "  value: process.env.GENES_LAUNCH_VALUE,",
+      "  prototypeValue: process.env.__proto__",
       "}));",
     ].join("\n");
     const result = await captured(
       process.execPath,
       ["--input-type=module", "--eval", reporter],
       root,
-      { GENES_LAUNCH_VALUE: "exact environment" },
+      Object.fromEntries([
+        ["GENES_LAUNCH_VALUE", "exact environment"],
+        ["__proto__", "exact prototype value"],
+      ]),
     );
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), {
@@ -110,9 +114,75 @@ async function main(): Promise<void> {
       argv0: process.execPath,
       cwd: root,
       value: "exact environment",
+      prototypeValue: "exact prototype value",
     });
 
     if (process.platform !== "win32") {
+      const missingHaxe = path.join(root, "missing-haxe");
+      const missingLaunch = launchHaxe(missingHaxe, ["--version"], {
+        cwd: root,
+        environment: {
+          GENES_SYNTHETIC_CREDENTIAL: "must-not-appear-in-diagnostics",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      assert.notEqual(missingLaunch.child.stderr, null);
+      const missingStderr: Buffer[] = [];
+      missingLaunch.child.stderr!.on("data", (chunk: Buffer) => {
+        missingStderr.push(chunk);
+      });
+      const missingClosed = once(missingLaunch.child, "close");
+      await assert.rejects(missingLaunch.handoff, /ENOENT|no such file/iu);
+      const [missingCode, missingSignal] = await missingClosed;
+      const missingDiagnostic = Buffer.concat(missingStderr).toString("utf8");
+      assert.equal(missingCode, 126, missingDiagnostic);
+      assert.equal(missingSignal, null, missingDiagnostic);
+      assert.doesNotMatch(missingDiagnostic, /must-not-appear-in-diagnostics/u);
+
+      const invalidCredential = "must-not-appear-in-validation-diagnostics";
+      const invalidLaunch = launchHaxe("/bin/echo", ["unused"], {
+        cwd: root,
+        environment: {
+          GENES_SYNTHETIC_CREDENTIAL: invalidCredential,
+          INVALID_ENVIRONMENT: "nul\0byte",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      assert.notEqual(invalidLaunch.child.stderr, null);
+      const invalidStderr: Buffer[] = [];
+      invalidLaunch.child.stderr!.on("data", (chunk: Buffer) => {
+        invalidStderr.push(chunk);
+      });
+      const invalidClosed = once(invalidLaunch.child, "close");
+      let invalidHandoffDiagnostic = "";
+      try {
+        await invalidLaunch.handoff;
+        assert.fail(
+          "a NUL-bearing environment must reject the raw-exec handoff",
+        );
+      } catch (error) {
+        invalidHandoffDiagnostic = error instanceof Error
+          ? error.message
+          : String(error);
+      }
+      const [invalidCode, invalidSignal] = await invalidClosed;
+      const invalidProcessDiagnostic = Buffer.concat(invalidStderr).toString(
+        "utf8",
+      );
+      assert.equal(invalidCode, 126, invalidProcessDiagnostic);
+      assert.equal(invalidSignal, null, invalidProcessDiagnostic);
+      assert.match(invalidHandoffDiagnostic, /NUL bytes/u);
+      assert.doesNotMatch(
+        invalidHandoffDiagnostic,
+        new RegExp(invalidCredential, "u"),
+      );
+      assert.doesNotMatch(
+        invalidProcessDiagnostic,
+        new RegExp(invalidCredential, "u"),
+      );
+
       const preloadMarker = path.join(root, "node-options-ran");
       const preload = path.join(root, "preload.cjs");
       writeFileSync(
@@ -169,13 +239,14 @@ async function main(): Promise<void> {
         cwd: root,
         environment: {},
       });
-      assert.notEqual(rejected.status, 0);
+      assert.equal(rejected.status, 126, rejected.stderr);
+      assert.equal(rejected.signal, null, rejected.stderr);
       assert.equal(
         existsSync(shellMarker),
         false,
         "ENOEXEC must not reinterpret the target through a shell",
       );
-      assert.match(rejected.stderr, /raw exec|execve|format/iu);
+      assert.match(rejected.stderr, /ENOEXEC|execve|format/iu);
 
       const layout = resolveSessionLayout(
         root,

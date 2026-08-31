@@ -3,7 +3,7 @@
   "version": "0.0.0-development",
   "license": "MIT",
   "engines": {
-    "node": "^22.22.0 || ^24.10.0"
+    "node": "^26.1.0"
   },
   "scripts": {
     "submit:zip": "node scripts/release/package-haxelib.cjs submit.zip 0.0.0 development",

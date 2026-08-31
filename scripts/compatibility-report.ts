@@ -428,7 +428,7 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
       + `(Node ${report.toolchains.node.stable} lane) | blocking runtime lane |`
   );
   lines.push(
-    `| Node | latest LTS | ${report.toolchains.node.nextLtsMinimumRuntime}+ `
+    `| Node | current / next LTS | ${report.toolchains.node.nextLtsMinimumRuntime}+ `
       + `| blocking runtime lane |`
   );
   lines.push(`| Haxe | stable | ${report.toolchains.haxe.stable} | blocking compiler lane |`);

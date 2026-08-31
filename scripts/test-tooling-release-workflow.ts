@@ -436,7 +436,7 @@ function verifyToolingReleaseWorkflow(source: string): void {
   requireText(
     source,
     'node-version: ${{ steps.toolchains.outputs.node-next-lts }}',
-    "trusted publishing must use the repository's pinned Node 24 lane"
+    "trusted publishing must use the repository's pinned latest Node 26 lane"
   );
   requireText(
     source,

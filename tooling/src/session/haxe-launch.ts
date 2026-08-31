@@ -113,10 +113,12 @@ function rawExecHandoff(child: ChildProcess): Promise<void> {
 /**
  * Starts one structured Haxe child without a shell or PATH lookup.
  *
- * On POSIX, the trusted Node child replaces itself through `execve`, so the
- * returned PID becomes Haxe and an `ENOEXEC` target is never interpreted as a
- * script. Child exit or server readiness remains the final success evidence.
- * Windows creates the canonical native `.exe` directly.
+ * On POSIX, the trusted Node 26.1+ child first proves failed exec is
+ * recoverable before it receives the Haxe environment. It then replaces
+ * itself through `execve`, so the returned PID becomes Haxe and an `ENOEXEC`
+ * target is never interpreted as a script. Child exit or server readiness
+ * remains the final success evidence. Windows creates the canonical native
+ * `.exe` directly.
  */
 export function launchHaxe(
   executable: string,

@@ -120,7 +120,7 @@ export async function executePackagedProviderAdapter(
         error.code === "execution-runtime-unsupported"
       ) {
         return executionFailure(
-          "Measured provider execution requires Node 22.22 or newer, or Node 24.10 or newer.",
+          "Measured provider execution requires Node 26.1 or newer.",
           request.subject,
         );
       }

@@ -183,9 +183,9 @@ result, diagnostic-output, and wall-clock limits. It is terminated once and
 the private graph is removed before a result returns. Copy, child, or cleanup
 failure releases no result.
 
-Execution admission is available only on the reviewed Node 22.22-or-newer and
-Node 24.10-or-newer lanes declared by the package. Earlier and later Node lines
-require their own review.
+Execution admission is available only on the reviewed Node 26.1-or-newer line
+declared by the package. Earlier and later Node majors require their own
+review.
 
 This is a trusted-processor correctness boundary, not a hostile-code sandbox.
 Node documents its permission model as a guard for trusted code. Private

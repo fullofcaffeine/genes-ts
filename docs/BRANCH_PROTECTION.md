@@ -37,7 +37,7 @@ Each required check is pinned to the GitHub Actions application rather than
 accepting a same-named status from an arbitrary integration.
 
 `Haxe preview (non-blocking)`, `Classic Genes (stable, macos-latest)`,
-`genes-ts smoke (Node latest LTS)`, the Beads worktree matrix, and Dependency
+`genes-ts smoke (Node current / next LTS)`, the Beads worktree matrix, and Dependency
 Review remain useful signals but are not merge requirements. Preview Haxe and
 macOS intentionally retain their workflow-level advisory policy.
 

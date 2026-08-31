@@ -31,7 +31,7 @@ contract before the full CI gate.
 ## Setup
 
 Prereqs:
-- Node.js 22.22+
+- Node.js 26.1+
 - Yarn (this repo pins Yarn via Corepack)
 - Haxe via `lix` (auto-downloaded on `yarn install`)
 - Go 1.26.5 for building the exact repository-owned Beads client
