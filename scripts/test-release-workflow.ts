@@ -169,7 +169,19 @@ assert.doesNotMatch(
   /workflow_run|workflow_dispatch|actions\/cache|upload-artifact|download-artifact|environment:/
 );
 for (const reference of release.matchAll(/uses:\s+([^\s#]+)/g)) {
-  assert.match(reference[1], /@[0-9a-f]{40}$/);
+  if (reference[1].startsWith("./")) {
+    assert.equal(
+      reference[1],
+      "./.github/actions/setup-yarn",
+      "release may run only the reviewed repository-local action"
+    );
+    continue;
+  }
+  assert.match(
+    reference[1],
+    /@[0-9a-f]{40}$/,
+    "release external actions must be pinned to a full commit SHA"
+  );
 }
 
 const config = require(
