@@ -391,6 +391,50 @@ try {
   await unicodeWriter.finish();
   unicodeWriter.dispose();
 
+  const exactRecordStream = new ControlledWatchOutput();
+  const exactRecordFailures: Array<{
+    readonly exitCode: 0 | 1;
+    readonly message: string;
+  }> = [];
+  const exactRecordWriter = new WatchOutputWriter(exactRecordStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 5,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => exactRecordFailures.push(failure),
+  });
+  exactRecordWriter.writeLine("éé");
+  await exactRecordWriter.finish();
+  exactRecordWriter.dispose();
+  assert.deepEqual(exactRecordFailures, []);
+  assert.deepEqual(
+    exactRecordStream.chunks.map((chunk) => chunk.toString("utf8")),
+    ["éé\n"],
+    "a complete UTF-8 record exactly at the byte limit must be written",
+  );
+
+  const oversizedRecordStream = new ControlledWatchOutput();
+  const oversizedRecordFailures: Array<{
+    readonly exitCode: 0 | 1;
+    readonly message: string;
+  }> = [];
+  const oversizedRecordWriter = new WatchOutputWriter(oversizedRecordStream, {
+    maxPendingRecords: 2,
+    maxPendingBytes: 4,
+    drainTimeoutMs: 50,
+    onFailure: (failure) => oversizedRecordFailures.push(failure),
+  });
+  oversizedRecordWriter.writeLine("éé");
+  oversizedRecordWriter.writeLine("ignored");
+  await oversizedRecordWriter.finish();
+  oversizedRecordWriter.dispose();
+  assert.equal(
+    oversizedRecordStream.chunks.length,
+    0,
+    "an oversized first record must fail before the stream receives a write",
+  );
+  assert.equal(oversizedRecordFailures.length, 1);
+  assert.match(oversizedRecordFailures[0]?.message ?? "", /exceeded 4 bytes/u);
+
   const epipedStream = new ControlledWatchOutput();
   const epipedFailures: Array<{ readonly exitCode: 0 | 1; readonly message: string }> = [];
   const epipedWriter = new WatchOutputWriter(epipedStream, {
@@ -660,6 +704,68 @@ try {
     assert.match(extensionless.stderr, /native Haxe 4\.3\.7 executable/u);
   }
 
+  if (process.platform === "linux") {
+    const pseudoElfMarker = path.join(fixtureRoot, "pseudo-elf-invoked");
+    const pseudoElf = nativeFixture(
+      "pseudo-elf-haxe",
+      Buffer.concat([
+        elfFixture().subarray(0, 20),
+        Buffer.from(
+          [
+            "2>/dev/null",
+            `printf invoked > ${JSON.stringify(pseudoElfMarker)}`,
+            "printf '4.3.7\\n'",
+            "",
+          ].join("\n"),
+          "utf8",
+        ),
+      ]),
+    );
+    assert.equal(
+      inspectNativeExecutableFile(pseudoElf, "linux"),
+      true,
+      "the regression fixture must reach the raw-exec authority",
+    );
+    const isolatedHome = project("isolated-pseudo-elf-home");
+    const pseudoElfEnvironment = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] =>
+          entry[1] !== undefined && entry[0] !== "HAXE_STD_PATH",
+      ),
+    );
+    pseudoElfEnvironment.HOME = isolatedHome;
+    const pseudoElfProbe = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "watch",
+        "--root",
+        fixtureRoot,
+        "--project-id",
+        "pseudo-elf-fixture",
+        "--hxml",
+        "build.hxml",
+        "--output",
+        "pseudo-elf-gen/index.js",
+        "--haxe",
+        pseudoElf,
+      ],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: pseudoElfEnvironment,
+        timeout: 30_000,
+      },
+    );
+    assert.equal(pseudoElfProbe.status, 2, pseudoElfProbe.stderr);
+    assert.equal(
+      existsSync(pseudoElfMarker),
+      false,
+      "an admitted pseudo-ELF must not be interpreted by a shell",
+    );
+    assert.match(pseudoElfProbe.stderr, /ENOEXEC|execve|format/iu);
+  }
+
   const linkedFixtureRoot = path.join(root, "linked-watch-root");
   symlinkSync(
     fixtureRoot,
@@ -690,6 +796,64 @@ try {
     /projectRoot must (?:be a real directory|not traverse a symbolic link)/u,
     "the CLI must reject root symlink evidence before probing tools or loading policy",
   );
+
+  const intermediateTarget = project("intermediate-link-target");
+  mkdirSync(path.join(intermediateTarget, "nested"));
+  const intermediateLink = path.join(root, "intermediate-root-link");
+  symlinkSync(
+    intermediateTarget,
+    intermediateLink,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const intermediateLinkedRoot = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "watch",
+      "--root",
+      path.join(intermediateLink, "nested"),
+      "--project-id",
+      "intermediate-linked-root-fixture",
+      "--hxml",
+      "build.hxml",
+      "--output",
+      "linked-root-gen/index.js",
+      "--haxe",
+      process.execPath,
+    ],
+    { cwd: repositoryRoot, encoding: "utf8", timeout: 30_000 },
+  );
+  assert.equal(intermediateLinkedRoot.status, 2, intermediateLinkedRoot.stderr);
+  assert.match(intermediateLinkedRoot.stderr, /must not traverse a symbolic link/u);
+
+  const caseRoot = project("case-equivalent-root");
+  const caseEquivalentRoot = path.join(
+    path.dirname(caseRoot),
+    path.basename(caseRoot).toUpperCase(),
+  );
+  if (caseEquivalentRoot !== caseRoot && existsSync(caseEquivalentRoot)) {
+    const caseEquivalent = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "watch",
+        "--root",
+        caseEquivalentRoot,
+        "--project-id",
+        "case-equivalent-root-fixture",
+        "--hxml",
+        "build.hxml",
+        "--output",
+        "case-equivalent-gen/index.js",
+        "--haxe",
+        process.execPath,
+      ],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 30_000 },
+    );
+    assert.equal(caseEquivalent.status, 2, caseEquivalent.stderr);
+    assert.doesNotMatch(caseEquivalent.stderr, /symbolic link/u);
+    assert.match(caseEquivalent.stderr, /requires Haxe 4\.3\.7/u);
+  }
 
   const child = spawn(
     process.execPath,

@@ -14,7 +14,6 @@ import {
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -24,6 +23,7 @@ import {
   type JsonValue,
   type ValidationTree,
 } from "../session/index.js";
+import { runHaxeSync } from "../session/haxe-launch.js";
 import { resolveLixLibraryGroup } from "../lix/index.js";
 
 const WATCH_VALIDATION_PROTOCOL = "genes.tooling.watch-validation" as const;
@@ -685,8 +685,9 @@ function executableIdentity(
 }
 
 /**
- * Checks the bounded headers that make the current OS load a native image.
- * This rejects script launchers. It does not attest a trusted compiler binary.
+ * Classifies bounded current-platform executable headers before admission.
+ * Raw-exec launch, not this classifier, prevents POSIX shell fallback.
+ * This check does not attest a trusted compiler binary.
  */
 function inspectNativeExecutable(
   executable: string,
@@ -735,13 +736,10 @@ function probeHaxe(
   projectRoot: string,
   environment: Readonly<Record<string, string>>,
 ): string {
-  const probe = spawnSync(executable, ["--version"], {
+  const probe = runHaxeSync(executable, ["--version"], {
     cwd: projectRoot,
-    env: environment,
-    encoding: "utf8",
-    shell: false,
-    timeout: 10_000,
-    windowsHide: true,
+    environment,
+    timeoutMs: 10_000,
   });
   if (probe.error !== undefined || probe.status !== 0) {
     const detail = probe.error?.message ?? probe.stderr.trim() ?? "unknown failure";
@@ -1008,9 +1006,31 @@ export class WatchOutputWriter {
 
   writeLine(line: string): void {
     if (!this.#accepting) return;
+    let lineBytes: number;
+    try {
+      lineBytes = Buffer.byteLength(line, "utf8");
+    } catch (error) {
+      this.fail(error, "cannot measure stdout record");
+      return;
+    }
+    const recordBytes = lineBytes + 1;
+    if (recordBytes > this.#options.maxPendingBytes) {
+      this.#accepting = false;
+      this.#reportFailure({
+        exitCode: 1,
+        message:
+          `stdout record exceeded ${this.#options.maxPendingBytes} bytes; closing before write`,
+      });
+      return;
+    }
     let record: Buffer;
     try {
-      record = Buffer.from(`${line}\n`, "utf8");
+      record = Buffer.allocUnsafe(recordBytes);
+      const written = record.write(line, 0, lineBytes, "utf8");
+      if (written !== lineBytes) {
+        throw new Error("stdout record encoding was incomplete");
+      }
+      record[lineBytes] = 0x0a;
     } catch (error) {
       this.fail(error, "cannot encode stdout record");
       return;
@@ -1153,16 +1173,36 @@ export class WatchOutputWriter {
   }
 }
 
-function checkedProjectRoot(projectRootOption: string): {
-  readonly absolute: string;
-  readonly canonical: string;
-} {
+function checkedProjectRoot(projectRootOption: string): string {
   const absolute = path.resolve(projectRootOption);
   let canonical: string;
   try {
-    const stats = lstatSync(absolute);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      throw new WatchCommandUsageError("projectRoot must be a real directory");
+    const root = path.parse(absolute).root;
+    const relative = absolute.slice(root.length);
+    const components = relative.length === 0 ? [] : relative.split(path.sep);
+    let current = root;
+    if (components.length === 0) {
+      const stats = lstatSync(current);
+      if (stats.isSymbolicLink()) {
+        throw new WatchCommandUsageError(
+          "projectRoot must not traverse a symbolic link",
+        );
+      }
+      if (!stats.isDirectory()) {
+        throw new WatchCommandUsageError("projectRoot must be a real directory");
+      }
+    }
+    for (const component of components) {
+      current = path.join(current, component);
+      const stats = lstatSync(current);
+      if (stats.isSymbolicLink()) {
+        throw new WatchCommandUsageError(
+          "projectRoot must not traverse a symbolic link",
+        );
+      }
+      if (!stats.isDirectory()) {
+        throw new WatchCommandUsageError("projectRoot must be a real directory");
+      }
     }
     canonical = realpathSync.native(absolute);
   } catch (error) {
@@ -1172,19 +1212,13 @@ function checkedProjectRoot(projectRootOption: string): {
       `projectRoot must be a real directory: ${message}`,
     );
   }
-  if (path.normalize(canonical) !== path.normalize(absolute)) {
-    throw new WatchCommandUsageError(
-      "projectRoot must not traverse a symbolic link",
-    );
-  }
-  return Object.freeze({ absolute, canonical });
+  return canonical;
 }
 
 export async function runWatchCommand(
   options: WatchCommandOptions,
 ): Promise<number> {
-  const checkedRoot = checkedProjectRoot(options.projectRoot);
-  const projectRoot = checkedRoot.canonical;
+  const projectRoot = checkedProjectRoot(options.projectRoot);
   const haxe = checkHaxe(options.haxeExecutable, projectRoot);
   const lix = options.useLix ? loadLix(projectRoot) : undefined;
   let handleInvalidResultShape = (_message: string): void => undefined;
@@ -1198,7 +1232,7 @@ export async function runWatchCommand(
     ...options.allowedRoots.map((root) => path.resolve(projectRoot, root)),
   ]);
   const session = createGenesDevelopmentSession<JsonValue>({
-    projectRoot: checkedRoot.absolute,
+    projectRoot,
     projectIdentity: options.projectIdentity,
     hxml: {
       allowedRoots,
