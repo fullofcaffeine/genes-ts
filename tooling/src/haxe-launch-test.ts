@@ -181,7 +181,8 @@ async function main(): Promise<void> {
           "2",
           process.execPath,
           "--eval",
-          `require("node:fs").writeFileSync(${JSON.stringify(absentControlMarker)}, "ran")`,
+          'require("node:fs").writeFileSync(process.argv[1], "ran")',
+          absentControlMarker,
         ],
         {
           cwd: root,
@@ -230,7 +231,8 @@ async function main(): Promise<void> {
         process.execPath,
         [
           "--eval",
-          `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(interruptedMarker)}, "ran"), 250)`,
+          'setTimeout(() => require("node:fs").writeFileSync(process.argv[1], "ran"), 250)',
+          interruptedMarker,
         ],
         {
           cwd: root,
