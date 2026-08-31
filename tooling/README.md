@@ -701,9 +701,11 @@ rolled back, the other output can start normally.
   replaces that same child with Haxe through raw `execve`. A private control
   socket closes during successful replacement, including for a long-lived
   compiler server. A failed replacement reports a bounded error through the
-  same socket. An `ENOEXEC` failure is never reinterpreted as a shell script.
-  On Windows, tooling starts the canonical `.exe` directly with structured
-  arguments and `shell: false`.
+  same socket. If the configured temporary directory is too long for a POSIX
+  socket path, tooling uses a private mode-0700 directory below `/tmp`. An
+  `ENOEXEC` failure is never reinterpreted as a shell script. On Windows,
+  tooling starts the canonical `.exe` directly with structured arguments and
+  `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
   or stale. An unrelated file beside generated output is preserved. If a new
   generated path is already occupied by an unowned file, publication fails

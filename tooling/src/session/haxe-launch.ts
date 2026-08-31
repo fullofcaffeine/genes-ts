@@ -18,6 +18,10 @@ import {
 const RUNNER = fileURLToPath(new URL("./haxe-exec-runner.js", import.meta.url));
 const HANDOFF_LIMIT = 4_096;
 const CONTROL_DIRECTORY_PREFIX = "genes-haxe-exec-";
+const CONTROL_SOCKET_NAME = "control.sock";
+// Darwin permits 104 sockaddr_un bytes and Linux permits 108. Keep room for
+// the terminating byte and for other POSIX implementations with that floor.
+const CONTROL_PATH_BYTE_LIMIT = 100;
 
 type OutputMode = "ignore" | "pipe";
 
@@ -89,12 +93,33 @@ export interface RawExecControl {
   readonly handoff: (child: ChildProcess) => Promise<void>;
 }
 
+function createControlPath(): {
+  readonly directory: string;
+  readonly controlPath: string;
+} {
+  const bases = [...new Set([os.tmpdir(), "/tmp"])];
+  for (const base of bases) {
+    let directory: string;
+    try {
+      // POSIX mkdtemp creates the private directory with mode 0700.
+      directory = mkdtempSync(path.join(base, CONTROL_DIRECTORY_PREFIX));
+    } catch {
+      continue;
+    }
+    const controlPath = path.join(directory, CONTROL_SOCKET_NAME);
+    if (Buffer.byteLength(controlPath) <= CONTROL_PATH_BYTE_LIMIT) {
+      return Object.freeze({ directory, controlPath });
+    }
+    rmSync(directory, { force: true, recursive: true });
+  }
+  throw new HaxeLaunchError(
+    "Haxe raw-exec control path exceeds the POSIX byte limit",
+  );
+}
+
 /** Creates one private control channel for a POSIX raw-exec launch. */
 export function createRawExecControl(): RawExecControl {
-  const directory = mkdtempSync(
-    path.join(os.tmpdir(), CONTROL_DIRECTORY_PREFIX),
-  );
-  const controlPath = path.join(directory, "control.sock");
+  const { directory, controlPath } = createControlPath();
   const server = net.createServer();
   server.maxConnections = 1;
   server.listen(controlPath);

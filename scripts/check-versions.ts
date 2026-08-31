@@ -117,6 +117,33 @@ function assertStandaloneYarnWorkflows(packageManager: string): void {
       throw new Error(`${actionPath} does not enforce ${expected}`);
     }
   }
+  if (/^\s*(?:-\s*)?uses:\s*/mu.test(action)) {
+    throw new Error(
+      `${actionPath} must not invoke an unreviewed nested action`
+    );
+  }
+
+  for (const onboardingPath of ["AGENTS.md", "CONTRIBUTING.md"]) {
+    const onboarding = readFileSync(path.join(repoRoot, onboardingPath), "utf8");
+    if (/\bcorepack\s+enable\b/iu.test(onboarding)) {
+      throw new Error(
+        `${onboardingPath} must not tell Node 26 users to run removed Corepack`
+      );
+    }
+    for (const expected of [
+      `YARN_VERSION=${pin[1]}`,
+      `YARN_INTEGRITY='${expectedIntegrity}'`,
+      'npm view "yarn@$YARN_VERSION" dist.integrity',
+      'npm install --global --ignore-scripts "yarn@$YARN_VERSION"',
+      'test "$(yarn --version)" = "$YARN_VERSION"'
+    ]) {
+      if (!onboarding.includes(expected)) {
+        throw new Error(
+          `${onboardingPath} does not document the standalone Yarn check: ${expected}`
+        );
+      }
+    }
+  }
 
   const workflows = new Map<string, string>([
     [".github/workflows/ci.yml", "./.github/actions/setup-yarn"],

@@ -1154,9 +1154,12 @@ release contract.
 
 The compiler release job and the independent `@genes-ts/tooling` release
 workflow can create publicly visible files, so their executable action
-identities are stricter than ordinary CI: every release-job `uses:` reference
-is a reviewed full commit SHA with a same-line release-version comment. The
-GitHub-only archive workflow does not require a second-person approval. The
+identities are stricter than ordinary CI. They can invoke the repository's
+reviewed `setup-yarn` action at its canonical checkout-relative path. That
+composite action must not contain nested `uses:` entries. Every external
+release-job action remains a reviewed full commit SHA with a same-line release
+version comment. The GitHub-only archive workflow does not require a
+second-person approval. The
 manual start is the release action, so the workflow does not ask for a typed
 approval sentence. A first attempt requires an exact version and current
 `main` commit. An exact tag at current `main` also remains a first attempt. A

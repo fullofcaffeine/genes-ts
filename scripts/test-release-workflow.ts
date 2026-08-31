@@ -23,6 +23,14 @@ function read(relativePath: string): string {
   return readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
 
+function assertLocalReleaseAction(source: string): void {
+  assert.doesNotMatch(
+    source,
+    /^\s*(?:-\s*)?uses:\s*/mu,
+    "the reviewed local release action must not invoke nested actions"
+  );
+}
+
 function jobBlock(source: string, job: string): string {
   const match = new RegExp(`^  ${job}:\\n([\\s\\S]*)$`, "m").exec(source);
   assert(match, `CI workflow is missing final ${job} job`);
@@ -183,6 +191,15 @@ for (const reference of release.matchAll(/uses:\s+([^\s#]+)/g)) {
     "release external actions must be pinned to a full commit SHA"
   );
 }
+const setupYarnAction = read(".github/actions/setup-yarn/action.yml");
+assertLocalReleaseAction(setupYarnAction);
+assert.throws(
+  () => assertLocalReleaseAction(
+    `${setupYarnAction}\n    - uses: owner/mutable-action@v1\n`
+  ),
+  /must not invoke nested actions/u,
+  "release policy must reject transitive action execution"
+);
 
 const config = require(
   path.join(repoRoot, "release.config.cjs")

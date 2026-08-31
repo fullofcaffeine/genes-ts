@@ -54,7 +54,11 @@ remain buildable and correct without ts2hx.
 From a fresh checkout:
 
 ```bash
-corepack enable
+YARN_VERSION=1.22.22
+YARN_INTEGRITY='sha512-prL3kGtyG7o9Z9Sv8IPfBNrWTDmXB4Qbes8A9rEzt6wkJV8mUvoirjU0Mp3GGAU06Y0XQyA3/2/RQFVuK7MTfg=='
+test "$(npm view "yarn@$YARN_VERSION" dist.integrity)" = "$YARN_INTEGRITY"
+npm install --global --ignore-scripts "yarn@$YARN_VERSION"
+test "$(yarn --version)" = "$YARN_VERSION"
 yarn install
 
 # Build, type-check, and run the small maintained dual-output example.

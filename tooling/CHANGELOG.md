@@ -14,7 +14,8 @@ it.
   Before it reads the Haxe environment, the handoff proves this exact runtime
   reports a failed system exec as a normal error. This raises the package
   runtime contract from Node 20.9 to Node 26.1+, where Node fixes failed raw
-  process replacement without a process abort.
+  process replacement without a process abort. Deep configured temporary paths
+  use a private length-bounded POSIX socket directory.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,

@@ -128,6 +128,32 @@ async function main(): Promise<void> {
       const runner = fileURLToPath(
         new URL("./session/haxe-exec-runner.js", import.meta.url),
       );
+      const deepTempDirectory = path.join(
+        root,
+        "deep-temp",
+        "x".repeat(80),
+        "y".repeat(80),
+      );
+      mkdirSync(deepTempDirectory, { recursive: true });
+      const previousTempDirectory = process.env.TMPDIR;
+      try {
+        process.env.TMPDIR = deepTempDirectory;
+        const deepTempResult = await captured(
+          process.execPath,
+          ["--eval", ""],
+          root,
+          {},
+        );
+        assert.equal(
+          deepTempResult.code,
+          0,
+          "a long TMPDIR must not exceed the POSIX control-socket path limit",
+        );
+      } finally {
+        if (previousTempDirectory === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = previousTempDirectory;
+      }
+
       assert.throws(
         () => launchHaxe(process.execPath, ["--version"], {
           cwd: root,
@@ -436,6 +462,26 @@ async function main(): Promise<void> {
         );
       } finally {
         await handoffRejectedCompiler.close();
+      }
+
+      const missingWorkingDirectory = path.join(root, "missing-working-dir");
+      const missingWorkingDirectoryCompiler = new HaxeSessionCompiler(
+        layout,
+        () => {},
+        250,
+      );
+      try {
+        await assert.rejects(
+          missingWorkingDirectoryCompiler.compile(
+            compilerInvocation(process.execPath, missingWorkingDirectory),
+            "missing-working-directory",
+            new AbortController().signal,
+          ),
+          /ENOENT|no such file/iu,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      } finally {
+        await missingWorkingDirectoryCompiler.close();
       }
 
       const launchMarker = path.join(root, "stale-server-launched");

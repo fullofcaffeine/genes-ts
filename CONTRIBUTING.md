@@ -32,7 +32,7 @@ contract before the full CI gate.
 
 Prereqs:
 - Node.js 26.1+
-- Yarn (this repo pins Yarn via Corepack)
+- Yarn 1.22.22 through the checksum-verified bootstrap below
 - Haxe via `lix` (auto-downloaded on `yarn install`)
 - Go 1.26.5 for building the exact repository-owned Beads client
 - haxe-formatter 1.18.0 for staged Haxe formatting
@@ -40,7 +40,11 @@ Prereqs:
 Install:
 
 ```bash
-corepack enable
+YARN_VERSION=1.22.22
+YARN_INTEGRITY='sha512-prL3kGtyG7o9Z9Sv8IPfBNrWTDmXB4Qbes8A9rEzt6wkJV8mUvoirjU0Mp3GGAU06Y0XQyA3/2/RQFVuK7MTfg=='
+test "$(npm view "yarn@$YARN_VERSION" dist.integrity)" = "$YARN_INTEGRITY"
+npm install --global --ignore-scripts "yarn@$YARN_VERSION"
+test "$(yarn --version)" = "$YARN_VERSION"
 yarn install
 yarn beads:install
 yarn haxelib install formatter 1.18.0 --quiet

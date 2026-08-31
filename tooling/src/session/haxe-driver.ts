@@ -298,9 +298,11 @@ class ChildWaitProcess implements OwnedHaxeWaitProcess {
     if (child.pid === undefined) throw new Error("Haxe server has no PID");
     this.pid = child.pid;
     this.#child = child;
-    this.exit = new Promise((resolve) => {
-      child.once("exit", (code, signal) => resolve({ code, signal }));
-    });
+    this.exit = child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve({ code: child.exitCode, signal: child.signalCode })
+      : new Promise((resolve) => {
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
   }
 
   signal(signal: "SIGTERM" | "SIGKILL"): void {
@@ -393,13 +395,12 @@ export class HaxeSessionCompiler implements SessionCompiler {
         stderr: "ignore",
       },
     );
-    const processHandle = new ChildWaitProcess(launch.child);
     await launch.handoff;
     if (request.signal.aborted) {
       await terminate(launch.child, this.#shutdownTimeoutMs);
       throw new Error("Haxe compilation was cancelled");
     }
-    return processHandle;
+    return new ChildWaitProcess(launch.child);
   }
 
   async #probeServer(endpoint: HaxeWaitEndpoint): Promise<boolean> {
