@@ -252,15 +252,20 @@ Each repeated `--hxml` value must be a nonempty path with the literal lowercase
 root or starts a tool. Existence, containment, and HXML contents remain part of
 the live session inventory, so a valid path can still appear during repair.
 
-The command admits one trusted native Haxe 4.3.7 image. Before it runs
-`--version`, it verifies a bounded current-platform ELF, Mach-O, or PE executable
-structure. A shell, Node, CMD, or BAT launcher is never run for discovery. When
-the requested entry is a launcher, the command can use the native binary beside
-`HAXE_STD_PATH` or under the managed `~/haxe/versions/4.3.7` layout. The
-canonical binary must stay unchanged through the exact version probe and is
-then passed unchanged to the session as its directly owned compiler child.
-This protects process ownership; it does not attest a hostile compiled proxy.
-As elsewhere in the tooling contract, the selected compiler is trusted input.
+The command admits one trusted native Haxe 4.3.7 image. Before `--version`, it
+classifies a bounded current-platform ELF, Mach-O, or PE structure. A shell,
+Node, CMD, or BAT launcher is rejected before discovery. On POSIX, the version
+probe also uses the package's raw-exec boundary. A malformed pseudo-image can
+therefore fail only as an executable. It cannot fall back to a shell.
+
+When the requested entry is a launcher, the command can use a native binary
+beside `HAXE_STD_PATH`. It can also use the fixed managed
+`~/haxe/versions/4.3.7` layout. The real binary must stay unchanged through the
+exact version probe. Later session launches use the same canonical path and
+raw-exec boundary. Replacing that path with a script makes the launch fail. It
+does not create a hidden compiler child. This protects process ownership. It
+does not attest a hostile compiled proxy or freeze the toolchain path. As
+elsewhere in the tooling contract, the selected compiler is trusted input.
 
 The default validator is explicit Haxe-only admission. A successful Haxe and
 Genes run can publish, but no host type checker or framework build checks the
@@ -319,14 +324,16 @@ the event sequence, revision, generation, failure phase, and retained
 generation directly. If the stdout consumer disconnects, the command closes
 its session and owned compiler before it exits normally.
 
-A temporarily slow connected consumer is handled without reordering or
-duplicating records. After Node reports backpressure, the command retains at
-most 1,024 complete records and 8 MiB of UTF-8 record bytes, then resumes on
-`drain`. If the next record would cross either bound, stdout becomes a fatal
-transport: the command reports the limits on stderr, closes the session with
-exit `1`, and attempts to drain only the already-bounded ordered prefix. Final
-drain is limited to 30 seconds. The command then closes stdout rather than
-waiting forever. Human mode uses the same bounded writer.
+A temporarily slow connected consumer does not reorder or duplicate records.
+Each complete UTF-8 record includes its newline. It must fit within 8 MiB
+before the command allocates its output buffer. After Node reports
+backpressure, the command retains at most 1,024 complete records and 8 MiB of
+UTF-8 record bytes. It then resumes on `drain`. One oversized record makes
+stdout fail. A queued record also makes stdout fail if it crosses a queue
+bound. The command reports the limit on stderr and closes the session with exit
+`1`. It tries to drain only the already-bounded ordered prefix. Final drain is
+limited to 30 seconds. The command then closes stdout. Human mode uses the same
+bounded writer.
 
 The command uses these exit codes:
 
@@ -342,9 +349,11 @@ an invalid result shape is a setup error, not a recoverable rejection, and
 exits with code `2` after session cleanup.
 
 The project root must be a real directory and its path must not traverse a
-symbolic link. The command checks this before it probes Haxe, resolves Lix, or
-loads validator code. The public development session checks the same original
-absolute path again before it creates private state.
+symbolic link or junction. The command checks every path component before it
+probes Haxe, resolves Lix, or loads validator code. It then gives the public
+development session the canonical link-free directory. Equivalent letter case
+is accepted when the host filesystem identifies both spellings as the same
+ordinary directory.
 
 `genes watch` is a development command. It does not replace the production
 build, validator, or test gates. Run the ordinary output-owning HXML file for

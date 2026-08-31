@@ -29,10 +29,13 @@ it.
   failure. The recorded validator digest is rechecked after module loading,
   and project-root links fail before any tool or validator code runs. Every
   HXML argument is now checked before setup. The command rejects an
-  extensionless compiler launcher without running it. It uses a verified native
-  4.3.7 image instead. Human and JSON-lines output use one bounded, ordered
-  backpressure queue. Queue overflow and a final drain timeout close owned
-  resources with exit `1` instead of retaining an unbounded backlog.
+  extensionless compiler launcher without running it. It classifies one native
+  4.3.7 image before the version probe. Every POSIX probe and session launch
+  then uses raw exec, so a pseudo-image cannot trigger shell fallback. Human and
+  JSON-lines output use one bounded, ordered backpressure queue. An oversized
+  first record, queue overflow, and a final drain timeout close owned resources
+  with exit `1`. Project-root checks reject links in any component. They accept
+  equivalent path case on case-insensitive filesystems.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,
