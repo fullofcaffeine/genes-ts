@@ -77,13 +77,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Loads the pinned tar parser through a narrow checked boundary.
  *
- * `tar` 7 supports this repository's Node 22+ runtime, but its declarations
- * also mention Node's newer Zstandard APIs, which are absent from the
- * deliberately older `@types/node` 20 compatibility surface used to compile
- * every repository script. Importing those declarations would therefore
- * weaken or globally upgrade an unrelated contract. We validate the one
- * function used here and expose only the small synchronous-listing shape this
- * verifier needs.
+ * `tar` 7 exposes a much broader archive and compression API than this package
+ * verifier needs. Keep that dependency at one checked boundary and expose only
+ * the small synchronous-listing shape used to inspect the packed artifact.
  */
 function loadTarballList(): (options: TarballListOptions) => void {
   const loaded: unknown = createRequire(import.meta.url)("tar");
@@ -515,6 +511,13 @@ function verifyPackageMetadata(): { name: string; version: string } {
     packageJson.dependencies === undefined,
     "@genes-ts/tooling must remain dependency-free unless release policy is explicitly expanded"
   );
+  const engines = packageJson.engines;
+  assert(
+    isRecord(engines) &&
+      engines.node === "^26.1.0" &&
+      Object.keys(engines).length === 1,
+    "tooling must declare the reviewed Node 26.1 raw-exec floor"
+  );
   const scripts = packageJson.scripts;
   assert(
     isRecord(scripts) &&
@@ -538,7 +541,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
   const devDependencies = packageJson.devDependencies;
   assert(
     isRecord(devDependencies) &&
-      devDependencies["@types/node"] === "20.19.30" &&
+      devDependencies["@types/node"] === "26.4.0" &&
       devDependencies.ajv === "8.20.0" &&
       devDependencies.typescript === programApiEngine.version &&
       devDependencies["typescript-build"] ===
@@ -847,9 +850,8 @@ import * as server from "@genes-ts/tooling/haxe-server";
 import * as session from "@genes-ts/tooling/session";
 import * as watch from "@genes-ts/tooling/watch";
 
-// Node 20.9 predates the 'with { type: "json" }' import syntax. createRequire
-// still resolves the package export map and loads the real JSON value, so this
-// fixture can prove every declared runtime without raising the package floor.
+// createRequire resolves the package export map and loads the real JSON value.
+// Keep this runtime probe independent from evolving static JSON import syntax.
 const requireJson = createRequire(import.meta.url);
 const artifactProtocol = requireJson("@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json");
 const artifactVectors = requireJson("@genes-ts/tooling/artifact-transactions/v1/vectors.json");
@@ -1133,7 +1135,7 @@ write(
 
 const supported = (() => {
   const [major, minor] = process.versions.node.split(".").map(Number);
-  return (major === 22 && minor >= 22) || (major === 24 && minor >= 10);
+  return major === 26 && minor >= 1;
 })();
 try {
   if (!supported) {

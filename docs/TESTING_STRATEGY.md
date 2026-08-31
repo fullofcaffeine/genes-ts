@@ -124,13 +124,14 @@ optional-subpath presence and absence; source replacement after copying;
 undeclared hoists; and default-realpath link behavior. It rejects outside,
 custom-scheme, native-addon, and later-hook loads, invalid result data,
 public and private network entry points, oversized output, and timeout. It runs
-on the reviewed Node 22 and Node 24 lanes and records materialization, child,
+on the exact Node 26.1 floor and latest Node 26 lane and records materialization, child,
 cleanup, file, and byte costs.
 
 `yarn test:tooling-package` also installs the packed package in a clean
 consumer. It imports both provider subpaths before optional peers exist. It
 then installs exact peers and runs both packed adapters on a reviewed Node
-lane. Node 20 proves the same imports and the stable pre-capture rejection.
+lane. The minimum-runtime lane repeats those imports and adapter checks on Node
+26.1.
 
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the
@@ -1079,7 +1080,7 @@ security-events: write
 The CodeQL job intentionally does not run the compiler test matrix or install
 the repository's configured Node release. CodeQL's embedded Node 24 runtime is
 the implementation runtime of the GitHub actions themselves; it is independent
-from the Node 22.22.0 and Node 24 application lanes in
+from the exact-floor and latest Node 26 application lanes in
 `config/toolchains.json`. The local structural gate runs in `test:ci`, but a
 green hosted CodeQL check is still required before merging a workflow change.
 
@@ -1153,9 +1154,12 @@ release contract.
 
 The compiler release job and the independent `@genes-ts/tooling` release
 workflow can create publicly visible files, so their executable action
-identities are stricter than ordinary CI: every release-job `uses:` reference
-is a reviewed full commit SHA with a same-line release-version comment. The
-GitHub-only archive workflow does not require a second-person approval. The
+identities are stricter than ordinary CI. They can invoke the repository's
+reviewed `setup-yarn` action at its canonical checkout-relative path. That
+composite action must not contain nested `uses:` entries. Every external
+release-job action remains a reviewed full commit SHA with a same-line release
+version comment. The GitHub-only archive workflow does not require a
+second-person approval. The
 manual start is the release action, so the workflow does not ask for a typed
 approval sentence. A first attempt requires an exact version and current
 `main` commit. An exact tag at current `main` also remains a first attempt. A

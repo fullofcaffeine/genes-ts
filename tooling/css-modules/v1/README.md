@@ -183,10 +183,9 @@ result, diagnostic-output, and wall-clock limits. It is terminated once and
 the private graph is removed before a result returns. Copy, child, or cleanup
 failure releases no result.
 
-Execution admission is available only on the reviewed Node 22.22-or-newer and
-Node 24.10-or-newer lanes. The tooling package remains importable on Node 20,
-but this optional operation returns a stable unsupported-runtime failure before
-it captures packages there. Later Node majors require their own review.
+Execution admission is available only on the reviewed Node 26.1-or-newer line
+declared by the package. Earlier and later Node majors require their own
+review.
 
 This is a trusted-processor correctness boundary, not a hostile-code sandbox.
 Node documents its permission model as a guard for trusted code. Private
@@ -290,8 +289,7 @@ not generate discarded JavaScript. Exact declaration locations become source
 facts. The CSS file and declaration are both hashed inputs.
 
 The TypeScript package loads only in the measured child. The host process does
-not import any optional processor. Importing either provider subpath stays safe
-on Node 20, but calling one there returns the stable unsupported-runtime error.
+not import any optional processor.
 
 ## Complete one-shot flow
 

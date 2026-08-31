@@ -1,0 +1,27 @@
+name: Set up exact Yarn
+description: Install the reviewed Yarn 1 CLI without relying on Node-bundled Corepack.
+
+inputs:
+  version:
+    description: Exact Yarn package version.
+    required: false
+    default: "1.22.22"
+  integrity:
+    description: Exact npm registry integrity for the Yarn package.
+    required: false
+    default: "sha512-prL3kGtyG7o9Z9Sv8IPfBNrWTDmXB4Qbes8A9rEzt6wkJV8mUvoirjU0Mp3GGAU06Y0XQyA3/2/RQFVuK7MTfg=="
+
+runs:
+  using: composite
+  steps:
+    - name: Verify and install the exact Yarn CLI
+      shell: bash
+      env:
+        YARN_VERSION: ${{ inputs.version }}
+        YARN_INTEGRITY: ${{ inputs.integrity }}
+      run: |
+        set -euo pipefail
+        test "$(npm view "yarn@${YARN_VERSION}" dist.integrity)" = \
+          "$YARN_INTEGRITY"
+        npm install --global --ignore-scripts "yarn@${YARN_VERSION}"
+        test "$(yarn --version)" = "$YARN_VERSION"

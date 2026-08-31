@@ -665,7 +665,9 @@ rolled back, the other output can start normally.
   and passes those same values to Haxe. Changing `PATH`, `HAXELIB_PATH`,
   `HAXE_STD_PATH`, or another ambient value therefore cannot silently reuse a
   server started with older settings. Mutating a retained host array or object
-  later cannot change the command.
+  later cannot change the command. The combined UTF-8 environment names and
+  values must not exceed 64 KiB. This limit bounds the trusted handoff before
+  it retains or parses target credentials.
 - The host invocation contains only ordered top-level HXML files. Put build flags
   inside those HXML files; extra command-line flags are rejected because
   otherwise Haxe could compile files that the development loop did not know to
@@ -692,9 +694,18 @@ rolled back, the other output can start normally.
 
   The tree form intentionally has no glob language. Declare a narrower root
   when only one subtree belongs to the build.
-- `resolveInvocation().executable` is the native Haxe compiler binary that
-  supports `--server-listen` and `--connect`, not a shell command string. The
-  process is spawned with structured arguments and `shell: false`.
+- `resolveInvocation().executable` is an absolute native Haxe compiler binary
+  that supports `--server-listen` and `--connect`, not a shell command string.
+  On POSIX, tooling starts a trusted Node handoff with no inherited environment,
+  transfers the bounded Haxe environment over a private input pipe, and
+  replaces that same child with Haxe through raw `execve`. A private control
+  socket closes during successful replacement, including for a long-lived
+  compiler server. A failed replacement reports a bounded error through the
+  same socket. If the configured temporary directory is too long for a POSIX
+  socket path, tooling uses a private mode-0700 directory below `/tmp`. An
+  `ENOEXEC` failure is never reinterpreted as a shell script. On Windows,
+  tooling starts the canonical `.exe` directly with structured arguments and
+  `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
   or stale. An unrelated file beside generated output is preserved. If a new
   generated path is already occupied by an unowned file, publication fails
@@ -815,12 +826,11 @@ yarn test:tooling-package
 clean temporary project, type-checks every code subpath, imports every runtime
 and conformance-data subpath, and verifies the reviewed file inventory.
 
-The required Genes CI repeats the packed-consumer check on Node 20.9.0, which
+The required Genes CI repeats the packed-consumer check on Node 26.1.0, which
 is the package's oldest supported Node release. The runtime fixture loads JSON
-exports through Node's `createRequire` API because Node 20.9 predates the newer
-`with { type: "json" }` import syntax. The strict TypeScript consumer still
-checks the modern static-import form. Both paths resolve the same public
-package exports.
+exports through Node's `createRequire` API, while the strict TypeScript
+consumer checks the modern static-import form. Both paths resolve the same
+public package exports.
 
 Install an exact reviewed GitHub commit from another Node project with npm
 11.18.0:

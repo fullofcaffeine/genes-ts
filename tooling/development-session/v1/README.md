@@ -458,6 +458,17 @@ passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
 `HAXE_STD_PATH` change therefore starts a compatible server instead of silently
 reusing one created with older settings.
 
+The executable is an absolute native Haxe binary, not a command line. On
+POSIX, a trusted Node child receives the copied Haxe environment through a
+private pipe and then replaces itself with Haxe through raw `execve`. Only the
+standard streams survive a successful replacement, so that PID becomes the
+Haxe PID. A kernel `ENOEXEC` error fails the launch and cannot invoke a shell.
+If the configured temporary directory is too long for a POSIX socket path,
+tooling uses a private mode-0700 directory below `/tmp`. The child exit or
+compiler-server readiness remains the final success evidence. On Windows, the
+session starts the canonical Haxe `.exe` directly with structured arguments
+and `shell: false`.
+
 This boundary does not sandbox hostile Haxe macros. Macros are compile-time
 programs and can use filesystem and process APIs. V1 trusts the selected Haxe
 toolchain, resolved libraries, and project macro code; macro-owned external

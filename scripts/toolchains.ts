@@ -201,7 +201,7 @@ function stableVersionParts(version: string, label: string): ReadonlyArray<numbe
  *
  * Why: the exact Node floor is a runtime compatibility contract. A loose
  * `parseInt` comparison would incorrectly admit values such as
- * `22.22.0-rc.1`, which are lower than the stable `22.22.0` release.
+ * `26.1.0-rc.1`, which is lower than the stable `26.1.0` release.
  *
  * What/How: both inputs must be complete numeric `major.minor.patch` strings.
  * Components are compared from left to right; malformed or prerelease strings

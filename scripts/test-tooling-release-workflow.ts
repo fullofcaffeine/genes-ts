@@ -36,6 +36,8 @@ type ActionPin = {
   version: string;
 };
 
+type ActionReference = ActionPin | { local: string };
+
 const yamlModule: unknown = createRequire(import.meta.url)("js-yaml");
 assert(
   typeof yamlModule === "object" &&
@@ -46,7 +48,7 @@ assert(
 );
 const parseYaml = yamlModule.load as (source: string) => unknown;
 
-const toolingActionPins: ActionPin[] = [
+const toolingActionReferences: ActionReference[] = [
   {
     owner: "actions/checkout",
     sha: "d23441a48e516b6c34aea4fa41551a30e30af803",
@@ -57,6 +59,7 @@ const toolingActionPins: ActionPin[] = [
     sha: "249970729cb0ef3589644e2896645e5dc5ba9c38",
     version: "v6.5.0",
   },
+  { local: "./.github/actions/setup-yarn" },
   {
     owner: "actions/upload-artifact",
     sha: "ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -98,7 +101,7 @@ function requireOrdered(
 function verifyPinnedActions(
   source: string,
   workflowName: string,
-  expected: ActionPin[]
+  expected: ActionReference[]
 ): void {
   const parsedUses: string[] = [];
   const visited = new WeakSet<object>();
@@ -128,12 +131,16 @@ function verifyPinnedActions(
     /^\s*(?:-\s*)?uses:\s*([^\s#]+)(?:\s+#\s+(\S+))?\s*$/gm
   )].map((match) => {
     const reference = match[1];
+    if (reference.startsWith("./")) {
+      return { reference, version: match[2] };
+    }
     const separator = reference.lastIndexOf("@");
     assert(
       separator > 0,
       `${workflowName} action ${reference} is not an owner/repository reference pinned to a SHA`
     );
     return {
+      reference,
       owner: reference.slice(0, separator),
       sha: reference.slice(separator + 1),
       version: match[2],
@@ -152,11 +159,18 @@ function verifyPinnedActions(
     const actual = references[index];
     const wanted = expected[index];
     assert(
-      `${actual.owner}@${actual.sha}` === parsedUses[index],
+      actual.reference === parsedUses[index],
       `${workflowName} action parsing disagrees with its canonical source line`
     );
+    if ("local" in wanted) {
+      assert(
+        actual.reference === wanted.local && actual.version === undefined,
+        `${workflowName} local action ${actual.reference} does not match reviewed ${wanted.local}`
+      );
+      continue;
+    }
     assert(
-      /^[0-9a-f]{40}$/.test(actual.sha),
+      actual.sha !== undefined && /^[0-9a-f]{40}$/.test(actual.sha),
       `${workflowName} action ${actual.owner} is not pinned to a full commit SHA`
     );
     assert(
@@ -436,12 +450,27 @@ function verifyToolingReleaseWorkflow(source: string): void {
   requireText(
     source,
     'node-version: ${{ steps.toolchains.outputs.node-next-lts }}',
-    "trusted publishing must use the repository's pinned Node 24 lane"
+    "trusted publishing must use the repository's pinned latest Node 26 lane"
   );
   requireText(
     source,
     "package-manager-cache: false",
     "release setup must not restore an unreviewed package-manager cache"
+  );
+  requireText(
+    source,
+    "- uses: ./.github/actions/setup-yarn",
+    "release must install the reviewed standalone Yarn CLI"
+  );
+  assert(
+    !source.includes("corepack") && !/cache:\s*yarn/.test(source),
+    "release must not rely on Node-bundled Corepack or pre-install Yarn caching"
+  );
+  requireOrdered(
+    source,
+    "- uses: ./.github/actions/setup-yarn",
+    "- run: yarn install --frozen-lockfile",
+    "standalone Yarn must be installed before the first Yarn command"
   );
   requireText(
     source,
@@ -572,7 +601,7 @@ function verifyRequiredCiOwner(source: string): void {
   );
 }
 
-verifyPinnedActions(workflow, "tooling release workflow", toolingActionPins);
+verifyPinnedActions(workflow, "tooling release workflow", toolingActionReferences);
 verifyToolingReleaseWorkflow(workflow);
 verifyProtectedEnvironment();
 verifyRequiredCiOwner(ciWorkflow);
@@ -636,7 +665,7 @@ try {
       "actions/checkout@v6"
     ),
     "mutated tooling release workflow",
-    toolingActionPins
+    toolingActionReferences
   );
 } catch {
   rejected = true;
@@ -654,7 +683,7 @@ for (const unauthorizedUse of [
     verifyPinnedActions(
       workflow.replace("    steps:\n", `    steps:\n${unauthorizedUse}`),
       "mutated tooling release workflow",
-      toolingActionPins
+      toolingActionReferences
     );
   } catch {
     rejected = true;

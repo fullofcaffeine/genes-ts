@@ -96,6 +96,104 @@ function assertModernTsconfigs(): void {
   }
 }
 
+function assertStandaloneYarnWorkflows(packageManager: string): void {
+  const pin = /^yarn@([^+]+)\+sha512\.([0-9a-f]+)$/u.exec(packageManager);
+  if (pin === null) {
+    throw new Error(
+      "package.json packageManager must pin Yarn with a SHA-512 digest"
+    );
+  }
+  const expectedIntegrity =
+    `sha512-${Buffer.from(pin[2], "hex").toString("base64")}`;
+  const actionPath = ".github/actions/setup-yarn/action.yml";
+  const action = readFileSync(path.join(repoRoot, actionPath), "utf8");
+  for (const expected of [
+    `default: "${pin[1]}"`,
+    `default: "${expectedIntegrity}"`,
+    "npm install --global --ignore-scripts",
+    "test \"$(yarn --version)\" = \"$YARN_VERSION\""
+  ]) {
+    if (!action.includes(expected)) {
+      throw new Error(`${actionPath} does not enforce ${expected}`);
+    }
+  }
+  if (/^\s*(?:-\s*)?uses:\s*/mu.test(action)) {
+    throw new Error(
+      `${actionPath} must not invoke an unreviewed nested action`
+    );
+  }
+
+  for (const onboardingPath of ["AGENTS.md", "CONTRIBUTING.md"]) {
+    const onboarding = readFileSync(path.join(repoRoot, onboardingPath), "utf8");
+    if (/\bcorepack\s+enable\b/iu.test(onboarding)) {
+      throw new Error(
+        `${onboardingPath} must not tell Node 26 users to run removed Corepack`
+      );
+    }
+    for (const expected of [
+      `YARN_VERSION=${pin[1]}`,
+      `YARN_INTEGRITY='${expectedIntegrity}'`,
+      'npm view "yarn@$YARN_VERSION" dist.integrity',
+      'npm install --global --ignore-scripts "yarn@$YARN_VERSION"',
+      'test "$(yarn --version)" = "$YARN_VERSION"'
+    ]) {
+      if (!onboarding.includes(expected)) {
+        throw new Error(
+          `${onboardingPath} does not document the standalone Yarn check: ${expected}`
+        );
+      }
+    }
+  }
+
+  const workflows = new Map<string, string>([
+    [".github/workflows/ci.yml", "./.github/actions/setup-yarn"],
+    [".github/workflows/downstream.yml", "./genes/.github/actions/setup-yarn"],
+    [".github/workflows/release-tooling.yml", "./.github/actions/setup-yarn"],
+    [
+      ".github/workflows/release-tooling-github.yml",
+      "./release-controller/.github/actions/setup-yarn"
+    ]
+  ]);
+  for (const [workflow, setupAction] of workflows) {
+    const source = readFileSync(path.join(repoRoot, workflow), "utf8");
+    if (/corepack|cache:\s*yarn|cache-dependency-path/u.test(source)) {
+      throw new Error(
+        `${workflow} must not rely on Node-bundled Corepack or pre-install Yarn caching`
+      );
+    }
+    let nodeEpoch = 0;
+    let yarnEpoch = -1;
+    const lines = source.split("\n");
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line.includes("uses: actions/setup-node@")) nodeEpoch += 1;
+      if (line.includes(`uses: ${setupAction}`)) {
+        if (line.trim() !== `- uses: ${setupAction}`) {
+          throw new Error(
+            `${workflow} must use the canonical standalone Yarn step`
+          );
+        }
+        const actionIndent = line.search(/\S/u);
+        for (let child = index + 1; child < lines.length; child += 1) {
+          if (lines[child].trim() === "") continue;
+          if (lines[child].search(/\S/u) <= actionIndent) break;
+          throw new Error(
+            `${workflow} must not override the reviewed standalone Yarn action`
+          );
+        }
+        yarnEpoch = nodeEpoch;
+      }
+      const command = line.trim();
+      if (/^(?:(?:-\s*)?run:\s*)?yarn(?:\s|$)/u.test(command)
+        && yarnEpoch !== nodeEpoch) {
+        throw new Error(
+          `${workflow} runs Yarn before the standalone installer in Node epoch ${nodeEpoch}`
+        );
+      }
+    }
+  }
+}
+
 const pkg = readJson("package.json");
 const haxelib = readJson("haxelib.json");
 const devDependencies = asObject(pkg.devDependencies, "package.json devDependencies");
@@ -103,6 +201,7 @@ const resolutions = asObject(pkg.resolutions, "package.json resolutions");
 
 const pkgVersion = asString(pkg.version, "package.json version");
 const haxelibVersion = asString(haxelib.version, "haxelib.json version");
+const packageManager = asString(pkg.packageManager, "package.json packageManager");
 ensureSemver(pkgVersion);
 ensureSemver(haxelibVersion);
 if (pkgVersion !== "0.0.0-development" || haxelibVersion !== "0.0.0") {
@@ -230,24 +329,22 @@ function nodeMajor(value: string, label: string): number {
 function admitsNodeMajor(
   candidate: number,
   supportedFloor: number,
-  latestLts: number
+  latestSupported: number
 ): boolean {
-  return candidate === supportedFloor || candidate === latestLts;
+  return candidate === supportedFloor || candidate === latestSupported;
 }
 
 /**
  * Exercises the complete manifest-defined boundary on every version-policy run.
  *
- * The hosted matrix proves the two LTS endpoints with real Node installations.
- * These derived cases additionally prove that only the two tested LTS majors
- * are admitted. An intervening odd release is not an LTS compatibility lane,
- * and accepting it would be false when a pinned build dependency excludes it.
- * Keeping the samples relative to the manifest avoids creating a second list
- * of Node versions that could drift from the policy owner.
+ * The hosted matrix proves the exact floor and latest release with real Node
+ * installations. These derived cases prove that only manifest-selected majors
+ * are admitted. Intervening majors remain excluded unless a future matrix adds
+ * them. Relative samples avoid a second version list that could drift.
  */
 function verifyNodeAdmissionBoundary(
   supportedFloor: number,
-  latestLts: number
+  latestSupported: number
 ): void {
   const cases: Array<{
     major: number;
@@ -265,31 +362,31 @@ function verifyNodeAdmissionBoundary(
       label: "supported floor",
     },
   ];
-  for (let major = supportedFloor + 1; major < latestLts; major += 1) {
+  for (let major = supportedFloor + 1; major < latestSupported; major += 1) {
     cases.push({
       major,
       expected: false,
       label: "untested intervening major",
     });
   }
-  cases.push(
-    {
-      major: latestLts,
+  if (latestSupported !== supportedFloor) {
+    cases.push({
+      major: latestSupported,
       expected: true,
-      label: "latest LTS",
-    },
-    {
-      major: latestLts + 1,
-      expected: false,
-      label: "unreviewed future major",
-    }
-  );
+      label: "latest supported release",
+    });
+  }
+  cases.push({
+    major: latestSupported + 1,
+    expected: false,
+    label: "unreviewed future major",
+  });
 
   for (const testCase of cases) {
     const actual = admitsNodeMajor(
       testCase.major,
       supportedFloor,
-      latestLts
+      latestSupported
     );
     if (actual !== testCase.expected) {
       throw new Error(
@@ -301,7 +398,7 @@ function verifyNodeAdmissionBoundary(
 }
 
 const supportedNodeFloor = nodeMajor(toolchains.node.stable, "node.stable");
-const latestNodeLts = nodeMajor(toolchains.node.nextLts, "node.nextLts");
+const latestSupportedNode = nodeMajor(toolchains.node.nextLts, "node.nextLts");
 ensureSemver(toolchains.node.minimumRuntime);
 ensureSemver(toolchains.node.nextLtsMinimumRuntime);
 const minimumNodeMajor = nodeMajor(
@@ -318,10 +415,10 @@ const nextLtsMinimumMajor = nodeMajor(
   toolchains.node.nextLtsMinimumRuntime.split(".")[0],
   "node.nextLtsMinimumRuntime major"
 );
-if (nextLtsMinimumMajor !== latestNodeLts) {
+if (nextLtsMinimumMajor !== latestSupportedNode) {
   throw new Error(
     `node.nextLtsMinimumRuntime (${toolchains.node.nextLtsMinimumRuntime}) `
-      + `must belong to the latest-LTS Node ${toolchains.node.nextLts} lane`
+      + `must belong to the latest supported Node ${toolchains.node.nextLts} lane`
   );
 }
 const engines = asObject(pkg.engines, "package.json engines");
@@ -334,20 +431,19 @@ if (actualNodeEngine !== expectedNodeEngine) {
 }
 const nodeVersionBoundaryCases: ReadonlyArray<readonly [string, boolean]> = [
   [toolchains.node.minimumRuntime, true],
-  ["22.22.1", true],
-  ["22.23.0", true],
+  ["26.1.1", true],
+  ["26.8.1", true],
   [toolchains.node.nextLtsMinimumRuntime, true],
-  ["24.10.1", true],
-  ["23.0.0", false],
-  ["24.9.99", false],
-  ["22.21.99", false],
-  ["21.99.99", false]
+  ["26.0.99", false],
+  ["25.99.99", false],
+  ["24.20.0", false],
+  ["27.0.0", false]
 ];
 for (const [candidate, expected] of nodeVersionBoundaryCases) {
   const major = Number(candidate.split(".")[0]);
   const floor = major === supportedNodeFloor
     ? toolchains.node.minimumRuntime
-    : major === latestNodeLts
+    : major === latestSupportedNode
       ? toolchains.node.nextLtsMinimumRuntime
       : null;
   const actual = floor !== null && isStableVersionAtLeast(candidate, floor);
@@ -358,7 +454,7 @@ for (const [candidate, expected] of nodeVersionBoundaryCases) {
     );
   }
 }
-for (const malformed of ["22.22.0-rc.1", "22.22.0suffix", "22.22"]) {
+for (const malformed of ["26.1.0-rc.1", "26.1.0suffix", "26.1"]) {
   try {
     isStableVersionAtLeast(malformed, toolchains.node.minimumRuntime);
     throw new Error(`Node patch-floor comparison admitted malformed version ${malformed}`);
@@ -369,21 +465,21 @@ for (const malformed of ["22.22.0-rc.1", "22.22.0suffix", "22.22"]) {
     }
   }
 }
-if (supportedNodeFloor >= latestNodeLts) {
+if (supportedNodeFloor > latestSupportedNode) {
   throw new Error(
-    `Expected node.stable (${supportedNodeFloor}) to precede node.nextLts (${latestNodeLts})`
+    `Expected node.stable (${supportedNodeFloor}) not to exceed node.nextLts (${latestSupportedNode})`
   );
 }
-verifyNodeAdmissionBoundary(supportedNodeFloor, latestNodeLts);
+verifyNodeAdmissionBoundary(supportedNodeFloor, latestSupportedNode);
 
 const runningNodeMajor = nodeMajor(
   process.versions.node.split(".")[0],
   "running Node major"
 );
 
-// CI owns both admitted LTS endpoints. Odd and future majors fail until the
-// manifest, dependency engines, and hosted lanes deliberately admit them.
-if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestNodeLts)) {
+// CI owns the exact safe floor and the latest release in its admitted major.
+// Older and future majors fail until the manifest and hosted lanes admit them.
+if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestSupportedNode)) {
   throw new Error(
     `Node ${process.versions.node} is outside the admitted major range `
       + `${toolchains.node.stable}-${toolchains.node.nextLts}`
@@ -402,6 +498,7 @@ for (const workflow of [
 
 assertNoDuplicatedToolchainLiterals();
 assertModernTsconfigs();
+assertStandaloneYarnWorkflows(packageManager);
 
 process.stdout.write(
   `versions:ok package=${pkgVersion} haxe=${toolchains.haxe.stable} `

@@ -31,11 +31,10 @@ changes without a new manifest, tooling rejects the stale data.
 The final processor identity must describe the implementation that ran. A
 package version, registry checksum, or declared dependency graph cannot prove
 that fact after local bytes or runtime resolution change. Tooling captures a
-bounded installed package closure and, on reviewed Node 22.22+ or 24.10+
+bounded installed package closure and, on reviewed Node 26.1+
 runtimes, can execute one fixed internal adapter from a private copy of those
 exact bytes. Undeclared, ambient, outside, custom-scheme, or native-addon module
-loads release no result. Node 20 can still import the tooling package, but this
-optional execution operation fails before package capture. The
+loads release no result. The
 [protocol guide](../tooling/css-modules/v1/README.md#installed-closure-evidence)
 defines the exact module, filesystem, runtime, and trusted-code boundary.
 
@@ -141,9 +140,9 @@ initializers, optional properties, mutable properties, duplicate keys, and
 other value types fail. The adapter parses with measured TypeScript 6.0.3 in a
 fresh child. TypeScript does not load in the host process.
 
-The provider subpaths remain importable on Node 20. Calls require reviewed Node
-22.22+ or Node 24.10+ execution and otherwise fail before package capture. The
-core `@genes-ts/tooling/css-modules` path loads no optional processor.
+The provider subpaths require the package's reviewed Node 26.1+
+runtime. The core `@genes-ts/tooling/css-modules` path loads no optional
+processor.
 
 ## Tested authoring flow
 

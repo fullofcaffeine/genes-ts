@@ -20,9 +20,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  YARN_VERSION: "1.22.22"
-
 jobs:
   dependency-review:
     name: Dependency Review
@@ -81,10 +78,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - run: yarn install --frozen-lockfile
       - name: Install verified Beads ${{ matrix.beads-version }} release
         env:
@@ -115,15 +109,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
       - uses: actions/setup-go@v5
         with:
           # The reviewed Beads source pin declares this toolchain in go.mod.
           go-version: "1.26.5"
           cache: false
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - run: yarn install --frozen-lockfile
       - run: yarn beads:install
       - run: yarn hooks:install
@@ -141,10 +132,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - run: yarn install --frozen-lockfile
       - run: yarn test:secrets
 
@@ -158,10 +146,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - run: yarn install --frozen-lockfile
       - run: yarn test:vulns
 
@@ -187,10 +172,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-lane == 'stable' && steps.toolchains.outputs.node-stable || steps.toolchains.outputs.node-next-lts }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Cache Haxe toolchain (lix)
         uses: actions/cache@v4
         with:
@@ -217,10 +199,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Cache Haxe toolchain (lix)
         uses: actions/cache@v4
         with:
@@ -277,10 +256,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Cache Haxe toolchain (lix)
         uses: actions/cache@v4
         with:
@@ -327,10 +303,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Cache Haxe toolchain (lix)
         uses: actions/cache@v4
         with:
@@ -366,11 +339,11 @@ jobs:
       - name: Select the tooling package's oldest supported Node release
         uses: actions/setup-node@v4
         with:
-          node-version: 20.9.0
-      - name: Verify the packed tooling package on Node 20.9
+          node-version: 26.1.0
+      - name: Verify the packed tooling package on Node 26.1
         run: |
           set -euo pipefail
-          test "$(node --version)" = "v20.9.0"
+          test "$(node --version)" = "v26.1.0"
           node scripts/dist/test-tooling-package.js \
             --tarball "$TOOLING_MINIMUM_TARBALL" \
             --pack-json "$TOOLING_MINIMUM_PACK_JSON"
@@ -378,10 +351,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       # This job is a required status. Run the structural policy here so a
       # required-check rename or matrix change is rejected on the PR that
       # proposes it, before GitHub settings and workflow output can diverge.
@@ -415,7 +385,7 @@ jobs:
       - run: yarn test:library-profile
 
   genes-ts-smoke-next-lts:
-    name: genes-ts smoke (Node latest LTS)
+    name: genes-ts smoke (Node current / next LTS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -426,10 +396,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-next-lts }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Cache Haxe toolchain (lix)
         uses: actions/cache@v4
         with:
@@ -462,10 +429,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: yarn.lock
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Cache Haxe preview toolchain (lix)
         uses: actions/cache@v4
         with:
@@ -567,8 +531,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./.github/actions/setup-yarn
       - name: Install exact release dependency graph
         run: yarn install --frozen-lockfile
       - name: Guard reachable SemVer baseline

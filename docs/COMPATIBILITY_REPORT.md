@@ -142,8 +142,8 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 
 | Surface | Lane | Pin | Contract |
 | --- | --- | --- | --- |
-| Node | stable | 22.22.0+ (Node 22 lane) | blocking runtime lane |
-| Node | latest LTS | 24.10.0+ | blocking runtime lane |
+| Node | stable | 26.1.0+ (Node 26 lane) | blocking runtime lane |
+| Node | current / next LTS | 26.1.0+ | blocking runtime lane |
 | Haxe | stable | 4.3.7 | blocking compiler lane |
 | Haxe | preview | 5.0.0-preview.1 | nonblocking early warning |
 | TypeScript | legacyFloor | 5.5.4 | generated-output |

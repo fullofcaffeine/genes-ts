@@ -267,7 +267,7 @@ try {
       executeAdmittedProcessorWithHooks(
         executionRequest(unreadableClosure, "fixture-adapter", null),
         {
-          nodeVersion: "20.9.0",
+          nodeVersion: "26.0.99",
           afterMaterialization: () => {
             unsupportedMaterialized = true;
           },

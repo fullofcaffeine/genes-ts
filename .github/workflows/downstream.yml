@@ -12,9 +12,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  YARN_VERSION: "1.22.22"
-
 jobs:
   curated:
     name: ${{ matrix.profile }} pinned no-network contract
@@ -37,11 +34,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
-          cache: yarn
-          cache-dependency-path: genes/yarn.lock
 
-      - run: corepack enable
-      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - uses: ./genes/.github/actions/setup-yarn
       - run: yarn --cwd genes install --frozen-lockfile
       - run: yarn --cwd genes build:scripts
 

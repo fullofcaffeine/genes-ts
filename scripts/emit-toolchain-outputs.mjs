@@ -11,7 +11,7 @@ const manifest = JSON.parse(
 
 const outputs = {
   // The blocking lane runs the exact supported floor. Using only the major
-  // would silently move CI to the newest 22.x and leave 22.22.0 untested.
+  // would silently move CI to the newest 26.x and leave 26.1.0 untested.
   "node-stable": manifest.node.minimumRuntime,
   "node-next-lts": manifest.node.nextLts,
   "haxe-stable": manifest.haxe.stable,

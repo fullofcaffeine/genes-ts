@@ -6,6 +6,16 @@ it.
 
 ## Unreleased
 
+- Launch every Haxe compiler child through one internal no-shell authority.
+  On POSIX, a trusted Node child replaces itself with the absolute Haxe target
+  through raw `execve`; Windows starts the canonical native `.exe` directly.
+  A successful Haxe process keeps the owned PID and exact environment. An
+  executable text file can no longer trigger Node's `ENOEXEC` shell fallback.
+  Before it reads the Haxe environment, the handoff proves this exact runtime
+  reports a failed system exec as a normal error. This raises the package
+  runtime contract from Node 20.9 to Node 26.1+, where Node fixes failed raw
+  process replacement without a process abort. Deep configured temporary paths
+  use a private length-bounded POSIX socket directory.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,
@@ -27,9 +37,8 @@ it.
   native bindings, and network globals are also denied because Node's
   permission model does not restrict sockets. Private underscore and internal
   built-ins are denied as one class so their lower-level socket entry points
-  cannot bypass that rule. The optional operation supports reviewed Node
-  22.22+ and 24.10+ runtimes; Node 20 remains supported for the public tooling
-  package and fails this operation before package capture.
+  cannot bypass that rule. The optional operation supports the reviewed Node
+  26.1+ package runtime.
 - Add internal bounded installed package closure measurement for CSS Modules
   tooling. It records deterministic evidence for installed package bytes. A
   separate execution-admission step must establish final processor identity.
