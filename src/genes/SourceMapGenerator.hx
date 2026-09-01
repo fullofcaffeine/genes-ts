@@ -107,7 +107,7 @@ class SourceMapGenerator {
   ];
 
   final sources: Array<String> = [];
-  var mappings = '';
+  final mappings = new StringBuf();
   var previousGeneratedColumn = 0;
   var previousGeneratedLine = 1;
   var previousOriginalColumn = 0;
@@ -128,13 +128,8 @@ class SourceMapGenerator {
       final continuationBit = base;
       final digit = vlq & mask;
       final next = vlq >> shift;
-      final mapping = chars[
-        if (next > 0)
-          digit | continuationBit
-        else
-          digit
-      ];
-      mappings += mapping;
+      final mapping = chars[if (next > 0) digit | continuationBit else digit];
+      mappings.add(mapping);
       vlq = next;
     } while (vlq > 0);
   }
@@ -148,11 +143,11 @@ class SourceMapGenerator {
     if (generated.line != previousGeneratedLine) {
       previousGeneratedColumn = 0;
       while (generated.line != previousGeneratedLine) {
-        mappings += ";";
+        mappings.add(";");
         previousGeneratedLine++;
       }
     } else if (mappings.length > 0) {
-      mappings += ",";
+      mappings.add(",");
     }
 
     base64Vlq(generated.column - previousGeneratedColumn);
@@ -173,9 +168,7 @@ class SourceMapGenerator {
 
   static function projectRoot(): String {
     final configured = Context.definedValue('genes.source_map_root');
-    return if (configured == null || configured.length == 0)
-      Sys.getCwd()
-    else
+    return if (configured == null || configured.length == 0) Sys.getCwd() else
       configured;
   }
 
@@ -216,13 +209,13 @@ class SourceMapGenerator {
         classPathOrder: classPaths.length
       });
     candidates.sort((left, right) -> {
-      final partDifference = pathPartCount(left.path) - pathPartCount(right.path);
+      final partDifference = pathPartCount(left.path)
+        - pathPartCount(right.path);
       if (partDifference != 0)
         return partDifference;
       final lengthDifference = left.path.length - right.path.length;
-      return lengthDifference != 0
-        ? lengthDifference
-        : left.classPathOrder - right.classPathOrder;
+      return lengthDifference != 0 ? lengthDifference : left.classPathOrder
+        - right.classPathOrder;
     });
     return candidates;
   }
@@ -237,10 +230,12 @@ class SourceMapGenerator {
    */
   static function claimSourceIdentity(planIndex: Int,
       plans: Array<ExternalSourceIdentityPlan>, ownerByPath: Map<String, Int>,
-      chosenByPlan: Array<Null<String>>, visitedPaths: Map<String, Bool>): Bool {
+      chosenByPlan: Array<Null<String>>,
+      visitedPaths: Map<String, Bool>): Bool {
     final plan = plans[planIndex];
     for (candidate in plan.candidates) {
-      if (visitedPaths.exists(candidate.path) || ownerByPath.exists(candidate.path))
+      if (visitedPaths.exists(candidate.path)
+        || ownerByPath.exists(candidate.path))
         continue;
       visitedPaths.set(candidate.path, true);
       ownerByPath.set(candidate.path, planIndex);
@@ -253,7 +248,8 @@ class SourceMapGenerator {
       visitedPaths.set(candidate.path, true);
       final currentOwner = ownerByPath.get(candidate.path);
       if (currentOwner != null
-        && claimSourceIdentity(currentOwner, plans, ownerByPath, chosenByPlan, visitedPaths)) {
+        && claimSourceIdentity(currentOwner, plans, ownerByPath, chosenByPlan,
+          visitedPaths)) {
         ownerByPath.set(candidate.path, planIndex);
         chosenByPlan[planIndex] = candidate.path;
         return true;
@@ -298,15 +294,16 @@ class SourceMapGenerator {
     }
 
     externalPlans.sort((left, right) -> {
-      final candidateDifference = left.candidates.length - right.candidates.length;
-      return candidateDifference != 0
-        ? candidateDifference
-        : left.sourceIndex - right.sourceIndex;
+      final candidateDifference = left.candidates.length
+        - right.candidates.length;
+      return candidateDifference != 0 ? candidateDifference : left.sourceIndex
+        - right.sourceIndex;
     });
     final ownerByPath = new Map<String, Int>();
     final chosenByPlan: Array<Null<String>> = [for (_ in externalPlans) null];
     for (planIndex in 0...externalPlans.length)
-      claimSourceIdentity(planIndex, externalPlans, ownerByPath, chosenByPlan, new Map());
+      claimSourceIdentity(planIndex, externalPlans, ownerByPath, chosenByPlan,
+        new Map());
 
     final usedPaths = new Map<String, Bool>();
     for (chosen in chosenByPlan)
@@ -336,7 +333,7 @@ class SourceMapGenerator {
       file: Path.withoutDirectory(Path.withoutExtension(path)),
       sourceRoot: "",
       sources: sourceIdentities(path),
-      mappings: mappings
+      mappings: mappings.toString()
     }
     #if source_map_content
     if (withSources)
