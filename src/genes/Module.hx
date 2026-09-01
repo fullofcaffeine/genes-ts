@@ -117,6 +117,7 @@ class Module {
   public var moduleFunctionRequestPlan(get, null): ModuleFunctionRequestPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
   public var moduleValuePlan(get, null): ModuleValuePlan;
+  public var usesJsonTypes(get, never): Bool;
   public var nativeAsyncPlan(get, null): NativeAsyncPlan;
   public var reactStateInitializationPlan(get,
     null): genes.react.ReactStateInitializationPlan;
@@ -125,6 +126,7 @@ class Module {
   final cycleCache = new Map<String, Bool>();
   final namePlans = new Map<String, NamePlan>();
   var lexicalBindingUsePlanCache: Null<LexicalBindingUsePlan>;
+  var usesJsonTypesCache: Null<Bool>;
   var reactStateInitializationPlanCache: Null<genes.react.ReactStateInitializationPlan>;
 
   public function new(context: ModuleContext, module, types: Array<Type>,
@@ -158,6 +160,21 @@ class Module {
     if (dependencyPlan == null)
       dependencyPlan = DependencyPlanBuilder.build(this);
     return dependencyPlan;
+  }
+
+  /**
+   * Returns one JSON-alias decision for this request-local member inventory.
+   *
+   * Alias collision validation and the active emitter consume the same typed
+   * members. Rewalking every expression and nested type for each consumer made
+   * this yes/no fact the largest measured production compile cost. `addTypes`
+   * clears the value whenever declaration reachability grows the inventory, so
+   * no compiler-server or earlier module state can authorize this generation.
+   */
+  function get_usesJsonTypes(): Bool {
+    if (usesJsonTypesCache == null)
+      usesJsonTypesCache = JsonTypeSupport.moduleUsesJsonTypes(this);
+    return usesJsonTypesCache;
   }
 
   /** Returns exact request-local ownership for native async carriers. */
@@ -503,6 +520,7 @@ class Module {
       moduleFunctionRequestPlan = null;
       moduleFunctionPlan = null;
       moduleValuePlan = null;
+      usesJsonTypesCache = null;
       reactStateInitializationPlanCache = null;
       namePlans.clear();
       cycleCache.clear();
