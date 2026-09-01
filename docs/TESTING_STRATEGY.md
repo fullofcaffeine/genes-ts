@@ -994,6 +994,14 @@ subgate. It writes the active gate and one log per subgate to
 `.tmp/test-evidence/acceptance/`. The required GitHub job uploads that directory
 even when acceptance fails.
 
+The required job runs `yarn test:acceptance-process-owner` as a separate step
+before the aggregate. That lifecycle fixture creates private process groups and
+an unrelated detached bystander, so nesting it inside its own owner would make
+abrupt outer cleanup unsafe. Its three-second timeout case owns one process;
+the signal case separately waits for and verifies the full three-process tree.
+The fixture runs once in the required job, rather than once inside every
+acceptance profile.
+
 One 40-minute deadline owns the complete aggregate. The initial bound uses ten
 successful required-job samples: p50 was 1,726 seconds and p95 was 1,803
 seconds. Forty minutes adds approximately 33 percent to that whole-job p95.

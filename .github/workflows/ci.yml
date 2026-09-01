@@ -399,6 +399,9 @@ jobs:
       # in a required PR job; the release-only aggregate is too late to catch a
       # policy regression introduced by an ordinary change.
       - run: yarn test:null-safety
+      # The lifecycle fixture creates private owner groups and a detached
+      # bystander. Run it beside, never inside, the aggregate that it tests.
+      - run: yarn test:acceptance-process-owner
       - run: yarn test:acceptance
         timeout-minutes: 45
         env:

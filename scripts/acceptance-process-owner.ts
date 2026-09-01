@@ -91,9 +91,16 @@ export async function terminateAcceptanceProcessTree(
   const pid = child.pid;
   if (pid === undefined) return;
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
+    const result = spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
       stdio: "ignore"
     });
+    if (result.error !== undefined) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(
+        `taskkill failed for acceptance process tree ${String(pid)}`
+        + ` with ${result.signal ?? `exit ${String(result.status)}`}`
+      );
+    }
     return;
   }
 
@@ -225,6 +232,7 @@ export class AcceptanceProcessOwner {
       });
     }
 
+    let removeSignalHandlers = (): void => {};
     const initialResult = await new Promise<{
       readonly status: "passed" | "failed" | "timed-out" | "interrupted";
       readonly code: number | null;
@@ -246,8 +254,6 @@ export class AcceptanceProcessOwner {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        process.removeListener("SIGINT", onSigint);
-        process.removeListener("SIGTERM", onSigterm);
         resolve(value);
       };
       const terminate = (
@@ -268,7 +274,7 @@ export class AcceptanceProcessOwner {
         }
         termination = requested;
         const graceMs = this.options.terminationGraceMs ?? 2_000;
-        const close = waitForChildClose(child, graceMs * 2);
+        const close = waitForChildClose(child, graceMs * 3 + 250);
         void terminateAcceptanceProcessTree(child, graceMs).then(
           async () => {
             const closed = await close;
@@ -310,6 +316,10 @@ export class AcceptanceProcessOwner {
       });
       process.on("SIGINT", onSigint);
       process.on("SIGTERM", onSigterm);
+      removeSignalHandlers = (): void => {
+        process.removeListener("SIGINT", onSigint);
+        process.removeListener("SIGTERM", onSigterm);
+      };
       const timeout = setTimeout(
         () => terminate({ status: "timed-out" }),
         remainingMs
@@ -320,7 +330,7 @@ export class AcceptanceProcessOwner {
       };
       if (logError !== undefined) routeLogError(logError);
       child.once("error", (error) => terminate({ status: "failed", error }));
-      child.once("close", (code, signal) => {
+      const onRootExit = (code: number | null, signal: NodeJS.Signals | null): void => {
         if (termination !== undefined) return;
         const completed = {
           status: code === 0 ? "passed" as const : "failed" as const,
@@ -328,8 +338,19 @@ export class AcceptanceProcessOwner {
           signal
         };
         const graceMs = this.options.terminationGraceMs ?? 2_000;
+        const close = waitForChildClose(child, graceMs * 3 + 250);
         void terminateAcceptanceProcessTree(child, graceMs).then(
-          () => finish(completed),
+          async () => {
+            const closed = await close;
+            finish(closed ? completed : {
+              status: "failed",
+              code,
+              signal,
+              error: new Error(
+                `${gate.id} root streams did not close after tree termination`
+              )
+            });
+          },
           (error: unknown) => finish({
             status: "failed",
             code,
@@ -337,7 +358,23 @@ export class AcceptanceProcessOwner {
             error: error instanceof Error ? error : new Error(String(error))
           })
         );
-      });
+      };
+      if (process.platform === "win32") {
+        // Windows timeout and signal paths call taskkill while the root PID is
+        // still addressable. A normal close preserves the root's real result.
+        child.once("close", (code, signal) => {
+          if (termination !== undefined) return;
+          finish({
+            status: code === 0 ? "passed" : "failed",
+            code,
+            signal
+          });
+        });
+      } else {
+        // POSIX can clean the complete private group as soon as its leader
+        // exits, even while descendants still hold inherited pipes open.
+        child.once("exit", onRootExit);
+      }
     });
     await closeLog(log);
     const result = logError === undefined
@@ -357,8 +394,14 @@ export class AcceptanceProcessOwner {
       exitCode: result.code,
       signal: result.signal
     };
-    this.states[this.states.length - 1] = completed;
-    this.writeState(result.status === "passed" ? null : gate.id);
+    try {
+      this.states[this.states.length - 1] = completed;
+      this.writeState(result.status === "passed" ? null : gate.id);
+    } finally {
+      // Repeated signals remain coalesced until logs close and durable evidence
+      // no longer reports the gate as running.
+      removeSignalHandlers();
+    }
     if (result.status === "passed") {
       process.stdout.write(
         `acceptance:pass ${gate.id} duration=${String(completed.durationMs)}ms\n`

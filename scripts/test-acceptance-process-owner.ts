@@ -55,14 +55,14 @@ try {
   const owner = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: timeoutRoot,
-    timeoutMs: 10_000,
-    terminationGraceMs: 500
+    timeoutMs: 3_000,
+    terminationGraceMs: 250
   });
   await rejects(
     owner.run({
       id: "hung-tree",
       command: process.execPath,
-      args: [probe, "parent"]
+      args: [probe, "grandchild"]
     }),
     /Acceptance timed out in hung-tree/
   );
@@ -70,9 +70,9 @@ try {
   const log = readFileSync(path.join(timeoutRoot, "hung-tree.log"), "utf8");
   const ownedPids = [...log.matchAll(/probe:(?:parent|child|grandchild):(\d+)/g)]
     .map((match) => Number(match[1]));
-  strictEqual(ownedPids.length, 3, `Expected three owned PIDs, got ${log}`);
+  strictEqual(ownedPids.length, 1, `Expected one owned PID, got ${log}`);
   for (const pid of ownedPids) {
-    strictEqual(isRunning(pid), false, `Owned descendant ${String(pid)} survived`);
+    strictEqual(isRunning(pid), false, `Owned process ${String(pid)} survived`);
   }
   strictEqual(
     isRunning(bystander.pid),
@@ -88,6 +88,40 @@ try {
   };
   strictEqual(timeoutState.activeGate, "hung-tree");
   strictEqual(timeoutState.gates?.[0]?.status, "timed-out");
+
+  if (process.platform !== "win32") {
+    const rootExitRoot = path.join(reportRoot, "root-exit");
+    const rootExit = new AcceptanceProcessOwner({
+      cwd: repoRoot,
+      reportRoot: rootExitRoot,
+      timeoutMs: 3_000,
+      terminationGraceMs: 250
+    });
+    await rootExit.run({
+      id: "background-root",
+      command: process.execPath,
+      args: [probe, "background-root"]
+    });
+    const rootExitLog = readFileSync(
+      path.join(rootExitRoot, "background-root.log"),
+      "utf8"
+    );
+    const descendant = /probe:grandchild:(\d+)/u.exec(rootExitLog);
+    ok(descendant !== null, `Background descendant did not report: ${rootExitLog}`);
+    strictEqual(
+      isRunning(Number(descendant[1])),
+      false,
+      "Background descendant survived its root exit"
+    );
+    const rootExitState = JSON.parse(
+      readFileSync(path.join(rootExitRoot, "state.json"), "utf8")
+    ) as {
+      readonly activeGate?: unknown;
+      readonly gates?: ReadonlyArray<{ readonly status?: unknown }>;
+    };
+    strictEqual(rootExitState.activeGate, null);
+    strictEqual(rootExitState.gates?.[0]?.status, "passed");
+  }
 
   if (process.platform !== "win32") {
     const signalRoot = path.join(reportRoot, "signal");

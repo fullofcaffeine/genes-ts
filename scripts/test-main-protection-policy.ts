@@ -175,7 +175,7 @@ function main(): void {
     const haxeUse =
       "- run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}";
     const formatter = "- run: yarn haxelib install formatter 1.18.0 --quiet";
-    const acceptance = "- run: yarn test:acceptance";
+    const acceptance = "- run: yarn test:acceptance\n";
     const haxeInstallIndex = block.indexOf(haxeInstall);
     const haxeUseIndex = block.indexOf(haxeUse);
     const formatterIndex = block.indexOf(formatter);
@@ -188,9 +188,19 @@ function main(): void {
       `${job} must select Haxe before installing the pinned formatter and running the stdlib-overlay acceptance gate`
     );
   }
+  const ownerFixture = "- run: yarn test:acceptance-process-owner";
+  const acceptanceStep = "- run: yarn test:acceptance\n";
+  assert(
+    genesTs.includes(ownerFixture)
+      && genesTs.indexOf(ownerFixture) < genesTs.indexOf(acceptanceStep),
+    "The required genes-ts job must run the process-owner fixture outside and before acceptance"
+  );
   assert(
     genesTs.includes("- run: yarn test:acceptance\n        timeout-minutes: 45")
       && genesTs.includes("- name: Preserve acceptance owner markers and logs")
+      && genesTs.includes(
+        "- name: Preserve acceptance owner markers and logs\n        if: always()"
+      )
       && genesTs.includes("path: .tmp/test-evidence/acceptance")
       && genesTs.includes("include-hidden-files: true"),
     "The required genes-ts acceptance step must stay bounded and preserve owner evidence"

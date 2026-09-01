@@ -18,13 +18,17 @@ function resistGracefulTermination(): void {
   });
 }
 
+function descendantIsDetached(): boolean {
+  return process.platform !== "win32"
+    && process.env.GENES_ACCEPTANCE_PROCESS_OWNER !== "1";
+}
+
 function spawnOwnedDescendant(mode: "child" | "grandchild"): void {
   spawn(process.execPath, [script, mode], {
     stdio: "inherit",
     // The acceptance owner marks gates that already have a private process
     // group. Nested repository processes must remain in that owned group.
-    detached: process.platform !== "win32"
-      && process.env.GENES_ACCEPTANCE_PROCESS_OWNER !== "1"
+    detached: descendantIsDetached()
   });
 }
 
@@ -53,6 +57,28 @@ switch (mode) {
     spawnOwnedDescendant("child");
     stayAlive();
     break;
+  case "background-child":
+    process.stdout.write(`probe:grandchild:${String(process.pid)}\n`);
+    process.send?.("ready");
+    resistGracefulTermination();
+    stayAlive();
+    break;
+  case "background-root": {
+    process.stdout.write(`probe:parent:${String(process.pid)}\n`);
+    const child = spawn(process.execPath, [script, "background-child"], {
+      stdio: ["ignore", "inherit", "inherit", "ipc"],
+      detached: descendantIsDetached()
+    });
+    await new Promise<void>((resolve, reject) => {
+      child.once("message", () => {
+        child.disconnect();
+        child.unref();
+        resolve();
+      });
+      child.once("error", reject);
+    });
+    break;
+  }
   case "bystander":
     stayAlive();
     break;

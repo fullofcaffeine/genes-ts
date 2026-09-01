@@ -55,10 +55,6 @@ async function run(
 }
 
 async function runAcceptance(): Promise<void> {
-  await run("acceptance-process-owner", "node", [
-    "scripts/dist/test-acceptance-process-owner.js"
-  ]);
-
   if (!skipClassic) {
     await run("classic-baseline", "npm", ["test"]);
     await run("classic-declarations", "node", ["scripts/dist/test-classic-dts.js"]);
