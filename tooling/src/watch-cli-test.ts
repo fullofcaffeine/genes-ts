@@ -36,6 +36,10 @@ import type {
   JsonValue,
   ValidationTree,
 } from "./session/index.js";
+import {
+  DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+  DEVELOPMENT_SESSION_EVENT_VERSION,
+} from "./session/index.js";
 
 const repositoryRoot = realpathSync.native(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
@@ -615,6 +619,21 @@ try {
     0,
   );
   assert.equal(watchOutputErrorExitCode(new Error("broken stdout")), 1);
+  const openingEvent: DevelopmentEvent<JsonValue> = Object.freeze({
+    protocol: DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+    version: DEVELOPMENT_SESSION_EVENT_VERSION,
+    sequence: 1,
+    at: 1,
+    event: Object.freeze({
+      kind: "state",
+      state: Object.freeze({ kind: "opening" }),
+    }),
+  });
+  assert.equal(
+    formatWatchEvent(openingEvent),
+    null,
+    "the internal opening state must not claim an observable status line",
+  );
 
   const validatorRoot = project("validator module");
   const validatorPath = path.join(validatorRoot, "validator.mjs");
@@ -669,6 +688,20 @@ try {
   await assert.rejects(
     loadWatchValidator(validatorRoot, "malformed.mjs"),
     /policyFacts must contain plain objects/u,
+  );
+  const sparseValidator = path.join(validatorRoot, "sparse.mjs");
+  writeFileSync(
+    sparseValidator,
+    [
+      "const sparse = [];",
+      "sparse.length = 1;",
+      "export default { policyFacts: { sparse }, async validate() { return { ok: true }; } };",
+      "",
+    ].join("\n"),
+  );
+  await assert.rejects(
+    loadWatchValidator(validatorRoot, "sparse.mjs"),
+    /policyFacts\.sparse contains a sparse array at index 0/u,
   );
   const outsideValidator = path.join(root, "outside-validator.mjs");
   writeFileSync(

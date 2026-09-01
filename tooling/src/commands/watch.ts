@@ -270,11 +270,18 @@ function copyJsonValue(
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      return Object.freeze(
-        value.map((entry, index) =>
-          copyJsonValue(entry, `${label}[${index}]`, ancestors, depth + 1),
-        ),
-      );
+      const entries: JsonValue[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index)) {
+          throw new WatchCommandUsageError(
+            `${label} contains a sparse array at index ${index}.`,
+          );
+        }
+        entries.push(
+          copyJsonValue(value[index], `${label}[${index}]`, ancestors, depth + 1),
+        );
+      }
+      return Object.freeze(entries);
     }
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) {
@@ -999,7 +1006,9 @@ export function formatWatchEvent(event: DevelopmentEvent<JsonValue>): string | n
   const state = event.event.state;
   switch (state.kind) {
     case "opening":
-      return "OPENING";
+      // The session begins in this internal state before subscribers attach;
+      // unlike later state transitions, it is not emitted as an event.
+      return null;
     case "building":
       return `BUILDING revision=${state.revision}`;
     case "blocked":
