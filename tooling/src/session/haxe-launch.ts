@@ -6,6 +6,7 @@ import {
 } from "node:child_process";
 import {
   closeSync,
+  constants as fsConstants,
   fstatSync,
   mkdtempSync,
   openSync,
@@ -251,11 +252,16 @@ export function inspectNativeExecutable(
   platform: NodeJS.Platform,
 ): NativeExecutableInspection {
   if (platform !== "linux" && platform !== "darwin" && platform !== "win32") {
-    return "unavailable";
+    return "not-native";
   }
   let descriptor: number | undefined;
   try {
-    descriptor = openSync(executable, "r");
+    // O_NONBLOCK prevents a replaced pathname such as a FIFO from freezing the
+    // host event loop before fstat can reject it as a non-file.
+    descriptor = openSync(
+      executable,
+      fsConstants.O_RDONLY | fsConstants.O_NONBLOCK,
+    );
     const stats = fstatSync(descriptor);
     if (!stats.isFile()) return "not-native";
     const valid = platform === "linux"
@@ -266,8 +272,16 @@ export function inspectNativeExecutable(
           ? isPeExecutable(descriptor, stats.size, executable)
           : false;
     return valid ? "native" : "not-native";
-  } catch {
-    return "unavailable";
+  } catch (error) {
+    // Preserve the normal spawn/exec diagnostic when the path disappeared.
+    // Every existing target that cannot be inspected fails closed: POSIX can
+    // execute a mode-0111 file even when this process cannot read its header.
+    const code = error instanceof Error && "code" in error
+      ? error.code
+      : undefined;
+    return code === "ENOENT" || code === "ENOTDIR"
+      ? "unavailable"
+      : "not-native";
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
@@ -277,7 +291,8 @@ export function inspectNativeExecutable(
  * Classifies a bounded current-platform executable header.
  *
  * This is process-shape evidence, not binary attestation. The trusted
- * toolchain owner must not race pathname replacement with a launch.
+ * toolchain owner must not race pathname or file-content mutation with a
+ * launch.
  */
 export function inspectNativeExecutableFile(
   executable: string,
@@ -286,7 +301,7 @@ export function inspectNativeExecutableFile(
   return inspectNativeExecutable(executable, platform) === "native";
 }
 
-function assertNativeExecutableIfReadable(executable: string): void {
+function assertNativeExecutableIfPresent(executable: string): void {
   if (inspectNativeExecutable(executable, process.platform) === "not-native") {
     throw new HaxeLaunchError(
       "Haxe executable must be a native current-platform image",
@@ -516,7 +531,7 @@ export function launchHaxe(
   assertExecutable(executable);
   const environment = environmentBytes(options.environment);
   if (process.platform === "win32") {
-    assertNativeExecutableIfReadable(executable);
+    assertNativeExecutableIfPresent(executable);
     const child = spawn(executable, [...args], {
       cwd: options.cwd,
       env: options.environment,
@@ -530,7 +545,7 @@ export function launchHaxe(
   const control = createRawExecControl();
   let child: ChildProcess;
   try {
-    assertNativeExecutableIfReadable(executable);
+    assertNativeExecutableIfPresent(executable);
     child = spawn(
       process.execPath,
       [
@@ -578,13 +593,13 @@ export function runHaxeSync(
     windowsHide: true,
   };
   if (process.platform === "win32") {
-    assertNativeExecutableIfReadable(executable);
+    assertNativeExecutableIfPresent(executable);
     return spawnSync(executable, [...args], {
       ...common,
       env: options.environment,
     });
   }
-  assertNativeExecutableIfReadable(executable);
+  assertNativeExecutableIfPresent(executable);
   return spawnSync(
     process.execPath,
     [

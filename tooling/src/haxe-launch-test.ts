@@ -216,6 +216,7 @@ async function main(): Promise<void> {
     assert.equal(inspectNativeExecutableFile(pe, "win32"), true);
     assert.equal(inspectNativeExecutableFile(malformedPePath, "win32"), false);
     assert.equal(inspectNativeExecutableFile(elf, "darwin"), false);
+    assert.equal(inspectNativeExecutableFile(elf, "freebsd"), false);
 
     if (process.platform !== "win32") {
       const runner = fileURLToPath(
@@ -664,6 +665,37 @@ async function main(): Promise<void> {
         existsSync(shebangMarker),
         false,
         "the final raw helper check must reject a shebang replacement",
+      );
+
+      const fifo = path.join(root, "fifo-haxe");
+      const madeFifo = spawnSync("mkfifo", [fifo], { encoding: "utf8" });
+      assert.equal(madeFifo.status, 0, madeFifo.stderr);
+      assert.equal(
+        inspectNativeExecutableFile(fifo),
+        false,
+        "a FIFO must be rejected without waiting for a writer",
+      );
+      assert.throws(
+        () => launchHaxe(fifo, ["--version"], {
+          cwd: root,
+          environment: {},
+          stdout: "ignore",
+          stderr: "ignore",
+        }),
+        /native current-platform image/u,
+      );
+
+      const unreadableShebang = path.join(root, "execute-only-haxe");
+      writeFileSync(unreadableShebang, "#!/bin/sh\nexit 0\n", "utf8");
+      chmodSync(unreadableShebang, 0o111);
+      assert.throws(
+        () => launchHaxe(unreadableShebang, ["--version"], {
+          cwd: root,
+          environment: {},
+          stdout: "ignore",
+          stderr: "ignore",
+        }),
+        /native current-platform image/u,
       );
 
       const layout = resolveSessionLayout(

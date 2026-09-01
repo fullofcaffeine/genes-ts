@@ -708,8 +708,10 @@ rolled back, the other output can start normally.
   an ordinary toolchain replacement with a shebang script fails before an
   interpreter can create a compiler descendant. It is process-shape evidence,
   not binary attestation: the trusted toolchain owner must not race a pathname
-  replacement with the launch, and a replacement native binary remains trusted
-  input. On Windows, tooling starts the canonical `.exe` directly with
+  replacement or in-place file-content mutation with the launch, and a
+  replacement native binary remains trusted input. Unsupported platforms and
+  existing files whose headers cannot be read fail closed. On Windows, tooling
+  starts the canonical `.exe` directly with
   structured arguments and `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
   or stale. An unrelated file beside generated output is preserved. If a new
