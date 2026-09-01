@@ -448,7 +448,6 @@ async function waitForProcessGroupExit(
     if (sleepRemainingMs > 0) await delay(Math.min(25, sleepRemainingMs));
   } while (remainingMs(deadline) > 0);
   const final = kernelProcessPresence(pid, true);
-  if (final.degraded) onDegraded();
   return !final.alive;
 }
 
@@ -948,7 +947,12 @@ export class AcceptanceProcessOwner {
       if (facts.interruption !== null) {
         throw new AcceptanceInterruptedError(facts.interruption);
       }
-      throw new Error(`Acceptance timed out before ${gate.id} started; log: ${logPath}`);
+      if (facts.timedOut) {
+        throw new Error(`Acceptance timed out before ${gate.id} started; log: ${logPath}`);
+      }
+      const cause = facts.logError ?? facts.outputError ?? facts.executionError;
+      if (cause !== null) throw cause;
+      throw new Error(`Acceptance failed before ${gate.id} started; log: ${logPath}`);
     };
 
     this.gateActive = true;
@@ -969,7 +973,11 @@ export class AcceptanceProcessOwner {
           { cause: error }
         );
       }
-      if (facts.interruption !== null || remainingMs(this.deadline) <= 0) {
+      if (
+        facts.interruption !== null
+        || facts.outputError !== null
+        || remainingMs(this.deadline) <= 0
+      ) {
         await finishBeforeStart();
       }
       try {
@@ -1003,7 +1011,11 @@ export class AcceptanceProcessOwner {
       } catch (error: unknown) {
         facts.outputError = error instanceof Error ? error : new Error(String(error));
       }
-      if (facts.interruption !== null || remainingMs(this.deadline) <= 0) {
+      if (
+        facts.interruption !== null
+        || facts.outputError !== null
+        || remainingMs(this.deadline) <= 0
+      ) {
         await finishBeforeStart();
       }
 

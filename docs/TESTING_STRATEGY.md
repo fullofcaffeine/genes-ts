@@ -1028,7 +1028,9 @@ observed-input stop threshold owns the complete acceptance run. It counts the
 start marker and child output, but not the later advisory terminal marker. One
 already-delivered chunk per child stream can cross that threshold before the
 owner stops the gate. A threshold-crossing chunk that is withheld from the
-console is included in `consoleDroppedBytes`. Output truncation or a drain
+console is included in `consoleDroppedBytes`. If the start marker crosses the
+remaining owner-wide threshold, the owner publishes terminal evidence without
+launching that gate. Output truncation or a drain
 timeout does not change a
 successful command result when cleanup and required publication succeed.
 Crossing the observed-input threshold, losing required log publication, or
@@ -1043,7 +1045,9 @@ after an empty scan triggers another `/proc` scan; it does not degrade probing.
 Two consecutive scans that find members but only zombies prove that no live
 group member remains. On timeout, the parent kills and detaches that helper,
 marks probing degraded, and uses only the conservative kernel check for the
-rest of that cleanup phase. Aggregate,
+rest of that cleanup phase. A normal grace-period expiry uses one final kernel
+presence check before escalation, but does not mark a successful helper path
+as degraded. Aggregate,
 cleanup, drain, console, and writer
 control deadlines use a process-relative monotonic clock. Wall time is used
 only for evidence timestamps.

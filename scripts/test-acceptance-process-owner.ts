@@ -782,6 +782,40 @@ try {
   strictEqual(aggregateCapState.gates?.[1]?.status, "failed");
   ok(Number(aggregateCapState.totals?.observedBytes) > 3_072);
 
+  const preSpawnCapRoot = path.join(reportRoot, "pre-spawn-output-cap");
+  const preSpawnSideEffect = path.join(reportRoot, "pre-spawn-side-effect");
+  const preSpawnCap = new AcceptanceProcessOwner({
+    cwd: repoRoot,
+    reportRoot: preSpawnCapRoot,
+    timeoutMs: processStartupTimeoutMs,
+    stdout: new ImmediateSink(),
+    stderr: new ImmediateSink(),
+    limits: {
+      retainedBytesPerGate: 1_024,
+      consoleBytesPerGate: 4_096,
+      observedBytesTotal: 80,
+      logPublicationMs: 15_000,
+      statePublicationMs: 15_000
+    }
+  });
+  await preSpawnCap.run({
+    id: "a",
+    command: process.execPath,
+    args: [probe, "bytes", "0"]
+  });
+  await rejects(
+    preSpawnCap.run({
+      id: "second-gate-with-a-long-start-marker",
+      command: process.execPath,
+      args: [probe, "write-side-effect", preSpawnSideEffect]
+    }),
+    /observed-byte limit/u
+  );
+  strictEqual(existsSync(preSpawnSideEffect), false);
+  const preSpawnCapState = stateAt(preSpawnCapRoot);
+  strictEqual(preSpawnCapState.gates?.[1]?.status, "failed");
+  strictEqual(preSpawnCapState.gates?.[1]?.cleanup?.attempted, false);
+
   const stalledConsoleRoot = path.join(reportRoot, "stalled-console");
   const stalledConsole = new AcceptanceProcessOwner({
     cwd: repoRoot,
@@ -890,6 +924,34 @@ try {
   );
 
   if (process.platform !== "win32") {
+    const ordinaryEscalationRoot = path.join(reportRoot, "ordinary-sigkill-escalation");
+    const ordinaryEscalationMarker = path.join(reportRoot, "ordinary-sigkill-ready");
+    const ordinaryEscalation = new AcceptanceProcessOwner({
+      cwd: repoRoot,
+      reportRoot: ordinaryEscalationRoot,
+      timeoutMs: 500,
+      terminationGraceMs: 100,
+      stdout: new ImmediateSink(),
+      stderr: new ImmediateSink(),
+      limits: {
+        processProbeMs: 50,
+        logPublicationMs: 15_000,
+        statePublicationMs: 15_000
+      }
+    });
+    await rejects(
+      ordinaryEscalation.run({
+        id: "ordinary-sigkill-escalation",
+        command: process.execPath,
+        args: [probe, "resistant-root", ordinaryEscalationMarker]
+      }),
+      /Acceptance timed out in ordinary-sigkill-escalation/u
+    );
+    strictEqual(existsSync(ordinaryEscalationMarker), true);
+    const ordinaryEscalationState = stateAt(ordinaryEscalationRoot).gates?.[0];
+    strictEqual(ordinaryEscalationState?.cleanup?.succeeded, true);
+    strictEqual(ordinaryEscalationState?.cleanup?.probeDegraded, false);
+
     const stalledProbeRoot = path.join(reportRoot, "stalled-process-probe");
     const stalledProbe = new AcceptanceProcessOwner({
       cwd: repoRoot,
