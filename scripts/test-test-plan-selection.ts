@@ -276,6 +276,15 @@ function main(): void {
     "Testing policy must never use the ordinary docs-only fast path");
   requires(testingDocs, "test-plan-validation", "full-ci");
 
+  const acceptanceProcessProbe = explain("scripts/acceptance-process-probe.ts");
+  assert(acceptanceProcessProbe.unknownFiles.length === 0,
+    "The acceptance process probe must have an explicit test owner");
+  requires(acceptanceProcessProbe, "acceptance-process-owner");
+  assert(acceptanceProcessProbe.selected
+    .find((entry) => entry.id === "acceptance-process-owner")
+    ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
+  "The process probe did not select its smallest lifecycle owner directly");
+
   for (const [executablePolicyDoc, owner] of [
     ["docs/NULL_SAFETY.md", "null-safety-policy"],
     ["docs/BRANCH_PROTECTION.md", "ci-protection-policy"]

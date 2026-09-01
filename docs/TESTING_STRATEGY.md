@@ -989,6 +989,111 @@ Run the full acceptance gate locally:
 npm run test:acceptance
 ```
 
+The acceptance runner submits each start marker up to the remaining console
+budget. It submits a complete terminal marker only when that marker fits the
+remaining budget. Markers are advisory; successfully published `state.json`
+is the authoritative result.
+It publishes `state.json` and one bounded log per completed subgate to
+`.tmp/test-evidence/acceptance/`. The state uses schema version 2. It records
+the command result, interruption, process cleanup, output quality, and evidence
+publication as separate facts. The required GitHub job uploads that directory
+even when acceptance fails.
+
+The required job runs `yarn test:acceptance-process-owner` as a separate step
+before the aggregate. That lifecycle fixture creates private process groups and
+an unrelated detached bystander, so nesting it inside its own owner would make
+abrupt outer cleanup unsafe. It proves bounded timeout and signal cleanup for a
+three-process tree. It also covers an unrelated process that keeps an output
+descriptor open, excess output, and a final console write that remains pending
+after readable end. It covers drain-before-write ordering, a stalled process
+probe, cleanup failure, late child callbacks, backward wall time, exact marker
+accounting, `EIO`, `ENOSPC`, a stalled evidence writer, a writer that closes its
+input and remains alive, terminal-state failure, and signals during output or
+publication. It also proves that an expired aggregate publishes a terminal
+state without launching the next gate. The owner checks that deadline again
+after report reset, active-state publication, and the advisory start marker.
+A signal during pre-start terminal publication replaces timeout authority and
+preserves exit 130 or 143. Test-only parent spawn evidence records the exact
+gate PID before child output; if that evidence fails, real tree cleanup replaces
+the injected cleanup failure. The fixture runs once in the required job. Its
+own waits are bounded, the workflow adds a three-minute backstop, and the
+always-run artifact includes both the fixture and aggregate reports.
+
+Each subgate keeps at most 8 MiB of output: up to 6 MiB from the start, an
+explicit truncation marker, and the remaining space from the end. Console
+output submitted to console destinations is limited to 16 MiB per gate.
+`consoleBytes` counts submitted bytes; it cannot prove that the CI consumer
+read them. `consoleDroppedBytes` includes omitted marker bytes. One 256 MiB
+observed-input stop threshold owns the complete acceptance run. It counts the
+start marker and child output, but not the later advisory terminal marker. One
+already-delivered chunk per child stream can cross that threshold before the
+owner stops the gate. A threshold-crossing chunk that is withheld from the
+console is included in `consoleDroppedBytes`. If the start marker crosses the
+remaining owner-wide threshold, the owner publishes terminal evidence without
+launching that gate. Output truncation or a drain
+timeout does not change a
+successful command result when cleanup and required publication succeed.
+Crossing the observed-input threshold, losing required log publication, or
+failing to prove process cleanup fails the gate. Cleanup failure means removal
+was not proved; it does not mean the process is known to remain alive.
+
+Each POSIX liveness check runs in one no-stdio Node helper. Linux reads `/proc`;
+other POSIX hosts use a conservative kernel check. The parent gives the helper
+a process-relative deadline. An empty helper scan is provisional until the
+kernel also confirms that the PID or process group is absent. A present group
+after an empty scan triggers another `/proc` scan; it does not degrade probing.
+Two consecutive scans that find members but only zombies prove that no live
+group member remains. On timeout, the parent kills and detaches that helper,
+marks probing degraded, and uses only the conservative kernel check for the
+rest of that cleanup phase. A normal grace-period expiry uses one final kernel
+presence check before escalation, but does not mark a successful helper path
+as degraded. Aggregate,
+cleanup, drain, console, and writer
+control deadlines use a process-relative monotonic clock. Wall time is used
+only for evidence timestamps. Every configured duration is also bounded by
+Node's largest supported timer delay, so Node cannot silently replace an
+accepted deadline with a one-millisecond timer. Byte limits do not use that
+timer bound.
+
+One small child process performs each log or state filesystem operation. The
+acceptance owner gives that exact child a deadline and can stop it without
+waiting for a Node filesystem callback. Closing the writer input is not a
+settled operation: the owner stops and joins that exact writer, or detaches it
+only when the same deadline expires. A state document cannot exceed 192 KiB.
+The child writes it to a same-directory temporary file, syncs it, renames
+it over `state.json`, and syncs the report directory. `state.json` is therefore
+always one complete old or new document. Failure before rename preserves the
+old document. Failure after rename can leave the complete new document with
+directory durability unconfirmed. A failed publication cannot always record
+its own failure on the same failed medium. Evidence publication uses ordinary
+nonzero failure behavior. Only `SIGINT` and `SIGTERM` preserve exit codes 130
+and 143.
+
+This ownership evidence applies to the required Linux job and POSIX process
+groups. The Windows branch retains best-effort `taskkill` cleanup while the
+root PID is addressable, but it does not claim durable ownership after normal
+root exit. Bead `genes-tk76` owns the separate Job Object implementation and a
+required hosted Windows lifecycle fixture. Do not infer Windows tree safety
+from the POSIX fixture or this aggregate timeout change.
+POSIX ownership also assumes that a process-group identifier is not reused by
+an unrelated process group between continuous liveness checks. A stronger
+adversarial non-reuse guarantee needs a different Linux ownership primitive.
+
+One 40-minute deadline owns the complete aggregate. The initial bound uses ten
+successful required-job samples: p50 was 1,726 seconds and p95 was 1,803
+seconds. Forty minutes adds approximately 33 percent to that whole-job p95.
+It does not invent unsupported limits for individual subgates. If the deadline
+expires, the runner terminates only the active private process group. The error
+and retained state name the active subgate and its log. `SIGINT` and `SIGTERM`
+use the same owned-tree cleanup before the aggregate exits, so cancelling a
+local run does not leave a compiler server or browser fixture behind. Set
+`GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test or a reviewed local
+diagnostic; required CI uses the documented default. The required workflow
+also limits the complete step to 45 minutes. This leaves five minutes for test
+tool preparation, owned cleanup, and evidence upload. The focused test-plan
+route uses the same 45-minute outer bound, so the 40-minute owner always gets
+the first opportunity to clean its tree and write evidence.
+
 `test:acceptance` is the normal stable pull-request owner for the focused
 direct-module-binding and strict-array-index contracts. The direct-binding
 fixture exercises functions and closed values across TypeScript, TSX, classic

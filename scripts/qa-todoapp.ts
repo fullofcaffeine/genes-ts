@@ -16,6 +16,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../..");
 const exampleRoot = path.join(repoRoot, "examples", "todoapp");
+const ownsPrivateProcessGroup = process.platform !== "win32"
+  && process.env.GENES_ACCEPTANCE_PROCESS_OWNER !== "1";
 
 function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions = {}): void {
   execFileSync(cmd, [...args], {
@@ -126,7 +128,7 @@ function assertApiError(
 function killProcessTree(child: ChildProcess | null): void {
   if (!child || child.exitCode != null) return;
 
-  if (process.platform !== "win32" && child.pid) {
+  if (ownsPrivateProcessGroup && child.pid) {
     try {
       process.kill(-child.pid, "SIGTERM");
     } catch {
@@ -229,7 +231,10 @@ try {
       TODOAPP_WEB_DIST: webDist
     },
     stdio: ["ignore", "pipe", "pipe"],
-    detached: process.platform !== "win32"
+    // The outer acceptance owner already provides one private process group.
+    // Keep this server inside it so an abrupt gate stop cannot orphan a
+    // nested process group.
+    detached: ownsPrivateProcessGroup
   };
 
   server = spawn("node", [serverEntry], spawnOpts);
@@ -448,7 +453,7 @@ try {
     ]);
     if (server.exitCode == null) {
       try {
-        if (process.platform !== "win32" && server.pid) {
+        if (ownsPrivateProcessGroup && server.pid) {
           process.kill(-server.pid, "SIGKILL");
         }
       } catch {

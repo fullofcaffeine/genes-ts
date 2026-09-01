@@ -359,6 +359,8 @@ function main(): void {
   }
   assert(gatesById.get("acceptance")?.tier === "acceptance",
     "The acceptance gate must retain the acceptance tier");
+  assert(gatesById.get("acceptance")?.timeoutSeconds === 2700,
+    "The acceptance plan timeout must leave five minutes for owner cleanup and evidence");
   assert(gatesById.get("full-ci")?.tier === "full-release",
     "The full-ci gate must retain the full-release tier");
   const agentGuideOwners = stringArray(

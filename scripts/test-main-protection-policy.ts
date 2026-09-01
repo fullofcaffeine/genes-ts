@@ -40,6 +40,9 @@ function main(): void {
   const ci = read(".github/workflows/ci.yml");
   const docs = read("docs/BRANCH_PROTECTION.md");
   const todoQa = read("scripts/qa-todoapp.ts");
+  const packageJson = JSON.parse(read("package.json")) as {
+    readonly scripts?: Readonly<Record<string, string>>;
+  };
 
   const triggerPrefix = `on:
   push:
@@ -175,7 +178,7 @@ function main(): void {
     const haxeUse =
       "- run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}";
     const formatter = "- run: yarn haxelib install formatter 1.18.0 --quiet";
-    const acceptance = "- run: yarn test:acceptance";
+    const acceptance = "- run: yarn test:acceptance\n";
     const haxeInstallIndex = block.indexOf(haxeInstall);
     const haxeUseIndex = block.indexOf(haxeUse);
     const formatterIndex = block.indexOf(formatter);
@@ -188,6 +191,41 @@ function main(): void {
       `${job} must select Haxe before installing the pinned formatter and running the stdlib-overlay acceptance gate`
     );
   }
+  const ownerFixture = "- run: yarn test:acceptance-process-owner";
+  const acceptanceStep = "- run: yarn test:acceptance\n";
+  const fullLocalGate = packageJson.scripts?.["test:ci"];
+  const fullLocalAcceptance =
+    "cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance";
+  assert(
+    typeof fullLocalGate === "string"
+      && fullLocalGate.includes("yarn test:acceptance-process-owner")
+      && fullLocalGate.indexOf("yarn test:acceptance-process-owner")
+        < fullLocalGate.indexOf(fullLocalAcceptance),
+    "The full local gate must run the process-owner fixture outside and before acceptance"
+  );
+  assert(
+    genesTs.includes(ownerFixture)
+      && genesTs.indexOf(ownerFixture) < genesTs.indexOf(acceptanceStep),
+    "The required genes-ts job must run the process-owner fixture outside and before acceptance"
+  );
+  assert(
+    genesTs.includes(
+      "- run: yarn test:acceptance-process-owner\n        timeout-minutes: 3"
+    ),
+    "The required process-owner fixture must retain its workflow backstop"
+  );
+  assert(
+    genesTs.includes("- run: yarn test:acceptance\n        timeout-minutes: 45")
+      && genesTs.includes("- name: Preserve acceptance owner markers and logs")
+      && genesTs.includes(
+        "- name: Preserve acceptance owner markers and logs\n        if: always()"
+      )
+      && genesTs.includes(
+        "path: |\n            .tmp/test-evidence/acceptance\n            .tmp/test-acceptance-process-owner"
+      )
+      && genesTs.includes("include-hidden-files: true"),
+    "The required genes-ts acceptance step must stay bounded and preserve owner evidence"
+  );
   const preview = jobBlock(ci, "haxe-preview");
   assert(
     preview.includes("continue-on-error: true"),
