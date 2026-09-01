@@ -574,6 +574,18 @@ export class AcceptanceProcessOwner {
       ...(options.limits ?? {})
     };
     for (const [label, value] of Object.entries(this.limits)) positiveInteger(value, label);
+    for (const label of [
+      "processProbeMs",
+      "drainMs",
+      "consoleWriteMs",
+      "logPublicationMs",
+      "statePublicationMs"
+    ] as const) {
+      assert(
+        this.limits[label] <= maxNodeTimerDelayMs,
+        `${label} must not exceed ${String(maxNodeTimerDelayMs)}`
+      );
+    }
     if (options.terminationGraceMs !== undefined) {
       assert(
         Number.isSafeInteger(options.terminationGraceMs)

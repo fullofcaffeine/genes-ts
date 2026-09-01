@@ -1050,7 +1050,10 @@ presence check before escalation, but does not mark a successful helper path
 as degraded. Aggregate,
 cleanup, drain, console, and writer
 control deadlines use a process-relative monotonic clock. Wall time is used
-only for evidence timestamps.
+only for evidence timestamps. Every configured duration is also bounded by
+Node's largest supported timer delay, so Node cannot silently replace an
+accepted deadline with a one-millisecond timer. Byte limits do not use that
+timer bound.
 
 One small child process performs each log or state filesystem operation. The
 acceptance owner gives that exact child a deadline and can stop it without

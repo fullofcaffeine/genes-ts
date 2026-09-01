@@ -299,6 +299,23 @@ for (const terminationGraceMs of [0, Number.POSITIVE_INFINITY, maxNodeTimerDelay
     /terminationGraceMs must be an integer from 1 to 2147483647/u
   );
 }
+for (const limits of [
+  { processProbeMs: maxNodeTimerDelayMs + 1 },
+  { drainMs: maxNodeTimerDelayMs + 1 },
+  { consoleWriteMs: maxNodeTimerDelayMs + 1 },
+  { logPublicationMs: maxNodeTimerDelayMs + 1 },
+  { statePublicationMs: maxNodeTimerDelayMs + 1 }
+]) {
+  throws(
+    () => new AcceptanceProcessOwner({
+      cwd: repoRoot,
+      reportRoot: path.join(reportRoot, "invalid-timer-limit"),
+      timeoutMs: 1_000,
+      limits
+    }),
+    /must not exceed 2147483647/u
+  );
+}
 
 const bystander = spawn(process.execPath, [probe, "bystander"], {
   cwd: repoRoot,
@@ -1004,7 +1021,7 @@ try {
         command: process.execPath,
         args: [probe, "cleanup-survivor"]
       }),
-      /Acceptance timed out in monotonic-deadline/u
+      /Acceptance timed out (?:before|in) monotonic-deadline/u
     );
   } finally {
     Date.now = originalDateNow;
