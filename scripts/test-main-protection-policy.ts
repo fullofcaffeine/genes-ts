@@ -39,6 +39,7 @@ function jobBlock(source: string, job: string, nextJob?: string): string {
 function main(): void {
   const ci = read(".github/workflows/ci.yml");
   const docs = read("docs/BRANCH_PROTECTION.md");
+  const todoQa = read("scripts/qa-todoapp.ts");
 
   const triggerPrefix = `on:
   push:
@@ -106,6 +107,44 @@ function main(): void {
   );
   const toolingPack = genesTs.indexOf(
     "- name: Pack tooling for its oldest supported Node release"
+  );
+  const yarnInstall = genesTs.indexOf("- run: yarn install --frozen-lockfile");
+  const playwrightIdentity = genesTs.indexOf(
+    "- name: Identify the pinned Playwright browser"
+  );
+  const playwrightCache = genesTs.indexOf("- name: Cache Playwright browsers");
+  assert(
+    yarnInstall >= 0
+      && yarnInstall < playwrightIdentity
+      && playwrightIdentity < playwrightCache
+      && playwrightCache < toolingPack,
+    "The required genes-ts job must install the pinned package before identifying and restoring its Playwright browser cache"
+  );
+  const playwrightCacheBlock = genesTs.slice(playwrightIdentity, toolingPack);
+  assert(
+    playwrightCacheBlock.includes('browser.name === "chromium"')
+      && playwrightCacheBlock.includes("browser.installByDefault === true")
+      && playwrightCacheBlock.includes("chromium.browserVersion")
+      && playwrightCacheBlock.includes("chromium.revision"),
+    "The Playwright cache identity must come from the pinned default Chromium metadata"
+  );
+  assert(
+    playwrightCacheBlock.includes(
+      "key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-cache.outputs.identity }}"
+    )
+      && playwrightCacheBlock.includes(
+        "${{ runner.os }}-${{ runner.arch }}-playwright-"
+      )
+      && playwrightCacheBlock.includes("${{ runner.os }}-playwright-")
+      && !playwrightCacheBlock.includes("hashFiles('yarn.lock')"),
+    "The Playwright browser cache must use its exact identity and retain the architecture and legacy restore prefixes"
+  );
+  assert(
+    todoQa.includes('if (!skipPlaywrightInstall)')
+      && todoQa.includes('if (process.env.CI) pwInstallArgs.push("--with-deps")')
+      && todoQa.includes('pwInstallArgs.push("chromium")')
+      && todoQa.includes('run("npx", ["playwright", ...pwInstallArgs])'),
+    "Todoapp CI must still install the required Chromium revision after cache restore"
   );
   const toolingMinimumNode = genesTs.indexOf("node-version: 26.1.0");
   const toolingMinimumCheck = genesTs.indexOf(

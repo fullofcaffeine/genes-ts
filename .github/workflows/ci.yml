@@ -312,12 +312,37 @@ jobs:
           key: ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
           restore-keys: |
             ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
+      - run: yarn install --frozen-lockfile
+      - name: Identify the pinned Playwright browser
+        id: playwright-cache
+        run: |
+          node <<'NODE'
+          const { appendFileSync } = require("node:fs");
+          const version = require("./node_modules/@playwright/test/package.json").version;
+          const { browsers } = require("./node_modules/playwright-core/browsers.json");
+          const chromium = browsers.find((browser) =>
+            browser.name === "chromium" && browser.installByDefault === true
+          );
+          const safePart = /^[0-9A-Za-z.-]+$/;
+          if (!safePart.test(version)
+            || chromium == null
+            || !safePart.test(chromium.browserVersion)
+            || !safePart.test(chromium.revision)) {
+            throw new Error("Pinned Playwright Chromium identity is missing or unsafe");
+          }
+          const identity = `${version}-chromium-${chromium.browserVersion}-r${chromium.revision}`;
+          if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is unavailable");
+          appendFileSync(process.env.GITHUB_OUTPUT, `identity=${identity}\n`);
+          console.log(`Playwright cache identity: ${identity}`);
+          NODE
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('yarn.lock') }}
-      - run: yarn install --frozen-lockfile
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-cache.outputs.identity }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-playwright-
+            ${{ runner.os }}-playwright-
       - name: Pack tooling for its oldest supported Node release
         run: |
           set -euo pipefail
