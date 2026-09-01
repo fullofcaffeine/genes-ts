@@ -12,6 +12,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const probe = path.join(scriptDir, "acceptance-owner-probe.js");
 const reportRoot = path.join(repoRoot, ".tmp/test-acceptance-process-owner");
+const processStartupTimeoutMs = 15_000;
 
 function isRunning(pid: number): boolean {
   try {
@@ -31,7 +32,7 @@ async function stopBystander(child: ChildProcess): Promise<void> {
 }
 
 async function waitForOwnedPids(logPath: string): Promise<ReadonlyArray<number>> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + processStartupTimeoutMs;
   while (Date.now() < deadline) {
     const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
     const pids = [...log.matchAll(/probe:(?:parent|child|grandchild):(\d+)/g)]
@@ -94,7 +95,9 @@ try {
     const rootExit = new AcceptanceProcessOwner({
       cwd: repoRoot,
       reportRoot: rootExitRoot,
-      timeoutMs: 3_000,
+      // This is a normal completion case, not the deliberate timeout probe.
+      // Leave enough time for two Node processes to start on a contended host.
+      timeoutMs: processStartupTimeoutMs,
       terminationGraceMs: 250
     });
     await rootExit.run({
@@ -176,7 +179,7 @@ try {
   const healthy = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: healthyRoot,
-    timeoutMs: 5_000
+    timeoutMs: processStartupTimeoutMs
   });
   await healthy.run({
     id: "healthy",
@@ -196,7 +199,7 @@ try {
   const failure = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: failureRoot,
-    timeoutMs: 5_000
+    timeoutMs: processStartupTimeoutMs
   });
   await rejects(
     failure.run({
