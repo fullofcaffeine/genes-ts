@@ -40,6 +40,9 @@ function main(): void {
   const ci = read(".github/workflows/ci.yml");
   const docs = read("docs/BRANCH_PROTECTION.md");
   const todoQa = read("scripts/qa-todoapp.ts");
+  const packageJson = JSON.parse(read("package.json")) as {
+    readonly scripts?: Readonly<Record<string, string>>;
+  };
 
   const triggerPrefix = `on:
   push:
@@ -190,6 +193,16 @@ function main(): void {
   }
   const ownerFixture = "- run: yarn test:acceptance-process-owner";
   const acceptanceStep = "- run: yarn test:acceptance\n";
+  const fullLocalGate = packageJson.scripts?.["test:ci"];
+  const fullLocalAcceptance =
+    "cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance";
+  assert(
+    typeof fullLocalGate === "string"
+      && fullLocalGate.includes("yarn test:acceptance-process-owner")
+      && fullLocalGate.indexOf("yarn test:acceptance-process-owner")
+        < fullLocalGate.indexOf(fullLocalAcceptance),
+    "The full local gate must run the process-owner fixture outside and before acceptance"
+  );
   assert(
     genesTs.includes(ownerFixture)
       && genesTs.indexOf(ownerFixture) < genesTs.indexOf(acceptanceStep),

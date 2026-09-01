@@ -1,6 +1,16 @@
 import { strict as assert } from "node:assert";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdirSync, writeFileSync, createWriteStream, type WriteStream } from "node:fs";
+import {
+  closeSync,
+  createWriteStream,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  type WriteStream
+} from "node:fs";
 import path from "node:path";
 
 export interface AcceptanceGate {
@@ -194,7 +204,30 @@ export class AcceptanceProcessOwner {
       activeGate,
       gates: this.states
     };
-    writeFileSync(this.statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const temporaryPath = `${this.statePath}.${String(process.pid)}.tmp`;
+    let descriptor: number | undefined;
+    try {
+      descriptor = openSync(temporaryPath, "w", 0o600);
+      writeFileSync(descriptor, `${JSON.stringify(state, null, 2)}\n`);
+      fsyncSync(descriptor);
+      closeSync(descriptor);
+      descriptor = undefined;
+      renameSync(temporaryPath, this.statePath);
+    } catch (error: unknown) {
+      if (descriptor !== undefined) {
+        try {
+          closeSync(descriptor);
+        } catch {
+          // Preserve the state publication error below.
+        }
+      }
+      try {
+        rmSync(temporaryPath, { force: true });
+      } catch {
+        // A stale temporary is less important than the publication failure.
+      }
+      throw error;
+    }
   }
 
   public async run(gate: AcceptanceGate): Promise<void> {
@@ -243,23 +276,36 @@ export class AcceptanceProcessOwner {
       for (const { destination, listener } of outputListeners)
         destination.removeListener("error", listener);
     };
+    const writeChunk = (
+      destination: NodeJS.WriteStream | WriteStream,
+      chunk: string | Buffer,
+      routeError: (error: Error) => void
+    ): Promise<void> => new Promise((resolve) => {
+      let settled = false;
+      const finish = (error?: Error | null): void => {
+        if (settled) return;
+        settled = true;
+        destination.removeListener("error", onError);
+        if (error !== undefined && error !== null) routeError(error);
+        resolve();
+      };
+      const onError = (error: Error): void => finish(error);
+      if (destination.destroyed || destination.writableEnded) {
+        finish(new Error("Acceptance output stream closed"));
+        return;
+      }
+      destination.once("error", onError);
+      try {
+        destination.write(chunk, finish);
+      } catch (error: unknown) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
     const writeOutput = (
       destination: NodeJS.WriteStream,
       chunk: string | Buffer
-    ): void => {
-      if (destination.destroyed) {
-        routeOutputError(new Error("Acceptance output stream closed"));
-        return;
-      }
-      try {
-        destination.write(chunk);
-      } catch (error: unknown) {
-        routeOutputError(
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
-    };
-    writeOutput(
+    ): Promise<void> => writeChunk(destination, chunk, routeOutputError);
+    await writeOutput(
       process.stdout,
       `acceptance:start ${gate.id} remaining=${String(remainingMs)}ms\n`
     );
@@ -280,15 +326,27 @@ export class AcceptanceProcessOwner {
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"]
     });
-    for (const [stream, destination] of [
+    const outputPumps = ([
       [child.stdout, process.stdout],
       [child.stderr, process.stderr]
-    ] as const) {
-      stream?.on("data", (chunk: Buffer) => {
-        writeOutput(destination, chunk);
-        log.write(chunk);
-      });
-    }
+    ] as const).map(async ([stream, destination]) => {
+      if (stream === null) return;
+      try {
+        for await (const value of stream) {
+          const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+          await Promise.all([
+            writeOutput(destination, chunk),
+            writeChunk(log, chunk, routeLogError)
+          ]);
+          if (logError !== undefined || outputError !== undefined) return;
+        }
+      } catch (error: unknown) {
+        routeOutputError(
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+    });
+    const rootMarkerWrites: Promise<void>[] = [];
 
     const initialResult = await new Promise<{
       readonly status: "passed" | "failed" | "timed-out" | "interrupted";
@@ -388,6 +446,7 @@ export class AcceptanceProcessOwner {
         startCleanup();
       };
       routeSignal = (signal: "SIGINT" | "SIGTERM"): void => {
+        pendingSignal ??= signal;
         terminate({ status: "interrupted", signal });
       };
       const timeout = setTimeout(
@@ -417,8 +476,10 @@ export class AcceptanceProcessOwner {
           signal
         };
         const marker = `acceptance:root-exit ${gate.id}\n`;
-        writeOutput(process.stdout, marker);
-        log.write(marker);
+        rootMarkerWrites.push(Promise.all([
+          writeOutput(process.stdout, marker),
+          writeChunk(log, marker, routeLogError)
+        ]).then(() => {}));
         startCleanup();
       };
       if (process.platform === "win32") {
@@ -441,37 +502,76 @@ export class AcceptanceProcessOwner {
         child.once("exit", onRootExit);
       }
     });
+    await Promise.all([...outputPumps, ...rootMarkerWrites]);
     await closeLog(log);
-    const ioError = logError ?? outputError;
-    const result = ioError === undefined ? initialResult : {
-      status: "failed" as const,
-      code: null,
-      signal: null,
-      error: ioError
+    type GateResult = typeof initialResult;
+    const currentResult = (): GateResult => {
+      const ioError = logError ?? outputError;
+      if (ioError !== undefined) {
+        return {
+          status: "failed",
+          code: null,
+          signal: null,
+          error: ioError
+        };
+      }
+      if (initialResult.status === "failed"
+        && initialResult.error !== undefined) return initialResult;
+      if (pendingSignal !== undefined) {
+        return {
+          status: "interrupted",
+          code: null,
+          signal: pendingSignal
+        };
+      }
+      return initialResult;
     };
-
-    const completed: GateState = {
+    const sameResult = (left: GateResult, right: GateResult): boolean =>
+      left.status === right.status
+      && left.code === right.code
+      && left.signal === right.signal
+      && left.error === right.error;
+    const complete = (result: GateResult): GateState => ({
       ...state,
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - started,
       status: result.status,
       exitCode: result.code,
       signal: result.signal
-    };
-    try {
+    });
+    const publish = (completed: GateState): void => {
       this.states[this.states.length - 1] = completed;
-      this.writeState(result.status === "passed" ? null : gate.id);
+      this.writeState(completed.status === "passed" ? null : gate.id);
+    };
+    let result = currentResult();
+    let completed = complete(result);
+    try {
+      publish(completed);
       if (result.status === "passed") {
-        writeOutput(
+        await writeOutput(
           process.stdout,
           `acceptance:pass ${gate.id} duration=${String(completed.durationMs)}ms\n`
         );
-        return;
+      } else {
+        await writeOutput(
+          process.stderr,
+          `acceptance:${result.status} ${gate.id} duration=${String(completed.durationMs)}ms log=${logPath}\n`
+        );
       }
-      writeOutput(
-        process.stderr,
-        `acceptance:${result.status} ${gate.id} duration=${String(completed.durationMs)}ms log=${logPath}\n`
-      );
+
+      // The marker write is the final asynchronous boundary. A signal or
+      // stream error observed while it settles must replace the provisional
+      // result before handlers are removed and control returns to acceptance.
+      removeSignalHandlers();
+      const settledResult = currentResult();
+      if (!sameResult(result, settledResult)) {
+        result = settledResult;
+        completed = complete(result);
+        publish(completed);
+      }
+      removeOutputListeners();
+
+      if (result.status === "passed") return;
       if (result.error !== undefined) throw result.error;
       if (result.status === "timed-out") {
         throw new Error(
@@ -487,8 +587,8 @@ export class AcceptanceProcessOwner {
         `Acceptance gate ${gate.id} failed with ${result.signal ?? `exit ${String(result.code)}`}; log: ${logPath}`
       );
     } finally {
-      // Repeated signals and output errors remain routed until logs and state
-      // are durable and the final owner marker has been attempted.
+      // These are idempotent when the successful finalization path removed
+      // them immediately before returning or throwing.
       removeSignalHandlers();
       removeOutputListeners();
     }
