@@ -2254,6 +2254,75 @@
       ]
     },
     {
+      "id": "compile-stage-report",
+      "packageScript": "test:compile-stage-report",
+      "runnerToken": "scripts/dist/test-compile-stage-suite.js",
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "compiler-server",
+        "determinism",
+        "generated-source",
+        "target-typecheck"
+      ],
+      "ownerPaths": [
+        "src/genes/Generator.hx",
+        "src/genes/util/Timer.hx",
+        "scripts/haxe-times.ts",
+        "scripts/compile-stage-report.ts",
+        "scripts/test-compile-stage-suite.ts",
+        "scripts/test-haxe-times.ts",
+        "scripts/test-compile-stage-report.ts",
+        "tests/compile-stage-report/README.md"
+      ],
+      "proves": "Haxe timing output is parsed without dropping unknown phases. Timed and untimed trees remain exact in both compiler profiles, and one TypeScript cold/warm edit control reports stages with exact output equality.",
+      "doesNotProve": "The small control does not establish a production timing baseline, a warm-edit service-level objective, or a blocking CI performance threshold.",
+      "owners": [
+        "src/genes/Generator.hx",
+        "src/genes/util/Timer.hx",
+        "scripts/haxe-times.ts",
+        "scripts/compile-stage-report.ts",
+        "scripts/test-compile-stage-suite.ts",
+        "scripts/test-haxe-times.ts",
+        "scripts/test-compile-stage-report.ts",
+        "tests/compile-stage-report/README.md"
+      ],
+      "families": [
+        "compiler-server",
+        "determinism",
+        "generated-output",
+        "typescript"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "compiler-server",
+        "determinism",
+        "generated-source",
+        "target-typecheck"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:compile-stage-report",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/compile-stage-report.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "output-quality",
       "packageScript": "test:output-quality",
       "runnerToken": "scripts/dist/test-output-quality.js",
@@ -3723,11 +3792,16 @@
       "changeArea": "Compiler work, emitted size/shape, imports, temporaries, or runtime hot paths",
       "focusedChoices": [
         {
+          "gate": "compile-stage-report",
+          "when": "compiler latency, warm edit feedback, Haxe timing, or Genes phase attribution can change"
+        },
+        {
           "gate": "output-quality",
           "when": "emitted bytes, tokens, imports, temporaries, determinism, or output readability can change"
         }
       ],
       "inspect": [
+        "cold and warm Haxe/Genes stage distributions",
         "exact byte/token/import/temporary deltas",
         "representative generated files",
         "runtime work when relevant"

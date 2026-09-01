@@ -607,6 +607,7 @@ yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
 yarn test:compiler-server:rollback # raw/structured post-staging recovery
 yarn test:null-safety # compiler scope, macro order, escape inventory, stable compile
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
+yarn benchmark:compile-stages # machine-readable cold/warm compiler attribution
 ```
 
 Direct builds are the correctness baseline. They prove that a clean compiler
@@ -682,6 +683,25 @@ identical output hashes, but it sets no CI timing budget. See
 `tests/dependency-plan-benchmark/README.md` for the fixture shape and guidance
 on interpreting the numbers without mistaking a whole-build result for a
 microbenchmark of one planner function.
+
+`benchmark:compile-stages` answers the broader attribution question before an
+optimization starts. It uses Haxe's authoritative `--times` table and
+request-local Genes child timers. It alternates isolated cold builds with warm
+compiler-server edits, checks exact cold/warm trees, records emitted size, and
+times strict TypeScript separately. Its generated scale case contains about
+19,000 authored Haxe lines. The command also has a small focused control:
+
+```bash
+yarn test:haxe-times
+yarn test:compile-stage-report
+yarn benchmark:compile-stages --out /tmp/genes-compile-stages.json
+```
+
+The JSON records exact local command paths. Review them before sharing or
+committing the report. See
+[`tests/compile-stage-report/README.md`](../tests/compile-stage-report/README.md)
+for the sampling protocol, output-neutrality checks, and limits of the
+generated workload.
 
 ### Performance evidence and CI budgets
 

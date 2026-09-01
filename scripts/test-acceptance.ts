@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
   acceptanceOwnedFocusedGates,
-  assertFocusedGateOwnership
+  assertFocusedGateOwnership,
+  shouldRunAcceptanceFocusedGate
 } from "./acceptance-gate-ownership.js";
 import {
   AcceptanceInterruptedError,
@@ -109,6 +110,7 @@ async function runAcceptance(): Promise<void> {
     "scripts/dist/test-deep-nullish-alias.js"
   ]);
   for (const gate of acceptanceOwnedFocusedGates) {
+    if (!shouldRunAcceptanceFocusedGate(gate, skipCompilerServer)) continue;
     const id = `focused-${gate.packageScript.slice("test:".length).replace(/[^a-z0-9]+/g, "-")}`;
     await run(id, "node", [gate.compiledScript]);
   }

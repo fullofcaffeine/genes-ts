@@ -1,8 +1,10 @@
+import { strictEqual } from "node:assert";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
   acceptanceOwnedFocusedGates,
-  assertFocusedGateOwnership
+  assertFocusedGateOwnership,
+  shouldRunAcceptanceFocusedGate
 } from "./acceptance-gate-ownership.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +19,14 @@ const repoRoot = path.resolve(__dirname, "../..");
  * acceptance command remain responsible for proving compiler behavior.
  */
 assertFocusedGateOwnership(repoRoot);
+const compileStageGate = acceptanceOwnedFocusedGates.find(
+  (gate) => gate.packageScript === "test:compile-stage-report"
+);
+strictEqual(compileStageGate !== undefined, true);
+if (compileStageGate !== undefined) {
+  strictEqual(shouldRunAcceptanceFocusedGate(compileStageGate, false), true);
+  strictEqual(shouldRunAcceptanceFocusedGate(compileStageGate, true), false);
+}
 console.log(
   `ci-gate-ownership:ok (${acceptanceOwnedFocusedGates.map((gate) => gate.packageScript).join(", ")})`
 );

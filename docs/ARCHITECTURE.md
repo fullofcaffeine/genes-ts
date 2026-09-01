@@ -87,6 +87,7 @@ depend on formatting.
 | Concern | Primary owner | Contract |
 |---|---|---|
 | Generator lifecycle and profile selection | `src/genes/Generator.hx` | Orchestrates typed input, reachability, validation, implementation emission, and declarations. |
+| Compiler timing attribution | `src/genes/util/Timer.hx`, `src/genes/Generator.hx` | Uses Haxe's `--times` tree for parsing, typing, DCE, macros, and the custom generator. Request-local Genes child timers identify inventory, reachability, validation, profile emission, and transactional publication without a second clock or a cross-request cache. |
 | Generation diagnostics | `src/genes/CompilerDiagnostic.hx` | Throws source-positioned Haxe macro errors through normal stack unwinding so staged output is cleaned before diagnostics escape. |
 | Module/member inventory | `src/genes/Module.hx` | Presents one emitter-facing module view and materializes declaration-only members without changing the runtime graph. |
 | Top-level output projection | `Module.memberProjection`, `src/genes/CompilerInternal.hx` | Separates local implementation presence, ESM export, consumer declarations, Haxe runtime registration, and source provenance. Printers consume these facts instead of treating one visibility flag as every policy. |
