@@ -123,9 +123,19 @@ export async function terminateAcceptanceProcessTree(
 }
 
 function closeLog(log: WriteStream): Promise<void> {
-  return new Promise((resolve, reject) => {
-    log.once("error", reject);
-    log.end(resolve);
+  return new Promise((resolve) => {
+    if (log.closed || log.destroyed) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    log.once("close", finish);
+    log.end(finish);
   });
 }
 
@@ -190,11 +200,17 @@ export class AcceptanceProcessOwner {
     );
 
     const log = createWriteStream(logPath, { flags: "w" });
+    let logError: Error | undefined;
+    let routeLogError = (error: Error): void => {
+      logError ??= error;
+    };
+    log.on("error", (error) => routeLogError(error));
     const child = spawn(gate.command, [...gate.args], {
       cwd: this.options.cwd,
       env: {
         ...(this.options.env ?? process.env),
-        ...(gate.env ?? {})
+        ...(gate.env ?? {}),
+        GENES_ACCEPTANCE_PROCESS_OWNER: "1"
       },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"]
@@ -209,7 +225,7 @@ export class AcceptanceProcessOwner {
       });
     }
 
-    const result = await new Promise<{
+    const initialResult = await new Promise<{
       readonly status: "passed" | "failed" | "timed-out" | "interrupted";
       readonly code: number | null;
       readonly signal: NodeJS.Signals | null;
@@ -219,6 +235,7 @@ export class AcceptanceProcessOwner {
       let termination:
         | { status: "timed-out" }
         | { status: "interrupted"; signal: "SIGINT" | "SIGTERM" }
+        | { status: "failed"; error: Error }
         | undefined;
       const finish = (value: {
         readonly status: "passed" | "failed" | "timed-out" | "interrupted";
@@ -237,10 +254,16 @@ export class AcceptanceProcessOwner {
         requested:
           | { status: "timed-out" }
           | { status: "interrupted"; signal: "SIGINT" | "SIGTERM" }
+          | { status: "failed"; error: Error }
       ): void => {
         if (settled) return;
         if (termination !== undefined) {
-          if (requested.status === "interrupted") termination = requested;
+          const priority = (value: typeof requested): number => {
+            if (value.status === "failed") return 3;
+            if (value.status === "interrupted") return 2;
+            return 1;
+          };
+          if (priority(requested) > priority(termination)) termination = requested;
           return;
         }
         termination = requested;
@@ -256,9 +279,15 @@ export class AcceptanceProcessOwner {
               signal: finalTermination.status === "interrupted"
                 ? finalTermination.signal
                 : null,
-              ...(closed ? {} : {
-                error: new Error(`${gate.id} root did not close after tree termination`)
-              })
+              ...(closed
+                ? finalTermination.status === "failed"
+                  ? { error: finalTermination.error }
+                  : {}
+                : {
+                  error: new Error(
+                    `${gate.id} root did not close after tree termination`
+                  )
+                })
             });
           },
           (error: unknown) => finish({
@@ -279,28 +308,46 @@ export class AcceptanceProcessOwner {
         status: "interrupted",
         signal: "SIGTERM"
       });
-      process.once("SIGINT", onSigint);
-      process.once("SIGTERM", onSigterm);
+      process.on("SIGINT", onSigint);
+      process.on("SIGTERM", onSigterm);
       const timeout = setTimeout(
         () => terminate({ status: "timed-out" }),
         remainingMs
       );
-      child.once("error", (error) => finish({
-        status: "failed",
-        code: null,
-        signal: null,
-        error
-      }));
+      routeLogError = (error: Error): void => {
+        logError ??= error;
+        terminate({ status: "failed", error });
+      };
+      if (logError !== undefined) routeLogError(logError);
+      child.once("error", (error) => terminate({ status: "failed", error }));
       child.once("close", (code, signal) => {
         if (termination !== undefined) return;
-        finish({
-          status: code === 0 ? "passed" : "failed",
+        const completed = {
+          status: code === 0 ? "passed" as const : "failed" as const,
           code,
           signal
-        });
+        };
+        const graceMs = this.options.terminationGraceMs ?? 2_000;
+        void terminateAcceptanceProcessTree(child, graceMs).then(
+          () => finish(completed),
+          (error: unknown) => finish({
+            status: "failed",
+            code,
+            signal,
+            error: error instanceof Error ? error : new Error(String(error))
+          })
+        );
       });
     });
     await closeLog(log);
+    const result = logError === undefined
+      ? initialResult
+      : {
+        status: "failed" as const,
+        code: null,
+        signal: null,
+        error: logError
+      };
 
     const completed: GateState = {
       ...state,

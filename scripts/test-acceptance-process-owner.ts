@@ -1,6 +1,6 @@
 import { ok, rejects, strictEqual } from "node:assert";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -107,6 +107,12 @@ try {
         path.join(signalRoot, "signal-tree.log")
       );
       strictEqual(signalOwner.kill("SIGTERM"), true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      strictEqual(
+        signalOwner.kill("SIGTERM"),
+        true,
+        "Acceptance owner did not retain its handler during cleanup"
+      );
       const exit = await signalExit;
       strictEqual(exit.code, 143, `Signal owner exited with ${JSON.stringify(exit)}`);
       strictEqual(exit.signal, null);
@@ -178,6 +184,36 @@ try {
     readFileSync(path.join(failureRoot, "failure.log"), "utf8")
       .includes("probe:failure"),
     "Failed gate log was not retained"
+  );
+
+  const logFailureRoot = path.join(reportRoot, "log-failure");
+  mkdirSync(path.join(logFailureRoot, "log-failure.log"), { recursive: true });
+  const logFailure = new AcceptanceProcessOwner({
+    cwd: repoRoot,
+    reportRoot: logFailureRoot,
+    timeoutMs: 5_000,
+    terminationGraceMs: 500
+  });
+  await rejects(
+    logFailure.run({
+      id: "log-failure",
+      command: process.execPath,
+      args: [probe, "parent"]
+    }),
+    /EISDIR|directory/iu
+  );
+  const logFailureState = JSON.parse(
+    readFileSync(path.join(logFailureRoot, "state.json"), "utf8")
+  ) as {
+    readonly activeGate?: unknown;
+    readonly gates?: ReadonlyArray<{ readonly status?: unknown }>;
+  };
+  strictEqual(logFailureState.activeGate, "log-failure");
+  strictEqual(logFailureState.gates?.[0]?.status, "failed");
+  strictEqual(
+    isRunning(bystander.pid),
+    true,
+    "Acceptance log failure terminated an unrelated process"
   );
 } finally {
   await stopBystander(bystander);

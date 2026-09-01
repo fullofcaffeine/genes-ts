@@ -12,6 +12,22 @@ function stayAlive(): void {
   setInterval(() => {}, 60_000);
 }
 
+function resistGracefulTermination(): void {
+  process.on("SIGTERM", () => {
+    // Keep the tree alive until the owner proves its SIGKILL escalation.
+  });
+}
+
+function spawnOwnedDescendant(mode: "child" | "grandchild"): void {
+  spawn(process.execPath, [script, mode], {
+    stdio: "inherit",
+    // The acceptance owner marks gates that already have a private process
+    // group. Nested repository processes must remain in that owned group.
+    detached: process.platform !== "win32"
+      && process.env.GENES_ACCEPTANCE_PROCESS_OWNER !== "1"
+  });
+}
+
 switch (mode) {
   case "healthy":
     process.stdout.write("probe:healthy\n");
@@ -22,16 +38,19 @@ switch (mode) {
     break;
   case "grandchild":
     process.stdout.write(`probe:grandchild:${String(process.pid)}\n`);
+    resistGracefulTermination();
     stayAlive();
     break;
   case "child":
     process.stdout.write(`probe:child:${String(process.pid)}\n`);
-    spawn(process.execPath, [script, "grandchild"], { stdio: "inherit" });
+    resistGracefulTermination();
+    spawnOwnedDescendant("grandchild");
     stayAlive();
     break;
   case "parent":
     process.stdout.write(`probe:parent:${String(process.pid)}\n`);
-    spawn(process.execPath, [script, "child"], { stdio: "inherit" });
+    resistGracefulTermination();
+    spawnOwnedDescendant("child");
     stayAlive();
     break;
   case "bystander":
