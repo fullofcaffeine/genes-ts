@@ -80,6 +80,23 @@ to select the dominant stage, create a bounded optimization task, and propose a
 warm-edit service-level objective. A timing budget becomes blocking only after
 stable hosted measurements establish normal variance and a reviewed limit.
 
+## Warm-edit objective
+
+A normal-priority production control measured 42.61 seconds cold and 41.27
+seconds after a comment-only edit. The owned compiler server reduced wall time
+by only 3.1 percent. Thus, server reuse alone does not give fast feedback.
+
+The product objective is a 500 ms median and a 1,000 ms p95 for warm Genes
+generation. This objective covers Haxe work, Genes work, and output publication
+for the 19,000-line scale class. The report continues to show TypeScript time
+separately.
+
+This objective is not a blocking budget. A blocking budget requires a named
+quiet runner, at least three warmups, and at least 20 alternating edit samples.
+The evidence must also show ordinary variance and one deliberately slower
+control. A reviewed relative limit can become blocking after that evidence is
+stable.
+
 The generated workload has a small control and a scale case. It exercises
 ordinary parsing, typing, full DCE, module reachability, emission, source maps,
 and publication. It does not reproduce every application macro. Confirm the
