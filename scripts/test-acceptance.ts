@@ -85,6 +85,7 @@ async function runAcceptance(): Promise<void> {
   await run("genes-ts-sourcemaps", "node", [
     "scripts/dist/test-genes-ts-sourcemaps.js"
   ]);
+  await run("writer-position", "haxe", ["tests/writer-position/build.hxml"]);
   await run("genes-ts-snapshots", "node", [
     "scripts/dist/test-genes-ts-snapshots.js"
   ]);

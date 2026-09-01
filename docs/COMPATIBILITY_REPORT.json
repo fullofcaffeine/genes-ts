@@ -60,6 +60,7 @@
         "classic-core",
         "css-module-companions",
         "dual-output-semantics",
+        "test:writer-position",
         "portable-haxe-smoke",
         "acceptance",
         "full-ci"
@@ -89,6 +90,7 @@
         "typescript-full",
         "css-module-companions",
         "dual-output-semantics",
+        "test:writer-position",
         "portable-haxe-smoke",
         "source-maps",
         "acceptance",

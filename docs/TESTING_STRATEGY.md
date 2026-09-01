@@ -721,6 +721,11 @@ benchmark or an exact operation/allocation count. Documentation-only work can
 be performance-neutral, but its PR should say why so reviewers know the
 question was considered.
 
+`yarn test:writer-position` owns generated line and column accounting. It uses
+independent position examples and a blocking scan-step count. Use it with exact
+source-map consumers when a Writer change affects the generated-position hot
+path.
+
 Genes already has a blocking structural performance budget. During
 `yarn test:acceptance`, `test:output-quality` checks a deterministic dual-output
 corpus. Module counts are exact, byte and token counts have at most a reviewed
