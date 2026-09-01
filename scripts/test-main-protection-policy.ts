@@ -188,6 +188,12 @@ function main(): void {
       `${job} must select Haxe before installing the pinned formatter and running the stdlib-overlay acceptance gate`
     );
   }
+  assert(
+    genesTs.includes("- run: yarn test:acceptance\n        timeout-minutes: 45")
+      && genesTs.includes("- name: Preserve acceptance owner markers and logs")
+      && genesTs.includes("path: .tmp/test-evidence/acceptance"),
+    "The required genes-ts acceptance step must stay bounded and preserve owner evidence"
+  );
   const preview = jobBlock(ci, "haxe-preview");
   assert(
     preview.includes("continue-on-error: true"),

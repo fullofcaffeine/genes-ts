@@ -989,6 +989,22 @@ Run the full acceptance gate locally:
 npm run test:acceptance
 ```
 
+The acceptance runner prints `acceptance:start` and `acceptance:pass` for each
+subgate. It writes the active gate and one log per subgate to
+`.tmp/test-evidence/acceptance/`. The required GitHub job uploads that directory
+even when acceptance fails.
+
+One 40-minute deadline owns the complete aggregate. The initial bound uses ten
+successful required-job samples: p50 was 1,726 seconds and p95 was 1,803
+seconds. Forty minutes adds approximately 33 percent to that whole-job p95.
+It does not invent unsupported limits for individual subgates. If the deadline
+expires, the runner terminates only the active private process group. The error
+and retained state name the active subgate and its log. Set
+`GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test or a reviewed local
+diagnostic; required CI uses the documented default. The required workflow
+also limits the complete step to 45 minutes. This leaves five minutes for test
+tool preparation, owned cleanup, and evidence upload.
+
 `test:acceptance` is the normal stable pull-request owner for the focused
 direct-module-binding and strict-array-index contracts. The direct-binding
 fixture exercises functions and closed values across TypeScript, TSX, classic
