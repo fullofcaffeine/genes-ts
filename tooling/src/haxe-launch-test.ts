@@ -22,6 +22,7 @@ import {
 } from "./session/haxe-exec-contract.js";
 import {
   createRawExecControl,
+  inspectNativeExecutableFile,
   launchHaxe,
   runHaxeSync,
 } from "./session/haxe-launch.js";
@@ -92,6 +93,41 @@ function compilerInvocation(
   });
 }
 
+function elfFixture(): Buffer {
+  const bytes = Buffer.alloc(64);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  bytes.writeUInt16LE(3, 16);
+  return bytes;
+}
+
+function thinMachOFixture(): Buffer {
+  const bytes = Buffer.alloc(32);
+  bytes.writeUInt32LE(0xfeedfacf, 0);
+  bytes.writeUInt32LE(2, 12);
+  return bytes;
+}
+
+function fatMachOFixture(): Buffer {
+  const bytes = Buffer.alloc(64);
+  bytes.writeUInt32BE(0xcafebabe, 0);
+  bytes.writeUInt32BE(1, 4);
+  bytes.writeUInt32BE(28, 16);
+  bytes.writeUInt32BE(32, 20);
+  thinMachOFixture().copy(bytes, 28);
+  return bytes;
+}
+
+function peFixture(): Buffer {
+  const bytes = Buffer.alloc(256);
+  bytes.write("MZ", 0, "ascii");
+  bytes.writeUInt32LE(128, 0x3c);
+  bytes.write("PE\0\0", 128, "binary");
+  bytes.writeUInt16LE(2, 128 + 4 + 16);
+  bytes.writeUInt16LE(0x0002, 128 + 4 + 18);
+  bytes.writeUInt16LE(0x020b, 128 + 24);
+  return bytes;
+}
+
 async function main(): Promise<void> {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-haxe-launch-")),
@@ -151,6 +187,35 @@ async function main(): Promise<void> {
       }),
       /argument must not contain NUL bytes/u,
     );
+
+    const nativeFixture = (name: string, bytes: Buffer): string => {
+      const file = path.join(root, name);
+      writeFileSync(file, bytes);
+      chmodSync(file, 0o755);
+      return file;
+    };
+    const elf = nativeFixture("native-linux", elfFixture());
+    const machO = nativeFixture("native-macos", thinMachOFixture());
+    const fatMachO = nativeFixture("native-universal", fatMachOFixture());
+    const pe = nativeFixture("native-windows.exe", peFixture());
+    const malformedPe = peFixture();
+    malformedPe.writeUInt32LE(252, 0x3c);
+    const malformedPePath = nativeFixture("malformed-windows.exe", malformedPe);
+    const javaClass = nativeFixture(
+      "java-class",
+      Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 61]),
+    );
+    const malformedElf = elfFixture();
+    malformedElf[6] = 0;
+    const malformedElfPath = nativeFixture("malformed-linux", malformedElf);
+    assert.equal(inspectNativeExecutableFile(elf, "linux"), true);
+    assert.equal(inspectNativeExecutableFile(malformedElfPath, "linux"), false);
+    assert.equal(inspectNativeExecutableFile(machO, "darwin"), true);
+    assert.equal(inspectNativeExecutableFile(fatMachO, "darwin"), true);
+    assert.equal(inspectNativeExecutableFile(javaClass, "darwin"), false);
+    assert.equal(inspectNativeExecutableFile(pe, "win32"), true);
+    assert.equal(inspectNativeExecutableFile(malformedPePath, "win32"), false);
+    assert.equal(inspectNativeExecutableFile(elf, "darwin"), false);
 
     if (process.platform !== "win32") {
       const runner = fileURLToPath(
@@ -477,18 +542,129 @@ async function main(): Promise<void> {
         );
         assert.equal(existsSync(shellMarker), false);
       }
-      const rejected = runHaxeSync(pseudoNative, ["--version"], {
-        cwd: root,
-        environment: {},
-      });
-      assert.equal(rejected.status, 126, rejected.stderr);
-      assert.equal(rejected.signal, null, rejected.stderr);
+      assert.equal(inspectNativeExecutableFile(pseudoNative), false);
+      assert.throws(
+        () => runHaxeSync(pseudoNative, ["--version"], {
+          cwd: root,
+          environment: {},
+        }),
+        /native current-platform image/u,
+      );
       assert.equal(
         existsSync(shellMarker),
         false,
-        "ENOEXEC must not reinterpret the target through a shell",
+        "a non-native launch must fail before it can reach shell fallback",
       );
-      assert.match(rejected.stderr, /ENOEXEC|execve|format/iu);
+
+      const rawRejected = spawnSync(
+        process.execPath,
+        [runner, "-", "2", pseudoNative, "--version"],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {},
+          input: "{}",
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      assert.equal(rawRejected.status, 126, rawRejected.stderr);
+      assert.equal(rawRejected.signal, null, rawRejected.stderr);
+      assert.match(rawRejected.stderr, /native current-platform image/u);
+      assert.equal(
+        existsSync(shellMarker),
+        false,
+        "the raw helper must reject non-native text before execve",
+      );
+
+      if (process.platform === "linux") {
+        const pseudoElfMarker = path.join(root, "pseudo-elf-ran");
+        const pseudoElf = path.join(root, "pseudo-elf");
+        writeFileSync(
+          pseudoElf,
+          Buffer.concat([
+            elfFixture().subarray(0, 20),
+            Buffer.from(
+              [
+                "2>/dev/null",
+                `printf ran > ${JSON.stringify(pseudoElfMarker)}`,
+                "printf '4.3.7\\n'",
+                "",
+              ].join("\n"),
+              "utf8",
+            ),
+          ]),
+        );
+        chmodSync(pseudoElf, 0o755);
+        assert.equal(inspectNativeExecutableFile(pseudoElf), true);
+        const rejectedPseudoElf = spawnSync(
+          process.execPath,
+          [runner, "-", "2", pseudoElf, "--version"],
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: {},
+            input: "{}",
+            shell: false,
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        );
+        assert.equal(rejectedPseudoElf.status, 126, rejectedPseudoElf.stderr);
+        assert.match(rejectedPseudoElf.stderr, /ENOEXEC|execve|format/iu);
+        assert.equal(
+          existsSync(pseudoElfMarker),
+          false,
+          "raw exec must not reinterpret a malformed ELF through a shell",
+        );
+      }
+
+      const shebangMarker = path.join(root, "shebang-wrapper-ran");
+      const shebang = path.join(root, "shebang-haxe");
+      writeFileSync(
+        shebang,
+        [
+          "#!/bin/sh",
+          `printf ran > ${JSON.stringify(shebangMarker)}`,
+          "printf '4.3.7\\n'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      chmodSync(shebang, 0o755);
+      assert.equal(inspectNativeExecutableFile(shebang), false);
+      assert.throws(
+        () => launchHaxe(shebang, ["--version"], {
+          cwd: root,
+          environment: {},
+          stdout: "ignore",
+          stderr: "ignore",
+        }),
+        /native current-platform image/u,
+      );
+      assert.equal(
+        existsSync(shebangMarker),
+        false,
+        "an executable shebang replacement must not reach its interpreter",
+      );
+      const rejectedShebang = spawnSync(
+        process.execPath,
+        [runner, "-", "2", shebang, "--version"],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {},
+          input: "{}",
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      assert.equal(rejectedShebang.status, 126, rejectedShebang.stderr);
+      assert.match(rejectedShebang.stderr, /native current-platform image/u);
+      assert.equal(
+        existsSync(shebangMarker),
+        false,
+        "the final raw helper check must reject a shebang replacement",
+      );
 
       const layout = resolveSessionLayout(
         root,
@@ -507,7 +683,7 @@ async function main(): Promise<void> {
             "invalid-executable",
             new AbortController().signal,
           ),
-          /execve|format/iu,
+          /native current-platform image/u,
         );
         assert.equal(
           existsSync(shellMarker),

@@ -703,9 +703,14 @@ rolled back, the other output can start normally.
   compiler server. A failed replacement reports a bounded error through the
   same socket. If the configured temporary directory is too long for a POSIX
   socket path, tooling uses a private mode-0700 directory below `/tmp`. An
-  `ENOEXEC` failure is never reinterpreted as a shell script. On Windows,
-  tooling starts the canonical `.exe` directly with structured arguments and
-  `shell: false`.
+  `ENOEXEC` failure is never reinterpreted as a shell script. The bounded
+  native-image check repeats synchronously immediately before each launch, so
+  an ordinary toolchain replacement with a shebang script fails before an
+  interpreter can create a compiler descendant. It is process-shape evidence,
+  not binary attestation: the trusted toolchain owner must not race a pathname
+  replacement with the launch, and a replacement native binary remains trusted
+  input. On Windows, tooling starts the canonical `.exe` directly with
+  structured arguments and `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
   or stale. An unrelated file beside generated output is preserved. If a new
   generated path is already occupied by an unowned file, publication fails

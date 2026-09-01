@@ -3,6 +3,7 @@ import net, { type Socket } from "node:net";
 import path from "node:path";
 
 import { HAXE_ENVIRONMENT_PAYLOAD_LIMIT } from "./haxe-exec-contract.js";
+import { inspectNativeExecutable } from "./haxe-launch.js";
 
 class SafeRunnerError extends Error {}
 
@@ -137,9 +138,17 @@ function execute(
   environment: Record<string, string>,
   control?: Socket,
 ): void {
+  const replace = (): void => {
+    if (inspectNativeExecutable(executable, process.platform) === "not-native") {
+      throw new SafeRunnerError(
+        "Haxe executable must be a native current-platform image",
+      );
+    }
+    execve(executable, [executable, ...args], environment);
+  };
   if (control === undefined) {
     try {
-      execve(executable, [executable, ...args], environment);
+      replace();
     } catch (error) {
       finishFailure(error);
     }
@@ -154,7 +163,7 @@ function execute(
       return;
     }
     try {
-      execve(executable, [executable, ...args], environment);
+      replace();
     } catch (execError) {
       finishFailure(execError, control);
     }
@@ -182,9 +191,9 @@ try {
     control.once("connect", () => {
       try {
         const environment = environmentFromStdin(payloadLength);
-        // READY means all launch input was validated and execve is next. The
-        // runner-created socket closes on successful replacement. A failed
-        // exec remains in this process and appends a fixed ERROR record.
+        // READY means the bounded launch input is validated. The write callback
+        // rechecks native process shape immediately before execve. The socket
+        // closes on replacement; a failed check or exec appends fixed ERROR.
         execute(execve, executable, args, environment, control);
       } catch (error) {
         finishFailure(error, control);

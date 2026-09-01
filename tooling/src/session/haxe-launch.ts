@@ -4,7 +4,14 @@ import {
   type ChildProcess,
   type SpawnSyncReturns,
 } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  rmSync,
+} from "node:fs";
 import net, { type Server, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +24,7 @@ import {
 
 const RUNNER = fileURLToPath(new URL("./haxe-exec-runner.js", import.meta.url));
 const HANDOFF_LIMIT = 4_096;
+const MAX_FAT_MACH_O_SLICES = 64;
 const CONTROL_DIRECTORY_PREFIX = "genes-haxe-exec-";
 const CONTROL_SOCKET_NAME = "control.sock";
 // Darwin permits 104 sockaddr_un bytes and Linux permits 108. Keep room for
@@ -77,6 +85,212 @@ function assertExecutable(executable: string): void {
   }
   if (process.platform === "win32" && !executable.toLowerCase().endsWith(".exe")) {
     throw new HaxeLaunchError("Haxe executable must be a native .exe on Windows");
+  }
+}
+
+export type NativeExecutableInspection =
+  | "native"
+  | "not-native"
+  | "unavailable";
+
+function readExecutableRange(
+  descriptor: number,
+  fileSize: number,
+  position: number,
+  length: number,
+): Buffer | undefined {
+  if (
+    !Number.isSafeInteger(position) ||
+    position < 0 ||
+    !Number.isSafeInteger(length) ||
+    length < 0 ||
+    position > fileSize - length
+  ) {
+    return undefined;
+  }
+  const bytes = Buffer.alloc(length);
+  return readSync(descriptor, bytes, 0, length, position) === length
+    ? bytes
+    : undefined;
+}
+
+function uint64(
+  bytes: Buffer,
+  offset: number,
+  littleEndian: boolean,
+): number | undefined {
+  const value = littleEndian
+    ? bytes.readBigUInt64LE(offset)
+    : bytes.readBigUInt64BE(offset);
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+}
+
+function isElfExecutable(descriptor: number, fileSize: number): boolean {
+  const header = readExecutableRange(descriptor, fileSize, 0, 20);
+  if (
+    header === undefined ||
+    !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
+    (header[4] !== 1 && header[4] !== 2) ||
+    (header[5] !== 1 && header[5] !== 2) ||
+    header[6] !== 1
+  ) {
+    return false;
+  }
+  const type = header[5] === 1
+    ? header.readUInt16LE(16)
+    : header.readUInt16BE(16);
+  return type === 2 || type === 3;
+}
+
+function thinMachOEndian(header: Buffer): "little" | "big" | undefined {
+  switch (header.subarray(0, 4).toString("hex")) {
+    case "feedface":
+    case "feedfacf":
+      return "big";
+    case "cefaedfe":
+    case "cffaedfe":
+      return "little";
+    default:
+      return undefined;
+  }
+}
+
+function isThinMachOExecutable(
+  descriptor: number,
+  fileSize: number,
+  position: number,
+): boolean {
+  const header = readExecutableRange(descriptor, fileSize, position, 16);
+  if (header === undefined) return false;
+  const endian = thinMachOEndian(header);
+  if (endian === undefined) return false;
+  const fileType = endian === "little"
+    ? header.readUInt32LE(12)
+    : header.readUInt32BE(12);
+  return fileType === 2;
+}
+
+function isMachOExecutable(descriptor: number, fileSize: number): boolean {
+  if (isThinMachOExecutable(descriptor, fileSize, 0)) return true;
+  const header = readExecutableRange(descriptor, fileSize, 0, 8);
+  if (header === undefined) return false;
+  const magic = header.subarray(0, 4).toString("hex");
+  const littleEndian = magic === "bebafeca" || magic === "bfbafeca";
+  const sixtyFourBit = magic === "cafebabf" || magic === "bfbafeca";
+  if (
+    magic !== "cafebabe" &&
+    magic !== "bebafeca" &&
+    magic !== "cafebabf" &&
+    magic !== "bfbafeca"
+  ) {
+    return false;
+  }
+  const sliceCount = littleEndian
+    ? header.readUInt32LE(4)
+    : header.readUInt32BE(4);
+  if (sliceCount === 0 || sliceCount > MAX_FAT_MACH_O_SLICES) return false;
+  const entryBytes = sixtyFourBit ? 32 : 20;
+  const entries = readExecutableRange(
+    descriptor,
+    fileSize,
+    8,
+    sliceCount * entryBytes,
+  );
+  if (entries === undefined) return false;
+  for (let index = 0; index < sliceCount; index += 1) {
+    const entry = index * entryBytes;
+    const position = sixtyFourBit
+      ? uint64(entries, entry + 8, littleEndian)
+      : littleEndian
+        ? entries.readUInt32LE(entry + 8)
+        : entries.readUInt32BE(entry + 8);
+    const size = sixtyFourBit
+      ? uint64(entries, entry + 16, littleEndian)
+      : littleEndian
+        ? entries.readUInt32LE(entry + 12)
+        : entries.readUInt32BE(entry + 12);
+    if (
+      position !== undefined &&
+      size !== undefined &&
+      size >= 16 &&
+      position <= fileSize - size &&
+      isThinMachOExecutable(descriptor, fileSize, position)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isPeExecutable(
+  descriptor: number,
+  fileSize: number,
+  executable: string,
+): boolean {
+  if (!executable.toLowerCase().endsWith(".exe")) return false;
+  const dos = readExecutableRange(descriptor, fileSize, 0, 64);
+  if (dos === undefined || dos.subarray(0, 2).toString("ascii") !== "MZ") {
+    return false;
+  }
+  const peOffset = dos.readUInt32LE(0x3c);
+  const header = readExecutableRange(descriptor, fileSize, peOffset, 26);
+  if (
+    header === undefined ||
+    header.subarray(0, 4).toString("binary") !== "PE\0\0" ||
+    header.readUInt16LE(20) < 2 ||
+    (header.readUInt16LE(22) & 0x0002) === 0
+  ) {
+    return false;
+  }
+  const optionalMagic = header.readUInt16LE(24);
+  return optionalMagic === 0x010b || optionalMagic === 0x020b;
+}
+
+export function inspectNativeExecutable(
+  executable: string,
+  platform: NodeJS.Platform,
+): NativeExecutableInspection {
+  if (platform !== "linux" && platform !== "darwin" && platform !== "win32") {
+    return "unavailable";
+  }
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(executable, "r");
+    const stats = fstatSync(descriptor);
+    if (!stats.isFile()) return "not-native";
+    const valid = platform === "linux"
+      ? isElfExecutable(descriptor, stats.size)
+      : platform === "darwin"
+        ? isMachOExecutable(descriptor, stats.size)
+        : platform === "win32"
+          ? isPeExecutable(descriptor, stats.size, executable)
+          : false;
+    return valid ? "native" : "not-native";
+  } catch {
+    return "unavailable";
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+/**
+ * Classifies a bounded current-platform executable header.
+ *
+ * This is process-shape evidence, not binary attestation. The trusted
+ * toolchain owner must not race pathname replacement with a launch.
+ */
+export function inspectNativeExecutableFile(
+  executable: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return inspectNativeExecutable(executable, platform) === "native";
+}
+
+function assertNativeExecutableIfReadable(executable: string): void {
+  if (inspectNativeExecutable(executable, process.platform) === "not-native") {
+    throw new HaxeLaunchError(
+      "Haxe executable must be a native current-platform image",
+    );
   }
 }
 
@@ -286,11 +500,12 @@ function rawExecHandoff(
  * Starts one structured Haxe child without a shell or PATH lookup.
  *
  * On POSIX, the trusted Node 26.1+ child first proves failed exec is
- * recoverable before it receives the Haxe environment. It then replaces
- * itself through `execve`, so the returned PID becomes Haxe and an `ENOEXEC`
- * target is never interpreted as a script. Child exit or server readiness
- * remains the final success evidence. Windows creates the canonical native
- * `.exe` directly.
+ * recoverable before it receives the Haxe environment. A bounded native-image
+ * check runs immediately before every spawn. The child then replaces itself
+ * through `execve`, so the returned PID becomes Haxe and an `ENOEXEC` target is
+ * never interpreted as a script. Child exit or server readiness remains the
+ * final success evidence. Windows creates the canonical native `.exe`
+ * directly.
  */
 export function launchHaxe(
   executable: string,
@@ -301,6 +516,7 @@ export function launchHaxe(
   assertExecutable(executable);
   const environment = environmentBytes(options.environment);
   if (process.platform === "win32") {
+    assertNativeExecutableIfReadable(executable);
     const child = spawn(executable, [...args], {
       cwd: options.cwd,
       env: options.environment,
@@ -314,6 +530,7 @@ export function launchHaxe(
   const control = createRawExecControl();
   let child: ChildProcess;
   try {
+    assertNativeExecutableIfReadable(executable);
     child = spawn(
       process.execPath,
       [
@@ -361,11 +578,13 @@ export function runHaxeSync(
     windowsHide: true,
   };
   if (process.platform === "win32") {
+    assertNativeExecutableIfReadable(executable);
     return spawnSync(executable, [...args], {
       ...common,
       env: options.environment,
     });
   }
+  assertNativeExecutableIfReadable(executable);
   return spawnSync(
     process.execPath,
     [
