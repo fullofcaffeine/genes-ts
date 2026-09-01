@@ -318,12 +318,15 @@ export class OwnedHaxeCompilerServer {
    * generated-output convenience. Multi-project tests should also give Haxe
    * distinct compilation signatures when their module names overlap, because
    * Haxe 4's native typed-module cache is not isolated by classpath alone.
+   * The completion callback runs as soon as the client exits, before the
+   * ownership delay that confirms the exact server child remains alive.
    */
   public async compile(
     args: ReadonlyArray<string>,
     label: string,
     timeoutMs: number,
-    cwd = this.repoRoot
+    cwd = this.repoRoot,
+    onClientComplete?: () => void
   ): Promise<ProcessResult> {
     ok(!this.stopped, `${label} attempted to use a stopped Haxe server`);
     const connectArgs = [
@@ -342,6 +345,7 @@ export class OwnedHaxeCompilerServer {
           label
         }
       );
+      onClientComplete?.();
       if (result.code === 0) {
         // The reserved port is necessarily released before Haxe can bind it.
         // A successful client is accepted only while our exact child remains

@@ -38,6 +38,9 @@ The source edit switches one emitted string between two values. Every warm
 tree must equal the isolated cold tree for that exact value.
 The command gives each edit a newer whole-second timestamp. This step prevents
 coarse filesystems from hiding a rapid edit from the Haxe compiler server.
+Warm wall time stops when the Haxe client exits. The harness then waits 25 ms
+and confirms that its exact server child is still alive; this ownership check
+is deliberately outside the reported compiler latency.
 
 TypeScript runs after each cold/warm pair. Its time is separate from the Haxe
 and Genes time. The report also records generated files, modules, source maps,
@@ -82,9 +85,10 @@ stable hosted measurements establish normal variance and a reviewed limit.
 
 ## Warm-edit objective
 
-A normal-priority production control measured 42.61 seconds cold and 41.27
-seconds after a comment-only edit. The owned compiler server reduced wall time
-by only 3.1 percent. Thus, server reuse alone does not give fast feedback.
+An initial single-pair production observation suggested that compiler-server
+reuse alone did not give fast feedback. That observation did not record enough
+environment and variance evidence for a publishable timing claim, so it does
+not define this objective or a regression limit.
 
 The product objective is a 500 ms median and a 1,000 ms p95 for warm Genes
 generation. This objective covers Haxe work, Genes work, and output publication

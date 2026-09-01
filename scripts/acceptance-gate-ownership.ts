@@ -69,9 +69,19 @@ export const acceptanceOwnedFocusedGates = [
   },
   {
     packageScript: "test:compile-stage-report",
-    compiledScript: "scripts/dist/test-compile-stage-suite.js"
+    compiledScript: "scripts/dist/test-compile-stage-suite.js",
+    requiresCompilerServer: true
   }
 ] as const;
+
+export function shouldRunAcceptanceFocusedGate(
+  gate: (typeof acceptanceOwnedFocusedGates)[number],
+  skipCompilerServer: boolean
+): boolean {
+  return !("requiresCompilerServer" in gate
+    && gate.requiresCompilerServer
+    && skipCompilerServer);
+}
 
 function directInvocation(source: string, packageScript: string): string | undefined {
   return [

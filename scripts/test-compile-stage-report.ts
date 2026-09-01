@@ -29,6 +29,7 @@ strictEqual(
 );
 strictEqual(report.measurements.length, 2);
 strictEqual(report.protocol.warmups, 2);
+strictEqual(report.protocol.measuredProfile, "genes-ts");
 strictEqual(report.measurements[0]?.edit, "a");
 strictEqual(report.measurements[1]?.edit, "a");
 strictEqual(report.aggregate.coldWall.sampleCount, 1);

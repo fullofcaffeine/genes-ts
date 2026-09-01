@@ -129,6 +129,7 @@ export interface CompileStageReport {
     readonly loadAverageAfter: ReadonlyArray<number>;
   };
   readonly protocol: {
+    readonly measuredProfile: "genes-ts";
     readonly priority: "inherited";
     readonly compilerConcurrency: 1;
     readonly warmups: number;
@@ -392,9 +393,20 @@ async function compileWarm(
   cwd: string,
   label: string
 ): Promise<{ readonly result: ProcessResult; readonly wallMs: number }> {
-  const measured = await timed(() => server.compile(args, label, haxeTimeoutMs, cwd));
-  assertSuccess(measured.value, label, server.logs);
-  return { result: measured.value, wallMs: measured.milliseconds };
+  const started = performance.now();
+  let clientCompletedAt: number | undefined;
+  const result = await server.compile(
+    args,
+    label,
+    haxeTimeoutMs,
+    cwd,
+    () => {
+      clientCompletedAt = performance.now();
+    }
+  );
+  assertSuccess(result, label, server.logs);
+  ok(clientCompletedAt !== undefined, `${label} did not record client completion`);
+  return { result, wallMs: clientCompletedAt - started };
 }
 
 async function measureTypeScript(outputRoot: string, workspace: string): Promise<number> {
@@ -693,6 +705,7 @@ export async function runCompileStageReport(
       loadAverageAfter: loadavg()
     },
     protocol: {
+      measuredProfile: "genes-ts",
       priority: "inherited",
       compilerConcurrency: 1,
       warmups: options.warmups,
