@@ -9,6 +9,13 @@ it.
 - Launch every Haxe compiler child through one internal no-shell authority.
   On POSIX, a trusted Node child replaces itself with the absolute Haxe target
   through raw `execve`; Windows starts the canonical native `.exe` directly.
+  Immediately before every spawn, the launch authority checks a bounded
+  current-platform native image header. Replacing an admitted pathname with an
+  executable shebang script therefore fails before its interpreter can run.
+  Unsupported platforms, special files, and existing unreadable targets fail
+  closed; missing paths retain the normal launch diagnostic. The trusted
+  toolchain owner must prevent both pathname and in-place content mutation
+  during the bounded check-to-exec interval.
   A successful Haxe process keeps the owned PID and exact environment. An
   executable text file can no longer trigger Node's `ENOEXEC` shell fallback.
   Before it reads the Haxe environment, the handoff proves this exact runtime
