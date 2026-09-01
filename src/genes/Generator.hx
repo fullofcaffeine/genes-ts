@@ -12,6 +12,7 @@ import genes.es.ModuleEmitter;
 import genes.ts.TsModuleEmitter;
 import genes.ts.StdTypesEmitter;
 import genes.dts.DefinitionEmitter;
+import genes.util.Timer.timer;
 import genes.util.TypeUtil;
 import genes.Module;
 import genes.DependencyPlan.DependencyEdgeKind;
@@ -36,7 +37,10 @@ using StringTools;
  * How: Haxe's typed AST remains authoritative; narrow immutable plans feed
  * target-specific emitters, and `OutputTransaction` is the only public
  * filesystem owner. Generation diagnostics must use `CompilerDiagnostic` so
- * stack unwinding always crosses the transaction cleanup boundary.
+ * stack unwinding always crosses the transaction cleanup boundary. When Haxe
+ * enables `--times`, request-local child timers expose the existing inventory,
+ * reachability, validation, emission, and publication phases without writing
+ * a second compiler report or retaining state between server requests.
  */
 class Generator {
   /**
@@ -64,6 +68,7 @@ class Generator {
 
   static function generate(api: JSGenApi) {
     validateOutputOverrideTiming();
+    final endTransactionSetupTimer = timer('genes.transaction.setup');
     final outputFile = configuredOutputFile == null ? api.outputFile : configuredOutputFile;
     final output = Path.withoutExtension(Path.withoutDirectory(outputFile));
     final outputDir = Path.directory(outputFile);
@@ -72,6 +77,7 @@ class Generator {
     // directory and need independent manifests and staging directories.
     final outputIdentity = Path.withoutDirectory(Path.normalize(outputFile));
     final outputTransaction = new OutputTransaction(outputDir, outputIdentity);
+    endTransactionSetupTimer();
 
     try {
       removeCompilerSentinel();
@@ -103,6 +109,7 @@ class Generator {
    */
   static function generateTransactional(api: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction): Void {
+    final endInventoryTimer = timer('genes.plan.inventory');
     ModuleDirectivePlan.validate();
     final toGenerate = typesPerModule(api.types);
     final extension = Path.extension(outputFile);
@@ -196,6 +203,7 @@ class Generator {
       addModule(module, types);
     }
     final tsMode = Context.defined('genes.ts');
+    endInventoryTimer();
     if (tsMode && Genes.outExtension == '.jsx')
       CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-007] `.jsx` is the '
         + 'type-erased JSX profile and cannot be combined with `-D genes.ts`. '
@@ -310,6 +318,7 @@ class Generator {
       return reachable;
     }
 
+    final endReachabilityTimer = timer('genes.plan.reachability');
     final hasPublicModuleFunctions = initialNames.exists(name ->
       hasPublicModuleFunctionCandidate(modules.get(name)));
     final implementationRoots = if (tsMode) [
@@ -332,9 +341,13 @@ class Generator {
         name
     ];
     implementationNames.sort(Reflect.compare);
+    endReachabilityTimer();
+
+    final endValidationTimer = timer('genes.validate.modules');
     final jsxCapability = JsxCapabilityPolicy.current();
     // Validate every reachable module before an emitter opens its buffered
     // writer. Capability failures therefore cannot leave a mixed output tree.
+    final endJsxValidationTimer = timer('genes.validate.jsx');
     for (name in implementationNames) {
       final module = modules.get(name);
       jsxCapability.validate(module.jsxPlan);
@@ -343,10 +356,12 @@ class Generator {
       jsxCapability.resolveRuntimeBinding(module.codeDependencies,
         module.jsxPlan);
     }
+    endJsxValidationTimer();
     // Public module functions must not force ModuleFunctionPlan ahead of other
     // semantic plans: a malformed template/JSX carrier owns the earlier source
     // diagnostic. Once every reachable module has passed those checks, collect
     // validated public bindings before any emitter opens a staged writer.
+    final endDirectBindingValidationTimer = timer('genes.validate.directBindings');
     final outputModule = modules.get(output);
     for (moduleName in implementationNames) {
       final module = modules.get(moduleName);
@@ -364,6 +379,10 @@ class Generator {
         outputModule.expose.push(publicExport);
       }
     }
+    endDirectBindingValidationTimer();
+    endValidationTimer();
+
+    final endImplementationTimer = timer('genes.emit.implementation');
     for (name in implementationNames) {
       final module = modules.get(name);
       // `StdTypesEmitter` owns the canonical TS support module. The ordinary
@@ -375,8 +394,10 @@ class Generator {
         || (!tsMode && hasClassicImplementation(module)))
         generateImplementation(api, module, outputDir, outputTransaction);
     }
+    endImplementationTimer();
 
     if (tsMode) {
+      final endSupportTimer = timer('genes.emit.tsSupport');
       final stdTypesPath = Path.join([outputDir, 'StdTypes'])
         + Genes.outExtension;
       // The normal manifest diff retires source maps produced by an older
@@ -384,12 +405,14 @@ class Generator {
       // the output directory may also contain a user-created file with that
       // name, so first builds must leave it untouched.
       StdTypesEmitter.emit(stdTypesPath, outputTransaction);
+      endSupportTimer();
     }
 
     #if dts
     // Declaration expansion happens after executable output is complete. A
     // declaration-only type can therefore never broaden classic JS DCE or alter
     // a TS implementation module merely by being reachable from public types.
+    final endDeclarationPlanTimer = timer('genes.plan.declarations');
     final declarationReachable = expandReachability(implementationNames,
       [DeclarationOnly], 'classic-dts');
     final declarationNames = [
@@ -397,8 +420,11 @@ class Generator {
         name
     ];
     declarationNames.sort(Reflect.compare);
+    endDeclarationPlanTimer();
+    final endDeclarationTimer = timer('genes.emit.declarations');
     for (name in declarationNames)
       generateDefinition(api, modules.get(name), outputDir, outputTransaction);
+    endDeclarationTimer();
     #end
 
     // Private fault injection for the transaction harness. Every emitter has
@@ -416,7 +442,9 @@ class Generator {
     #if genes.output_transaction_test_raw_throw_before_commit
     throw 'Genes raw output transaction test failure before publication';
     #end
+    final endPublicationTimer = timer('genes.publish.transaction');
     outputTransaction.commit();
+    endPublicationTimer();
   }
 
   /**

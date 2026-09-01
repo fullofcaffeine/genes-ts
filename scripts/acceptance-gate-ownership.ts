@@ -7,8 +7,8 @@ import path from "node:path";
  *
  * Why: these tests previously ran only from the release-oriented `test:ci`
  * command. The normal stable pull-request job calls `test:acceptance`
- * directly, so regressions in module-function emission or strict array reads
- * could reach main before the focused test ran.
+ * directly, so regressions in focused compiler contracts could reach main
+ * before their direct tests ran.
  *
  * What/How: `test-acceptance.ts` executes this list exactly once. The
  * validation below rejects a second direct invocation from `test:ci` or either
@@ -66,6 +66,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:nullable-temp-receivers",
     compiledScript: "scripts/dist/test-nullable-temp-receivers.js"
+  },
+  {
+    packageScript: "test:compile-stage-report",
+    compiledScript: "scripts/dist/test-compile-stage-suite.js"
   }
 ] as const;
 
