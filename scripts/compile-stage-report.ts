@@ -175,8 +175,8 @@ export interface CompileStageReport {
 }
 
 const fixtureShapes: Readonly<Record<FixtureName, FixtureShape>> = {
-  // Keep the class-method aggregate above Haxe's zero-row rounding boundary.
-  control: { name: "control", moduleCount: 4, methodsPerModule: 16 },
+  // Keep the class and graph aggregates above Haxe's zero-row rounding boundary.
+  control: { name: "control", moduleCount: 16, methodsPerModule: 16 },
   scale: { name: "scale", moduleCount: 145, methodsPerModule: 24 }
 };
 
