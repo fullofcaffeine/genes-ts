@@ -7,6 +7,7 @@ import {
   assertFocusedGateOwnership
 } from "./acceptance-gate-ownership.js";
 import {
+  AcceptanceInterruptedError,
   AcceptanceProcessOwner,
   type AcceptanceGate
 } from "./acceptance-process-owner.js";
@@ -53,83 +54,92 @@ async function run(
   await owner.run(gate);
 }
 
-await run("acceptance-process-owner", "node", [
-  "scripts/dist/test-acceptance-process-owner.js"
-]);
-
-if (!skipClassic) {
-  await run("classic-baseline", "npm", ["test"]);
-  await run("classic-declarations", "node", ["scripts/dist/test-classic-dts.js"]);
-}
-
-await run("genes-ts", "node", ["scripts/dist/test-genes-ts.js"]);
-await run("explicit-type-arguments", "node", [
-  "scripts/dist/test-explicit-type-arguments.js"
-]);
-await run("genes-ts-minimal", "node", ["scripts/dist/test-genes-ts-minimal.js"]);
-await run("genes-ts-full", "node", ["scripts/dist/test-genes-ts-full.js"]);
-await run("dynamic-import-policy", "node", [
-  "scripts/dist/test-dynamic-import-policy.js"
-]);
-if (!skipCompilerServer) {
-  await run("compiler-server", "node", ["scripts/dist/test-compiler-server.js"]);
-}
-await run("genes-tsx", "node", ["scripts/dist/test-genes-tsx.js"]);
-await run("package-shapes", "node", ["scripts/dist/test-package-shapes.js"]);
-await run("binding-identity", "node", ["scripts/dist/probe-binding-identity.js"]);
-await run("ts-narrowing", "node", ["scripts/dist/test-ts-narrowing.js"]);
-await run("hxx-carrier-immutability", "node", [
-  "scripts/dist/test-hxx-carrier-immutability.js"
-]);
-await run("hxx-event-variance", "node", [
-  "scripts/dist/test-hxx-event-variance.js"
-]);
-await run("genes-ts-sourcemaps", "node", [
-  "scripts/dist/test-genes-ts-sourcemaps.js"
-]);
-await run("genes-ts-snapshots", "node", [
-  "scripts/dist/test-genes-ts-snapshots.js"
-]);
-await run("output-modes", "node", ["scripts/dist/test-output-modes.js"]);
-await run("string-literals", "node", ["scripts/dist/test-string-literals.js"]);
-await run("async-await-evidence", "node", [
-  "scripts/dist/test-async-await-evidence.js"
-]);
-await run("output-quality", "node", ["scripts/dist/test-output-quality.js"]);
-await run("output-transaction", "node", [
-  "scripts/dist/test-output-transaction.js"
-]);
-await run("side-effect-import-evidence", "node", [
-  "scripts/dist/test-side-effect-import-evidence.js"
-]);
-await run("module-directives", "node", ["scripts/dist/test-module-directives.js"]);
-await run("internal-types", "node", ["scripts/dist/test-internal-types.js"]);
-await run("type-roots", "node", ["scripts/dist/test-type-roots.js"]);
-await run("finally-completion", "node", [
-  "scripts/dist/test-finally-completion.js"
-]);
-await run("deep-nullish-alias", "node", [
-  "scripts/dist/test-deep-nullish-alias.js"
-]);
-for (const gate of acceptanceOwnedFocusedGates) {
-  const id = `focused-${gate.packageScript.slice("test:".length).replace(/[^a-z0-9]+/g, "-")}`;
-  await run(id, "node", [gate.compiledScript]);
-}
-
-if (!skipTs2hx) {
-  await run("ts2hx", "yarn", ["--cwd", "tools/ts2hx", "test"]);
-}
-
-if (!skipTodoapp) {
-  await run("examples", "node", [
-    "scripts/dist/test-examples.js",
-    ...(skipPlaywright ? [] : ["--playwright"])
+async function runAcceptance(): Promise<void> {
+  await run("acceptance-process-owner", "node", [
+    "scripts/dist/test-acceptance-process-owner.js"
   ]);
-} else {
-  // The small example remains a cheap dual-output contract even when callers
-  // intentionally skip the fullstack server/browser harness.
-  await run("examples-without-todoapp", "node", [
-    "scripts/dist/test-examples.js",
-    "--skip-todoapp"
+
+  if (!skipClassic) {
+    await run("classic-baseline", "npm", ["test"]);
+    await run("classic-declarations", "node", ["scripts/dist/test-classic-dts.js"]);
+  }
+
+  await run("genes-ts", "node", ["scripts/dist/test-genes-ts.js"]);
+  await run("explicit-type-arguments", "node", [
+    "scripts/dist/test-explicit-type-arguments.js"
   ]);
+  await run("genes-ts-minimal", "node", ["scripts/dist/test-genes-ts-minimal.js"]);
+  await run("genes-ts-full", "node", ["scripts/dist/test-genes-ts-full.js"]);
+  await run("dynamic-import-policy", "node", [
+    "scripts/dist/test-dynamic-import-policy.js"
+  ]);
+  if (!skipCompilerServer) {
+    await run("compiler-server", "node", ["scripts/dist/test-compiler-server.js"]);
+  }
+  await run("genes-tsx", "node", ["scripts/dist/test-genes-tsx.js"]);
+  await run("package-shapes", "node", ["scripts/dist/test-package-shapes.js"]);
+  await run("binding-identity", "node", ["scripts/dist/probe-binding-identity.js"]);
+  await run("ts-narrowing", "node", ["scripts/dist/test-ts-narrowing.js"]);
+  await run("hxx-carrier-immutability", "node", [
+    "scripts/dist/test-hxx-carrier-immutability.js"
+  ]);
+  await run("hxx-event-variance", "node", [
+    "scripts/dist/test-hxx-event-variance.js"
+  ]);
+  await run("genes-ts-sourcemaps", "node", [
+    "scripts/dist/test-genes-ts-sourcemaps.js"
+  ]);
+  await run("genes-ts-snapshots", "node", [
+    "scripts/dist/test-genes-ts-snapshots.js"
+  ]);
+  await run("output-modes", "node", ["scripts/dist/test-output-modes.js"]);
+  await run("string-literals", "node", ["scripts/dist/test-string-literals.js"]);
+  await run("async-await-evidence", "node", [
+    "scripts/dist/test-async-await-evidence.js"
+  ]);
+  await run("output-quality", "node", ["scripts/dist/test-output-quality.js"]);
+  await run("output-transaction", "node", [
+    "scripts/dist/test-output-transaction.js"
+  ]);
+  await run("side-effect-import-evidence", "node", [
+    "scripts/dist/test-side-effect-import-evidence.js"
+  ]);
+  await run("module-directives", "node", ["scripts/dist/test-module-directives.js"]);
+  await run("internal-types", "node", ["scripts/dist/test-internal-types.js"]);
+  await run("type-roots", "node", ["scripts/dist/test-type-roots.js"]);
+  await run("finally-completion", "node", [
+    "scripts/dist/test-finally-completion.js"
+  ]);
+  await run("deep-nullish-alias", "node", [
+    "scripts/dist/test-deep-nullish-alias.js"
+  ]);
+  for (const gate of acceptanceOwnedFocusedGates) {
+    const id = `focused-${gate.packageScript.slice("test:".length).replace(/[^a-z0-9]+/g, "-")}`;
+    await run(id, "node", [gate.compiledScript]);
+  }
+
+  if (!skipTs2hx) {
+    await run("ts2hx", "yarn", ["--cwd", "tools/ts2hx", "test"]);
+  }
+
+  if (!skipTodoapp) {
+    await run("examples", "node", [
+      "scripts/dist/test-examples.js",
+      ...(skipPlaywright ? [] : ["--playwright"])
+    ]);
+  } else {
+    // The small example remains a cheap dual-output contract even when callers
+    // intentionally skip the fullstack server/browser harness.
+    await run("examples-without-todoapp", "node", [
+      "scripts/dist/test-examples.js",
+      "--skip-todoapp"
+    ]);
+  }
+}
+
+try {
+  await runAcceptance();
+} catch (error) {
+  if (!(error instanceof AcceptanceInterruptedError)) throw error;
+  process.exitCode = error.exitCode;
 }

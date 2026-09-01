@@ -999,7 +999,9 @@ successful required-job samples: p50 was 1,726 seconds and p95 was 1,803
 seconds. Forty minutes adds approximately 33 percent to that whole-job p95.
 It does not invent unsupported limits for individual subgates. If the deadline
 expires, the runner terminates only the active private process group. The error
-and retained state name the active subgate and its log. Set
+and retained state name the active subgate and its log. `SIGINT` and `SIGTERM`
+use the same owned-tree cleanup before the aggregate exits, so cancelling a
+local run does not leave a compiler server or browser fixture behind. Set
 `GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test or a reviewed local
 diagnostic; required CI uses the documented default. The required workflow
 also limits the complete step to 45 minutes. This leaves five minutes for test

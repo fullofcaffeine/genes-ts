@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  AcceptanceInterruptedError,
+  AcceptanceProcessOwner
+} from "./acceptance-process-owner.js";
 
 const script = fileURLToPath(import.meta.url);
 const mode = process.argv[2];
@@ -33,6 +37,27 @@ switch (mode) {
   case "bystander":
     stayAlive();
     break;
+  case "owner": {
+    const reportRoot = process.argv[3];
+    if (reportRoot === undefined) throw new Error("Owner probe requires a report root");
+    const owner = new AcceptanceProcessOwner({
+      cwd: process.cwd(),
+      reportRoot,
+      timeoutMs: 60_000,
+      terminationGraceMs: 500
+    });
+    try {
+      await owner.run({
+        id: "signal-tree",
+        command: process.execPath,
+        args: [script, "parent"]
+      });
+    } catch (error) {
+      if (!(error instanceof AcceptanceInterruptedError)) throw error;
+      process.exitCode = error.exitCode;
+    }
+    break;
+  }
   default:
     throw new Error(`Unknown acceptance owner probe mode: ${String(mode)}`);
 }

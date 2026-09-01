@@ -410,6 +410,7 @@ jobs:
         with:
           name: genes-acceptance-owner
           path: .tmp/test-evidence/acceptance
+          include-hidden-files: true
           if-no-files-found: warn
       - run: yarn test:ts2hx
       - run: yarn test:matrix:api

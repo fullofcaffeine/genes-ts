@@ -1,6 +1,6 @@
 import { ok, rejects, strictEqual } from "node:assert";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -28,6 +28,18 @@ function isRunning(pid: number): boolean {
 
 async function stopBystander(child: ChildProcess): Promise<void> {
   await terminateAcceptanceProcessTree(child, 500);
+}
+
+async function waitForOwnedPids(logPath: string): Promise<ReadonlyArray<number>> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+    const pids = [...log.matchAll(/probe:(?:parent|child|grandchild):(\d+)/g)]
+      .map((match) => Number(match[1]));
+    if (pids.length === 3) return pids;
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for the owned process tree in ${logPath}`);
 }
 
 rmSync(reportRoot, { recursive: true, force: true });
@@ -76,6 +88,49 @@ try {
   };
   strictEqual(timeoutState.activeGate, "hung-tree");
   strictEqual(timeoutState.gates?.[0]?.status, "timed-out");
+
+  if (process.platform !== "win32") {
+    const signalRoot = path.join(reportRoot, "signal");
+    const signalOwner = spawn(
+      process.execPath,
+      [probe, "owner", signalRoot],
+      { cwd: repoRoot, stdio: "ignore" }
+    );
+    const signalExit = new Promise<{
+      readonly code: number | null;
+      readonly signal: NodeJS.Signals | null;
+    }>((resolve) => signalOwner.once("exit", (code, signal) =>
+      resolve({ code, signal })
+    ));
+    try {
+      const signalPids = await waitForOwnedPids(
+        path.join(signalRoot, "signal-tree.log")
+      );
+      strictEqual(signalOwner.kill("SIGTERM"), true);
+      const exit = await signalExit;
+      strictEqual(exit.code, 143, `Signal owner exited with ${JSON.stringify(exit)}`);
+      strictEqual(exit.signal, null);
+      for (const pid of signalPids) {
+        strictEqual(
+          isRunning(pid),
+          false,
+          `Signal-owned descendant ${String(pid)} survived`
+        );
+      }
+      const signalState = JSON.parse(
+        readFileSync(path.join(signalRoot, "state.json"), "utf8")
+      ) as {
+        readonly activeGate?: unknown;
+        readonly gates?: ReadonlyArray<{ readonly status?: unknown }>;
+      };
+      strictEqual(signalState.activeGate, "signal-tree");
+      strictEqual(signalState.gates?.[0]?.status, "interrupted");
+    } finally {
+      if (signalOwner.exitCode === null && signalOwner.signalCode === null) {
+        signalOwner.kill("SIGKILL");
+      }
+    }
+  }
 
   const healthyRoot = path.join(reportRoot, "healthy");
   const healthy = new AcceptanceProcessOwner({

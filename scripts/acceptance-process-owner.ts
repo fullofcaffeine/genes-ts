@@ -17,7 +17,7 @@ interface GateState {
   readonly startedAt: string;
   readonly completedAt: string | null;
   readonly durationMs: number | null;
-  readonly status: "running" | "passed" | "failed" | "timed-out";
+  readonly status: "running" | "passed" | "failed" | "timed-out" | "interrupted";
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
 }
@@ -45,11 +45,32 @@ function delay(milliseconds: number): Promise<void> {
 
 function processGroupAlive(pid: number): boolean {
   if (process.platform === "win32") return false;
+  const listing = spawnSync("ps", ["-axo", "pgid=,stat="], {
+    encoding: "utf8"
+  });
+  if (listing.status === 0) {
+    return listing.stdout.split("\n").some((line) => {
+      const match = /^\s*(\d+)\s+(\S+)/u.exec(line);
+      return match !== null
+        && Number(match[1]) === pid
+        && !match[2].startsWith("Z");
+    });
+  }
   try {
     process.kill(-pid, 0);
     return true;
   } catch {
     return false;
+  }
+}
+
+export class AcceptanceInterruptedError extends Error {
+  public readonly exitCode: 130 | 143;
+
+  public constructor(public readonly signal: "SIGINT" | "SIGTERM") {
+    super(`Acceptance interrupted by ${signal}`);
+    this.name = "AcceptanceInterruptedError";
+    this.exitCode = signal === "SIGINT" ? 130 : 143;
   }
 }
 
@@ -189,15 +210,18 @@ export class AcceptanceProcessOwner {
     }
 
     const result = await new Promise<{
-      readonly status: "passed" | "failed" | "timed-out";
+      readonly status: "passed" | "failed" | "timed-out" | "interrupted";
       readonly code: number | null;
       readonly signal: NodeJS.Signals | null;
       readonly error?: Error;
     }>((resolve) => {
       let settled = false;
-      let timingOut = false;
+      let termination:
+        | { status: "timed-out" }
+        | { status: "interrupted"; signal: "SIGINT" | "SIGTERM" }
+        | undefined;
       const finish = (value: {
-        readonly status: "passed" | "failed" | "timed-out";
+        readonly status: "passed" | "failed" | "timed-out" | "interrupted";
         readonly code: number | null;
         readonly signal: NodeJS.Signals | null;
         readonly error?: Error;
@@ -205,32 +229,62 @@ export class AcceptanceProcessOwner {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        process.removeListener("SIGINT", onSigint);
+        process.removeListener("SIGTERM", onSigterm);
         resolve(value);
       };
-      const timeout = setTimeout(() => {
-        timingOut = true;
+      const terminate = (
+        requested:
+          | { status: "timed-out" }
+          | { status: "interrupted"; signal: "SIGINT" | "SIGTERM" }
+      ): void => {
+        if (settled) return;
+        if (termination !== undefined) {
+          if (requested.status === "interrupted") termination = requested;
+          return;
+        }
+        termination = requested;
         const graceMs = this.options.terminationGraceMs ?? 2_000;
         const close = waitForChildClose(child, graceMs * 2);
         void terminateAcceptanceProcessTree(child, graceMs).then(
           async () => {
             const closed = await close;
+            const finalTermination = termination ?? requested;
             finish({
-              status: "timed-out",
+              status: finalTermination.status,
               code: null,
-              signal: null,
+              signal: finalTermination.status === "interrupted"
+                ? finalTermination.signal
+                : null,
               ...(closed ? {} : {
                 error: new Error(`${gate.id} root did not close after tree termination`)
               })
             });
           },
           (error: unknown) => finish({
-            status: "timed-out",
+            status: termination?.status ?? requested.status,
             code: null,
-            signal: null,
+            signal: termination?.status === "interrupted"
+              ? termination.signal
+              : null,
             error: error instanceof Error ? error : new Error(String(error))
           })
         );
-      }, remainingMs);
+      };
+      const onSigint = (): void => terminate({
+        status: "interrupted",
+        signal: "SIGINT"
+      });
+      const onSigterm = (): void => terminate({
+        status: "interrupted",
+        signal: "SIGTERM"
+      });
+      process.once("SIGINT", onSigint);
+      process.once("SIGTERM", onSigterm);
+      const timeout = setTimeout(
+        () => terminate({ status: "timed-out" }),
+        remainingMs
+      );
       child.once("error", (error) => finish({
         status: "failed",
         code: null,
@@ -238,7 +292,7 @@ export class AcceptanceProcessOwner {
         error
       }));
       child.once("close", (code, signal) => {
-        if (timingOut) return;
+        if (termination !== undefined) return;
         finish({
           status: code === 0 ? "passed" : "failed",
           code,
@@ -271,6 +325,11 @@ export class AcceptanceProcessOwner {
     if (result.status === "timed-out") {
       throw new Error(
         `Acceptance timed out in ${gate.id} after ${String(completed.durationMs)}ms; log: ${logPath}`
+      );
+    }
+    if (result.status === "interrupted") {
+      throw new AcceptanceInterruptedError(
+        result.signal === "SIGINT" ? "SIGINT" : "SIGTERM"
       );
     }
     throw new Error(
