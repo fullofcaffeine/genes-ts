@@ -338,6 +338,7 @@ function buildArguments(
     "-cp", path.join(repoRoot, "src"),
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
+    ...(withTimes ? ["-D", "genes.compile_stage_profile"] : []),
     "--macro", 'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
     "--macro", "genes.Generator.use()",
     "--macro", "genes.js.Async.enable()",

@@ -70,6 +70,24 @@ for (const entry of report.outputNeutrality) {
 for (const measurement of report.measurements) {
   ok(measurement.haxeTimes.some((row) => row.id === "total"));
   ok(measurement.haxeTimes.some((row) => row.id.startsWith("genes.")));
+  const classRows = measurement.haxeTimes.filter((row) =>
+    row.id.startsWith("genes.emit.ts.class.")
+  );
+  for (const id of [
+    "genes.emit.ts.class.methods",
+    "genes.emit.ts.class.methodSignature",
+    "genes.emit.ts.class.methodBody"
+  ]) {
+    ok(classRows.some((row) => row.id === id),
+      `${measurement.kind} timing rows are missing ${id}`);
+  }
+  ok(classRows.every((row) => row.count > 0));
+  ok(classRows.some((row) =>
+    row.id === "genes.emit.ts.class.methodBody"
+    && row.path.includes(
+      "emitClass/genes.emit.ts.class.methods/genes.emit.ts.class.methodBody"
+    )
+  ));
   ok(measurement.haxeReportedSeconds > 0);
   ok(measurement.wallMsPerHaxeReportedSecond > 0);
   ok(measurement.output.files > 0);
