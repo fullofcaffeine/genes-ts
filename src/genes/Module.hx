@@ -362,19 +362,58 @@ class Module {
     return entry;
   }
 
+  /**
+   * Builds direct-binding plans only when retained metadata can select one.
+   *
+   * Why: complete collision validation inventories imports, names, and
+   * temporaries for three output projections. Ordinary modules cannot use any
+   * of those facts, but previously paid that cost twice during every build.
+   *
+   * What/How: a metadata-only scan of post-DCE fields authorizes empty
+   * request-local plans when neither direct-binding marker is present. Any
+   * marker, including malformed metadata, keeps the existing complete
+   * function-then-value validation path and its exact diagnostics.
+   */
+  function hasDirectModuleBindingMetadata(): Bool {
+    for (member in members) {
+      switch member {
+        case MClass(_, _, fields):
+          for (field in Module.emittableFields(fields)) {
+            if (field.meta != null
+              && (field.meta.has(DirectModuleBinding.FUNCTION_METADATA)
+                || field.meta.has(DirectModuleBinding.VALUE_METADATA)))
+              return true;
+          }
+        case MEnum(_, _) | MType(_, _) | MMain(_):
+      }
+    }
+    return false;
+  }
+
   /** Validates final unaliasable collisions and returns emitter projection. */
   function get_moduleFunctionPlan(): ModuleFunctionPlan {
     if (moduleFunctionPlan == null) {
-      moduleFunctionPlan = ModuleFunctionPlan.build(this);
-      get_moduleValuePlan();
+      if (!hasDirectModuleBindingMetadata()) {
+        moduleFunctionPlan = new ModuleFunctionPlan([]);
+        moduleValuePlan = new ModuleValuePlan([]);
+      } else {
+        moduleFunctionPlan = ModuleFunctionPlan.build(this);
+        get_moduleValuePlan();
+      }
     }
     return moduleFunctionPlan;
   }
 
   /** Validates and returns the closed direct module-value plan. */
   function get_moduleValuePlan(): ModuleValuePlan {
-    if (moduleValuePlan == null)
-      moduleValuePlan = ModuleValuePlan.build(this);
+    if (moduleValuePlan == null) {
+      if (!hasDirectModuleBindingMetadata()) {
+        moduleFunctionPlan = new ModuleFunctionPlan([]);
+        moduleValuePlan = new ModuleValuePlan([]);
+      } else {
+        moduleValuePlan = ModuleValuePlan.build(this);
+      }
+    }
     return moduleValuePlan;
   }
 

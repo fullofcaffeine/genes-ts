@@ -459,6 +459,9 @@ class ModuleFunctionPlan {
   }
 
   public static function bindingInventory(module: Module): Array<ModuleBindingFact> {
+    #if genes.direct_binding_inventory
+    Sys.println('[GTS-DIRECT-BINDING-INVENTORY] ${module.module}');
+    #end
     final result: Array<ModuleBindingFact> = [];
     function add(name: String, kind: String, pos: Position): Void {
       for (existing in result)
