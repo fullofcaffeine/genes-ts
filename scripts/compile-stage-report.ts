@@ -54,14 +54,15 @@ export interface CompileStageOptions {
 }
 
 interface Distribution {
+  readonly unit: "milliseconds" | "haxe-reported-seconds";
   readonly sampleCount: number;
-  readonly minimumMs: number;
-  readonly medianMs: number;
-  readonly p95Ms: number;
-  readonly maximumMs: number;
-  readonly meanMs: number;
-  readonly standardDeviationMs: number;
-  readonly samplesMs: ReadonlyArray<number>;
+  readonly minimum: number;
+  readonly median: number;
+  readonly p95: number;
+  readonly maximum: number;
+  readonly mean: number;
+  readonly standardDeviation: number;
+  readonly samples: ReadonlyArray<number>;
 }
 
 interface OutputInventory {
@@ -77,8 +78,8 @@ interface CompileMeasurement {
   readonly sample: number;
   readonly edit: "a" | "b";
   readonly wallMs: number;
-  readonly haxeTimedMs: number;
-  readonly wallToHaxeTimedRatio: number;
+  readonly haxeReportedSeconds: number;
+  readonly wallMsPerHaxeReportedSecond: number;
   readonly haxeTimes: ReadonlyArray<HaxeTimingRow>;
   readonly output: OutputInventory;
   readonly typescriptMs: number | null;
@@ -90,8 +91,22 @@ interface StageDistribution {
   readonly distribution: Distribution;
 }
 
+export type HaxeTimingClockStatus =
+  | "known-unscaled-macos-monotonic-clock"
+  | "unverified";
+
+/** Identifies the Haxe 4.3.7 macOS native timer scale defect. */
+export function haxeTimingClockStatus(
+  platform: NodeJS.Platform,
+  version: string
+): HaxeTimingClockStatus {
+  return platform === "darwin" && version === "4.3.7"
+    ? "known-unscaled-macos-monotonic-clock"
+    : "unverified";
+}
+
 export interface CompileStageReport {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly classification: "report-only";
   readonly fixture: {
     readonly name: FixtureName;
@@ -120,7 +135,13 @@ export interface CompileStageReport {
     readonly samples: number;
     readonly coldWarmOrder: "alternating";
     readonly editPattern: "a-b-a-b";
-    readonly haxeTiming: "--times";
+    readonly haxeTiming: {
+      readonly source: "--times";
+      readonly reportedUnit: "seconds";
+      readonly absoluteTimingAuthority: "process-wall-clock";
+      readonly safeInterpretation: "within-run-shares-and-same-toolchain-relative-comparisons";
+      readonly clockStatus: HaxeTimingClockStatus;
+    };
     readonly typescriptTiming: "separate-after-each-pair";
     readonly commands: {
       readonly coldHaxe: ReadonlyArray<string>;
@@ -138,8 +159,8 @@ export interface CompileStageReport {
   readonly aggregate: {
     readonly coldWall: Distribution;
     readonly warmEditWall: Distribution;
-    readonly coldHaxeTimed: Distribution;
-    readonly warmEditHaxeTimed: Distribution;
+    readonly coldHaxeReported: Distribution;
+    readonly warmEditHaxeReported: Distribution;
     readonly typescript: Distribution;
     readonly coldStages: ReadonlyArray<StageDistribution>;
     readonly warmEditStages: ReadonlyArray<StageDistribution>;
@@ -403,7 +424,10 @@ async function measureTypeScript(outputRoot: string, workspace: string): Promise
   return measured.milliseconds;
 }
 
-function distribution(samples: ReadonlyArray<number>): Distribution {
+function distribution(
+  samples: ReadonlyArray<number>,
+  unit: Distribution["unit"]
+): Distribution {
   ok(samples.length > 0, "A timing distribution requires at least one sample");
   const ordered = [...samples].sort((left, right) => left - right);
   const mean = samples.reduce((sum, value) => sum + value, 0) / samples.length;
@@ -412,14 +436,15 @@ function distribution(samples: ReadonlyArray<number>): Distribution {
   const percentile = (fraction: number): number =>
     ordered[Math.min(ordered.length - 1, Math.ceil(fraction * ordered.length) - 1)] ?? 0;
   return {
+    unit,
     sampleCount: samples.length,
-    minimumMs: ordered[0] ?? 0,
-    medianMs: percentile(0.5),
-    p95Ms: percentile(0.95),
-    maximumMs: ordered[ordered.length - 1] ?? 0,
-    meanMs: mean,
-    standardDeviationMs: Math.sqrt(variance),
-    samplesMs: samples
+    minimum: ordered[0] ?? 0,
+    median: percentile(0.5),
+    p95: percentile(0.95),
+    maximum: ordered[ordered.length - 1] ?? 0,
+    mean,
+    standardDeviation: Math.sqrt(variance),
+    samples
   };
 }
 
@@ -430,7 +455,7 @@ function stageDistributions(
   for (const sample of samples) {
     for (const row of sample.haxeTimes) {
       const current = values.get(row.path) ?? { id: row.id, samples: [] };
-      current.samples.push(row.seconds * 1_000);
+      current.samples.push(row.reportedSeconds);
       values.set(row.path, current);
     }
   }
@@ -438,18 +463,18 @@ function stageDistributions(
     .map(([stagePath, value]) => ({
       id: value.id,
       path: stagePath,
-      distribution: distribution(value.samples)
+      distribution: distribution(value.samples, "haxe-reported-seconds")
     }))
     .sort((left, right) =>
-      right.distribution.medianMs - left.distribution.medianMs
+      right.distribution.median - left.distribution.median
       || left.path.localeCompare(right.path));
 }
 
-function haxeTimedMilliseconds(rows: ReadonlyArray<HaxeTimingRow>): number {
+function haxeReportedSeconds(rows: ReadonlyArray<HaxeTimingRow>): number {
   const total = rows.find((row) => row.id === "total" && row.depth === 0);
   ok(total !== undefined, "Haxe timing rows are missing the root total");
-  ok(total.seconds > 0, "Haxe timing root total must be positive");
-  return total.seconds * 1_000;
+  ok(total.reportedSeconds > 0, "Haxe timing root total must be positive");
+  return total.reportedSeconds;
 }
 
 async function assertOutputNeutrality(
@@ -603,15 +628,15 @@ export async function runCompileStageReport(
       const typescriptMs = await measureTypeScript(warmRoot, fixtureRoot);
       const coldTimes = parseHaxeTimes(resultText(cold.result));
       const warmTimes = parseHaxeTimes(resultText(warm.result));
-      const coldHaxeTimedMs = haxeTimedMilliseconds(coldTimes);
-      const warmHaxeTimedMs = haxeTimedMilliseconds(warmTimes);
+      const coldHaxeReportedSeconds = haxeReportedSeconds(coldTimes);
+      const warmHaxeReportedSeconds = haxeReportedSeconds(warmTimes);
       measurements.push({
         kind: "cold",
         sample: sample + 1,
         edit,
         wallMs: cold.wallMs,
-        haxeTimedMs: coldHaxeTimedMs,
-        wallToHaxeTimedRatio: cold.wallMs / coldHaxeTimedMs,
+        haxeReportedSeconds: coldHaxeReportedSeconds,
+        wallMsPerHaxeReportedSecond: cold.wallMs / coldHaxeReportedSeconds,
         haxeTimes: coldTimes,
         output,
         typescriptMs: null
@@ -620,8 +645,8 @@ export async function runCompileStageReport(
         sample: sample + 1,
         edit,
         wallMs: warm.wallMs,
-        haxeTimedMs: warmHaxeTimedMs,
-        wallToHaxeTimedRatio: warm.wallMs / warmHaxeTimedMs,
+        haxeReportedSeconds: warmHaxeReportedSeconds,
+        wallMsPerHaxeReportedSecond: warm.wallMs / warmHaxeReportedSeconds,
         haxeTimes: warmTimes,
         output,
         typescriptMs
@@ -642,7 +667,7 @@ export async function runCompileStageReport(
     ? []
     : workingTreeStatusText.split(/\r?\n/);
   const report: CompileStageReport = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     classification: "report-only",
     fixture: {
       name: shape.name,
@@ -674,7 +699,13 @@ export async function runCompileStageReport(
       samples: options.samples,
       coldWarmOrder: "alternating",
       editPattern: "a-b-a-b",
-      haxeTiming: "--times",
+      haxeTiming: {
+        source: "--times",
+        reportedUnit: "seconds",
+        absoluteTimingAuthority: "process-wall-clock",
+        safeInterpretation: "within-run-shares-and-same-toolchain-relative-comparisons",
+        clockStatus: haxeTimingClockStatus(process.platform, compiler.version)
+      },
       typescriptTiming: "separate-after-each-pair",
       commands: {
         coldHaxe: [
@@ -703,13 +734,23 @@ export async function runCompileStageReport(
     outputNeutrality,
     measurements,
     aggregate: {
-      coldWall: distribution(cold.map((sample) => sample.wallMs)),
-      warmEditWall: distribution(warm.map((sample) => sample.wallMs)),
-      coldHaxeTimed: distribution(cold.map((sample) => sample.haxeTimedMs)),
-      warmEditHaxeTimed: distribution(
-        warm.map((sample) => sample.haxeTimedMs)
+      coldWall: distribution(
+        cold.map((sample) => sample.wallMs), "milliseconds"
       ),
-      typescript: distribution(warm.map((sample) => sample.typescriptMs ?? 0)),
+      warmEditWall: distribution(
+        warm.map((sample) => sample.wallMs), "milliseconds"
+      ),
+      coldHaxeReported: distribution(
+        cold.map((sample) => sample.haxeReportedSeconds),
+        "haxe-reported-seconds"
+      ),
+      warmEditHaxeReported: distribution(
+        warm.map((sample) => sample.haxeReportedSeconds),
+        "haxe-reported-seconds"
+      ),
+      typescript: distribution(
+        warm.map((sample) => sample.typescriptMs ?? 0), "milliseconds"
+      ),
       coldStages: stageDistributions(cold),
       warmEditStages: stageDistributions(warm)
     }

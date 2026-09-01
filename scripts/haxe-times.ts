@@ -3,7 +3,7 @@ export interface HaxeTimingRow {
   readonly id: string;
   readonly path: string;
   readonly depth: number;
-  readonly seconds: number;
+  readonly reportedSeconds: number;
   readonly percentOfTotal: number;
   readonly percentOfParent: number;
   readonly count: number;
@@ -49,7 +49,7 @@ export function parseHaxeTimes(output: string): ReadonlyArray<HaxeTimingRow> {
       id,
       path,
       depth,
-      seconds: Number(match[3]),
+      reportedSeconds: Number(match[3]),
       percentOfTotal: Number(match[4]),
       percentOfParent: Number(match[5]),
       count: Number(match[6]),

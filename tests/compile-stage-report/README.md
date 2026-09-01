@@ -20,9 +20,10 @@ clean exact commit for publishable baseline or before/after evidence.
 ## What the report measures
 
 Each measured sample uses Haxe 4.3.7 with `--times`, full dead-code
-elimination, debug output, source maps, and the TypeScript profile. Haxe owns
-the outer parsing, typing, analyzer, macro, and custom-generator timings. Genes
-adds child timers for these existing operations:
+elimination, debug output, source maps, and the TypeScript profile. The report
+preserves Haxe's outer parsing, typing, analyzer, macro, and custom-generator
+values as compiler-reported seconds. Genes adds child timers for these existing
+operations:
 
 - typed module inventory;
 - implementation and declaration reachability;
@@ -41,10 +42,18 @@ coarse filesystems from hiding a rapid edit from the Haxe compiler server.
 TypeScript runs after each cold/warm pair. Its time is separate from the Haxe
 and Genes time. The report also records generated files, modules, source maps,
 bytes, tree hashes, host load, process priority, toolchains, samples, median,
-p95, mean, and standard deviation. Each sample also records Haxe's timed total
-and the ratio between process wall time and that value. A large ratio makes
-scheduler or host contention visible instead of mislabeling it as compiler CPU
-work.
+p95, mean, and standard deviation. Each sample also records Haxe's reported
+total and wall milliseconds per Haxe-reported second. That ratio can reveal a
+clock mismatch or host scheduling delay. It cannot identify one cause by
+itself.
+
+Process wall time is the absolute timing authority. Haxe 4.3.7 on macOS has a
+known monotonic-clock scale defect: its native timer computes the required
+Mach timebase conversion but returns the unconverted tick value. The report
+marks this combination as `known-unscaled-macos-monotonic-clock`. It does not
+multiply the values by an inferred correction. Haxe stage shares and same-host,
+same-toolchain relative comparisons remain useful because all rows in one run
+use the same clock.
 
 Before sampling, the command compiles the small control in both first-class
 output profiles with and without `--times`. The two TypeScript trees must
@@ -59,6 +68,11 @@ diagnostic timing evidence. Run background-priority samples separately when
 you need to measure the experience required by the repository's responsiveness
 policy. Do not compare the two priority classes as if they used the same CPU
 conditions.
+
+Use `wallMs` and the millisecond distributions for absolute latency. Values
+with the `haxe-reported-seconds` unit rank compiler owners and compare matched
+runs. Do not describe them as physical milliseconds unless an independent
+clock calibration proves that claim for the exact Haxe build and host.
 
 This command is report-only. It does not enforce an absolute time limit. One
 computer or one contended run cannot define a CI budget. Use repeated results

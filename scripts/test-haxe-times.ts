@@ -30,7 +30,7 @@ deepStrictEqual(rows[2], {
   id: "genes.validate.modules",
   path: "macro/jsGenerator/genes.validate.modules",
   depth: 2,
-  seconds: 0.111,
+  reportedSeconds: 0.111,
   percentOfTotal: 25,
   percentOfParent: 32,
   count: 1,
