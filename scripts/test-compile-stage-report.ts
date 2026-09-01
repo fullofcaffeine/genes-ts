@@ -75,7 +75,6 @@ for (const measurement of report.measurements) {
   );
   for (const id of [
     "genes.emit.ts.class.methods",
-    "genes.emit.ts.class.methodSignature",
     "genes.emit.ts.class.methodBody"
   ]) {
     ok(classRows.some((row) => row.id === id),
@@ -88,6 +87,14 @@ for (const measurement of report.measurements) {
       "emitClass/genes.emit.ts.class.methods/genes.emit.ts.class.methodBody"
     )
   ));
+  const signatureRow = classRows.find((row) =>
+    row.id === "genes.emit.ts.class.methodSignature"
+  );
+  if (signatureRow !== undefined) {
+    ok(signatureRow.path.includes(
+      "emitClass/genes.emit.ts.class.methods/genes.emit.ts.class.methodSignature"
+    ));
+  }
   ok(measurement.haxeReportedSeconds > 0);
   ok(measurement.wallMsPerHaxeReportedSecond > 0);
   ok(measurement.output.files > 0);

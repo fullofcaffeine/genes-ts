@@ -50,7 +50,9 @@ The class timer tree separates these operations:
 Haxe combines repeated timer IDs and records their call count. The parent
 timers remain the authority for total class and method-emission time. Haxe
 omits a child row when its total rounds to zero. Thus, absent fine rows do not
-prove that the emitter skipped that operation.
+prove that the emitter skipped that operation. The focused control requires
+the aggregate methods and method-body rows. It validates the method-signature
+path when Haxe reports that optional non-zero row.
 
 The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.
