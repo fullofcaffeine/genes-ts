@@ -2,6 +2,7 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
+  editPatternForWarmups,
   haxeTimingClockStatus,
   runCompileStageReport
 } from "./compile-stage-report.js";
@@ -14,6 +15,8 @@ strictEqual(
 );
 strictEqual(haxeTimingClockStatus("linux", "4.3.7"), "unverified");
 strictEqual(haxeTimingClockStatus("darwin", "4.3.8"), "unverified");
+strictEqual(editPatternForWarmups(1), "b-a-b-a");
+strictEqual(editPatternForWarmups(2), "a-b-a-b");
 const report = await runCompileStageReport({
   fixture: "control",
   samples: 1,
@@ -29,6 +32,7 @@ strictEqual(
 );
 strictEqual(report.measurements.length, 2);
 strictEqual(report.protocol.warmups, 2);
+strictEqual(report.protocol.editPattern, "a-b-a-b");
 strictEqual(report.protocol.measuredProfile, "genes-ts");
 strictEqual(report.measurements[0]?.edit, "a");
 strictEqual(report.measurements[1]?.edit, "a");

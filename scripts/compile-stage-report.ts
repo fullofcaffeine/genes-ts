@@ -38,6 +38,7 @@ const typescriptTimeoutMs = 5 * 60_000;
 type FixtureName = "control" | "scale";
 type ProfileName = "genes-ts" | "classic-js";
 type SampleKind = "cold" | "warm-edit";
+type EditPattern = "a-b-a-b" | "b-a-b-a";
 
 interface FixtureShape {
   readonly name: FixtureName;
@@ -105,6 +106,11 @@ export function haxeTimingClockStatus(
     : "unverified";
 }
 
+/** Describes the measured edit sequence after the configured warmups. */
+export function editPatternForWarmups(warmups: number): EditPattern {
+  return warmups % 2 === 0 ? "a-b-a-b" : "b-a-b-a";
+}
+
 export interface CompileStageReport {
   readonly schemaVersion: 2;
   readonly classification: "report-only";
@@ -135,7 +141,7 @@ export interface CompileStageReport {
     readonly warmups: number;
     readonly samples: number;
     readonly coldWarmOrder: "alternating";
-    readonly editPattern: "a-b-a-b";
+    readonly editPattern: EditPattern;
     readonly haxeTiming: {
       readonly source: "--times";
       readonly reportedUnit: "seconds";
@@ -711,7 +717,7 @@ export async function runCompileStageReport(
       warmups: options.warmups,
       samples: options.samples,
       coldWarmOrder: "alternating",
-      editPattern: "a-b-a-b",
+      editPattern: editPatternForWarmups(options.warmups),
       haxeTiming: {
         source: "--times",
         reportedUnit: "seconds",

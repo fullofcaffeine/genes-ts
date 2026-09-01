@@ -2283,7 +2283,7 @@
         "scripts/test-compile-stage-report.ts",
         "tests/compile-stage-report/README.md"
       ],
-      "proves": "Haxe timing output is parsed without dropping unknown phases, and one cold/warm edit control reports stages while preserving exact timed/untimed and cold/warm output trees in both compiler profiles.",
+      "proves": "Haxe timing output is parsed without dropping unknown phases. Timed and untimed trees remain exact in both compiler profiles, and one TypeScript cold/warm edit control reports stages with exact output equality.",
       "doesNotProve": "The small control does not establish a production timing baseline, a warm-edit service-level objective, or a blocking CI performance threshold.",
       "owners": [
         "src/genes/Generator.hx",
