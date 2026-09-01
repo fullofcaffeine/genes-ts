@@ -1124,29 +1124,39 @@ async function assertBoundedClientTimeout(): Promise<void> {
 
 async function killSignalProbeGroup(
   child: ChildProcess,
-  label: string
+  label: string,
+  ownsPrivateProcessGroup: boolean
 ): Promise<void> {
   const pid = child.pid;
   ok(pid !== undefined, `${label} has no process ID`);
-  try {
-    // The probe is its own process-group leader. Haxe inherits that group, so
-    // this failure path cannot bypass the probe's handler and orphan Haxe.
-    process.kill(-pid, "SIGKILL");
-  } catch (error: unknown) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ESRCH") throw error;
+  if (ownsPrivateProcessGroup) {
+    try {
+      // The probe is its own process-group leader. Haxe inherits that group,
+      // so this path cannot bypass the probe's handler and orphan Haxe.
+      process.kill(-pid, "SIGKILL");
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ESRCH") throw error;
+    }
   }
-  // Group termination protects the Haxe grandchild; the shared bounded
-  // terminator then reaps and proves death of the exact Node group leader.
+  // The shared bounded terminator reaps and proves death of the Node root. If
+  // acceptance owns the outer group, a failed gate also cleans any grandchild.
   await terminateOwnedChild(child, label);
 }
 
-function waitForSignalProbe(child: ChildProcess): Promise<number> {
+function waitForSignalProbe(
+  child: ChildProcess,
+  ownsPrivateProcessGroup: boolean
+): Promise<number> {
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
-      void killSignalProbeGroup(child, "Signal cleanup startup probe").then(
+      void killSignalProbeGroup(
+        child,
+        "Signal cleanup startup probe",
+        ownsPrivateProcessGroup
+      ).then(
         () => reject(new Error(
           `Signal cleanup probe did not report its server PID`
           + `\nstdout:\n${stdout}\nstderr:\n${stderr}`
@@ -1171,13 +1181,20 @@ function waitForSignalProbe(child: ChildProcess): Promise<number> {
   });
 }
 
-function waitForChildExit(child: ChildProcess): Promise<{
+function waitForChildExit(
+  child: ChildProcess,
+  ownsPrivateProcessGroup: boolean
+): Promise<{
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
 }> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      void killSignalProbeGroup(child, "Signal cleanup exit probe").then(
+      void killSignalProbeGroup(
+        child,
+        "Signal cleanup exit probe",
+        ownsPrivateProcessGroup
+      ).then(
         () => reject(new Error("Signal cleanup probe did not exit")),
         reject
       );
@@ -1191,16 +1208,18 @@ function waitForChildExit(child: ChildProcess): Promise<{
 
 async function assertSignalCleanup(): Promise<void> {
   if (process.platform === "win32") return;
+  const ownsPrivateProcessGroup = process.env.GENES_ACCEPTANCE_PROCESS_OWNER !== "1";
   const child = spawn(process.execPath, [scriptFile, "--signal-probe"], {
     cwd: repoRoot,
-    // A private process group lets timeout/error cleanup terminate both this
-    // Node probe and its owned Haxe child even if the Node handler is wedged.
-    detached: true,
+    // A standalone run gives the probe a private group for exact cleanup. An
+    // outer acceptance owner already owns the complete gate group, so nested
+    // processes must remain in that group instead.
+    detached: ownsPrivateProcessGroup,
     stdio: ["ignore", "pipe", "pipe"]
   });
-  const serverPid = await waitForSignalProbe(child);
+  const serverPid = await waitForSignalProbe(child, ownsPrivateProcessGroup);
   child.kill("SIGTERM");
-  const exit = await waitForChildExit(child);
+  const exit = await waitForChildExit(child, ownsPrivateProcessGroup);
   ok(
     exit.signal === "SIGTERM" || exit.code === 143,
     `Signal probe exited with code ${String(exit.code)}`

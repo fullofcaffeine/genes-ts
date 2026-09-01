@@ -2133,6 +2133,64 @@
       ]
     },
     {
+      "id": "acceptance-process-owner",
+      "packageScript": "test:acceptance-process-owner",
+      "runnerToken": "scripts/dist/test-acceptance-process-owner.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "scripts/acceptance-process-owner.ts",
+        "scripts/acceptance-process-probe.ts",
+        "scripts/acceptance-evidence-writer.ts",
+        "scripts/acceptance-owner-probe.ts",
+        "scripts/test-acceptance-process-owner.ts",
+        "scripts/test-acceptance.ts"
+      ],
+      "proves": "The POSIX acceptance owner settles under finite process, drain, output, console, and evidence-publication bounds; publishes schema-v2 state and capped head-and-tail logs; removes only its owned process tree; and tolerates an unrelated descriptor holder.",
+      "doesNotProve": "The focused process fixture does not establish that the complete compiler acceptance aggregate remains inside its hosted timing bound.",
+      "owners": [
+        "scripts/acceptance-process-owner.ts",
+        "scripts/acceptance-process-probe.ts",
+        "scripts/acceptance-evidence-writer.ts",
+        "scripts/acceptance-owner-probe.ts",
+        "scripts/test-acceptance-process-owner.ts",
+        "scripts/test-acceptance.ts"
+      ],
+      "families": [
+        "testing",
+        "ci",
+        "process-lifecycle"
+      ],
+      "capabilities": [
+        "process-lifecycle",
+        "determinism"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 180,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:acceptance-process-owner",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/acceptance-process-owner.log",
+        ".tmp/test-acceptance-process-owner"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "compiler-server",
       "packageScript": "test:compiler-server",
       "runnerToken": "scripts/dist/test-compiler-server.js",
@@ -3066,12 +3124,16 @@
         "browser-e2e"
       ],
       "ownerPaths": [
-        "scripts/test-acceptance.ts"
+        "scripts/test-acceptance.ts",
+        "scripts/acceptance-process-owner.ts",
+        "scripts/acceptance-evidence-writer.ts"
       ],
       "proves": "The normal stable pull-request compiler, migration, and example owners pass together with the documented default options.",
       "doesNotProve": "Acceptance does not include release, security, every toolchain, or the planned official Haxe lane.",
       "owners": [
-        "scripts/test-acceptance.ts"
+        "scripts/test-acceptance.ts",
+        "scripts/acceptance-process-owner.ts",
+        "scripts/acceptance-evidence-writer.ts"
       ],
       "families": [
         "compiler",
@@ -3100,12 +3162,13 @@
       "ring": "R2",
       "size": "large",
       "alwaysRun": false,
-      "timeoutSeconds": 1800,
+      "timeoutSeconds": 2700,
       "historicalDurationMs": null,
       "cacheMode": "warm-allowed",
       "command": "yarn test:acceptance",
       "artifacts": [
-        ".tmp/test-evidence/test-plan/acceptance.log"
+        ".tmp/test-evidence/test-plan/acceptance.log",
+        ".tmp/test-evidence/acceptance"
       ],
       "remoteJobs": [
         "genes-ts"
@@ -3832,6 +3895,10 @@
         "scripts/test-*",
         "scripts/prepare-test-tools.mjs",
         "scripts/acceptance-gate-ownership.ts",
+        "scripts/acceptance-process-owner.ts",
+        "scripts/acceptance-process-probe.ts",
+        "scripts/acceptance-evidence-writer.ts",
+        "scripts/acceptance-owner-probe.ts",
         "tests/testing-strategy/**",
         "tests/official-haxe-inventory/**",
         ".audit/**",
@@ -3844,6 +3911,10 @@
         "config/toolchains.json"
       ],
       "focusedChoices": [
+        {
+          "gate": "acceptance-process-owner",
+          "when": "acceptance markers, aggregate deadlines, retained logs, or owned process-tree cleanup changes"
+        },
         {
           "gate": "test-plan-validation",
           "when": "the plan schema, selector, ownership, commands, or CI enrollment changes"
@@ -3870,6 +3941,7 @@
         }
       ],
       "inspect": [
+        "active acceptance gate state and per-gate log",
         "selection explanation and omitted reasons",
         "prepared source/output hashes",
         "reviewed active official Haxe inventories and capability rules",
@@ -4096,6 +4168,7 @@
         "scripts/compatibility-report.ts",
         "scripts/prepare-test-tools.mjs",
         "scripts/acceptance-gate-ownership.ts",
+        "scripts/acceptance-process-probe.ts",
         "tests/testing-strategy/**",
         ".audit/**",
         ".gitignore",
