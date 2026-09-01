@@ -23,7 +23,7 @@ import {
   type JsonValue,
   type ValidationTree,
 } from "../session/index.js";
-import { runHaxeSync } from "../session/haxe-launch.js";
+import { launchHaxe } from "../session/haxe-launch.js";
 import { resolveLixLibraryGroup } from "../lix/index.js";
 
 const WATCH_VALIDATION_PROTOCOL = "genes.tooling.watch-validation" as const;
@@ -35,6 +35,9 @@ const MAX_FAT_MACH_O_SLICES = 64;
 const WATCH_OUTPUT_MAX_PENDING_RECORDS = 1_024;
 const WATCH_OUTPUT_MAX_PENDING_BYTES = 8 * 1024 * 1024;
 const WATCH_OUTPUT_DRAIN_TIMEOUT_MS = 30_000;
+const HAXE_PROBE_TIMEOUT_MS = 10_000;
+const HAXE_PROBE_OUTPUT_MAX_BYTES = 64 * 1024;
+const HAXE_PROBE_TERMINATION_GRACE_MS = 1_000;
 
 export class WatchCommandUsageError extends Error {
   constructor(message: string) {
@@ -87,6 +90,8 @@ Options:
   --json-lines            Write only DevelopmentEvent v1 records to stdout.
   -h, --help              Show this help.
 
+Option values cannot start with a dash. Prefix a dash-leading path with ./.
+
 Without --validator, successful Haxe and Genes generation is admitted without
 an additional host check. The command labels that mode as Haxe-only admission.
 It never starts a framework server or runs a validator through a shell.
@@ -95,7 +100,7 @@ It never starts a framework server or runs a validator through a shell.
 
 function takeValue(args: readonly string[], index: number, option: string): string {
   const value = args[index + 1];
-  if (value === undefined) {
+  if (value === undefined || value.startsWith("-")) {
     throw new WatchCommandUsageError(`${option} requires a value.`);
   }
   return value;
@@ -731,38 +736,144 @@ function sameExecutableIdentity(
     before.changedAt === after.changedAt;
 }
 
-function probeHaxe(
+class WatchCommandInterruptedError extends Error {
+  constructor() {
+    super("genes watch setup was interrupted");
+    this.name = "WatchCommandInterruptedError";
+  }
+}
+
+async function probeHaxe(
   executable: string,
   projectRoot: string,
   environment: Readonly<Record<string, string>>,
-): string {
-  const probe = runHaxeSync(executable, ["--version"], {
+  signal: AbortSignal,
+): Promise<string> {
+  if (signal.aborted) throw new WatchCommandInterruptedError();
+  const launch = launchHaxe(executable, ["--version"], {
     cwd: projectRoot,
     environment,
-    timeoutMs: 10_000,
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (probe.error !== undefined || probe.status !== 0) {
-    const detail = probe.error?.message ?? probe.stderr.trim() ?? "unknown failure";
+  let handoffError: unknown;
+  const kill = (childSignal: NodeJS.Signals): void => {
+    if (
+      launch.child.exitCode === null &&
+      launch.child.signalCode === null
+    ) {
+      launch.child.kill(childSignal);
+    }
+  };
+  const handoff = launch.handoff.catch((error: unknown) => {
+    handoffError = error;
+    kill("SIGKILL");
+  });
+  const closed = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    launch.child.once("close", (code, childSignal) => {
+      resolve(Object.freeze({ code, signal: childSignal }));
+    });
+  });
+  const stdout = launch.child.stdout;
+  const stderr = launch.child.stderr;
+  if (stdout === null || stderr === null) {
+    kill("SIGKILL");
+    await Promise.all([closed, handoff]);
+    throw new WatchCommandUsageError(
+      `Cannot run ${executable} --version: output pipes are unavailable`,
+    );
+  }
+
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  let outputBytes = 0;
+  let outputTooLarge = false;
+  let timedOut = false;
+  let forceTimer: NodeJS.Timeout | undefined;
+  const append = (target: Buffer[], chunk: Buffer): void => {
+    if (outputTooLarge) return;
+    outputBytes += chunk.byteLength;
+    if (outputBytes > HAXE_PROBE_OUTPUT_MAX_BYTES) {
+      outputTooLarge = true;
+      kill("SIGKILL");
+      return;
+    }
+    target.push(chunk);
+  };
+  stdout.on("data", (chunk: Buffer) => append(stdoutChunks, chunk));
+  stderr.on("data", (chunk: Buffer) => append(stderrChunks, chunk));
+
+  const onAbort = (): void => {
+    kill("SIGTERM");
+    forceTimer ??= setTimeout(
+      () => kill("SIGKILL"),
+      HAXE_PROBE_TERMINATION_GRACE_MS,
+    );
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    kill("SIGKILL");
+  }, HAXE_PROBE_TIMEOUT_MS);
+  const closeResult = await closed;
+  await handoff;
+  clearTimeout(timeout);
+  if (forceTimer !== undefined) clearTimeout(forceTimer);
+  signal.removeEventListener("abort", onAbort);
+
+  if (signal.aborted) throw new WatchCommandInterruptedError();
+  if (timedOut) {
+    throw new WatchCommandUsageError(
+      `Cannot run ${executable} --version: timed out after ${HAXE_PROBE_TIMEOUT_MS} ms`,
+    );
+  }
+  if (outputTooLarge) {
+    throw new WatchCommandUsageError(
+      `Cannot run ${executable} --version: output exceeded ${HAXE_PROBE_OUTPUT_MAX_BYTES} bytes`,
+    );
+  }
+  if (handoffError !== undefined) {
+    const detail = handoffError instanceof Error
+      ? handoffError.message
+      : String(handoffError);
     throw new WatchCommandUsageError(
       `Cannot run ${executable} --version: ${detail}`,
     );
   }
-  return probe.stdout.trim();
+  const stderrText = Buffer.concat(stderrChunks).toString("utf8").trim();
+  if (closeResult.code !== 0 || closeResult.signal !== null) {
+    const detail = stderrText.length === 0
+      ? `status ${String(closeResult.code)}, signal ${String(closeResult.signal)}`
+      : stderrText;
+    throw new WatchCommandUsageError(
+      `Cannot run ${executable} --version: ${detail}`,
+    );
+  }
+  return Buffer.concat(stdoutChunks).toString("utf8").trim();
 }
 
-function checkHaxe(
+async function checkHaxe(
   executable: string,
   projectRoot: string,
-): {
+  signal: AbortSignal,
+): Promise<{
   readonly executable: string;
   readonly version: string;
   readonly environment: Readonly<Record<string, string>>;
-} {
+}> {
   const environment = environmentSnapshot();
   const selected = resolveExecutable(executable, projectRoot, environment);
-  const admit = (
+  const admit = async (
     candidate: string,
-  ): { readonly executable: string; readonly version: string } | undefined => {
+  ): Promise<
+    { readonly executable: string; readonly version: string } | undefined
+  > => {
+    if (signal.aborted) throw new WatchCommandInterruptedError();
     let canonical: string;
     try {
       canonical = realpathSync.native(candidate);
@@ -772,7 +883,12 @@ function checkHaxe(
     }
     const before = inspectNativeExecutable(canonical, process.platform);
     if (before === undefined) return undefined;
-    const version = probeHaxe(canonical, projectRoot, environment);
+    const version = await probeHaxe(
+      canonical,
+      projectRoot,
+      environment,
+      signal,
+    );
     const after = inspectNativeExecutable(canonical, process.platform);
     if (after === undefined || !sameExecutableIdentity(before, after)) {
       throw new WatchCommandUsageError(
@@ -782,7 +898,7 @@ function checkHaxe(
     return Object.freeze({ executable: canonical, version });
   };
 
-  const selectedNative = admit(selected);
+  const selectedNative = await admit(selected);
   if (selectedNative !== undefined) {
     if (selectedNative.version !== HAXE_VERSION) {
       throw new WatchCommandUsageError(
@@ -804,7 +920,7 @@ function checkHaxe(
     path.join(homedir(), "haxe", "versions", HAXE_VERSION, executableName),
   ];
   for (const candidate of [...new Set(managedCandidates)]) {
-    const managed = admit(candidate);
+    const managed = await admit(candidate);
     if (managed !== undefined && managed.version === HAXE_VERSION) {
       return Object.freeze({ ...managed, environment });
     }
@@ -1218,148 +1334,183 @@ function checkedProjectRoot(projectRootOption: string): string {
 export async function runWatchCommand(
   options: WatchCommandOptions,
 ): Promise<number> {
-  const projectRoot = checkedProjectRoot(options.projectRoot);
-  const haxe = checkHaxe(options.haxeExecutable, projectRoot);
-  const lix = options.useLix ? loadLix(projectRoot) : undefined;
-  let handleInvalidResultShape = (_message: string): void => undefined;
-  const validator = await loadWatchValidator(
-    projectRoot,
-    options.validatorModule,
-    (message) => handleInvalidResultShape(message),
-  );
-  const allowedRoots = Object.freeze([
-    projectRoot,
-    ...options.allowedRoots.map((root) => path.resolve(projectRoot, root)),
-  ]);
-  const session = createGenesDevelopmentSession<JsonValue>({
-    projectRoot,
-    projectIdentity: options.projectIdentity,
-    hxml: {
-      allowedRoots,
-      ...(lix === undefined
-        ? {}
-        : {
-            resolveLibraries: (requests, context) =>
-              resolveLixLibraryGroup({
-                projectRoot,
-                requests,
-                command: {
-                  executable: process.execPath,
-                  argsPrefix: [lix.entry],
-                  environment: haxe.environment,
-                },
-                signal: context.signal,
-              }),
-          }),
-    },
-    publicOutputFile: options.publicOutputFile,
-    stateDirectory: options.stateDirectory,
-    resolveInvocation: async () => Object.freeze({
-      executable: haxe.executable,
-      cwd: projectRoot,
-      args: options.hxmlFiles,
-      env: haxe.environment,
-      ioPolicy: "haxe-4.3.7-development-js-v1",
-      compatibilityFacts: Object.freeze({
-        command: "genes-watch",
-        version: 1,
-        haxe: haxe.version,
-        lix: lix === undefined
-          ? null
-          : Object.freeze({
-              version: lix.version,
-              packageDigest: lix.packageDigest,
-            }),
-      }),
-    }),
-    validate: validator.validate,
-    validatorPolicyFacts: validator.policyFacts,
-  });
-
-  process.stderr.write(
-    validator.kind === "haxe-only"
-      ? `genes watch: ${validator.label}; add --validator for host admission.\n`
-      : `genes watch: validator module ${validator.label}.\n`,
-  );
-
   let requestedExitCode: number | undefined;
-  let closePromise: Promise<void> | undefined;
-  let invalidResultClose: NodeJS.Immediate | undefined;
-  let invalidResultShapeObserved = false;
-  let finish: (() => void) | undefined;
-  const finished = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  const requestClose = (exitCode: number): void => {
+  const setupAbort = new AbortController();
+  let signalAction = (exitCode: number): void => {
     requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
-    closePromise ??= session.close()
-      .catch((error: unknown) => {
-        requestedExitCode = 1;
-        process.stderr.write(`genes watch: shutdown failed: ${errorText(error)}\n`);
-      })
-      .then(() => finish?.());
+    setupAbort.abort();
   };
-  handleInvalidResultShape = () => {
-    invalidResultShapeObserved = true;
-    // Let the session publish its versioned failure event before closure.
-    invalidResultClose ??= setImmediate(() => {
-      invalidResultClose = undefined;
-      requestClose(2);
-    });
-  };
-  const output = new WatchOutputWriter(process.stdout, {
-    maxPendingRecords: WATCH_OUTPUT_MAX_PENDING_RECORDS,
-    maxPendingBytes: WATCH_OUTPUT_MAX_PENDING_BYTES,
-    drainTimeoutMs: WATCH_OUTPUT_DRAIN_TIMEOUT_MS,
-    onFailure: (failure) => {
-      if (failure.exitCode !== 0) {
-        process.stderr.write(`genes watch: ${failure.message}\n`);
-      }
-      requestClose(failure.exitCode);
-    },
-  });
-  const onSigint = (): void => requestClose(130);
-  const onSigterm = (): void => requestClose(143);
+  const onSigint = (): void => signalAction(130);
+  const onSigterm = (): void => signalAction(143);
   process.once("SIGINT", onSigint);
   process.once("SIGTERM", onSigterm);
-  const unsubscribe = session.subscribe((event) => {
-    try {
-      if (options.jsonLines) {
-        output.writeLine(JSON.stringify(event));
-      } else {
-        const line = formatWatchEvent(event);
-        if (line !== null) output.writeLine(line);
-      }
-    } catch (error) {
-      output.fail(error, "cannot serialize stdout record");
-    }
-    if (
-      event.event.kind === "failed" &&
-      !event.event.failure.recoverable
-    ) {
-      requestClose(1);
-    }
-    if (event.event.kind === "closed") finish?.();
-  });
-  void session.firstAccepted.catch(() => undefined);
 
   try {
+    const projectRoot = checkedProjectRoot(options.projectRoot);
+    let haxe: Awaited<ReturnType<typeof checkHaxe>>;
     try {
-      await session.start();
+      haxe = await checkHaxe(
+        options.haxeExecutable,
+        projectRoot,
+        setupAbort.signal,
+      );
     } catch (error) {
-      const exitCode = invalidResultShapeObserved ? 2 : 1;
-      requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
-      process.stderr.write(`genes watch: startup failed: ${errorText(error)}\n`);
-      requestClose(exitCode);
+      if (
+        setupAbort.signal.aborted &&
+        error instanceof WatchCommandInterruptedError
+      ) {
+        return requestedExitCode ?? 1;
+      }
+      throw error;
     }
-    await finished;
-    await closePromise;
-    await output.finish();
-    return requestedExitCode ?? 0;
+    if (setupAbort.signal.aborted) return requestedExitCode ?? 1;
+    const lix = options.useLix ? loadLix(projectRoot) : undefined;
+    let handleInvalidResultShape = (_message: string): void => undefined;
+    let validator: Awaited<ReturnType<typeof loadWatchValidator>>;
+    try {
+      validator = await loadWatchValidator(
+        projectRoot,
+        options.validatorModule,
+        (message) => handleInvalidResultShape(message),
+      );
+    } catch (error) {
+      if (setupAbort.signal.aborted) return requestedExitCode ?? 1;
+      throw error;
+    }
+    if (setupAbort.signal.aborted) return requestedExitCode ?? 1;
+    const allowedRoots = Object.freeze([
+      projectRoot,
+      ...options.allowedRoots.map((root) => path.resolve(projectRoot, root)),
+    ]);
+    const session = createGenesDevelopmentSession<JsonValue>({
+      projectRoot,
+      projectIdentity: options.projectIdentity,
+      hxml: {
+        allowedRoots,
+        ...(lix === undefined
+          ? {}
+          : {
+              resolveLibraries: (requests, context) =>
+                resolveLixLibraryGroup({
+                  projectRoot,
+                  requests,
+                  command: {
+                    executable: process.execPath,
+                    argsPrefix: [lix.entry],
+                    environment: haxe.environment,
+                  },
+                  signal: context.signal,
+                }),
+            }),
+      },
+      publicOutputFile: options.publicOutputFile,
+      stateDirectory: options.stateDirectory,
+      resolveInvocation: async () => Object.freeze({
+        executable: haxe.executable,
+        cwd: projectRoot,
+        args: options.hxmlFiles,
+        env: haxe.environment,
+        ioPolicy: "haxe-4.3.7-development-js-v1",
+        compatibilityFacts: Object.freeze({
+          command: "genes-watch",
+          version: 1,
+          haxe: haxe.version,
+          lix: lix === undefined
+            ? null
+            : Object.freeze({
+                version: lix.version,
+                packageDigest: lix.packageDigest,
+              }),
+        }),
+      }),
+      validate: validator.validate,
+      validatorPolicyFacts: validator.policyFacts,
+    });
+
+    process.stderr.write(
+      validator.kind === "haxe-only"
+        ? `genes watch: ${validator.label}; add --validator for host admission.\n`
+        : `genes watch: validator module ${validator.label}.\n`,
+    );
+
+    let closePromise: Promise<void> | undefined;
+    let invalidResultClose: NodeJS.Immediate | undefined;
+    let invalidResultShapeObserved = false;
+    let finish: (() => void) | undefined;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const requestClose = (exitCode: number): void => {
+      requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
+      closePromise ??= session.close()
+        .catch((error: unknown) => {
+          requestedExitCode = 1;
+          process.stderr.write(
+            `genes watch: shutdown failed: ${errorText(error)}\n`,
+          );
+        })
+        .then(() => finish?.());
+    };
+    signalAction = requestClose;
+    handleInvalidResultShape = () => {
+      invalidResultShapeObserved = true;
+      // Let the session publish its versioned failure event before closure.
+      invalidResultClose ??= setImmediate(() => {
+        invalidResultClose = undefined;
+        requestClose(2);
+      });
+    };
+    const output = new WatchOutputWriter(process.stdout, {
+      maxPendingRecords: WATCH_OUTPUT_MAX_PENDING_RECORDS,
+      maxPendingBytes: WATCH_OUTPUT_MAX_PENDING_BYTES,
+      drainTimeoutMs: WATCH_OUTPUT_DRAIN_TIMEOUT_MS,
+      onFailure: (failure) => {
+        if (failure.exitCode !== 0) {
+          process.stderr.write(`genes watch: ${failure.message}\n`);
+        }
+        requestClose(failure.exitCode);
+      },
+    });
+    const unsubscribe = session.subscribe((event) => {
+      try {
+        if (options.jsonLines) {
+          output.writeLine(JSON.stringify(event));
+        } else {
+          const line = formatWatchEvent(event);
+          if (line !== null) output.writeLine(line);
+        }
+      } catch (error) {
+        output.fail(error, "cannot serialize stdout record");
+      }
+      if (
+        event.event.kind === "failed" &&
+        !event.event.failure.recoverable
+      ) {
+        requestClose(1);
+      }
+      if (event.event.kind === "closed") finish?.();
+    });
+    void session.firstAccepted.catch(() => undefined);
+
+    try {
+      try {
+        await session.start();
+      } catch (error) {
+        const exitCode = invalidResultShapeObserved ? 2 : 1;
+        requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
+        process.stderr.write(`genes watch: startup failed: ${errorText(error)}\n`);
+        requestClose(exitCode);
+      }
+      await finished;
+      await closePromise;
+      await output.finish();
+      return requestedExitCode ?? 0;
+    } finally {
+      if (invalidResultClose !== undefined) clearImmediate(invalidResultClose);
+      unsubscribe();
+      output.dispose();
+    }
   } finally {
-    if (invalidResultClose !== undefined) clearImmediate(invalidResultClose);
-    unsubscribe();
-    output.dispose();
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);
   }

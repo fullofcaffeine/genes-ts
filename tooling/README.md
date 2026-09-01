@@ -321,8 +321,10 @@ npm exec --no -- genes watch \
 Every stdout line is one unchanged `DevelopmentEvent` version-one record.
 Status prose and ANSI text never enter stdout in this mode. Automation can use
 the event sequence, revision, generation, failure phase, and retained
-generation directly. If the stdout consumer disconnects, the command closes
-its session and owned compiler before it exits normally.
+generation directly. If a write reports `EPIPE` or another stream failure, the
+command closes its session and owned compiler before it exits. An idle pipe
+does not notify Node when its reader closes until another write occurs.
+Automation that stops reading while idle must signal the watch process.
 
 A temporarily slow connected consumer does not reorder or duplicate records.
 Each complete UTF-8 record includes its newline. It must fit within 8 MiB
@@ -354,6 +356,14 @@ probes Haxe, resolves Lix, or loads validator code. It then gives the public
 development session the canonical link-free directory. Equivalent letter case
 is accepted when the host filesystem identifies both spellings as the same
 ordinary directory.
+
+The command installs signal ownership before it probes Haxe. The version probe
+is one asynchronous raw-exec child. `SIGINT`, `SIGTERM`, or the probe timeout
+terminates and reaps that child before setup returns. After setup succeeds, the
+public development session owns compiler shutdown.
+
+An option that requires a value rejects the next token when it starts with
+`-`. Prefix a dash-leading path with `./`, for example `./--build.hxml`.
 
 `genes watch` is a development command. It does not replace the production
 build, validator, or test gates. Run the ordinary output-owning HXML file for
