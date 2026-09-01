@@ -175,7 +175,8 @@ export interface CompileStageReport {
 }
 
 const fixtureShapes: Readonly<Record<FixtureName, FixtureShape>> = {
-  control: { name: "control", moduleCount: 4, methodsPerModule: 4 },
+  // Keep the class-method aggregate above Haxe's zero-row rounding boundary.
+  control: { name: "control", moduleCount: 4, methodsPerModule: 16 },
   scale: { name: "scale", moduleCount: 145, methodsPerModule: 24 }
 };
 
@@ -338,6 +339,7 @@ function buildArguments(
     "-cp", path.join(repoRoot, "src"),
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
+    ...(withTimes ? ["-D", "genes.compile_stage_profile"] : []),
     "--macro", 'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
     "--macro", "genes.Generator.use()",
     "--macro", "genes.js.Async.enable()",

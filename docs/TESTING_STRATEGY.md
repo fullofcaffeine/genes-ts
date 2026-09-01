@@ -688,8 +688,10 @@ microbenchmark of one planner function.
 optimization starts. It uses Haxe's authoritative `--times` table and
 request-local Genes child timers. It alternates isolated cold builds with warm
 compiler-server edits, checks exact cold/warm trees, records emitted size, and
-times strict TypeScript separately. Its generated scale case contains about
-19,000 authored Haxe lines. The command also has a small focused control:
+times strict TypeScript separately. A private benchmark define adds nested
+timers for TypeScript class emission. Ordinary builds do not include these
+fine timers. Its generated scale case contains about 19,000 authored Haxe
+lines. The command also has a small focused control:
 
 ```bash
 yarn test:haxe-times

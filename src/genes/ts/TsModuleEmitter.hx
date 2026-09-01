@@ -1099,6 +1099,10 @@ class TsModuleEmitter extends JsModuleEmitter {
     final prevClass = currentClass;
     currentClass = cl;
 
+    #if genes.compile_stage_profile
+    final endClassHeaderTimer = timer('genes.emit.ts.class.header');
+    #end
+
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
@@ -1150,6 +1154,10 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     write(' {');
     increaseIndent();
+    #if genes.compile_stage_profile
+    endClassHeaderTimer();
+    final endClassConstructorTimer = timer('genes.emit.ts.class.constructor');
+    #end
 
     // Emit a typed TS constructor wrapper that forwards to `super(...)`.
     //
@@ -1186,6 +1194,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
     }
 
+    #if genes.compile_stage_profile
+    endClassConstructorTimer();
+    final endClassPropertiesTimer = timer('genes.emit.ts.class.properties');
+    #end
+
     // Emit typed property declarations so TS code can type-check under `strict`.
     for (field in fields) {
       switch field.kind {
@@ -1214,6 +1227,9 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (propertyNullish.emitOptionalSyntax)
             write('?');
           write(': ');
+          #if genes.compile_stage_profile
+          final endPropertyTypeTimer = timer('genes.emit.ts.class.propertyType');
+          #end
           // Node vs DOM timer handles: `setInterval` return type varies by lib.
           // Model `haxe.Timer.id` as whatever the host `setInterval` returns.
           if (!field.isStatic
@@ -1224,6 +1240,9 @@ class TsModuleEmitter extends JsModuleEmitter {
           } else {
             emitFieldTsType(field);
           }
+          #if genes.compile_stage_profile
+          endPropertyTypeTimer();
+          #end
           write(';');
         case Method #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
           // Module-level externs (KModuleFields) can be declared as extern
@@ -1245,19 +1264,36 @@ class TsModuleEmitter extends JsModuleEmitter {
             emitMemberName(staticName(cl, field));
             write(': ');
             currentCallableSignature = field.callableSignature;
+            #if genes.compile_stage_profile
+            final endExternPropertyTypeTimer = timer('genes.emit.ts.class.propertyType');
+            #end
             emitType(field.type, field.callableSignature.parameters());
+            #if genes.compile_stage_profile
+            endExternPropertyTypeTimer();
+            #end
             write(';');
           }
         default:
       }
     }
 
+    #if genes.compile_stage_profile
+    endClassPropertiesTimer();
+    final endClassMethodsTimer = timer('genes.emit.ts.class.methods');
+    #end
+
     // Emit methods/ctors with typed args/returns.
     for (field in fields) {
       final moduleFunction = moduleFunctionPlan == null ? null : moduleFunctionPlan.entryFor(cl,
         field);
       if (moduleFunction != null) {
+        #if genes.compile_stage_profile
+        final endModuleDescriptorTimer = timer('genes.emit.ts.class.moduleBindings');
+        #end
         emitTsModuleFunctionDescriptorSeed(cl, moduleFunction);
+        #if genes.compile_stage_profile
+        endModuleDescriptorTimer();
+        #end
         continue;
       }
       if (!shouldEmitClassMethod(cl, field))
@@ -1268,6 +1304,9 @@ class TsModuleEmitter extends JsModuleEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
+              #if genes.compile_stage_profile
+              final endMethodSignatureTimer = timer('genes.emit.ts.class.methodSignature');
+              #end
               writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               if (!field.kind.equals(Constructor) && field.overloads.length > 0)
@@ -1324,6 +1363,11 @@ class TsModuleEmitter extends JsModuleEmitter {
                   emitReturnTsType(field, f, null);
                 write(' ');
               }
+
+              #if genes.compile_stage_profile
+              endMethodSignatureTimer();
+              final endMethodBodyTimer = timer('genes.emit.ts.class.methodBody');
+              #end
 
               final body = getFunctionBody(f);
               final returnOverride = field.meta != null ? (switch extractStringMeta(field.meta,
@@ -1386,11 +1430,19 @@ class TsModuleEmitter extends JsModuleEmitter {
                     currentReturnIsVoidLike = prevVoidLike;
                 }
               }
+              #if genes.compile_stage_profile
+              endMethodBodyTimer();
+              #end
             default:
           }
         default:
       }
     }
+
+    #if genes.compile_stage_profile
+    endClassMethodsTimer();
+    final endRuntimeMetadataTimer = timer('genes.emit.ts.class.runtimeMetadata');
+    #end
 
     currentCallableSignature = null;
 
@@ -1456,8 +1508,21 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     write('}');
 
+    #if genes.compile_stage_profile
+    endRuntimeMetadataTimer();
+    final endModuleBindingsTimer = timer('genes.emit.ts.class.moduleBindings');
+    #end
+
     emitTsModuleFunctionBindings(cl);
+    #if genes.compile_stage_profile
+    endModuleBindingsTimer();
+    final endPrivateHelpersTimer = timer('genes.emit.ts.class.privateHelpers');
+    #end
     emitPrivateMethodHelpers(cl, fields);
+    #if genes.compile_stage_profile
+    endPrivateHelpersTimer();
+    final endRuntimeRegistrationTimer = timer('genes.emit.ts.class.runtimeRegistration');
+    #end
 
     // Register class in $hxClasses registry (Genes runtime compatibility).
     final id = cl.pack.concat([TypeUtil.className(cl)]).join('.');
@@ -1536,6 +1601,10 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeNewline();
       }
     }
+
+    #if genes.compile_stage_profile
+    endRuntimeRegistrationTimer();
+    #end
 
     currentCallableSignature = null;
     currentClass = prevClass;
