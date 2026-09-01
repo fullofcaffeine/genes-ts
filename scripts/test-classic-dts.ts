@@ -39,6 +39,10 @@ const declarationOnlyDts = path.join(
   "bin/tests/typeonly/DeclarationOnlyShape.d.ts"
 );
 const declarationOnlyJsMap = `${declarationOnlyJs}.map`;
+const jsonCacheInvalidationDts = path.join(
+  repoRoot,
+  "bin/tests/typeonly/JsonCacheInvalidation.d.ts"
+);
 
 // Remove stale artifacts before the build. The declaration-only dependency is
 // expected to gain a `.d.ts` through DependencyPlan without broadening classic
@@ -46,13 +50,16 @@ const declarationOnlyJsMap = `${declarationOnlyJs}.map`;
 rmSync(declarationOnlyJs, { force: true });
 rmSync(declarationOnlyJsMap, { force: true });
 rmSync(declarationOnlyDts, { force: true });
+rmSync(jsonCacheInvalidationDts, { force: true });
 
 // Always rebuild: accepting a stale declaration tree would make the negative
 // consumer pass or fail independently of the compiler revision under test.
 run("haxe", [
   "test.hxml",
   "--macro",
-  "include('tests.classicdts')"
+  "include('tests.classicdts')",
+  "--macro",
+  "tests.classicdts.JsonCacheInvalidationProbe.validate()"
 ]);
 
 if (!existsSync(declarationOnlyDts)) {
@@ -63,6 +70,23 @@ if (existsSync(declarationOnlyJs)) {
 }
 if (existsSync(declarationOnlyJsMap)) {
   throw new Error("Declaration-only reachability emitted an orphan classic JS source map.");
+}
+
+const jsonCacheInvalidationDeclaration = readFileSync(
+  jsonCacheInvalidationDts,
+  "utf8"
+);
+if (
+  !jsonCacheInvalidationDeclaration.includes("type JsonPrimitive =")
+  || !jsonCacheInvalidationDeclaration.includes("type JsonObject =")
+  || !jsonCacheInvalidationDeclaration.includes("type JsonArray =")
+  || !jsonCacheInvalidationDeclaration.includes(
+    "export type JsonCacheInvalidationPayload ="
+  )
+) {
+  throw new Error(
+    "Declaration-only expansion reused a stale negative JSON-support cache."
+  );
 }
 
 // `Gen.Single` is nullary but belongs to a generic enum. With no constructor
@@ -281,7 +305,8 @@ const classicRegressionFixtureFiles = [
   "tests/TestAsyncAwait.d.ts",
   "tests/TestImportModule.d.ts",
   "tests/TestJsonValue.d.ts",
-  "tests/TestTsTypes.d.ts"
+  "tests/TestTsTypes.d.ts",
+  "tests/typeonly/JsonCacheInvalidation.d.ts"
 ] as const;
 
 // Tink is an external compatibility fixture. The compiler must preserve its
