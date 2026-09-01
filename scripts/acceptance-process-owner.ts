@@ -213,6 +213,18 @@ export class AcceptanceProcessOwner {
       exitCode: null,
       signal: null
     };
+    let pendingSignal: "SIGINT" | "SIGTERM" | undefined;
+    let routeSignal = (signal: "SIGINT" | "SIGTERM"): void => {
+      pendingSignal ??= signal;
+    };
+    const onSigint = (): void => routeSignal("SIGINT");
+    const onSigterm = (): void => routeSignal("SIGTERM");
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
+    const removeSignalHandlers = (): void => {
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+    };
     this.states.push(state);
     this.writeState(gate.id);
     const started = Date.now();
@@ -278,7 +290,6 @@ export class AcceptanceProcessOwner {
       });
     }
 
-    let removeSignalHandlers = (): void => {};
     const initialResult = await new Promise<{
       readonly status: "passed" | "failed" | "timed-out" | "interrupted";
       readonly code: number | null;
@@ -376,19 +387,8 @@ export class AcceptanceProcessOwner {
         }
         startCleanup();
       };
-      const onSigint = (): void => terminate({
-        status: "interrupted",
-        signal: "SIGINT"
-      });
-      const onSigterm = (): void => terminate({
-        status: "interrupted",
-        signal: "SIGTERM"
-      });
-      process.on("SIGINT", onSigint);
-      process.on("SIGTERM", onSigterm);
-      removeSignalHandlers = (): void => {
-        process.removeListener("SIGINT", onSigint);
-        process.removeListener("SIGTERM", onSigterm);
+      routeSignal = (signal: "SIGINT" | "SIGTERM"): void => {
+        terminate({ status: "interrupted", signal });
       };
       const timeout = setTimeout(
         () => terminate({ status: "timed-out" }),
@@ -404,6 +404,7 @@ export class AcceptanceProcessOwner {
       };
       if (logError !== undefined) routeLogError(logError);
       if (outputError !== undefined) routeOutputError(outputError);
+      if (pendingSignal !== undefined) routeSignal(pendingSignal);
       child.once("error", (error) => terminate({ status: "failed", error }));
       const onRootExit = (code: number | null, signal: NodeJS.Signals | null): void => {
         if (termination !== undefined) return;

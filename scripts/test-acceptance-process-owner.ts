@@ -54,6 +54,23 @@ async function waitForLog(logPath: string, pattern: RegExp): Promise<string> {
   throw new Error(`Timed out waiting for ${String(pattern)} in ${logPath}`);
 }
 
+async function waitForActiveGate(
+  statePath: string,
+  gate: string
+): Promise<void> {
+  const deadline = Date.now() + processStartupTimeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(statePath)) {
+      const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+        readonly activeGate?: unknown;
+      };
+      if (state.activeGate === gate) return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for active gate ${gate} in ${statePath}`);
+}
+
 function waitForChildExit(
   child: ChildProcess,
   timeoutMs: number
@@ -204,6 +221,56 @@ try {
     } finally {
       if (raceOwner.exitCode === null && raceOwner.signalCode === null) {
         await terminateAcceptanceProcessTree(raceOwner, 500);
+      }
+    }
+  }
+
+  if (process.platform !== "win32") {
+    const earlySignalRoot = path.join(reportRoot, "early-signal");
+    const earlySignalOwner = spawn(
+      process.execPath,
+      [probe, "owner", earlySignalRoot],
+      {
+        cwd: repoRoot,
+        detached: true,
+        stdio: "ignore"
+      }
+    );
+    try {
+      const statePath = path.join(earlySignalRoot, "state.json");
+      await waitForActiveGate(statePath, "signal-tree");
+      strictEqual(earlySignalOwner.kill("SIGTERM"), true);
+      const exit = await waitForChildExit(
+        earlySignalOwner,
+        processStartupTimeoutMs
+      );
+      strictEqual(
+        exit.code,
+        143,
+        `Early-signal owner exited with ${JSON.stringify(exit)}`
+      );
+      strictEqual(exit.signal, null);
+      const logPath = path.join(earlySignalRoot, "signal-tree.log");
+      const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+      const earlyPids = [...log.matchAll(/probe:(?:parent|child|grandchild):(\d+)/g)]
+        .map((match) => Number(match[1]));
+      for (const pid of earlyPids) {
+        strictEqual(
+          isRunning(pid),
+          false,
+          `Early-signal descendant ${String(pid)} survived`
+        );
+      }
+      const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+        readonly activeGate?: unknown;
+        readonly gates?: ReadonlyArray<{ readonly status?: unknown }>;
+      };
+      strictEqual(state.activeGate, "signal-tree");
+      strictEqual(state.gates?.[0]?.status, "interrupted");
+    } finally {
+      if (earlySignalOwner.exitCode === null
+        && earlySignalOwner.signalCode === null) {
+        await terminateAcceptanceProcessTree(earlySignalOwner, 500);
       }
     }
   }
