@@ -734,6 +734,32 @@ try {
     loadWatchValidator(validatorRoot, "changing.mjs"),
     /changed while it was loading/u,
   );
+  const abortedValidatorMarker = path.join(validatorRoot, "aborted-marker");
+  writeFileSync(
+    path.join(validatorRoot, "aborted.mjs"),
+    [
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(abortedValidatorMarker)}, "loaded");`,
+      "export default { policyFacts: {}, async validate() { return { ok: true }; } };",
+      "",
+    ].join("\n"),
+  );
+  const alreadyAborted = new AbortController();
+  alreadyAborted.abort();
+  await assert.rejects(
+    loadWatchValidator(
+      validatorRoot,
+      "aborted.mjs",
+      () => undefined,
+      alreadyAborted.signal,
+    ),
+    /setup was interrupted/u,
+  );
+  assert.equal(
+    existsSync(abortedValidatorMarker),
+    false,
+    "an already-aborted validator load must not evaluate the module",
+  );
 
   const fixtureRoot = watchFixtureRoot;
   const sourceRoot = path.join(fixtureRoot, "app-src");
@@ -1047,6 +1073,81 @@ try {
           // The exact fixture process already exited between checks.
         }
       }
+    }
+  }
+
+  const validatorLoadMarker = path.join(
+    fixtureRoot,
+    "stalling-validator-started",
+  );
+  writeFileSync(
+    path.join(fixtureRoot, "stalling-validator.mjs"),
+    [
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(validatorLoadMarker)}, "started");`,
+      "await new Promise((resolve) => setTimeout(resolve, 60_000));",
+      "export default { policyFacts: {}, async validate() { return { ok: true }; } };",
+      "",
+    ].join("\n"),
+  );
+  const validatorLoadProcess = spawn(
+    process.execPath,
+    [
+      cli,
+      "watch",
+      "--root",
+      fixtureRoot,
+      "--project-id",
+      "signal-during-validator-load",
+      "--hxml",
+      "build.hxml",
+      "--output",
+      "signal-validator-gen/index.js",
+      "--validator",
+      "stalling-validator.mjs",
+      "--lix",
+    ],
+    { cwd: repositoryRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let validatorLoadStderr = "";
+  let validatorLoadExitTimer: NodeJS.Timeout | undefined;
+  validatorLoadProcess.stderr.setEncoding("utf8");
+  validatorLoadProcess.stderr.on("data", (chunk: string) => {
+    validatorLoadStderr += chunk;
+  });
+  const validatorLoadExit = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve) =>
+    validatorLoadProcess.once("exit", (code, childSignal) =>
+      resolve(Object.freeze({ code, signal: childSignal })),
+    ),
+  );
+  try {
+    await waitForFile(validatorLoadMarker, "stalled validator initialization");
+    assert.equal(validatorLoadProcess.kill("SIGTERM"), true);
+    const closed = await Promise.race([
+      validatorLoadExit,
+      new Promise<never>((_resolve, reject) => {
+        validatorLoadExitTimer = setTimeout(
+          () =>
+            reject(
+              new Error("Signaled validator initialization did not exit."),
+            ),
+          5_000,
+        );
+      }),
+    ]);
+    clearTimeout(validatorLoadExitTimer);
+    validatorLoadExitTimer = undefined;
+    assert.deepEqual(closed, { code: 143, signal: null }, validatorLoadStderr);
+  } finally {
+    clearTimeout(validatorLoadExitTimer);
+    if (
+      validatorLoadProcess.exitCode === null &&
+      validatorLoadProcess.signalCode === null
+    ) {
+      validatorLoadProcess.kill("SIGKILL");
     }
   }
 

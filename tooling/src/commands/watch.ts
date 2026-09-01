@@ -46,6 +46,35 @@ export class WatchCommandUsageError extends Error {
   }
 }
 
+class WatchCommandInterruptedError extends Error {
+  constructor() {
+    super("genes watch setup was interrupted");
+    this.name = "WatchCommandInterruptedError";
+  }
+}
+
+async function awaitSetup<T>(
+  start: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal === undefined) return await start();
+  if (signal.aborted) throw new WatchCommandInterruptedError();
+  let rejectInterrupted = (_error: WatchCommandInterruptedError): void =>
+    undefined;
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    rejectInterrupted = reject;
+  });
+  const onAbort = (): void => {
+    rejectInterrupted(new WatchCommandInterruptedError());
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await Promise.race([start(), interrupted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export interface WatchCommandOptions {
   readonly projectRoot: string;
   readonly projectIdentity: string;
@@ -351,6 +380,7 @@ export async function loadWatchValidator(
   projectRoot: string,
   modulePath?: string,
   onInvalidResultShape: (message: string) => void = () => undefined,
+  signal?: AbortSignal,
 ): Promise<WatchValidator> {
   if (modulePath === undefined) {
     return Object.freeze({
@@ -395,8 +425,9 @@ export async function loadWatchValidator(
   url.searchParams.set("genes-watch-digest", digest);
   let imported: unknown;
   try {
-    imported = await import(url.href);
+    imported = await awaitSetup(() => import(url.href), signal);
   } catch (error) {
+    if (error instanceof WatchCommandInterruptedError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new WatchCommandUsageError(
       `Cannot load validator module ${modulePath}: ${message}`,
@@ -741,13 +772,6 @@ function sameExecutableIdentity(
     before.size === after.size &&
     before.modifiedAt === after.modifiedAt &&
     before.changedAt === after.changedAt;
-}
-
-class WatchCommandInterruptedError extends Error {
-  constructor() {
-    super("genes watch setup was interrupted");
-    this.name = "WatchCommandInterruptedError";
-  }
 }
 
 async function probeHaxe(
@@ -1344,6 +1368,7 @@ export async function runWatchCommand(
   options: WatchCommandOptions,
 ): Promise<number> {
   let requestedExitCode: number | undefined;
+  let forceExitAfterValidatorAbort: number | undefined;
   const setupAbort = new AbortController();
   let signalAction = (exitCode: number): void => {
     requestedExitCode = selectWatchExitCode(requestedExitCode, exitCode);
@@ -1381,9 +1406,16 @@ export async function runWatchCommand(
         projectRoot,
         options.validatorModule,
         (message) => handleInvalidResultShape(message),
+        setupAbort.signal,
       );
     } catch (error) {
-      if (setupAbort.signal.aborted) return requestedExitCode ?? 1;
+      if (
+        setupAbort.signal.aborted &&
+        error instanceof WatchCommandInterruptedError
+      ) {
+        forceExitAfterValidatorAbort = requestedExitCode ?? 1;
+        return forceExitAfterValidatorAbort;
+      }
       throw error;
     }
     if (setupAbort.signal.aborted) return requestedExitCode ?? 1;
@@ -1522,5 +1554,12 @@ export async function runWatchCommand(
   } finally {
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);
+    if (forceExitAfterValidatorAbort !== undefined) {
+      // Node cannot cancel an in-flight dynamic import. No session exists at
+      // this point, so a bounded CLI exit is the only way to keep stalled
+      // top-level validator work from retaining the process after a signal.
+      const exitCode = forceExitAfterValidatorAbort;
+      setImmediate(() => process.exit(exitCode));
+    }
   }
 }

@@ -56,6 +56,7 @@ it.
   A cancellable raw-exec version probe now starts after signal ownership. A
   setup signal or timeout reaps that exact native child. Value-taking options
   reject a following option token instead of consuming it as a path or ID.
+  Signals also bound a stalled validator-module import before session creation.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,

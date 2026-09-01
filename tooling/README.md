@@ -362,6 +362,13 @@ is one asynchronous raw-exec child. `SIGINT`, `SIGTERM`, or the probe timeout
 terminates and reaps that child before setup returns. After setup succeeds, the
 public development session owns compiler shutdown.
 
+The same signals also interrupt validator-module loading. Node cannot cancel a
+dynamic import that is already evaluating, so the command exits after the
+signal before that unfinished top-level work can retain the CLI. Keep validator
+top-level code limited to configuration. Do not start detached processes or
+other long-lived resources until `validate`, where the supplied abort signal
+owns cancellation.
+
 An option that requires a value rejects the next token when it starts with
 `-`. Prefix a dash-leading path with `./`, for example `./--build.hxml`.
 
