@@ -1000,7 +1000,16 @@ an unrelated detached bystander, so nesting it inside its own owner would make
 abrupt outer cleanup unsafe. Its three-second timeout case owns one process;
 the signal case separately waits for and verifies the full three-process tree.
 The fixture runs once in the required job, rather than once inside every
-acceptance profile.
+acceptance profile. Its own waits are bounded, the workflow adds a three-minute
+backstop, and the always-run artifact includes both the fixture report and the
+aggregate report.
+
+This ownership evidence applies to the required Linux job and POSIX process
+groups. The Windows branch retains best-effort `taskkill` cleanup while the
+root PID is addressable, but it does not claim durable ownership after normal
+root exit. Bead `genes-tk76` owns the separate Job Object implementation and a
+required hosted Windows lifecycle fixture. Do not infer Windows tree safety
+from the POSIX fixture or this aggregate timeout change.
 
 One 40-minute deadline owns the complete aggregate. The initial bound uses ten
 successful required-job samples: p50 was 1,726 seconds and p95 was 1,803
@@ -1013,7 +1022,9 @@ local run does not leave a compiler server or browser fixture behind. Set
 `GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test or a reviewed local
 diagnostic; required CI uses the documented default. The required workflow
 also limits the complete step to 45 minutes. This leaves five minutes for test
-tool preparation, owned cleanup, and evidence upload.
+tool preparation, owned cleanup, and evidence upload. The focused test-plan
+route uses the same 45-minute outer bound, so the 40-minute owner always gets
+the first opportunity to clean its tree and write evidence.
 
 `test:acceptance` is the normal stable pull-request owner for the focused
 direct-module-binding and strict-array-index contracts. The direct-binding

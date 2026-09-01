@@ -39,6 +39,9 @@ export interface AcceptanceProcessOwnerOptions {
   readonly terminationGraceMs?: number;
 }
 
+/** Largest delay that Node schedules without clamping it to one millisecond. */
+export const maxNodeTimerDelayMs = 2_147_483_647;
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -83,7 +86,13 @@ async function waitForProcessGroupExit(pid: number, timeoutMs: number): Promise<
   return !processGroupAlive(pid);
 }
 
-/** Terminates only the private process tree started for one acceptance gate. */
+/**
+ * Terminates the private POSIX process group started for one acceptance gate.
+ *
+ * Windows uses its existing PID-tree cleanup only while the root is still
+ * addressable. Durable Windows ownership after root exit requires the Job
+ * Object boundary tracked by genes-tk76.
+ */
 export async function terminateAcceptanceProcessTree(
   child: ChildProcess,
   graceMs: number
@@ -164,7 +173,12 @@ export class AcceptanceProcessOwner {
   readonly statePath: string;
 
   public constructor(readonly options: AcceptanceProcessOwnerOptions) {
-    assert(options.timeoutMs > 0, "Acceptance timeout must be positive");
+    assert(
+      Number.isSafeInteger(options.timeoutMs)
+        && options.timeoutMs > 0
+        && options.timeoutMs <= maxNodeTimerDelayMs,
+      `Acceptance timeout must be an integer from 1 to ${String(maxNodeTimerDelayMs)}`
+    );
     mkdirSync(options.reportRoot, { recursive: true });
     this.deadline = Date.now() + options.timeoutMs;
     this.statePath = path.join(options.reportRoot, "state.json");
@@ -245,6 +259,12 @@ export class AcceptanceProcessOwner {
         | { status: "interrupted"; signal: "SIGINT" | "SIGTERM" }
         | { status: "failed"; error: Error }
         | undefined;
+      let rootExitResult: {
+        readonly status: "passed" | "failed";
+        readonly code: number | null;
+        readonly signal: NodeJS.Signals | null;
+      } | undefined;
+      let cleanupStarted = false;
       const finish = (value: {
         readonly status: "passed" | "failed" | "timed-out" | "interrupted";
         readonly code: number | null;
@@ -256,6 +276,57 @@ export class AcceptanceProcessOwner {
         clearTimeout(timeout);
         resolve(value);
       };
+      const startCleanup = (): void => {
+        if (cleanupStarted) return;
+        cleanupStarted = true;
+        const graceMs = this.options.terminationGraceMs ?? 2_000;
+        const close = waitForChildClose(child, graceMs * 3 + 250);
+        void terminateAcceptanceProcessTree(child, graceMs).then(
+          async () => {
+            const closed = await close;
+            const finalTermination = termination;
+            if (finalTermination !== undefined) {
+              finish({
+                status: finalTermination.status,
+                code: null,
+                signal: finalTermination.status === "interrupted"
+                  ? finalTermination.signal
+                  : null,
+                ...(closed
+                  ? finalTermination.status === "failed"
+                    ? { error: finalTermination.error }
+                    : {}
+                  : {
+                    error: new Error(
+                      `${gate.id} root did not close after tree termination`
+                    )
+                  })
+              });
+              return;
+            }
+            const completed = rootExitResult;
+            finish(closed && completed !== undefined ? completed : {
+              status: "failed",
+              code: completed?.code ?? null,
+              signal: completed?.signal ?? null,
+              error: new Error(
+                `${gate.id} root streams did not close after tree termination`
+              )
+            });
+          },
+          (error: unknown) => {
+            const finalTermination = termination;
+            finish({
+              status: finalTermination?.status ?? "failed",
+              code: rootExitResult?.code ?? null,
+              signal: finalTermination?.status === "interrupted"
+                ? finalTermination.signal
+                : rootExitResult?.signal ?? null,
+              error: error instanceof Error ? error : new Error(String(error))
+            });
+          }
+        );
+      };
       const terminate = (
         requested:
           | { status: "timed-out" }
@@ -263,48 +334,15 @@ export class AcceptanceProcessOwner {
           | { status: "failed"; error: Error }
       ): void => {
         if (settled) return;
-        if (termination !== undefined) {
-          const priority = (value: typeof requested): number => {
-            if (value.status === "failed") return 3;
-            if (value.status === "interrupted") return 2;
-            return 1;
-          };
-          if (priority(requested) > priority(termination)) termination = requested;
-          return;
+        const priority = (value: typeof requested): number => {
+          if (value.status === "failed") return 3;
+          if (value.status === "interrupted") return 2;
+          return 1;
+        };
+        if (termination === undefined || priority(requested) > priority(termination)) {
+          termination = requested;
         }
-        termination = requested;
-        const graceMs = this.options.terminationGraceMs ?? 2_000;
-        const close = waitForChildClose(child, graceMs * 3 + 250);
-        void terminateAcceptanceProcessTree(child, graceMs).then(
-          async () => {
-            const closed = await close;
-            const finalTermination = termination ?? requested;
-            finish({
-              status: finalTermination.status,
-              code: null,
-              signal: finalTermination.status === "interrupted"
-                ? finalTermination.signal
-                : null,
-              ...(closed
-                ? finalTermination.status === "failed"
-                  ? { error: finalTermination.error }
-                  : {}
-                : {
-                  error: new Error(
-                    `${gate.id} root did not close after tree termination`
-                  )
-                })
-            });
-          },
-          (error: unknown) => finish({
-            status: termination?.status ?? requested.status,
-            code: null,
-            signal: termination?.status === "interrupted"
-              ? termination.signal
-              : null,
-            error: error instanceof Error ? error : new Error(String(error))
-          })
-        );
+        startCleanup();
       };
       const onSigint = (): void => terminate({
         status: "interrupted",
@@ -332,36 +370,25 @@ export class AcceptanceProcessOwner {
       child.once("error", (error) => terminate({ status: "failed", error }));
       const onRootExit = (code: number | null, signal: NodeJS.Signals | null): void => {
         if (termination !== undefined) return;
-        const completed = {
+        // The command met its execution deadline. Cleanup has its own bounded
+        // grace period and must not be reclassified as an execution timeout.
+        clearTimeout(timeout);
+        rootExitResult = {
           status: code === 0 ? "passed" as const : "failed" as const,
           code,
           signal
         };
-        const graceMs = this.options.terminationGraceMs ?? 2_000;
-        const close = waitForChildClose(child, graceMs * 3 + 250);
-        void terminateAcceptanceProcessTree(child, graceMs).then(
-          async () => {
-            const closed = await close;
-            finish(closed ? completed : {
-              status: "failed",
-              code,
-              signal,
-              error: new Error(
-                `${gate.id} root streams did not close after tree termination`
-              )
-            });
-          },
-          (error: unknown) => finish({
-            status: "failed",
-            code,
-            signal,
-            error: error instanceof Error ? error : new Error(String(error))
-          })
-        );
+        const marker = `acceptance:root-exit ${gate.id}\n`;
+        process.stdout.write(marker);
+        log.write(marker);
+        startCleanup();
       };
       if (process.platform === "win32") {
-        // Windows timeout and signal paths call taskkill while the root PID is
-        // still addressable. A normal close preserves the root's real result.
+        // Windows timeout and signal paths retain their existing best-effort
+        // taskkill behavior while the root PID is addressable. A normal close
+        // preserves the real result, but this branch does not claim durable
+        // descendant ownership after root exit. genes-tk76 owns that Job
+        // Object contract and its hosted Windows evidence.
         child.once("close", (code, signal) => {
           if (termination !== undefined) return;
           finish({

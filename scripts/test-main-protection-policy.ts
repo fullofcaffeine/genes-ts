@@ -196,12 +196,20 @@ function main(): void {
     "The required genes-ts job must run the process-owner fixture outside and before acceptance"
   );
   assert(
+    genesTs.includes(
+      "- run: yarn test:acceptance-process-owner\n        timeout-minutes: 3"
+    ),
+    "The required process-owner fixture must retain its workflow backstop"
+  );
+  assert(
     genesTs.includes("- run: yarn test:acceptance\n        timeout-minutes: 45")
       && genesTs.includes("- name: Preserve acceptance owner markers and logs")
       && genesTs.includes(
         "- name: Preserve acceptance owner markers and logs\n        if: always()"
       )
-      && genesTs.includes("path: .tmp/test-evidence/acceptance")
+      && genesTs.includes(
+        "path: |\n            .tmp/test-evidence/acceptance\n            .tmp/test-acceptance-process-owner"
+      )
       && genesTs.includes("include-hidden-files: true"),
     "The required genes-ts acceptance step must stay bounded and preserve owner evidence"
   );

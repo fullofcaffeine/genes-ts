@@ -9,6 +9,7 @@ import {
 import {
   AcceptanceInterruptedError,
   AcceptanceProcessOwner,
+  maxNodeTimerDelayMs,
   type AcceptanceGate
 } from "./acceptance-process-owner.js";
 
@@ -23,8 +24,8 @@ function timeoutFromEnvironment(): number {
   if (raw === undefined) return defaultTimeoutMs;
   const parsed = Number(raw);
   assert(
-    Number.isSafeInteger(parsed) && parsed > 0,
-    "GENES_ACCEPTANCE_TIMEOUT_MS must be a positive integer"
+    Number.isSafeInteger(parsed) && parsed > 0 && parsed <= maxNodeTimerDelayMs,
+    `GENES_ACCEPTANCE_TIMEOUT_MS must be an integer from 1 to ${String(maxNodeTimerDelayMs)}`
   );
   return parsed;
 }

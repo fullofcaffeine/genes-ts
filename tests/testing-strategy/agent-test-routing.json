@@ -3156,7 +3156,7 @@
       "ring": "R2",
       "size": "large",
       "alwaysRun": false,
-      "timeoutSeconds": 2400,
+      "timeoutSeconds": 2700,
       "historicalDurationMs": null,
       "cacheMode": "warm-allowed",
       "command": "yarn test:acceptance",

@@ -103,6 +103,29 @@ switch (mode) {
     }
     break;
   }
+  case "root-exit-owner": {
+    const reportRoot = process.argv[3];
+    if (reportRoot === undefined) {
+      throw new Error("Root-exit owner probe requires a report root");
+    }
+    const owner = new AcceptanceProcessOwner({
+      cwd: process.cwd(),
+      reportRoot,
+      timeoutMs: 60_000,
+      terminationGraceMs: 3_000
+    });
+    try {
+      await owner.run({
+        id: "root-exit-signal",
+        command: process.execPath,
+        args: [script, "background-root"]
+      });
+    } catch (error) {
+      if (!(error instanceof AcceptanceInterruptedError)) throw error;
+      process.exitCode = error.exitCode;
+    }
+    break;
+  }
   default:
     throw new Error(`Unknown acceptance owner probe mode: ${String(mode)}`);
 }

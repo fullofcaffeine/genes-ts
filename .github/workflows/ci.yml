@@ -402,6 +402,7 @@ jobs:
       # The lifecycle fixture creates private owner groups and a detached
       # bystander. Run it beside, never inside, the aggregate that it tests.
       - run: yarn test:acceptance-process-owner
+        timeout-minutes: 3
       - run: yarn test:acceptance
         timeout-minutes: 45
         env:
@@ -412,7 +413,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: genes-acceptance-owner
-          path: .tmp/test-evidence/acceptance
+          path: |
+            .tmp/test-evidence/acceptance
+            .tmp/test-acceptance-process-owner
           include-hidden-files: true
           if-no-files-found: warn
       - run: yarn test:ts2hx

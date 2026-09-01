@@ -1,10 +1,11 @@
-import { ok, rejects, strictEqual } from "node:assert";
+import { ok, rejects, strictEqual, throws } from "node:assert";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
   AcceptanceProcessOwner,
+  maxNodeTimerDelayMs,
   terminateAcceptanceProcessTree
 } from "./acceptance-process-owner.js";
 
@@ -43,7 +44,48 @@ async function waitForOwnedPids(logPath: string): Promise<ReadonlyArray<number>>
   throw new Error(`Timed out waiting for the owned process tree in ${logPath}`);
 }
 
+async function waitForLog(logPath: string, pattern: RegExp): Promise<string> {
+  const deadline = Date.now() + processStartupTimeoutMs;
+  while (Date.now() < deadline) {
+    const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+    if (pattern.test(log)) return log;
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${String(pattern)} in ${logPath}`);
+}
+
+function waitForChildExit(
+  child: ChildProcess,
+  timeoutMs: number
+): Promise<{
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolve, reject) => {
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      clearTimeout(timeout);
+      resolve({ code, signal });
+    };
+    const timeout = setTimeout(() => {
+      child.removeListener("exit", onExit);
+      reject(new Error(`Child ${String(child.pid)} did not exit within ${String(timeoutMs)}ms`));
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
 rmSync(reportRoot, { recursive: true, force: true });
+throws(
+  () => new AcceptanceProcessOwner({
+    cwd: repoRoot,
+    reportRoot: path.join(reportRoot, "invalid-timeout"),
+    timeoutMs: maxNodeTimerDelayMs + 1
+  }),
+  /Acceptance timeout must be an integer from 1 to 2147483647/
+);
 const bystander = spawn(process.execPath, [probe, "bystander"], {
   cwd: repoRoot,
   detached: process.platform !== "win32",
@@ -127,18 +169,56 @@ try {
   }
 
   if (process.platform !== "win32") {
+    const raceRoot = path.join(reportRoot, "root-exit-signal");
+    const raceOwner = spawn(
+      process.execPath,
+      [probe, "root-exit-owner", raceRoot],
+      {
+        cwd: repoRoot,
+        detached: true,
+        stdio: "ignore"
+      }
+    );
+    try {
+      const logPath = path.join(raceRoot, "root-exit-signal.log");
+      const log = await waitForLog(logPath, /acceptance:root-exit root-exit-signal/u);
+      const descendant = /probe:grandchild:(\d+)/u.exec(log);
+      ok(descendant !== null, `Root-exit race descendant did not report: ${log}`);
+      strictEqual(raceOwner.kill("SIGTERM"), true);
+      const exit = await waitForChildExit(raceOwner, processStartupTimeoutMs);
+      strictEqual(exit.code, 143, `Root-exit race owner exited with ${JSON.stringify(exit)}`);
+      strictEqual(exit.signal, null);
+      strictEqual(
+        isRunning(Number(descendant[1])),
+        false,
+        "Root-exit race descendant survived interruption"
+      );
+      const raceState = JSON.parse(
+        readFileSync(path.join(raceRoot, "state.json"), "utf8")
+      ) as {
+        readonly activeGate?: unknown;
+        readonly gates?: ReadonlyArray<{ readonly status?: unknown }>;
+      };
+      strictEqual(raceState.activeGate, "root-exit-signal");
+      strictEqual(raceState.gates?.[0]?.status, "interrupted");
+    } finally {
+      if (raceOwner.exitCode === null && raceOwner.signalCode === null) {
+        await terminateAcceptanceProcessTree(raceOwner, 500);
+      }
+    }
+  }
+
+  if (process.platform !== "win32") {
     const signalRoot = path.join(reportRoot, "signal");
     const signalOwner = spawn(
       process.execPath,
       [probe, "owner", signalRoot],
-      { cwd: repoRoot, stdio: "ignore" }
+      {
+        cwd: repoRoot,
+        detached: true,
+        stdio: "ignore"
+      }
     );
-    const signalExit = new Promise<{
-      readonly code: number | null;
-      readonly signal: NodeJS.Signals | null;
-    }>((resolve) => signalOwner.once("exit", (code, signal) =>
-      resolve({ code, signal })
-    ));
     try {
       const signalPids = await waitForOwnedPids(
         path.join(signalRoot, "signal-tree.log")
@@ -150,7 +230,7 @@ try {
         true,
         "Acceptance owner did not retain its handler during cleanup"
       );
-      const exit = await signalExit;
+      const exit = await waitForChildExit(signalOwner, processStartupTimeoutMs);
       strictEqual(exit.code, 143, `Signal owner exited with ${JSON.stringify(exit)}`);
       strictEqual(exit.signal, null);
       for (const pid of signalPids) {
@@ -170,7 +250,7 @@ try {
       strictEqual(signalState.gates?.[0]?.status, "interrupted");
     } finally {
       if (signalOwner.exitCode === null && signalOwner.signalCode === null) {
-        signalOwner.kill("SIGKILL");
+        await terminateAcceptanceProcessTree(signalOwner, 500);
       }
     }
   }
