@@ -95,6 +95,24 @@ for (const measurement of report.measurements) {
       "emitClass/genes.emit.ts.class.methods/genes.emit.ts.class.methodSignature"
     ));
   }
+  const reachabilityRows = measurement.haxeTimes.filter((row) =>
+    row.id.startsWith("genes.plan.reachability.")
+  );
+  for (const id of [
+    "genes.plan.reachability.expand",
+    "genes.plan.reachability.runtimeEdges",
+    "genes.plan.reachability.typeEdges"
+  ]) {
+    ok(reachabilityRows.some((row) => row.id === id),
+      `${measurement.kind} timing rows are missing ${id}`);
+  }
+  ok(reachabilityRows.every((row) => row.count > 0));
+  ok(reachabilityRows.some((row) =>
+    row.id === "genes.plan.reachability.runtimeEdges"
+    && row.path.includes(
+      "genes.plan.reachability.expand/genes.plan.reachability.runtimeEdges"
+    )
+  ));
   ok(measurement.haxeReportedSeconds > 0);
   ok(measurement.wallMsPerHaxeReportedSecond > 0);
   ok(measurement.output.files > 0);

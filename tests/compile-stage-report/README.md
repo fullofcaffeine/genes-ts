@@ -47,12 +47,18 @@ The class timer tree separates these operations:
 - module bindings and private-method helpers
 - runtime registration.
 
+The reachability timer tree separates root selection and graph expansion. When
+the expansion first materializes a module dependency plan, nested rows divide
+runtime-edge collection from TypeScript type-edge collection. Classic
+declaration-edge collection has its own row when the declaration profile runs.
+These fine rows also compile only with `genes.compile_stage_profile`.
+
 Haxe combines repeated timer IDs and records their call count. The parent
-timers remain the authority for total class and method-emission time. Haxe
-omits a child row when its total rounds to zero. Thus, absent fine rows do not
-prove that the emitter skipped that operation. The focused control requires
-the aggregate methods and method-body rows. It validates the method-signature
-path when Haxe reports that optional non-zero row.
+timers remain the authority for total reachability, class, and method-emission
+time. Haxe omits a child row when its total rounds to zero. Thus, absent fine
+rows do not prove that the compiler skipped that operation. The focused
+control requires the aggregate methods and method-body rows. It validates the
+method-signature path when Haxe reports that optional non-zero row.
 
 The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.

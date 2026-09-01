@@ -319,6 +319,9 @@ class Generator {
     }
 
     final endReachabilityTimer = timer('genes.plan.reachability');
+    #if genes.compile_stage_profile
+    final endReachabilityRootsTimer = timer('genes.plan.reachability.roots');
+    #end
     final hasPublicModuleFunctions = initialNames.exists(name ->
       hasPublicModuleFunctionCandidate(modules.get(name)));
     final implementationRoots = if (tsMode) [
@@ -334,8 +337,15 @@ class Generator {
     final implementationKinds = if (tsMode)
       [RuntimeValue, RuntimeSideEffect, TypeOnly] else
       [RuntimeValue, RuntimeSideEffect];
+    #if genes.compile_stage_profile
+    endReachabilityRootsTimer();
+    final endReachabilityExpandTimer = timer('genes.plan.reachability.expand');
+    #end
     final implementationReachable = expandReachability(implementationRoots,
       implementationKinds, tsMode ? 'ts-strict' : 'classic-esm');
+    #if genes.compile_stage_profile
+    endReachabilityExpandTimer();
+    #end
     final implementationNames = [
       for (name in implementationReachable.keys())
         name
