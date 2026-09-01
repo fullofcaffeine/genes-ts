@@ -201,6 +201,69 @@ async function portClosed(port: number): Promise<boolean> {
   });
 }
 
+async function waitForFile(file: string, label: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(file)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${label}.`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function processExited(pid: number): Promise<boolean> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ESRCH"
+      ) {
+        return true;
+      }
+      throw error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
+function sleepingVersionProbe(): string {
+  const source = path.join(root, "sleeping-version-probe.c");
+  const executable = path.join(root, "sleeping-version-probe");
+  writeFileSync(
+    source,
+    [
+      "#include <stdio.h>",
+      "#include <stdlib.h>",
+      "#include <unistd.h>",
+      "int main(void) {",
+      '  const char *marker = getenv("GENES_WATCH_PROBE_MARKER");',
+      "  if (marker == NULL) return 3;",
+      '  FILE *file = fopen(marker, "w");',
+      "  if (file == NULL) return 4;",
+      '  fprintf(file, "%ld\\n", (long)getpid());',
+      "  fclose(file);",
+      "  sleep(30);",
+      '  fputs("4.3.7\\n", stdout);',
+      "  return 0;",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const compiled = spawnSync("cc", [source, "-o", executable], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  chmodSync(executable, 0o755);
+  return executable;
+}
+
 try {
   const parsed = parseWatchArguments(
     [
@@ -232,6 +295,28 @@ try {
       error instanceof WatchCommandUsageError &&
       error.message === "At least one --hxml entry is required.",
   );
+  for (const missingValue of ["--json-lines", "--unknown-option"]) {
+    assert.throws(
+      () =>
+        parseWatchArguments(
+          [
+            "--project-id",
+            "missing-option-value",
+            "--hxml",
+            "build.hxml",
+            "--output",
+            "src-gen/index.js",
+            "--state",
+            missingValue,
+          ],
+          root,
+        ),
+      (error: unknown) =>
+        error instanceof WatchCommandUsageError &&
+        error.message === "--state requires a value.",
+      `option token ${missingValue} was consumed as a value`,
+    );
+  }
   for (const malformed of ["", "   ", "build", "build.HXML"]) {
     assert.throws(
       () =>
@@ -855,6 +940,83 @@ try {
     assert.match(caseEquivalent.stderr, /requires Haxe 4\.3\.7/u);
   }
 
+  if (process.platform !== "win32") {
+    const probeMarker = path.join(fixtureRoot, "sleeping-version-probe.pid");
+    const probeExecutable = sleepingVersionProbe();
+    const probeProcess = spawn(
+      process.execPath,
+      [
+        cli,
+        "watch",
+        "--root",
+        fixtureRoot,
+        "--project-id",
+        "signal-during-version-probe",
+        "--hxml",
+        "build.hxml",
+        "--output",
+        "signal-probe-gen/index.js",
+        "--haxe",
+        probeExecutable,
+      ],
+      {
+        cwd: repositoryRoot,
+        env: { ...process.env, GENES_WATCH_PROBE_MARKER: probeMarker },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let probeStderr = "";
+    let probePid: number | undefined;
+    let probeExitTimer: NodeJS.Timeout | undefined;
+    probeProcess.stderr.setEncoding("utf8");
+    probeProcess.stderr.on("data", (chunk: string) => {
+      probeStderr += chunk;
+    });
+    const probeExit = new Promise<{
+      readonly code: number | null;
+      readonly signal: NodeJS.Signals | null;
+    }>((resolve) =>
+      probeProcess.once("exit", (code, childSignal) =>
+        resolve(Object.freeze({ code, signal: childSignal })),
+      ),
+    );
+    try {
+      await waitForFile(probeMarker, "the native Haxe version probe");
+      probePid = Number(readFileSync(probeMarker, "utf8").trim());
+      assert.equal(Number.isSafeInteger(probePid) && probePid > 0, true);
+      assert.equal(probeProcess.kill("SIGTERM"), true);
+      const closed = await Promise.race([
+        probeExit,
+        new Promise<never>((_resolve, reject) => {
+          probeExitTimer = setTimeout(
+            () => reject(new Error("Signaled Haxe version probe did not close.")),
+            5_000,
+          );
+        }),
+      ]);
+      clearTimeout(probeExitTimer);
+      probeExitTimer = undefined;
+      assert.deepEqual(closed, { code: 143, signal: null }, probeStderr);
+      assert.equal(
+        await processExited(probePid),
+        true,
+        "signal closure must reap the exact native version-probe child",
+      );
+    } finally {
+      clearTimeout(probeExitTimer);
+      if (probeProcess.exitCode === null && probeProcess.signalCode === null) {
+        probeProcess.kill("SIGKILL");
+      }
+      if (probePid !== undefined && !(await processExited(probePid))) {
+        try {
+          process.kill(probePid, "SIGKILL");
+        } catch {
+          // The exact fixture process already exited between checks.
+        }
+      }
+    }
+  }
+
   const child = spawn(
     process.execPath,
     [
@@ -1142,7 +1304,7 @@ try {
     assert.equal(
       await portClosed(disconnectedPort),
       true,
-      "stdout disconnection must close the owned Haxe server",
+      "a write-reported stdout disconnection must close the owned Haxe server",
     );
   } finally {
     clearTimeout(disconnectedExitTimer);
