@@ -8,7 +8,7 @@ const repoRoot = path.resolve(scriptDir, "../..");
 const report = await runCompileStageReport({
   fixture: "control",
   samples: 1,
-  warmups: 1,
+  warmups: 2,
   workspace: path.join(repoRoot, ".tmp/test-compile-stage-report")
 });
 
@@ -19,6 +19,9 @@ strictEqual(
   report.environment.workingTreeStatus.length > 0
 );
 strictEqual(report.measurements.length, 2);
+strictEqual(report.protocol.warmups, 2);
+strictEqual(report.measurements[0]?.edit, "a");
+strictEqual(report.measurements[1]?.edit, "a");
 strictEqual(report.aggregate.coldWall.sampleCount, 1);
 strictEqual(report.aggregate.warmEditWall.sampleCount, 1);
 strictEqual(report.aggregate.coldHaxeTimed.sampleCount, 1);

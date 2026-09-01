@@ -533,10 +533,11 @@ export async function runCompileStageReport(
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   server.installSignalCleanup();
   const measurements: CompileMeasurement[] = [];
+  let currentEdit: "a" | "b" = "b";
   try {
     for (let warmup = 0; warmup < options.warmups; warmup += 1) {
-      const edit = warmup % 2 === 0 ? "a" : "b";
-      writeFileSync(fixture.editFile, editSource(edit));
+      currentEdit = currentEdit === "a" ? "b" : "a";
+      writeFileSync(fixture.editFile, editSource(currentEdit));
       const warmupResult = await compileWarm(
         server,
         buildArguments(
@@ -550,7 +551,8 @@ export async function runCompileStageReport(
     }
 
     for (let sample = 0; sample < options.samples; sample += 1) {
-      const edit = sample % 2 === 0 ? "b" : "a";
+      currentEdit = currentEdit === "a" ? "b" : "a";
+      const edit = currentEdit;
       writeFileSync(fixture.editFile, editSource(edit));
       rmSync(coldRoot, { recursive: true, force: true });
       const coldAction = () => compileCold(
