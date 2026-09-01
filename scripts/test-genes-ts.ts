@@ -117,6 +117,21 @@ assertExportedSurfacePolicy({
         reason: "The reusable narrowing helper deliberately accepts unknown host values before returning guarded Haxe types."
       },
       {
+        file: "foo/JsonAbstractDefinitionMemo.ts",
+        disposition: "fixture-boundary",
+        reason: "This focused fixture proves differently applied generic abstracts. Its string index is the intentional JsonObject member of the closed JsonValue algebra."
+      },
+      {
+        file: "foo/JsonDefinitionCycleMemo.ts",
+        disposition: "fixture-boundary",
+        reason: "This focused fixture proves recursive JSON aliases. Its string index is the intentional JsonObject member of the closed JsonValue algebra."
+      },
+      {
+        file: "foo/JsonDefinitionMemo.ts",
+        disposition: "fixture-boundary",
+        reason: "This focused fixture proves differently applied recursive JSON aliases. Its string index is the intentional JsonObject member of the closed JsonValue algebra."
+      },
+      {
         file: "haxe/Exception.ts",
         disposition: "runtime-boundary",
         reason: "Haxe exceptions wrap arbitrary JavaScript-thrown values at the host exception boundary."

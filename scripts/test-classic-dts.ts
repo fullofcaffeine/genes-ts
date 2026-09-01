@@ -308,6 +308,10 @@ const classicRegressionFixtureFiles = [
   "tests/TestTsTypes.d.ts"
 ] as const;
 
+const classicJsonFixtureFiles = [
+  "tests/classicdts/RecursiveJsonDefinition.d.ts"
+] as const;
+
 // Tink is an external compatibility fixture. The compiler must preserve its
 // published Haxe types, including deliberate Any/Dynamic seams, rather than
 // silently claiming a different third-party API in generated declarations.
@@ -331,6 +335,26 @@ const classicTinkFixtureFiles = [
   "tink/unit/AssertionBuffer.d.ts",
   "tink/unit/TestCase.d.ts"
 ] as const;
+
+const jsonValueDeclaration = readFileSync(
+  path.join(repoRoot, "bin/tests/classicdts/RecursiveJsonDefinition.d.ts"),
+  "utf8"
+);
+if (
+  !jsonValueDeclaration.includes(
+    "export type ClassicRecursiveJsonNode<T> = {"
+  ) ||
+  !jsonValueDeclaration.includes(
+    "zJson: ClassicRecursiveJsonNode<JsonPrimitive | JsonObject | JsonArray>"
+  ) ||
+  !jsonValueDeclaration.includes(
+    "type JsonValue = JsonPrimitive | JsonObject | JsonArray"
+  )
+) {
+  throw new Error(
+    "Classic declarations lost JSON aliases through an applied recursive generic typedef."
+  );
+}
 
 assertExportedSurfacePolicy({
   repoRoot,
@@ -358,6 +382,11 @@ assertExportedSurfacePolicy({
         classicRegressionFixtureFiles,
         "fixture-boundary",
         "This test declaration deliberately exercises raw interop or Dynamic behavior and is bounded by focused compile/runtime assertions."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        classicJsonFixtureFiles,
+        "fixture-boundary",
+        "This focused declaration proves recursive JSON aliases. Its string index is the intentional JsonObject member of the closed JsonValue algebra."
       ),
       ...classifyOwnedSurfaceFiles(
         classicTinkFixtureFiles,

@@ -43,9 +43,10 @@ class JsonTypeSupport {
       return true;
 
     var found = false;
+    final query = new JsonTypeQuery();
     function visitType(type: Type): Void {
       if (!found && type != null)
-        found = typeUsesJsonTypes(type);
+        found = query.uses(type);
     }
     function visitExpr(expression: TypedExpr): Void {
       if (found || expression == null)
@@ -103,64 +104,104 @@ class JsonTypeSupport {
 
   /** Returns whether a typed Haxe type projects through the JSON helper family. */
   public static function typeUsesJsonTypes(type: Type): Bool {
-    return typeUsesJsonTypesWithSeen(type, []);
-  }
-
-  static function typeUsesJsonTypesWithSeen(type: Type,
-      seen: Map<String, Bool>): Bool {
-    if (type == null)
-      return false;
-    return switch type {
-      case TAbstract(_.get() => abstractType, params):
-        final key = 'abstract:${abstractType.module}:${abstractType.name}';
-        if (seen.exists(key))
-          false;
-        else {
-          seen.set(key, true);
-          isJsonTypeModule(abstractType.module)
-            || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen))
-            || typeUsesJsonTypesWithSeen(abstractType.type, seen);
-        }
-      case TInst(_.get() => cl, params):
-        isJsonTypeModule(cl.module)
-          || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen));
-      case TEnum(_.get() => enumType, params):
-        isJsonTypeModule(enumType.module)
-          || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen));
-      case TType(_.get() => definition, params):
-        final key = 'typedef:${definition.module}:${definition.name}';
-        if (seen.exists(key))
-          false;
-        else {
-          seen.set(key, true);
-          isJsonTypeModule(definition.module)
-            || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen))
-            || typeUsesJsonTypesWithSeen(definition.type, seen);
-        }
-      case TAnonymous(_.get() => anonymous):
-        anonymous.fields.exists(field ->
-          typeUsesJsonTypesWithSeen(field.type, seen));
-      case TFun(arguments, result):
-        typeUsesJsonTypesWithSeen(result, seen)
-          || arguments.exists(argument ->
-            typeUsesJsonTypesWithSeen(argument.t, seen));
-      case TDynamic(inner):
-        inner != null && typeUsesJsonTypesWithSeen(inner, seen);
-      case TMono(ref):
-        final inner = ref.get();
-        inner != null && typeUsesJsonTypesWithSeen(inner, seen);
-      case TLazy(resolve):
-        typeUsesJsonTypesWithSeen(resolve(), seen);
-    }
+    return new JsonTypeQuery().uses(type);
   }
 
   /** Returns whether a Haxe module owns one erased recursive JSON helper. */
   public static function isJsonTypeModule(module: String): Bool {
     return module == 'genes.ts.JsonValue'
-      || module == 'genes.ts.JsonObject'
-      || module == 'genes.ts.JsonArray'
+      || module == 'genes.ts.JsonObject' || module == 'genes.ts.JsonArray'
       || module == 'genes.ts.JsonPrimitive'
       || module == 'genes.ts.JsonNonNullValue';
+  }
+}
+
+/**
+ * Reuses completed declaration searches during one module inventory scan.
+ *
+ * Why: many expressions repeat the same standard abstracts and typedefs. Each
+ * application still owns its generic arguments, but the declaration's
+ * underlying type is unchanged for the request. Re-expanding it for every
+ * expression dominated production compile time.
+ *
+ * How: completed definitions use the same exact declaration key as the
+ * recursion guard. Generic arguments are always searched before that shared
+ * result. A cycle edge returns false, but a nested false result is not cached
+ * because an active ancestor can still find JSON in another branch. A true
+ * result and an outermost completed false result are both safe to reuse.
+ */
+private class JsonTypeQuery {
+  final completedDefinitions = new Map<String, Bool>();
+  final activeDefinitions = new Map<String, Bool>();
+  var activeDefinitionCount = 0;
+
+  public function new() {}
+
+  public function uses(type: Type): Bool {
+    return search(type);
+  }
+
+  function search(type: Type): Bool {
+    if (type == null)
+      return false;
+    return switch type {
+      case TAbstract(_.get() => abstractType, params): JsonTypeSupport.isJsonTypeModule(abstractType.module) || searchTypes(params) || searchDefinition('abstract:${abstractType.module}:${abstractType.name}',
+          abstractType.type);
+      case TInst(_.get() => cl, params): JsonTypeSupport.isJsonTypeModule(cl.module) || searchTypes(params);
+      case TEnum(_.get() => enumType, params): JsonTypeSupport.isJsonTypeModule(enumType.module) || searchTypes(params);
+      case TType(_.get() => definition, params): JsonTypeSupport.isJsonTypeModule(definition.module) || searchTypes(params) || searchDefinition('typedef:${definition.module}:${definition.name}',
+          definition.type);
+      case TAnonymous(_.get() => anonymous):
+        searchFields(anonymous.fields);
+      case TFun(arguments, resultType): search(resultType) || searchFunctionArguments(arguments);
+      case TDynamic(inner): inner != null && search(inner);
+      case TMono(ref): final inner = ref.get(); inner != null && search(inner);
+      case TLazy(resolve):
+        search(resolve());
+    }
+  }
+
+  function searchTypes(types: Array<Type>): Bool {
+    for (type in types)
+      if (search(type))
+        return true;
+    return false;
+  }
+
+  function searchFields(fields: Array<ClassField>): Bool {
+    for (field in fields)
+      if (search(field.type))
+        return true;
+    return false;
+  }
+
+  function searchFunctionArguments(arguments: Array<{
+    name: String,
+    opt: Bool,
+    t: Type
+  }>): Bool {
+    for (argument in arguments)
+      if (search(argument.t))
+        return true;
+    return false;
+  }
+
+  function searchDefinition(key: String, type: Type): Bool {
+    final cached = completedDefinitions.get(key);
+    if (cached != null)
+      return cached;
+    if (activeDefinitions.exists(key))
+      return false;
+
+    final root = activeDefinitionCount == 0;
+    activeDefinitionCount++;
+    activeDefinitions.set(key, true);
+    final found = search(type);
+    activeDefinitions.remove(key);
+    activeDefinitionCount--;
+    if (found || root)
+      completedDefinitions.set(key, found);
+    return found;
   }
 }
 #end

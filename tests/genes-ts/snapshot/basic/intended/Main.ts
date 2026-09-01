@@ -5,6 +5,9 @@ import {BoundaryTypes} from "./foo/BoundaryTypes.js"
 import {Placeholder} from "./foo/Placeholder.js"
 import {EnumAbstract} from "./foo/EnumAbstract.js"
 import {JsonAlias} from "./foo/JsonAlias.js"
+import {JsonAbstractDefinitionMemo} from "./foo/JsonAbstractDefinitionMemo.js"
+import {JsonDefinitionMemo} from "./foo/JsonDefinitionMemo.js"
+import {JsonDefinitionCycleMemo} from "./foo/JsonDefinitionCycleMemo.js"
 import {ServerCallbacks} from "./foo/ServerCallbacks.js"
 import {Narrowing} from "./foo/Narrowing.js"
 import {TypedCatch} from "./foo/TypedCatch.js"
@@ -27,32 +30,35 @@ export class Main {
 	static main(): void {
 		const f: Foo = new Foo(1);
 		const asyncFoo: AsyncFoo = new AsyncFoo();
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",f.add(2));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",Foo.normalize("OK"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:27:",f.add(2));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:28:",Foo.normalize("OK"));
 		AsyncFoo.demo().then(function (v: number) {
-			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:25:",v);
-		});
-		AsyncFoo.demoPrivateStaticAsync().then(function (v: number) {
-			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:26:",v);
-		});
-		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
-			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:27:",v);
-		});
-		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
-			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:28:",v);
-		});
-		asyncFoo.metadataAwaitOptionalParam({}).then(function (v: string) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:29:",v);
 		});
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",BoundaryTypes.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",Placeholder.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",new Date().getTime() > 0);
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",EnumAbstract.localDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",EnumAbstract.fieldLocalDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",EnumAbstract.recordDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:37:",EnumAbstract.arrayLoopDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:38:",JsonAlias.passthrough({"metadata": null}).metadata);
+		AsyncFoo.demoPrivateStaticAsync().then(function (v: number) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",v);
+		});
+		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",v);
+		});
+		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",v);
+		});
+		asyncFoo.metadataAwaitOptionalParam({}).then(function (v: string) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",v);
+		});
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",BoundaryTypes.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",Placeholder.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",new Date().getTime() > 0);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:37:",EnumAbstract.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:38:",EnumAbstract.localDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:39:",EnumAbstract.fieldLocalDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:40:",EnumAbstract.recordDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:41:",EnumAbstract.arrayLoopDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:42:",JsonAlias.passthrough({"metadata": null}).metadata);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:43:",JsonAbstractDefinitionMemo.recursive({"aPlain": {"value": "plain", "next": null}, "zJson": {"value": null, "next": null}}));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:47:",JsonDefinitionMemo.recursive({"aPlain": {"value": "plain", "next": null}, "zJson": {"value": null, "next": null}}).aPlain.value);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:51:",(JsonDefinitionCycleMemo.recursive({"aLeft": {"aRight": null, "zPayload": null}}).aLeft!).zPayload);
 		const server: {
 			closeAllConnections: () => void,
 			off: (event: string, handler: ((arg0: string) => void)) => void
@@ -63,10 +69,10 @@ export class Main {
 		}};
 		ServerCallbacks.callbackInitializedLater(server);
 		ServerCallbacks.optionalForwardedMethod(server);
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:45:",Narrowing.switchExitingNull({"value": "present"}));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:46:",TypedCatch.recover("fixture"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:47:",TypedCatch.recover("plain"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:48:",Main.Theme.name + ":" + Main.Theme.accent);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:60:",Narrowing.switchExitingNull({"value": "present"}));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:61:",TypedCatch.recover("fixture"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:62:",TypedCatch.recover("plain"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:63:",Main.Theme.name + ":" + Main.Theme.accent);
 		ProjectedNullCall.demo(null);
 	}
 	static get __name__(): string {
