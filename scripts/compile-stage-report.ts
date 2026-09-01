@@ -8,6 +8,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { cpus, getPriority, loadavg } from "node:os";
@@ -207,6 +208,17 @@ function editSource(edit: "a" | "b"): string {
     "}",
     ""
   ].join("\n");
+}
+
+function writeEdit(file: string, edit: "a" | "b"): void {
+  const previousModifiedMs = statSync(file).mtimeMs;
+  writeFileSync(file, editSource(edit));
+  // Haxe's compiler server uses source timestamps to invalidate typed modules.
+  // Some filesystems expose less timestamp precision than Node. Move the edit
+  // beyond the previous whole-second value so a rapid a-b-a sequence is real.
+  const modifiedMs = Math.max(Date.now(), Math.floor(previousModifiedMs) + 2_000);
+  const modified = new Date(modifiedMs);
+  utimesSync(file, modified, modified);
 }
 
 function createFixture(root: string, shape: FixtureShape): {
@@ -537,7 +549,7 @@ export async function runCompileStageReport(
   try {
     for (let warmup = 0; warmup < options.warmups; warmup += 1) {
       currentEdit = currentEdit === "a" ? "b" : "a";
-      writeFileSync(fixture.editFile, editSource(currentEdit));
+      writeEdit(fixture.editFile, currentEdit);
       const warmupResult = await compileWarm(
         server,
         buildArguments(
@@ -553,7 +565,7 @@ export async function runCompileStageReport(
     for (let sample = 0; sample < options.samples; sample += 1) {
       currentEdit = currentEdit === "a" ? "b" : "a";
       const edit = currentEdit;
-      writeFileSync(fixture.editFile, editSource(edit));
+      writeEdit(fixture.editFile, edit);
       rmSync(coldRoot, { recursive: true, force: true });
       const coldAction = () => compileCold(
         compiler,

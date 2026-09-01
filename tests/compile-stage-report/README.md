@@ -35,6 +35,8 @@ The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.
 The source edit switches one emitted string between two values. Every warm
 tree must equal the isolated cold tree for that exact value.
+The command gives each edit a newer whole-second timestamp. This step prevents
+coarse filesystems from hiding a rapid edit from the Haxe compiler server.
 
 TypeScript runs after each cold/warm pair. Its time is separate from the Haxe
 and Genes time. The report also records generated files, modules, source maps,
