@@ -57,6 +57,12 @@ switch (mode) {
     spawnOwnedDescendant("child");
     stayAlive();
     break;
+  case "noisy-parent":
+    process.stdout.write(`probe:parent:${String(process.pid)}\n`);
+    resistGracefulTermination();
+    spawnOwnedDescendant("child");
+    setInterval(() => process.stdout.write("probe:tick\n"), 25);
+    break;
   case "background-child":
     process.stdout.write(`probe:grandchild:${String(process.pid)}\n`);
     process.send?.("ready");
@@ -124,6 +130,24 @@ switch (mode) {
       if (!(error instanceof AcceptanceInterruptedError)) throw error;
       process.exitCode = error.exitCode;
     }
+    break;
+  }
+  case "output-error-owner": {
+    const reportRoot = process.argv[3];
+    if (reportRoot === undefined) {
+      throw new Error("Output-error owner probe requires a report root");
+    }
+    const owner = new AcceptanceProcessOwner({
+      cwd: process.cwd(),
+      reportRoot,
+      timeoutMs: 60_000,
+      terminationGraceMs: 500
+    });
+    await owner.run({
+      id: "output-tree",
+      command: process.execPath,
+      args: [script, "noisy-parent"]
+    });
     break;
   }
   default:

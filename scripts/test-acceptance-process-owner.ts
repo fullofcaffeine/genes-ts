@@ -255,6 +255,50 @@ try {
     }
   }
 
+  if (process.platform !== "win32") {
+    const outputErrorRoot = path.join(reportRoot, "output-error");
+    const outputOwner = spawn(
+      process.execPath,
+      [probe, "output-error-owner", outputErrorRoot],
+      {
+        cwd: repoRoot,
+        detached: true,
+        stdio: ["ignore", "pipe", "ignore"]
+      }
+    );
+    try {
+      const outputPids = await waitForOwnedPids(
+        path.join(outputErrorRoot, "output-tree.log")
+      );
+      ok(outputOwner.stdout !== null, "Output-error owner stdout is unavailable");
+      outputOwner.stdout.destroy();
+      const exit = await waitForChildExit(outputOwner, processStartupTimeoutMs);
+      ok(
+        exit.code !== 0 || exit.signal !== null,
+        `Output-error owner unexpectedly passed: ${JSON.stringify(exit)}`
+      );
+      for (const pid of outputPids) {
+        strictEqual(
+          isRunning(pid),
+          false,
+          `Output-error descendant ${String(pid)} survived`
+        );
+      }
+      const outputState = JSON.parse(
+        readFileSync(path.join(outputErrorRoot, "state.json"), "utf8")
+      ) as {
+        readonly activeGate?: unknown;
+        readonly gates?: ReadonlyArray<{ readonly status?: unknown }>;
+      };
+      strictEqual(outputState.activeGate, "output-tree");
+      strictEqual(outputState.gates?.[0]?.status, "failed");
+    } finally {
+      if (outputOwner.exitCode === null && outputOwner.signalCode === null) {
+        await terminateAcceptanceProcessTree(outputOwner, 500);
+      }
+    }
+  }
+
   const healthyRoot = path.join(reportRoot, "healthy");
   const healthy = new AcceptanceProcessOwner({
     cwd: repoRoot,

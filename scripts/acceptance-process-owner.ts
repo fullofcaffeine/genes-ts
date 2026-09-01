@@ -216,7 +216,39 @@ export class AcceptanceProcessOwner {
     this.states.push(state);
     this.writeState(gate.id);
     const started = Date.now();
-    process.stdout.write(
+    let outputError: Error | undefined;
+    let routeOutputError = (error: Error): void => {
+      outputError ??= error;
+    };
+    const outputListeners = [process.stdout, process.stderr].map(
+      (destination) => {
+        const listener = (error: Error): void => routeOutputError(error);
+        destination.on("error", listener);
+        return { destination, listener };
+      }
+    );
+    const removeOutputListeners = (): void => {
+      for (const { destination, listener } of outputListeners)
+        destination.removeListener("error", listener);
+    };
+    const writeOutput = (
+      destination: NodeJS.WriteStream,
+      chunk: string | Buffer
+    ): void => {
+      if (destination.destroyed) {
+        routeOutputError(new Error("Acceptance output stream closed"));
+        return;
+      }
+      try {
+        destination.write(chunk);
+      } catch (error: unknown) {
+        routeOutputError(
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+    };
+    writeOutput(
+      process.stdout,
       `acceptance:start ${gate.id} remaining=${String(remainingMs)}ms\n`
     );
 
@@ -241,7 +273,7 @@ export class AcceptanceProcessOwner {
       [child.stderr, process.stderr]
     ] as const) {
       stream?.on("data", (chunk: Buffer) => {
-        destination.write(chunk);
+        writeOutput(destination, chunk);
         log.write(chunk);
       });
     }
@@ -366,7 +398,12 @@ export class AcceptanceProcessOwner {
         logError ??= error;
         terminate({ status: "failed", error });
       };
+      routeOutputError = (error: Error): void => {
+        outputError ??= error;
+        terminate({ status: "failed", error });
+      };
       if (logError !== undefined) routeLogError(logError);
+      if (outputError !== undefined) routeOutputError(outputError);
       child.once("error", (error) => terminate({ status: "failed", error }));
       const onRootExit = (code: number | null, signal: NodeJS.Signals | null): void => {
         if (termination !== undefined) return;
@@ -379,7 +416,7 @@ export class AcceptanceProcessOwner {
           signal
         };
         const marker = `acceptance:root-exit ${gate.id}\n`;
-        process.stdout.write(marker);
+        writeOutput(process.stdout, marker);
         log.write(marker);
         startCleanup();
       };
@@ -404,14 +441,13 @@ export class AcceptanceProcessOwner {
       }
     });
     await closeLog(log);
-    const result = logError === undefined
-      ? initialResult
-      : {
-        status: "failed" as const,
-        code: null,
-        signal: null,
-        error: logError
-      };
+    const ioError = logError ?? outputError;
+    const result = ioError === undefined ? initialResult : {
+      status: "failed" as const,
+      code: null,
+      signal: null,
+      error: ioError
+    };
 
     const completed: GateState = {
       ...state,
@@ -424,33 +460,36 @@ export class AcceptanceProcessOwner {
     try {
       this.states[this.states.length - 1] = completed;
       this.writeState(result.status === "passed" ? null : gate.id);
-    } finally {
-      // Repeated signals remain coalesced until logs close and durable evidence
-      // no longer reports the gate as running.
-      removeSignalHandlers();
-    }
-    if (result.status === "passed") {
-      process.stdout.write(
-        `acceptance:pass ${gate.id} duration=${String(completed.durationMs)}ms\n`
+      if (result.status === "passed") {
+        writeOutput(
+          process.stdout,
+          `acceptance:pass ${gate.id} duration=${String(completed.durationMs)}ms\n`
+        );
+        return;
+      }
+      writeOutput(
+        process.stderr,
+        `acceptance:${result.status} ${gate.id} duration=${String(completed.durationMs)}ms log=${logPath}\n`
       );
-      return;
-    }
-    process.stderr.write(
-      `acceptance:${result.status} ${gate.id} duration=${String(completed.durationMs)}ms log=${logPath}\n`
-    );
-    if (result.error !== undefined) throw result.error;
-    if (result.status === "timed-out") {
+      if (result.error !== undefined) throw result.error;
+      if (result.status === "timed-out") {
+        throw new Error(
+          `Acceptance timed out in ${gate.id} after ${String(completed.durationMs)}ms; log: ${logPath}`
+        );
+      }
+      if (result.status === "interrupted") {
+        throw new AcceptanceInterruptedError(
+          result.signal === "SIGINT" ? "SIGINT" : "SIGTERM"
+        );
+      }
       throw new Error(
-        `Acceptance timed out in ${gate.id} after ${String(completed.durationMs)}ms; log: ${logPath}`
+        `Acceptance gate ${gate.id} failed with ${result.signal ?? `exit ${String(result.code)}`}; log: ${logPath}`
       );
+    } finally {
+      // Repeated signals and output errors remain routed until logs and state
+      // are durable and the final owner marker has been attempted.
+      removeSignalHandlers();
+      removeOutputListeners();
     }
-    if (result.status === "interrupted") {
-      throw new AcceptanceInterruptedError(
-        result.signal === "SIGINT" ? "SIGINT" : "SIGTERM"
-      );
-    }
-    throw new Error(
-      `Acceptance gate ${gate.id} failed with ${result.signal ?? `exit ${String(result.code)}`}; log: ${logPath}`
-    );
   }
 }
