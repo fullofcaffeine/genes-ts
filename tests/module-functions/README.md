@@ -92,5 +92,12 @@ directly. Keep that connection when reorganizing aggregate test scripts: the
 general compiler suites do not independently reproduce every diagnostic,
 descriptor, and source-map boundary checked here.
 
+The focused owner also enables a compile-only inventory marker. It proves that
+`TopLevel`, which has direct-binding metadata, still enters complete collision
+validation. It also proves that the ordinary retained `TopLevelReceiver`
+module does not build the collision, name, or temporary inventory. All invalid
+metadata cases remain in the same suite, so malformed metadata cannot use the
+ordinary-module fast path.
+
 See [`docs/MODULE_FUNCTIONS.md`](../../docs/MODULE_FUNCTIONS.md) for the public
 contract, positive and negative examples, and intentionally deferred shapes.

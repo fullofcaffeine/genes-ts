@@ -750,7 +750,26 @@ function assertCompileFailure(profile: "classic" | "ts",
     `${profile}/${define} publishes no partial artifacts`);
 }
 
+function assertDirectBindingInventoryBoundary(): void {
+  const result = spawnSync("haxe", [
+    "tests/module-functions/build-classic-helper-free.hxml",
+    "-D", "genes.direct_binding_inventory"
+  ], { cwd: repoRoot, encoding: "utf8" });
+  strictEqual(result.status, 0,
+    `direct-binding inventory probe compiles\n${result.stdout ?? ""}${result.stderr ?? ""}`);
+  const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  const inventories = diagnostics.split(/\r?\n/).filter((line) =>
+    line.startsWith("[GTS-DIRECT-BINDING-INVENTORY] "));
+  ok(inventories.includes(
+    "[GTS-DIRECT-BINDING-INVENTORY] module_functions.TopLevel"),
+    "metadata-bearing modules retain complete direct-binding validation");
+  ok(!inventories.includes(
+    "[GTS-DIRECT-BINDING-INVENTORY] module_functions.TopLevelReceiver"),
+    "ordinary modules do not build the direct-binding collision inventory");
+}
+
 rmSync(outputRoot, { recursive: true, force: true });
+assertDirectBindingInventoryBoundary();
 run("haxe", ["tests/module-functions/build-classic.hxml"]);
 const classicDigest = digestTree(path.join(outputRoot, "classic"));
 run("haxe", ["tests/module-functions/build-classic.hxml"]);
