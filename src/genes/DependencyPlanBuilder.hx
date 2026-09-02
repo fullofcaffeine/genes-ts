@@ -565,7 +565,12 @@ class DependencyPlanBuilder {
         collector.collect(reference.type, 'type.react-state-initialization',
           reference.pos);
 
-    function collectLocalTypes(expression: TypedExpr): Void {
+    final undefinablePresentTypes: Array<{
+      final type: Type;
+      final pos: Position;
+    }> = [];
+
+    function visitExpressionTypes(expression: TypedExpr): Void {
       if (expression == null)
         return;
       switch expression.expr {
@@ -590,36 +595,39 @@ class DependencyPlanBuilder {
             collector.collect(argument.v.t, 'type.local-argument',
               expression.pos);
           }
-        default:
-      }
-      expression.iter(collectLocalTypes);
-    }
-
-    /**
-     * Reserves types printed only by the `Undefinable` presence assertion.
-     *
-     * Why: the typed marker carries its exact instantiated `T`, but ordinary
-     * expression dependency discovery does not inspect every `TypedExpr.t`.
-     * An emitter-local discovery could therefore name an imported type after
-     * binding allocation had already frozen the import plan.
-     *
-     * What/How: TypeScript implementation planning walks exact marker calls
-     * and collects the same return type that `TsModuleEmitter` later prints.
-     * The marker owner remains compiler-only and creates no runtime edge.
-     */
-    function collectUndefinablePresentTypes(expression: TypedExpr): Void {
-      if (expression == null)
-        return;
-      switch expression.expr {
         case TCall(callee, arguments):
           final marker = CompilerInternal.undefinablePresentMarkerCall(callee,
             arguments);
           if (marker != null)
-            collector.collect(marker.resultType,
-              'type.undefinable-present-assertion', expression.pos);
+            undefinablePresentTypes.push({
+              type: marker.resultType,
+              pos: expression.pos
+            });
         default:
       }
-      expression.iter(collectUndefinablePresentTypes);
+      expression.iter(visitExpressionTypes);
+    }
+
+    /**
+     * Collects expression-owned type edges in their established order.
+     *
+     * Why: local declarations and `Undefinable` presence assertions used to
+     * recurse over the same typed tree separately. Emitting marker edges during
+     * the local walk would change alias allocation because all local edges
+     * historically precede marker edges for one expression root.
+     *
+     * What/How: one walk emits local edges immediately and remembers only the
+     * rare exact marker result facts. Replaying those facts after the walk
+     * preserves both previous encounter orders without a second AST traversal.
+     */
+    function collectExpressionTypes(expression: TypedExpr): Void {
+      if (expression == null)
+        return;
+      undefinablePresentTypes.resize(0);
+      visitExpressionTypes(expression);
+      for (marker in undefinablePresentTypes)
+        collector.collect(marker.type, 'type.undefinable-present-assertion',
+          marker.pos);
     }
 
     function collectSignature(field: Field): Void {
@@ -709,12 +717,9 @@ class DependencyPlanBuilder {
               }
           }
           if (includeExpressionLocals) {
-            for (field in fields) {
-              collectLocalTypes(field.expr);
-              collectUndefinablePresentTypes(field.expr);
-            }
-            collectLocalTypes(cl.init);
-            collectUndefinablePresentTypes(cl.init);
+            for (field in fields)
+              collectExpressionTypes(field.expr);
+            collectExpressionTypes(cl.init);
           }
 
         case MEnum(enumType, params):
@@ -735,10 +740,8 @@ class DependencyPlanBuilder {
 
         case MMain(expression):
           collector.collect(expression.t, '$kind.main-result', expression.pos);
-          if (includeExpressionLocals) {
-            collectLocalTypes(expression);
-            collectUndefinablePresentTypes(expression);
-          }
+          if (includeExpressionLocals)
+            collectExpressionTypes(expression);
 
         case MType(definition, params):
           collector.collectParams(params, true, '$kind.typedef-parameters',
