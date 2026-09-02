@@ -6,6 +6,36 @@ import {
   haxeTimingClockStatus,
   runCompileStageReport
 } from "./compile-stage-report.js";
+import type { HaxeTimingRow } from "./haxe-times.js";
+
+function assertOptionalReachabilityRows(
+  rows: ReadonlyArray<HaxeTimingRow>,
+  measurementKind: string
+): void {
+  for (const expected of [
+    {
+      id: "genes.plan.reachability.expand",
+      path: "genes.plan.reachability/genes.plan.reachability.expand"
+    },
+    {
+      id: "genes.plan.reachability.runtimeEdges",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.runtimeEdges"
+    },
+    {
+      id: "genes.plan.reachability.typeEdges",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.typeEdges"
+    }
+  ]) {
+    const row = rows.find((candidate) => candidate.id === expected.id);
+    if (row === undefined) continue;
+    ok(row.count > 0, `${measurementKind} ${expected.id} has no calls`);
+    ok(row.path.includes(expected.path),
+      `${measurementKind} ${expected.id} has an unexpected path ${row.path}`);
+  }
+}
+
+// Haxe legitimately omits every fine row when each aggregate rounds to zero.
+assertOptionalReachabilityRows([], "zero-rounded reachability control");
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
@@ -98,21 +128,10 @@ for (const measurement of report.measurements) {
   const reachabilityRows = measurement.haxeTimes.filter((row) =>
     row.id.startsWith("genes.plan.reachability.")
   );
-  for (const id of [
-    "genes.plan.reachability.expand",
-    "genes.plan.reachability.runtimeEdges",
-    "genes.plan.reachability.typeEdges"
-  ]) {
-    ok(reachabilityRows.some((row) => row.id === id),
-      `${measurement.kind} timing rows are missing ${id}`);
-  }
-  ok(reachabilityRows.every((row) => row.count > 0));
-  ok(reachabilityRows.some((row) =>
-    row.id === "genes.plan.reachability.runtimeEdges"
-    && row.path.includes(
-      "genes.plan.reachability.expand/genes.plan.reachability.runtimeEdges"
-    )
-  ));
+  ok(measurement.haxeTimes.some((row) =>
+    row.id === "genes.plan.reachability"
+  ), `${measurement.kind} timing rows are missing reachability`);
+  assertOptionalReachabilityRows(reachabilityRows, measurement.kind);
   ok(measurement.haxeReportedSeconds > 0);
   ok(measurement.wallMsPerHaxeReportedSecond > 0);
   ok(measurement.output.files > 0);

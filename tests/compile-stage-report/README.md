@@ -58,7 +58,9 @@ timers remain the authority for total reachability, class, and method-emission
 time. Haxe omits a child row when its total rounds to zero. Thus, absent fine
 rows do not prove that the compiler skipped that operation. The focused
 control requires the aggregate methods and method-body rows. It validates the
-method-signature path when Haxe reports that optional non-zero row.
+method-signature path when Haxe reports that optional non-zero row. It also
+requires the parent reachability row, then validates each expansion, runtime,
+type, or declaration child path only when Haxe reports that non-zero child.
 
 The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.
