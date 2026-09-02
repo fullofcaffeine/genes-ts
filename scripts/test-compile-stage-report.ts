@@ -66,6 +66,15 @@ for (const [source, timerIds] of [
       `${source} is missing the ${timerId} timer site`);
   }
 }
+const generatorSource = readFileSync(
+  path.join(repoRoot, "src/genes/Generator.hx"),
+  "utf8"
+);
+ok(
+  generatorSource.indexOf("timer('genes.plan.reachability.roots')")
+    < generatorSource.indexOf("final initialNames ="),
+  "reachability roots timing must start before root evidence preparation"
+);
 function syntheticFineRow(
   id: string,
   path: string,
@@ -175,6 +184,14 @@ for (const entry of report.outputNeutrality) {
   strictEqual(entry.fixture, "control");
   strictEqual(entry.timed.sha256, entry.untimed.sha256);
   strictEqual(entry.timed.bytes, entry.untimed.bytes);
+  if (entry.profile === "classic-js") {
+    assertOptionalReachabilityRows(
+      entry.timedHaxeTimes.filter((row) =>
+        row.id.startsWith("genes.plan.reachability.")
+      ),
+      "classic declaration profile"
+    );
+  }
 }
 for (const measurement of report.measurements) {
   ok(measurement.haxeTimes.some((row) => row.id === "total"));

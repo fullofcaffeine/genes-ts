@@ -212,12 +212,6 @@ class Generator {
         + 'TypeScript types.',
         Context.currentPos());
 
-    final initialNames = [for (name in modules.keys()) name];
-    initialNames.sort(Reflect.compare);
-    final explicitlyExposedModules = new Map<String, Bool>();
-    for (item in expose)
-      explicitlyExposedModules.set(item.module, true);
-
     /**
      * Expands one output profile from compiler-owned dependency refs.
      *
@@ -322,6 +316,11 @@ class Generator {
     #if genes.compile_stage_profile
     final endReachabilityRootsTimer = timer('genes.plan.reachability.roots');
     #end
+    final initialNames = [for (name in modules.keys()) name];
+    initialNames.sort(Reflect.compare);
+    final explicitlyExposedModules = new Map<String, Bool>();
+    for (item in expose)
+      explicitlyExposedModules.set(item.module, true);
     final hasPublicModuleFunctions = initialNames.exists(name ->
       hasPublicModuleFunctionCandidate(modules.get(name)));
     final implementationRoots = if (tsMode) [

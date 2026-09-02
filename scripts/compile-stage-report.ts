@@ -159,6 +159,7 @@ export interface CompileStageReport {
   readonly outputNeutrality: ReadonlyArray<{
     readonly fixture: "control";
     readonly profile: ProfileName;
+    readonly timedHaxeTimes: ReadonlyArray<HaxeTimingRow>;
     readonly timed: OutputInventory;
     readonly untimed: OutputInventory;
   }>;
@@ -517,7 +518,7 @@ async function assertOutputNeutrality(
     fixtureRoot,
     `${profile} timed output control`
   );
-  parseHaxeTimes(resultText(timedResult.result));
+  const timedHaxeTimes = parseHaxeTimes(resultText(timedResult.result));
   await compileCold(
     compiler,
     buildArguments(sourceRoot, untimedRoot, profile, false, genesVersion),
@@ -536,6 +537,7 @@ async function assertOutputNeutrality(
   return {
     fixture: "control",
     profile,
+    timedHaxeTimes,
     timed: timedInventory,
     untimed: untimedInventory
   };

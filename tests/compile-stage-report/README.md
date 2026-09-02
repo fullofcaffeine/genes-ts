@@ -64,9 +64,10 @@ type, or declaration child path only when Haxe reports that non-zero child.
 The focused gate also checks the authored timer sites and a synthetic positive
 hierarchy for roots, expansion, runtime, TypeScript type, and classic
 declaration edges. Its classic output-neutrality pair enables declarations so
-that profile runs the declaration collector. Aggregate stage statistics include
-a zero for each requested sample where Haxe omits a path, so intermittent rows
-describe the complete sample set instead of only its non-zero subset.
+that profile runs the declaration collector; any live declaration timing row
+must follow the expected hierarchy. Aggregate stage statistics include a zero
+for each requested sample where Haxe omits a path, so intermittent rows describe
+the complete sample set instead of only its non-zero subset.
 
 The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.
