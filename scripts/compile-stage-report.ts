@@ -352,6 +352,7 @@ function buildArguments(
     "-D", "js-es=6",
     "-D", "no-deprecation-warnings",
     ...(profile === "genes-ts" ? ["-D", "genes.ts"] : []),
+    ...(profile === "classic-js" ? ["-D", "dts"] : []),
     "-dce", "full",
     "-debug",
     ...(withTimes ? ["--times"] : [])

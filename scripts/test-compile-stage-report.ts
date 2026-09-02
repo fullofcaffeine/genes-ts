@@ -16,6 +16,10 @@ function assertOptionalReachabilityRows(
 ): void {
   for (const expected of [
     {
+      id: "genes.plan.reachability.roots",
+      path: "genes.plan.reachability/genes.plan.reachability.roots"
+    },
+    {
       id: "genes.plan.reachability.expand",
       path: "genes.plan.reachability/genes.plan.reachability.expand"
     },
@@ -26,6 +30,10 @@ function assertOptionalReachabilityRows(
     {
       id: "genes.plan.reachability.typeEdges",
       path: "genes.plan.reachability.expand/genes.plan.reachability.typeEdges"
+    },
+    {
+      id: "genes.plan.reachability.declarationEdges",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.declarationEdges"
     }
   ]) {
     const row = rows.find((candidate) => candidate.id === expected.id);
@@ -42,10 +50,14 @@ assertOptionalReachabilityRows([], "zero-rounded reachability control");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 for (const [source, timerIds] of [
-  ["src/genes/Generator.hx", ["genes.plan.reachability.expand"]],
+  ["src/genes/Generator.hx", [
+    "genes.plan.reachability.roots",
+    "genes.plan.reachability.expand"
+  ]],
   ["src/genes/DependencyPlanBuilder.hx", [
     "genes.plan.reachability.runtimeEdges",
-    "genes.plan.reachability.typeEdges"
+    "genes.plan.reachability.typeEdges",
+    "genes.plan.reachability.declarationEdges"
   ]]
 ] as const) {
   const authoredSource = readFileSync(path.join(repoRoot, source), "utf8");
@@ -54,20 +66,52 @@ for (const [source, timerIds] of [
       `${source} is missing the ${timerId} timer site`);
   }
 }
-const syntheticFineRow: HaxeTimingRow = {
-  name: "typeEdges",
-  id: "genes.plan.reachability.typeEdges",
-  path: "genes.plan.reachability.expand/genes.plan.reachability.typeEdges",
-  depth: 2,
-  reportedSeconds: 0.004,
-  percentOfTotal: 4,
-  percentOfParent: 8,
-  count: 3,
-  info: "genes.plan.reachability"
-};
-assertOptionalReachabilityRows([syntheticFineRow], "positive hierarchy control");
+function syntheticFineRow(
+  id: string,
+  path: string,
+  reportedSeconds = 0.004
+): HaxeTimingRow {
+  return {
+    name: id.split(".").at(-1) ?? id,
+    id,
+    path,
+    depth: path.split("/").length - 1,
+    reportedSeconds,
+    percentOfTotal: 4,
+    percentOfParent: 8,
+    count: 3,
+    info: "genes.plan.reachability"
+  };
+}
+const syntheticFineRows = [
+  syntheticFineRow(
+    "genes.plan.reachability.roots",
+    "genes.plan.reachability/genes.plan.reachability.roots"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.expand",
+    "genes.plan.reachability/genes.plan.reachability.expand"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.runtimeEdges",
+    "genes.plan.reachability.expand/genes.plan.reachability.runtimeEdges"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeEdges",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.declarationEdges",
+    "genes.plan.reachability.expand/genes.plan.reachability.declarationEdges"
+  )
+];
+assertOptionalReachabilityRows(syntheticFineRows, "positive hierarchy control");
+const syntheticTypeRow = syntheticFineRows.find((row) =>
+  row.id === "genes.plan.reachability.typeEdges"
+);
+ok(syntheticTypeRow !== undefined);
 const intermittentStage = stageDistributions([
-  { haxeTimes: [syntheticFineRow] },
+  { haxeTimes: [syntheticTypeRow] },
   { haxeTimes: [] }
 ]);
 strictEqual(intermittentStage.length, 1);
