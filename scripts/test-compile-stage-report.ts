@@ -1,10 +1,12 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
   editPatternForWarmups,
   haxeTimingClockStatus,
-  runCompileStageReport
+  runCompileStageReport,
+  stageDistributions
 } from "./compile-stage-report.js";
 import type { HaxeTimingRow } from "./haxe-times.js";
 
@@ -39,6 +41,39 @@ assertOptionalReachabilityRows([], "zero-rounded reachability control");
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
+for (const [source, timerIds] of [
+  ["src/genes/Generator.hx", ["genes.plan.reachability.expand"]],
+  ["src/genes/DependencyPlanBuilder.hx", [
+    "genes.plan.reachability.runtimeEdges",
+    "genes.plan.reachability.typeEdges"
+  ]]
+] as const) {
+  const authoredSource = readFileSync(path.join(repoRoot, source), "utf8");
+  for (const timerId of timerIds) {
+    ok(authoredSource.includes(`timer('${timerId}')`),
+      `${source} is missing the ${timerId} timer site`);
+  }
+}
+const syntheticFineRow: HaxeTimingRow = {
+  name: "typeEdges",
+  id: "genes.plan.reachability.typeEdges",
+  path: "genes.plan.reachability.expand/genes.plan.reachability.typeEdges",
+  depth: 2,
+  reportedSeconds: 0.004,
+  percentOfTotal: 4,
+  percentOfParent: 8,
+  count: 3,
+  info: "genes.plan.reachability"
+};
+assertOptionalReachabilityRows([syntheticFineRow], "positive hierarchy control");
+const intermittentStage = stageDistributions([
+  { haxeTimes: [syntheticFineRow] },
+  { haxeTimes: [] }
+]);
+strictEqual(intermittentStage.length, 1);
+deepStrictEqual(intermittentStage[0]?.distribution.samples, [0.004, 0]);
+strictEqual(intermittentStage[0]?.distribution.sampleCount, 2);
+strictEqual(intermittentStage[0]?.distribution.median, 0);
 strictEqual(
   haxeTimingClockStatus("darwin", "4.3.7"),
   "known-unscaled-macos-monotonic-clock"

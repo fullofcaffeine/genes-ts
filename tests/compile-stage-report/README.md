@@ -61,6 +61,10 @@ control requires the aggregate methods and method-body rows. It validates the
 method-signature path when Haxe reports that optional non-zero row. It also
 requires the parent reachability row, then validates each expansion, runtime,
 type, or declaration child path only when Haxe reports that non-zero child.
+The focused gate also checks the authored timer sites and a synthetic positive
+hierarchy. Aggregate stage statistics include a zero for each requested sample
+where Haxe omits a path, so intermittent rows describe the complete sample set
+instead of only its non-zero subset.
 
 The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.

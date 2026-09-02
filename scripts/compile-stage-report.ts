@@ -86,7 +86,7 @@ interface CompileMeasurement {
   readonly typescriptMs: number | null;
 }
 
-interface StageDistribution {
+export interface StageDistribution {
   readonly id: string;
   readonly path: string;
   readonly distribution: Distribution;
@@ -468,22 +468,23 @@ function distribution(
   };
 }
 
-function stageDistributions(
-  samples: ReadonlyArray<CompileMeasurement>
+export function stageDistributions(
+  samples: ReadonlyArray<Pick<CompileMeasurement, "haxeTimes">>
 ): ReadonlyArray<StageDistribution> {
-  const values = new Map<string, { id: string; samples: number[] }>();
+  const stages = new Map<string, string>();
   for (const sample of samples) {
     for (const row of sample.haxeTimes) {
-      const current = values.get(row.path) ?? { id: row.id, samples: [] };
-      current.samples.push(row.reportedSeconds);
-      values.set(row.path, current);
+      stages.set(row.path, row.id);
     }
   }
-  return [...values.entries()]
-    .map(([stagePath, value]) => ({
-      id: value.id,
+  return [...stages.entries()]
+    .map(([stagePath, id]) => ({
+      id,
       path: stagePath,
-      distribution: distribution(value.samples, "haxe-reported-seconds")
+      distribution: distribution(samples.map((sample) =>
+        sample.haxeTimes.find((row) => row.path === stagePath)
+          ?.reportedSeconds ?? 0
+      ), "haxe-reported-seconds")
     }))
     .sort((left, right) =>
       right.distribution.median - left.distribution.median
