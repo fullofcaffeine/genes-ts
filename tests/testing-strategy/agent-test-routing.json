@@ -27,7 +27,7 @@
       "kind": "product",
       "owner": "Classic emitter and shared Haxe runtime owners",
       "claim": "Ordinary Haxe programs in the reviewed corpus compile to split ESM JavaScript and preserve the exercised Haxe runtime behavior.",
-      "gateIds": ["classic-core", "css-module-companions", "dual-output-semantics", "portable-haxe-smoke", "acceptance", "full-ci"],
+      "gateIds": ["classic-core", "css-module-companions", "dual-output-semantics", "test:writer-position", "portable-haxe-smoke", "acceptance", "full-ci"],
       "evidenceBucketIds": ["compiler-output-inventory", "runtime-semantic-differentials", "official-haxe-dual-profile-smoke"],
       "exampleIds": ["todoapp", "typescript-target"],
       "claimCeiling": "The checked compiler and example corpora; not arbitrary Haxe ecosystem compatibility.",
@@ -40,7 +40,7 @@
       "kind": "product",
       "owner": "TypeScript emitter and TypeScript semantic plans",
       "claim": "The reviewed Haxe corpus emits strict, executable TypeScript with the asserted public and runtime semantics.",
-      "gateIds": ["typescript-full", "css-module-companions", "dual-output-semantics", "portable-haxe-smoke", "source-maps", "acceptance", "full-ci"],
+      "gateIds": ["typescript-full", "css-module-companions", "dual-output-semantics", "test:writer-position", "portable-haxe-smoke", "source-maps", "acceptance", "full-ci"],
       "evidenceBucketIds": ["compiler-output-inventory", "public-type-safety", "runtime-semantic-differentials", "official-haxe-dual-profile-smoke"],
       "exampleIds": ["todoapp", "typescript-target"],
       "claimCeiling": "The checked TypeScript 5/6/7 contracts and fixtures; not all possible Haxe or TypeScript programs.",
@@ -2083,6 +2083,57 @@
       ]
     },
     {
+      "id": "test:writer-position",
+      "packageScript": "test:writer-position",
+      "runnerToken": "tests/writer-position/build.hxml",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "src/genes/Writer.hx",
+        "tests/writer-position"
+      ],
+      "proves": "Writer sends exact sink text and computes the reviewed generated line and column state without a per-character scan.",
+      "doesNotProve": "The isolated Writer fixture does not establish complete source-map provenance or output-profile semantics.",
+      "owners": [
+        "src/genes/Writer.hx",
+        "tests/writer-position"
+      ],
+      "families": [
+        "compiler",
+        "source-maps",
+        "performance",
+        "determinism"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "determinism"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 60,
+      "historicalDurationMs": null,
+      "cacheMode": "not-applicable",
+      "command": "yarn test:writer-position",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/writer-position.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "output-transaction",
       "packageScript": "test:output-transaction",
       "runnerToken": "scripts/dist/test-output-transaction.js",
@@ -3699,6 +3750,10 @@
       "id": "source-maps-or-publication",
       "changeArea": "Source positions, writers, file ownership, staging, rollback, or stale cleanup",
       "focusedChoices": [
+        {
+          "gate": "test:writer-position",
+          "when": "Writer sink text or generated line and column accounting changes"
+        },
         {
           "gate": "source-maps",
           "when": "token provenance, wrapper mapping, or generated source positions change"

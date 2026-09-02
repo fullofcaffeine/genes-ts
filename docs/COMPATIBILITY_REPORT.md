@@ -27,7 +27,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Classic JavaScript generation and runtime
 
 - Owner: Classic emitter and shared Haxe runtime owners
-- Gates: `classic-core`, `css-module-companions`, `dual-output-semantics`, `portable-haxe-smoke`, `acceptance`, `full-ci`
+- Gates: `classic-core`, `css-module-companions`, `dual-output-semantics`, `test:writer-position`, `portable-haxe-smoke`, `acceptance`, `full-ci`
 - Compatibility evidence: `compiler-output-inventory`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
 - Maintained examples: `todoapp`, `typescript-target`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
@@ -36,7 +36,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Typed TypeScript generation and runtime
 
 - Owner: TypeScript emitter and TypeScript semantic plans
-- Gates: `typescript-full`, `css-module-companions`, `dual-output-semantics`, `portable-haxe-smoke`, `source-maps`, `acceptance`, `full-ci`
+- Gates: `typescript-full`, `css-module-companions`, `dual-output-semantics`, `test:writer-position`, `portable-haxe-smoke`, `source-maps`, `acceptance`, `full-ci`
 - Compatibility evidence: `compiler-output-inventory`, `public-type-safety`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
 - Maintained examples: `todoapp`, `typescript-target`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.

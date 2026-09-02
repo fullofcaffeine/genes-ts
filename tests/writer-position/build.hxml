@@ -1,0 +1,6 @@
+-cp src
+-cp tests/writer-position/src
+--main writerposition.Main
+--interp
+-debug
+-D genes.writer_position_inventory

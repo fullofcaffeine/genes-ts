@@ -26,6 +26,14 @@ using StringTools;
 class Writer {
   final writer: (data: String) -> Void;
 
+  #if genes.writer_position_inventory
+  public static var positionScanSteps(default, null) = 0;
+
+  public static function resetPositionScanSteps(): Void {
+    positionScanSteps = 0;
+  }
+  #end
+
   public final close: () -> Void;
   public var line(default, null): Int = 1;
   public var column(default, null): Int = 0;
@@ -38,13 +46,23 @@ class Writer {
   public function write(data: String) {
     writer(data);
     #if (debug || js_source_map)
-    for (char in data)
-      if (char == '\n'.code) {
-        line++;
-        column = 0;
-      } else {
-        column++;
+    // Generated fragments usually contain no newline. Let the macro runtime
+    // find each newline in its native string implementation instead of
+    // entering the Haxe loop once for every emitted character.
+    var searchFrom = 0;
+    while (true) {
+      #if genes.writer_position_inventory
+      positionScanSteps++;
+      #end
+      final newline = data.indexOf('\n', searchFrom);
+      if (newline < 0) {
+        column += data.length - searchFrom;
+        break;
       }
+      line++;
+      column = 0;
+      searchFrom = newline + 1;
+    }
     #end
   }
 
@@ -54,7 +72,7 @@ class Writer {
 
   public static function fileWriter(file: String) {
     var input: Null<sys.io.FileOutput> = null;
-    return new Writer((data : String) -> {
+    return new Writer((data: String) -> {
       if (input == null) {
         final dir = Path.directory(file);
         if (!FileSystem.exists(dir))
@@ -76,24 +94,24 @@ class Writer {
    */
   public static function bufferedFileWriter(file: String) {
     var buffer = new StringBuf();
-    return new Writer((data : String) -> {
+    return new Writer((data: String) -> {
       buffer.add(data);
     }, () -> {
-        if (buffer.length == 0)
-          return;
-        final dir = Path.directory(file);
-        if (!FileSystem.exists(dir))
-          FileSystem.createDirectory(dir);
-        final endTimer = timer('writeToFile');
-        final output = buffer.toString();
-        #if genes.unchanged_no_rewrite
-        try
-          if (FileSystem.exists(file) && output == File.getContent(file))
-            return endTimer()
-        catch (_) {}
-        #end
-        File.saveContent(file, output);
-        endTimer();
-      });
+      if (buffer.length == 0)
+        return;
+      final dir = Path.directory(file);
+      if (!FileSystem.exists(dir))
+        FileSystem.createDirectory(dir);
+      final endTimer = timer('writeToFile');
+      final output = buffer.toString();
+      #if genes.unchanged_no_rewrite
+      try
+        if (FileSystem.exists(file) && output == File.getContent(file))
+          return endTimer()
+      catch (_) {}
+      #end
+      File.saveContent(file, output);
+      endTimer();
+    });
   }
 }
