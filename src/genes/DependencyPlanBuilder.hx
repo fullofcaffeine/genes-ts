@@ -22,6 +22,9 @@ import genes.Module.Field;
 import genes.RuntimeTypeOccurrenceCollector.RuntimeTypeOccurrence;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.util.TypeUtil;
+#if genes.compile_stage_profile
+import genes.util.Timer.timer;
+#end
 
 using haxe.macro.TypedExprTools;
 
@@ -51,11 +54,31 @@ class DependencyPlanBuilder {
 
   public static function build(module: Module): DependencyPlan {
     final builder = new DependencyPlanBuilder(module);
+    #if genes.compile_stage_profile
+    final endRuntimeEdgesTimer = timer('genes.plan.reachability.runtimeEdges');
+    #end
     builder.collectRuntimeEdges();
-    if (Context.defined('genes.ts'))
+    #if genes.compile_stage_profile
+    endRuntimeEdgesTimer();
+    #end
+    if (Context.defined('genes.ts')) {
+      #if genes.compile_stage_profile
+      final endTypeEdgesTimer = timer('genes.plan.reachability.typeEdges');
+      #end
       builder.collectTypeEdges(TypeOnly, true);
-    if (Context.defined('dts'))
+      #if genes.compile_stage_profile
+      endTypeEdgesTimer();
+      #end
+    }
+    if (Context.defined('dts')) {
+      #if genes.compile_stage_profile
+      final endDeclarationEdgesTimer = timer('genes.plan.reachability.declarationEdges');
+      #end
       builder.collectTypeEdges(DeclarationOnly, false);
+      #if genes.compile_stage_profile
+      endDeclarationEdgesTimer();
+      #end
+    }
     return new DependencyPlan(builder.edges, builder.usesJsxNamespaceType);
   }
 

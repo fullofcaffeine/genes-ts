@@ -1,14 +1,132 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
   editPatternForWarmups,
   haxeTimingClockStatus,
-  runCompileStageReport
+  runCompileStageReport,
+  stageDistributions
 } from "./compile-stage-report.js";
+import type { HaxeTimingRow } from "./haxe-times.js";
+
+function assertOptionalReachabilityRows(
+  rows: ReadonlyArray<HaxeTimingRow>,
+  measurementKind: string
+): void {
+  for (const expected of [
+    {
+      id: "genes.plan.reachability.roots",
+      path: "genes.plan.reachability/genes.plan.reachability.roots"
+    },
+    {
+      id: "genes.plan.reachability.expand",
+      path: "genes.plan.reachability/genes.plan.reachability.expand"
+    },
+    {
+      id: "genes.plan.reachability.runtimeEdges",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.runtimeEdges"
+    },
+    {
+      id: "genes.plan.reachability.typeEdges",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.typeEdges"
+    },
+    {
+      id: "genes.plan.reachability.declarationEdges",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.declarationEdges"
+    }
+  ]) {
+    const row = rows.find((candidate) => candidate.id === expected.id);
+    if (row === undefined) continue;
+    ok(row.count > 0, `${measurementKind} ${expected.id} has no calls`);
+    ok(row.path.includes(expected.path),
+      `${measurementKind} ${expected.id} has an unexpected path ${row.path}`);
+  }
+}
+
+// Haxe legitimately omits every fine row when each aggregate rounds to zero.
+assertOptionalReachabilityRows([], "zero-rounded reachability control");
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
+for (const [source, timerIds] of [
+  ["src/genes/Generator.hx", [
+    "genes.plan.reachability.roots",
+    "genes.plan.reachability.expand"
+  ]],
+  ["src/genes/DependencyPlanBuilder.hx", [
+    "genes.plan.reachability.runtimeEdges",
+    "genes.plan.reachability.typeEdges",
+    "genes.plan.reachability.declarationEdges"
+  ]]
+] as const) {
+  const authoredSource = readFileSync(path.join(repoRoot, source), "utf8");
+  for (const timerId of timerIds) {
+    ok(authoredSource.includes(`timer('${timerId}')`),
+      `${source} is missing the ${timerId} timer site`);
+  }
+}
+const generatorSource = readFileSync(
+  path.join(repoRoot, "src/genes/Generator.hx"),
+  "utf8"
+);
+ok(
+  generatorSource.indexOf("timer('genes.plan.reachability.roots')")
+    < generatorSource.indexOf("final initialNames ="),
+  "reachability roots timing must start before root evidence preparation"
+);
+function syntheticFineRow(
+  id: string,
+  path: string,
+  reportedSeconds = 0.004
+): HaxeTimingRow {
+  return {
+    name: id.split(".").at(-1) ?? id,
+    id,
+    path,
+    depth: path.split("/").length - 1,
+    reportedSeconds,
+    percentOfTotal: 4,
+    percentOfParent: 8,
+    count: 3,
+    info: "genes.plan.reachability"
+  };
+}
+const syntheticFineRows = [
+  syntheticFineRow(
+    "genes.plan.reachability.roots",
+    "genes.plan.reachability/genes.plan.reachability.roots"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.expand",
+    "genes.plan.reachability/genes.plan.reachability.expand"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.runtimeEdges",
+    "genes.plan.reachability.expand/genes.plan.reachability.runtimeEdges"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeEdges",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.declarationEdges",
+    "genes.plan.reachability.expand/genes.plan.reachability.declarationEdges"
+  )
+];
+assertOptionalReachabilityRows(syntheticFineRows, "positive hierarchy control");
+const syntheticTypeRow = syntheticFineRows.find((row) =>
+  row.id === "genes.plan.reachability.typeEdges"
+);
+ok(syntheticTypeRow !== undefined);
+const intermittentStage = stageDistributions([
+  { haxeTimes: [syntheticTypeRow] },
+  { haxeTimes: [] }
+]);
+strictEqual(intermittentStage.length, 1);
+deepStrictEqual(intermittentStage[0]?.distribution.samples, [0.004, 0]);
+strictEqual(intermittentStage[0]?.distribution.sampleCount, 2);
+strictEqual(intermittentStage[0]?.distribution.median, 0);
 strictEqual(
   haxeTimingClockStatus("darwin", "4.3.7"),
   "known-unscaled-macos-monotonic-clock"
@@ -66,6 +184,14 @@ for (const entry of report.outputNeutrality) {
   strictEqual(entry.fixture, "control");
   strictEqual(entry.timed.sha256, entry.untimed.sha256);
   strictEqual(entry.timed.bytes, entry.untimed.bytes);
+  if (entry.profile === "classic-js") {
+    assertOptionalReachabilityRows(
+      entry.timedHaxeTimes.filter((row) =>
+        row.id.startsWith("genes.plan.reachability.")
+      ),
+      "classic declaration profile"
+    );
+  }
 }
 for (const measurement of report.measurements) {
   ok(measurement.haxeTimes.some((row) => row.id === "total"));
@@ -95,6 +221,13 @@ for (const measurement of report.measurements) {
       "emitClass/genes.emit.ts.class.methods/genes.emit.ts.class.methodSignature"
     ));
   }
+  const reachabilityRows = measurement.haxeTimes.filter((row) =>
+    row.id.startsWith("genes.plan.reachability.")
+  );
+  ok(measurement.haxeTimes.some((row) =>
+    row.id === "genes.plan.reachability"
+  ), `${measurement.kind} timing rows are missing reachability`);
+  assertOptionalReachabilityRows(reachabilityRows, measurement.kind);
   ok(measurement.haxeReportedSeconds > 0);
   ok(measurement.wallMsPerHaxeReportedSecond > 0);
   ok(measurement.output.files > 0);

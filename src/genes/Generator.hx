@@ -212,12 +212,6 @@ class Generator {
         + 'TypeScript types.',
         Context.currentPos());
 
-    final initialNames = [for (name in modules.keys()) name];
-    initialNames.sort(Reflect.compare);
-    final explicitlyExposedModules = new Map<String, Bool>();
-    for (item in expose)
-      explicitlyExposedModules.set(item.module, true);
-
     /**
      * Expands one output profile from compiler-owned dependency refs.
      *
@@ -319,6 +313,14 @@ class Generator {
     }
 
     final endReachabilityTimer = timer('genes.plan.reachability');
+    #if genes.compile_stage_profile
+    final endReachabilityRootsTimer = timer('genes.plan.reachability.roots');
+    #end
+    final initialNames = [for (name in modules.keys()) name];
+    initialNames.sort(Reflect.compare);
+    final explicitlyExposedModules = new Map<String, Bool>();
+    for (item in expose)
+      explicitlyExposedModules.set(item.module, true);
     final hasPublicModuleFunctions = initialNames.exists(name ->
       hasPublicModuleFunctionCandidate(modules.get(name)));
     final implementationRoots = if (tsMode) [
@@ -334,8 +336,15 @@ class Generator {
     final implementationKinds = if (tsMode)
       [RuntimeValue, RuntimeSideEffect, TypeOnly] else
       [RuntimeValue, RuntimeSideEffect];
+    #if genes.compile_stage_profile
+    endReachabilityRootsTimer();
+    final endReachabilityExpandTimer = timer('genes.plan.reachability.expand');
+    #end
     final implementationReachable = expandReachability(implementationRoots,
       implementationKinds, tsMode ? 'ts-strict' : 'classic-esm');
+    #if genes.compile_stage_profile
+    endReachabilityExpandTimer();
+    #end
     final implementationNames = [
       for (name in implementationReachable.keys())
         name

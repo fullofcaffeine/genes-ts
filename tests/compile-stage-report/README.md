@@ -47,12 +47,27 @@ The class timer tree separates these operations:
 - module bindings and private-method helpers
 - runtime registration.
 
+The reachability timer tree separates root selection and graph expansion. When
+the expansion first materializes a module dependency plan, nested rows divide
+runtime-edge collection from TypeScript type-edge collection. Classic
+declaration-edge collection has its own row when the declaration profile runs.
+These fine rows also compile only with `genes.compile_stage_profile`.
+
 Haxe combines repeated timer IDs and records their call count. The parent
-timers remain the authority for total class and method-emission time. Haxe
-omits a child row when its total rounds to zero. Thus, absent fine rows do not
-prove that the emitter skipped that operation. The focused control requires
-the aggregate methods and method-body rows. It validates the method-signature
-path when Haxe reports that optional non-zero row.
+timers remain the authority for total reachability, class, and method-emission
+time. Haxe omits a child row when its total rounds to zero. Thus, absent fine
+rows do not prove that the compiler skipped that operation. The focused
+control requires the aggregate methods and method-body rows. It validates the
+method-signature path when Haxe reports that optional non-zero row. It also
+requires the parent reachability row, then validates each expansion, runtime,
+type, or declaration child path only when Haxe reports that non-zero child.
+The focused gate also checks the authored timer sites and a synthetic positive
+hierarchy for roots, expansion, runtime, TypeScript type, and classic
+declaration edges. Its classic output-neutrality pair enables declarations so
+that profile runs the declaration collector; any live declaration timing row
+must follow the expected hierarchy. Aggregate stage statistics include a zero
+for each requested sample where Haxe omits a path, so intermittent rows describe
+the complete sample set instead of only its non-zero subset.
 
 The command starts one private Haxe compiler server. It performs the configured
 warmup, then alternates the order of an isolated cold build and a warm edit.

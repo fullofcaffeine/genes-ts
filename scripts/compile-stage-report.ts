@@ -86,7 +86,7 @@ interface CompileMeasurement {
   readonly typescriptMs: number | null;
 }
 
-interface StageDistribution {
+export interface StageDistribution {
   readonly id: string;
   readonly path: string;
   readonly distribution: Distribution;
@@ -159,6 +159,7 @@ export interface CompileStageReport {
   readonly outputNeutrality: ReadonlyArray<{
     readonly fixture: "control";
     readonly profile: ProfileName;
+    readonly timedHaxeTimes: ReadonlyArray<HaxeTimingRow>;
     readonly timed: OutputInventory;
     readonly untimed: OutputInventory;
   }>;
@@ -175,8 +176,8 @@ export interface CompileStageReport {
 }
 
 const fixtureShapes: Readonly<Record<FixtureName, FixtureShape>> = {
-  // Keep the class-method aggregate above Haxe's zero-row rounding boundary.
-  control: { name: "control", moduleCount: 4, methodsPerModule: 16 },
+  // Keep the class and graph aggregates above Haxe's zero-row rounding boundary.
+  control: { name: "control", moduleCount: 16, methodsPerModule: 16 },
   scale: { name: "scale", moduleCount: 145, methodsPerModule: 24 }
 };
 
@@ -352,6 +353,7 @@ function buildArguments(
     "-D", "js-es=6",
     "-D", "no-deprecation-warnings",
     ...(profile === "genes-ts" ? ["-D", "genes.ts"] : []),
+    ...(profile === "classic-js" ? ["-D", "dts"] : []),
     "-dce", "full",
     "-debug",
     ...(withTimes ? ["--times"] : [])
@@ -468,22 +470,23 @@ function distribution(
   };
 }
 
-function stageDistributions(
-  samples: ReadonlyArray<CompileMeasurement>
+export function stageDistributions(
+  samples: ReadonlyArray<Pick<CompileMeasurement, "haxeTimes">>
 ): ReadonlyArray<StageDistribution> {
-  const values = new Map<string, { id: string; samples: number[] }>();
+  const stages = new Map<string, string>();
   for (const sample of samples) {
     for (const row of sample.haxeTimes) {
-      const current = values.get(row.path) ?? { id: row.id, samples: [] };
-      current.samples.push(row.reportedSeconds);
-      values.set(row.path, current);
+      stages.set(row.path, row.id);
     }
   }
-  return [...values.entries()]
-    .map(([stagePath, value]) => ({
-      id: value.id,
+  return [...stages.entries()]
+    .map(([stagePath, id]) => ({
+      id,
       path: stagePath,
-      distribution: distribution(value.samples, "haxe-reported-seconds")
+      distribution: distribution(samples.map((sample) =>
+        sample.haxeTimes.find((row) => row.path === stagePath)
+          ?.reportedSeconds ?? 0
+      ), "haxe-reported-seconds")
     }))
     .sort((left, right) =>
       right.distribution.median - left.distribution.median
@@ -515,7 +518,7 @@ async function assertOutputNeutrality(
     fixtureRoot,
     `${profile} timed output control`
   );
-  parseHaxeTimes(resultText(timedResult.result));
+  const timedHaxeTimes = parseHaxeTimes(resultText(timedResult.result));
   await compileCold(
     compiler,
     buildArguments(sourceRoot, untimedRoot, profile, false, genesVersion),
@@ -534,6 +537,7 @@ async function assertOutputNeutrality(
   return {
     fixture: "control",
     profile,
+    timedHaxeTimes,
     timed: timedInventory,
     untimed: untimedInventory
   };
