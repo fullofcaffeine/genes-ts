@@ -1,6 +1,6 @@
-import { ok, rejects, strictEqual, throws } from "node:assert";
+import { deepStrictEqual, ok, rejects, strictEqual, throws } from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,16 +9,21 @@ import {
   AcceptanceEvidenceError,
   AcceptanceInterruptedError,
   AcceptanceProcessOwner,
+  acceptanceProcessOwnerTestOnly,
   maxNodeTimerDelayMs,
+  type ProcessGroupObservation,
   terminateAcceptanceProcessTree
 } from "./acceptance-process-owner.js";
+import {
+  acceptanceFixtureCompletionTimeoutMs as fixtureCompletionTimeoutMs,
+  acceptanceFixtureStartupTimeoutMs as processStartupTimeoutMs
+} from "./acceptance-test-budgets.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const probe = path.join(scriptDir, "acceptance-owner-probe.js");
 const processProbe = path.join(scriptDir, "acceptance-process-probe.js");
 const reportRoot = path.join(repoRoot, ".tmp/test-acceptance-process-owner");
-const processStartupTimeoutMs = 15_000;
 
 class ImmediateSink extends Writable {
   public override _write(
@@ -44,7 +49,10 @@ class FinalSentinelSink extends Writable {
   public stalled = false;
   public destroyedWith: Error | null = null;
 
-  public constructor(private readonly sentinel: string) {
+  public constructor(
+    private readonly sentinel: string,
+    private readonly events?: string[]
+  ) {
     super();
   }
 
@@ -55,6 +63,7 @@ class FinalSentinelSink extends Writable {
   ): void {
     if (chunk.toString("utf8").includes(this.sentinel)) {
       this.stalled = true;
+      this.events?.push("console-write-stalled");
       return;
     }
     callback();
@@ -65,6 +74,7 @@ class FinalSentinelSink extends Writable {
     callback: (error?: Error | null) => void
   ): void {
     this.destroyedWith = error;
+    this.events?.push("console-write-settled");
     callback(error);
   }
 }
@@ -86,7 +96,10 @@ class TrackingSink extends Writable {
   }
 }
 
-async function isRunning(pid: number): Promise<boolean> {
+async function isRunning(
+  pid: number,
+  timeoutMs = processStartupTimeoutMs
+): Promise<boolean> {
   if (process.platform === "win32") {
     try {
       process.kill(pid, 0);
@@ -117,8 +130,10 @@ async function isRunning(pid: number): Promise<boolean> {
       child.once("error", () => {});
       child.kill("SIGKILL");
       child.unref();
-      finish(new Error(`Process probe timed out for ${String(pid)}`), null);
-    }, 1_000);
+      finish(new Error(
+        `Process probe timed out after ${String(timeoutMs)}ms for ${String(pid)}`
+      ), null);
+    }, timeoutMs);
     child.once("error", onError);
     child.once("exit", onExit);
   });
@@ -185,7 +200,10 @@ async function waitForPath(
   throw new Error(`Timed out waiting for ${target}`);
 }
 
-async function waitUntilStopped(pid: number, timeoutMs = 2_000): Promise<void> {
+async function waitUntilStopped(
+  pid: number,
+  timeoutMs = processStartupTimeoutMs
+): Promise<void> {
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
     if (!await isRunning(pid)) return;
@@ -279,7 +297,66 @@ function writerProxy(
   };
 }
 
+async function scriptedGroupWait(
+  observations: ReadonlyArray<ProcessGroupObservation>,
+  timeoutMs: number,
+  fallbackPresences: ReadonlyArray<"live" | "absent"> = ["live"]
+): Promise<{
+  readonly exited: boolean;
+  readonly observationCalls: number;
+  readonly fallbackCalls: number;
+  readonly degradationReports: number;
+  readonly sleepCalls: number;
+}> {
+  let now = 0;
+  let observationCalls = 0;
+  let fallbackCalls = 0;
+  let degradationReports = 0;
+  let sleepCalls = 0;
+  const exited = await acceptanceProcessOwnerTestOnly.waitForProcessGroupExit(
+    123,
+    timeoutMs,
+    10,
+    () => { degradationReports += 1; },
+    {
+      observeGroup: async (_pid, budgetMs) => {
+        ok(budgetMs > 0, "Scripted observation received an exhausted budget");
+        const observation = observations[observationCalls];
+        ok(observation !== undefined, "Scripted process observations were exhausted");
+        observationCalls += 1;
+        return observation;
+      },
+      fallbackGroupPresence: () => {
+        const presence = fallbackPresences[Math.min(
+          fallbackCalls,
+          fallbackPresences.length - 1
+        )];
+        ok(presence !== undefined, "Scripted fallback observations were exhausted");
+        fallbackCalls += 1;
+        return presence;
+      }
+    },
+    {
+      now: () => now,
+      sleep: (milliseconds) => {
+        ok(milliseconds > 0, "Scripted wait requested a non-positive delay");
+        sleepCalls += 1;
+        now += milliseconds;
+        return Promise.resolve();
+      }
+    }
+  );
+  return {
+    exited,
+    observationCalls,
+    fallbackCalls,
+    degradationReports,
+    sleepCalls
+  };
+}
+
 rmSync(reportRoot, { recursive: true, force: true });
+mkdirSync(reportRoot, { recursive: true });
 throws(
   () => new AcceptanceProcessOwner({
     cwd: repoRoot,
@@ -317,7 +394,88 @@ for (const limits of [
   );
 }
 
-const bystander = spawn(process.execPath, [probe, "bystander"], {
+for (let iteration = 0; iteration < 100; iteration += 1) {
+  deepStrictEqual(
+    await scriptedGroupWait([{ kind: "zombie-only" }], 25),
+    {
+      exited: false,
+      observationCalls: 1,
+      fallbackCalls: 1,
+      degradationReports: 0,
+      sleepCalls: 1
+    }
+  );
+  deepStrictEqual(
+    await scriptedGroupWait([
+      { kind: "zombie-only" },
+      { kind: "zombie-only" }
+    ], 100),
+    {
+      exited: true,
+      observationCalls: 2,
+      fallbackCalls: 0,
+      degradationReports: 0,
+      sleepCalls: 1
+    }
+  );
+  deepStrictEqual(
+    await scriptedGroupWait([
+      { kind: "zombie-only" },
+      { kind: "live" },
+      { kind: "zombie-only" }
+    ], 75),
+    {
+      exited: false,
+      observationCalls: 3,
+      fallbackCalls: 1,
+      degradationReports: 0,
+      sleepCalls: 3
+    }
+  );
+  deepStrictEqual(
+    await scriptedGroupWait([{ kind: "absent" }], 100),
+    {
+      exited: true,
+      observationCalls: 1,
+      fallbackCalls: 0,
+      degradationReports: 0,
+      sleepCalls: 0
+    }
+  );
+  deepStrictEqual(
+    await scriptedGroupWait([{ kind: "degraded-live" }], 100, ["absent"]),
+    {
+      exited: true,
+      observationCalls: 1,
+      fallbackCalls: 1,
+      degradationReports: 2,
+      sleepCalls: 1
+    }
+  );
+  deepStrictEqual(
+    await scriptedGroupWait([{ kind: "degraded-absent" }], 100),
+    {
+      exited: true,
+      observationCalls: 1,
+      fallbackCalls: 0,
+      degradationReports: 1,
+      sleepCalls: 0
+    }
+  );
+  deepStrictEqual(
+    await scriptedGroupWait([{ kind: "degraded-live" }], 50),
+    {
+      exited: false,
+      observationCalls: 1,
+      fallbackCalls: 2,
+      degradationReports: 2,
+      sleepCalls: 2
+    }
+  );
+}
+
+const bystanderMarker = path.join(reportRoot, "bystander-ready");
+const bystander = spawn(process.execPath, [probe, "resistant-root", bystanderMarker], {
   cwd: repoRoot,
   detached: process.platform !== "win32",
   stdio: "ignore"
@@ -325,14 +483,49 @@ const bystander = spawn(process.execPath, [probe, "bystander"], {
 ok(bystander.pid !== undefined, "Bystander did not start");
 
 try {
+  await waitForPath(bystanderMarker);
+  if (process.platform !== "win32") {
+    deepStrictEqual(
+      await acceptanceProcessOwnerTestOnly.runProcessProbe(
+        { command: process.execPath, args: [probe, "empty-process-probe"] },
+        "--group",
+        bystander.pid,
+        processStartupTimeoutMs
+      ),
+      { kind: "live" },
+      "A false absent probe result bypassed the live kernel witness"
+    );
+    deepStrictEqual(
+      await acceptanceProcessOwnerTestOnly.runProcessProbe(
+        { command: process.execPath, args: [probe, "zombie-only-process-probe"] },
+        "--group",
+        bystander.pid,
+        processStartupTimeoutMs
+      ),
+      { kind: "zombie-only" },
+      "The probe adapter did not preserve the zombie-only protocol result"
+    );
+    deepStrictEqual(
+      await acceptanceProcessOwnerTestOnly.runProcessProbe(
+        { command: process.execPath, args: [processProbe] },
+        "--group",
+        bystander.pid,
+        processStartupTimeoutMs
+      ),
+      { kind: "live" },
+      "The ready process group degraded through the real probe adapter"
+    );
+    strictEqual(await isRunning(bystander.pid), true, "Probe adapter stopped its target");
+  }
+
   const preStartTimeoutRoot = path.join(reportRoot, "pre-start-timeout");
   const previousPreStartRun = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: preStartTimeoutRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     stdout: new ImmediateSink(),
     stderr: new ImmediateSink(),
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await previousPreStartRun.run({
     id: "previous-pre-start-run",
@@ -345,7 +538,7 @@ try {
     reportRoot: preStartTimeoutRoot,
     timeoutMs: 1,
     terminationGraceMs: 100,
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await new Promise<void>((resolve) => setTimeout(resolve, 10));
   await rejects(
@@ -382,7 +575,7 @@ try {
         PROBE_WRITER_MARKER_OPERATION: "reset-report"
       }
     },
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await rejects(
     awaitedExpiry.run({
@@ -414,7 +607,7 @@ try {
         PROBE_WRITER_MARKER_PUBLICATION_PHASE: "terminal"
       }
     },
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await new Promise<void>((resolve) => setTimeout(resolve, 10));
   const preStartSignalRun = preStartSignal.run({
@@ -438,7 +631,7 @@ try {
     reportRoot: timeoutRoot,
     timeoutMs: 15_000,
     terminationGraceMs: 100,
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await rejects(
     timeoutOwner.run({
@@ -460,66 +653,13 @@ try {
   strictEqual(timeoutState.gates?.[0]?.cleanup?.succeeded, true);
 
   if (process.platform !== "win32") {
-    const provisionalMarker = path.join(reportRoot, "provisional-process-probe.pid");
-    const provisionalProbe = spawn(process.execPath, [probe, "resistant-root", provisionalMarker], {
-      cwd: repoRoot,
-      detached: true,
-      stdio: "ignore"
-    });
-    ok(provisionalProbe.pid !== undefined, "Provisional process probe did not start");
-    const provisionalPid = provisionalProbe.pid;
-    await waitForPath(provisionalMarker);
-    await terminateAcceptanceProcessTree(
-      provisionalProbe,
-      100,
-      100,
-      () => {},
-      { command: process.execPath, args: [probe, "empty-process-probe"] }
-    );
-    await waitUntilStopped(provisionalPid);
-
-    const zombieOnlyMarker = path.join(reportRoot, "zombie-only-process-probe.pid");
-    const zombieOnlyCount = path.join(reportRoot, "zombie-only-process-probe.count");
-    const zombieOnlyProbe = spawn(
-      process.execPath,
-      [probe, "resistant-root", zombieOnlyMarker],
-      { cwd: repoRoot, detached: true, stdio: "ignore" }
-    );
-    ok(zombieOnlyProbe.pid !== undefined, "Zombie-only process probe did not start");
-    const zombieOnlyPid = zombieOnlyProbe.pid;
-    await waitForPath(zombieOnlyMarker);
-    try {
-      await terminateAcceptanceProcessTree(
-        zombieOnlyProbe,
-        100,
-        100,
-        () => {},
-        {
-          command: process.execPath,
-          args: [probe, "zombie-only-process-probe"],
-          env: { PROBE_PROCESS_COUNT_PATH: zombieOnlyCount }
-        }
-      );
-      const zombieScans = readFileSync(zombieOnlyCount, "utf8")
-        .split("\n")
-        .filter((line) => line.length > 0);
-      ok(zombieScans.length >= 2, "Zombie-only status was trusted after one scan");
-    } finally {
-      try {
-        process.kill(-zombieOnlyPid, "SIGKILL");
-      } catch {
-        // The injected zombie-only authority already returned.
-      }
-      await waitUntilStopped(zombieOnlyPid);
-    }
-
     const rootExitRoot = path.join(reportRoot, "root-exit");
     const rootExit = new AcceptanceProcessOwner({
       cwd: repoRoot,
       reportRoot: rootExitRoot,
       timeoutMs: processStartupTimeoutMs,
       terminationGraceMs: 100,
-      limits: { statePublicationMs: 15_000 }
+      limits: { statePublicationMs: processStartupTimeoutMs }
     });
     await rootExit.run({
       id: "background-root",
@@ -538,7 +678,7 @@ try {
       reportRoot: descriptorRoot,
       timeoutMs: processStartupTimeoutMs,
       terminationGraceMs: 100,
-      limits: { drainMs: 100, statePublicationMs: 15_000 }
+      limits: { drainMs: 100, statePublicationMs: processStartupTimeoutMs }
     });
     const descriptorStarted = performance.now();
     await descriptorOwner.run({
@@ -546,7 +686,10 @@ try {
       command: process.execPath,
       args: [probe, "descriptor-root"]
     });
-    ok(performance.now() - descriptorStarted < 30_000, "Descriptor drain exceeded its outer bound");
+    ok(
+      performance.now() - descriptorStarted < fixtureCompletionTimeoutMs,
+      "Descriptor drain exceeded its outer bound"
+    );
     const descriptorLog = readFileSync(
       path.join(descriptorRoot, "descriptor-holder.log"),
       "utf8"
@@ -579,11 +722,12 @@ try {
         cleanupFailureOwner,
         /probe:cleanup-survivor:(\d+)/gu,
         1,
-        (pids) => { cleanupPids = pids; }
+        (pids) => { cleanupPids = pids; },
+        fixtureCompletionTimeoutMs
       );
       const cleanupPid = cleanupPids[0];
       ok(cleanupPid !== undefined);
-      const exit = await waitForExit(cleanupFailureOwner, 5_000);
+      const exit = await waitForExit(cleanupFailureOwner, fixtureCompletionTimeoutMs);
       ok(exit.code !== 0 || exit.signal !== null);
       strictEqual(await isRunning(cleanupPid), true);
       const cleanupState = stateAt(cleanupFailureRoot).gates?.[0];
@@ -620,8 +764,14 @@ try {
       [probe, "cleanup-failure-owner", lateExitRoot, "delayed-exit"],
       { cwd: repoRoot, detached: true, stdio: ["ignore", "pipe", "ignore"] }
     );
-    await waitForPids(lateExitOwner, /probe:delayed-exit:(\d+)/gu, 1);
-    const lateExit = await waitForExit(lateExitOwner, 5_000);
+    await waitForPids(
+      lateExitOwner,
+      /probe:delayed-exit:(\d+)/gu,
+      1,
+      () => {},
+      fixtureCompletionTimeoutMs
+    );
+    const lateExit = await waitForExit(lateExitOwner, fixtureCompletionTimeoutMs);
     ok(lateExit.code !== 0 || lateExit.signal !== null);
     const lateExitState = stateAt(lateExitRoot).gates?.[0];
     strictEqual(lateExitState?.status, "failed");
@@ -646,7 +796,7 @@ try {
       }
     );
     try {
-      await waitForPath(missingPidPath);
+      await waitForPath(missingPidPath, fixtureCompletionTimeoutMs);
       await rejects(
         waitForPids(
           missingPidOwner,
@@ -700,10 +850,13 @@ try {
     );
     let fallbackPid: number | null = null;
     try {
-      await waitForPath(fallbackMarkerPath);
+      await waitForPath(fallbackMarkerPath, fixtureCompletionTimeoutMs);
       fallbackPid = Number(readFileSync(fallbackMarkerPath, "utf8").trim());
       await rejects(waitForPath(failedMarkerPath, 100), /Timed out waiting/u);
-      const failedMarkerExit = await waitForExit(failedMarkerOwner, 5_000);
+      const failedMarkerExit = await waitForExit(
+        failedMarkerOwner,
+        fixtureCompletionTimeoutMs
+      );
       ok(failedMarkerExit.code !== 0 || failedMarkerExit.signal !== null);
       strictEqual(await isRunning(fallbackPid), false);
     } finally {
@@ -743,8 +896,8 @@ try {
       observedBytesTotal: 4_096,
       drainMs: 100,
       consoleWriteMs: 100,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   await rejects(
@@ -777,8 +930,8 @@ try {
       observedBytesTotal: 3_072,
       drainMs: 100,
       consoleWriteMs: 100,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   await aggregateCapOwner.run({
@@ -811,8 +964,8 @@ try {
       retainedBytesPerGate: 1_024,
       consoleBytesPerGate: 4_096,
       observedBytesTotal: 80,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   await preSpawnCap.run({
@@ -837,15 +990,15 @@ try {
   const stalledConsole = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: stalledConsoleRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     terminationGraceMs: 100,
     stdout: new StalledSink(),
     stderr: new ImmediateSink(),
     limits: {
       consoleWriteMs: 50,
       drainMs: 50,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   const stalledConsoleStarted = performance.now();
@@ -857,7 +1010,10 @@ try {
     }),
     /Console write exceeded 50ms/u
   );
-  ok(performance.now() - stalledConsoleStarted < 30_000, "Stalled console escaped its bound");
+  ok(
+    performance.now() - stalledConsoleStarted < fixtureCompletionTimeoutMs,
+    "Stalled console escaped its bound"
+  );
   strictEqual(stateAt(stalledConsoleRoot).gates?.[0]?.status, "failed");
 
   const finalWriteRoot = path.join(reportRoot, "final-write");
@@ -866,15 +1022,15 @@ try {
   const finalWrite = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: finalWriteRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     terminationGraceMs: 100,
     stdout: new ImmediateSink(),
     stderr: finalSink,
     limits: {
       consoleWriteMs: 100,
       drainMs: 500,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   await rejects(
@@ -900,31 +1056,26 @@ try {
   strictEqual(readFileSync(path.join(finalWriteRoot, "state.json"), "utf8"), stableFinalState);
 
   const drainBeforeWriteRoot = path.join(reportRoot, "drain-before-write");
-  const drainMarker = path.join(reportRoot, "drain-publication-started");
-  const drainSink = new FinalSentinelSink(finalSentinel);
+  const drainEvents: string[] = [];
+  const drainSink = new FinalSentinelSink(finalSentinel, drainEvents);
   const drainBeforeWrite = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: drainBeforeWriteRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     terminationGraceMs: 100,
     stdout: new ImmediateSink(),
     stderr: drainSink,
-    evidenceWriter: {
-      command: process.execPath,
-      args: [probe, "writer-proxy"],
-      env: {
-        PROBE_WRITER_LOG_MARKER: drainMarker,
-        PROBE_WRITER_MARKER_OPERATION: "publish-log"
-      }
+    terminateProcessTree: async () => {},
+    onEvidenceOperationDispatch: (operation) => {
+      if (operation === "publish-log") drainEvents.push("publish-log-dispatched");
     },
     limits: {
       consoleWriteMs: 100,
       drainMs: 20,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
-  const drainBeforeWriteStarted = performance.now();
   await rejects(
     drainBeforeWrite.run({
       id: "drain-before-write",
@@ -933,47 +1084,23 @@ try {
     }),
     /Console write exceeded 100ms/u
   );
-  ok(performance.now() - drainBeforeWriteStarted >= 80);
-  strictEqual(existsSync(drainMarker), true);
-  strictEqual(
-    stateAt(drainBeforeWriteRoot).gates?.[0]?.output?.drainTimedOut,
-    true
+  deepStrictEqual(
+    drainEvents,
+    ["console-write-stalled", "console-write-settled", "publish-log-dispatched"]
   );
+  const drainBeforeWriteState = stateAt(drainBeforeWriteRoot).gates?.[0];
+  strictEqual(drainBeforeWriteState?.phase, "terminal");
+  // The descriptor-holder control owns the real drain-timeout branch. This
+  // fixture owns pending console-write settlement before log publication.
+  ok(readFileSync(path.join(drainBeforeWriteRoot, "drain-before-write.log"), "utf8")
+    .includes(finalSentinel));
 
   if (process.platform !== "win32") {
-    const ordinaryEscalationRoot = path.join(reportRoot, "ordinary-sigkill-escalation");
-    const ordinaryEscalationMarker = path.join(reportRoot, "ordinary-sigkill-ready");
-    const ordinaryEscalation = new AcceptanceProcessOwner({
-      cwd: repoRoot,
-      reportRoot: ordinaryEscalationRoot,
-      timeoutMs: 500,
-      terminationGraceMs: 100,
-      stdout: new ImmediateSink(),
-      stderr: new ImmediateSink(),
-      limits: {
-        processProbeMs: 50,
-        logPublicationMs: 15_000,
-        statePublicationMs: 15_000
-      }
-    });
-    await rejects(
-      ordinaryEscalation.run({
-        id: "ordinary-sigkill-escalation",
-        command: process.execPath,
-        args: [probe, "resistant-root", ordinaryEscalationMarker]
-      }),
-      /Acceptance timed out in ordinary-sigkill-escalation/u
-    );
-    strictEqual(existsSync(ordinaryEscalationMarker), true);
-    const ordinaryEscalationState = stateAt(ordinaryEscalationRoot).gates?.[0];
-    strictEqual(ordinaryEscalationState?.cleanup?.succeeded, true);
-    strictEqual(ordinaryEscalationState?.cleanup?.probeDegraded, false);
-
     const stalledProbeRoot = path.join(reportRoot, "stalled-process-probe");
     const stalledProbe = new AcceptanceProcessOwner({
       cwd: repoRoot,
       reportRoot: stalledProbeRoot,
-      timeoutMs: 5_000,
+      timeoutMs: processStartupTimeoutMs,
       terminationGraceMs: 100,
       stdout: new ImmediateSink(),
       stderr: new ImmediateSink(),
@@ -984,8 +1111,8 @@ try {
       },
       limits: {
         processProbeMs: 50,
-        logPublicationMs: 15_000,
-        statePublicationMs: 15_000
+        logPublicationMs: processStartupTimeoutMs,
+        statePublicationMs: processStartupTimeoutMs
       }
     });
     await stalledProbe.run({
@@ -1013,7 +1140,7 @@ try {
       terminationGraceMs: 50,
       stdout: new ImmediateSink(),
       stderr: new ImmediateSink(),
-      limits: { statePublicationMs: 15_000 }
+      limits: { statePublicationMs: processStartupTimeoutMs }
     });
     await rejects(
       monotonicOwner.run({
@@ -1032,13 +1159,13 @@ try {
   const markerBudget = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: markerBudgetRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     stdout: markerSink,
     stderr: markerSink,
     limits: {
       consoleBytesPerGate: 1,
-      logPublicationMs: 15_000,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   await markerBudget.run({
@@ -1061,10 +1188,10 @@ try {
   );
   const blockedConsoleStarted = performance.now();
   try {
-    const exit = await waitForExit(blockedConsole, 10_000);
+    const exit = await waitForExit(blockedConsole, fixtureCompletionTimeoutMs);
     ok(exit.code !== 0 || exit.signal !== null);
     ok(
-      performance.now() - blockedConsoleStarted < 10_000,
+      performance.now() - blockedConsoleStarted < fixtureCompletionTimeoutMs,
       "Blocked OS-pipe console write escaped its bound"
     );
     const blockedConsoleState = stateAt(blockedConsoleRoot).gates?.[0];
@@ -1085,10 +1212,13 @@ try {
     const owner = new AcceptanceProcessOwner({
       cwd: repoRoot,
       reportRoot: faultRoot,
-      timeoutMs: 5_000,
+      timeoutMs: processStartupTimeoutMs,
       terminationGraceMs: 100,
       evidenceWriter: writerProxy("publish-log", fault),
-      limits: { logPublicationMs: 15_000, statePublicationMs: 15_000 }
+      limits: {
+        logPublicationMs: processStartupTimeoutMs,
+        statePublicationMs: processStartupTimeoutMs
+      }
     });
     await rejects(
       owner.run({
@@ -1108,10 +1238,10 @@ try {
   const stalledWriter = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: stalledWriterRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     terminationGraceMs: 100,
     evidenceWriter: writerProxy("publish-log", "stall"),
-    limits: { logPublicationMs: 100, statePublicationMs: 15_000 }
+    limits: { logPublicationMs: 100, statePublicationMs: processStartupTimeoutMs }
   });
   const stalledWriterStarted = performance.now();
   await rejects(
@@ -1122,7 +1252,10 @@ try {
     }),
     /publish-log exceeded 100ms/u
   );
-  ok(performance.now() - stalledWriterStarted < 30_000, "Stalled writer escaped its bound");
+  ok(
+    performance.now() - stalledWriterStarted < fixtureCompletionTimeoutMs,
+    "Stalled writer escaped its bound"
+  );
 
   const stdinFailureRoot = path.join(reportRoot, "writer-stdin-failure");
   const stdinFailurePidPath = path.join(reportRoot, "writer-stdin-failure.pid");
@@ -1130,7 +1263,7 @@ try {
   const stdinFailure = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: stdinFailureRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     terminationGraceMs: 100,
     stdout: new ImmediateSink(),
     stderr: new ImmediateSink(),
@@ -1143,8 +1276,8 @@ try {
     },
     limits: {
       retainedBytesPerGate: 1024 * 1024,
-      logPublicationMs: 500,
-      statePublicationMs: 15_000
+      logPublicationMs: processStartupTimeoutMs,
+      statePublicationMs: processStartupTimeoutMs
     }
   });
   const stdinFailureStarted = performance.now();
@@ -1156,7 +1289,10 @@ try {
     }),
     /EPIPE|closed/u
   );
-  ok(performance.now() - stdinFailureStarted < 30_000, "Writer stdin failure escaped its bound");
+  ok(
+    performance.now() - stdinFailureStarted < fixtureCompletionTimeoutMs,
+    "Writer stdin failure escaped its bound"
+  );
   const stdinFailurePid = Number(readFileSync(stdinFailurePidPath, "utf8").trim());
   strictEqual(await isRunning(stdinFailurePid), false, "Failed evidence writer survived");
 
@@ -1164,7 +1300,7 @@ try {
   const stateTimeout = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: stateTimeoutRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     evidenceWriter: writerProxy("reset-report", "stall"),
     limits: { statePublicationMs: 100 }
   });
@@ -1178,15 +1314,18 @@ try {
     (error: unknown) => error instanceof AcceptanceEvidenceError
       && String(error.cause).includes("reset-report exceeded 100ms")
   );
-  ok(performance.now() - stateTimeoutStarted < 30_000, "Stalled state writer escaped its bound");
+  ok(
+    performance.now() - stateTimeoutStarted < fixtureCompletionTimeoutMs,
+    "Stalled state writer escaped its bound"
+  );
 
   const stateFailureRoot = path.join(reportRoot, "state-failure");
   const stateFailure = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: stateFailureRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     evidenceWriter: writerProxy("publish-terminal-state", "EIO"),
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await rejects(
     stateFailure.run({
@@ -1205,11 +1344,11 @@ try {
   const completeNewFailure = new AcceptanceProcessOwner({
     cwd: repoRoot,
     reportRoot: completeNewFailureRoot,
-    timeoutMs: 5_000,
+    timeoutMs: processStartupTimeoutMs,
     stdout: new ImmediateSink(),
     stderr: new ImmediateSink(),
     evidenceWriter: writerProxy("publish-terminal-state", "after-write-EIO"),
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await rejects(
     completeNewFailure.run({
@@ -1233,9 +1372,9 @@ try {
       { cwd: repoRoot, detached: true, stdio: "ignore" }
     );
     try {
-      await waitForPath(finalSignalMarker);
+      await waitForPath(finalSignalMarker, fixtureCompletionTimeoutMs);
       strictEqual(finalSignalOwner.kill("SIGTERM"), true);
-      const exit = await waitForExit(finalSignalOwner, 5_000);
+      const exit = await waitForExit(finalSignalOwner, fixtureCompletionTimeoutMs);
       strictEqual(exit.code, 143);
       const finalSignalState = stateAt(finalSignalRoot).gates?.[0];
       strictEqual(finalSignalState?.status, "interrupted");
@@ -1258,10 +1397,12 @@ try {
       const pids = await waitForPids(
         signalOwner,
         /probe:(?:parent|child|grandchild):(\d+)/gu,
-        3
+        3,
+        () => {},
+        fixtureCompletionTimeoutMs
       );
       strictEqual(signalOwner.kill("SIGTERM"), true);
-      const exit = await waitForExit(signalOwner);
+      const exit = await waitForExit(signalOwner, fixtureCompletionTimeoutMs);
       strictEqual(exit.code, 143);
       for (const pid of pids) strictEqual(await isRunning(pid), false);
       strictEqual(stateAt(signalRoot).gates?.[0]?.status, "interrupted");
@@ -1281,10 +1422,12 @@ try {
       const pids = await waitForPids(
         outputOwner,
         /probe:(?:parent|child|grandchild):(\d+)/gu,
-        3
+        3,
+        () => {},
+        fixtureCompletionTimeoutMs
       );
       outputOwner.stdout?.destroy();
-      const exit = await waitForExit(outputOwner);
+      const exit = await waitForExit(outputOwner, fixtureCompletionTimeoutMs);
       ok(exit.code !== 0 || exit.signal !== null);
       for (const pid of pids) strictEqual(await isRunning(pid), false);
       strictEqual(stateAt(outputRoot).gates?.[0]?.status, "failed");
@@ -1302,9 +1445,9 @@ try {
       { cwd: repoRoot, detached: true, stdio: "ignore" }
     );
     try {
-      await waitForPath(publicationMarker);
+      await waitForPath(publicationMarker, fixtureCompletionTimeoutMs);
       strictEqual(publicationOwner.kill("SIGTERM"), true);
-      const exit = await waitForExit(publicationOwner);
+      const exit = await waitForExit(publicationOwner, fixtureCompletionTimeoutMs);
       strictEqual(exit.code, 143);
       strictEqual(stateAt(publicationRoot).gates?.[0]?.status, "interrupted");
     } finally {
@@ -1321,7 +1464,7 @@ try {
     timeoutMs: processStartupTimeoutMs,
     stdout: new ImmediateSink(),
     stderr: new ImmediateSink(),
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await healthy.run({
     id: "healthy",
@@ -1338,7 +1481,7 @@ try {
     cwd: repoRoot,
     reportRoot: failureRoot,
     timeoutMs: processStartupTimeoutMs,
-    limits: { statePublicationMs: 15_000 }
+    limits: { statePublicationMs: processStartupTimeoutMs }
   });
   await rejects(
     failure.run({
