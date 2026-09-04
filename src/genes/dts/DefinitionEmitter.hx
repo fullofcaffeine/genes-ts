@@ -40,7 +40,7 @@ class DefinitionEmitter extends ModuleEmitter {
     // `genes.ts.Json*` helpers erase at runtime but their strong declaration
     // projection names one recursive alias family. Emit it in classic `.d.ts`
     // modules from the same semantic plan consumed by TS source output.
-    if (JsonTypeSupport.moduleUsesJsonTypes(module)
+    if (module.usesJsonTypes
       || JsonTypeSupport.dependenciesUseJsonTypes(dependencies)) {
       writeNewline();
       JsonTypeSupport.emitAliases(line -> {

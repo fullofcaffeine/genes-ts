@@ -521,7 +521,7 @@ class ModuleFunctionPlan {
 
     // In a Haxe interpolated string, `$$` emits one literal `$`.
     add('$$global', 'compiler-owned global alias', Context.currentPos());
-    if (JsonTypeSupport.moduleUsesJsonTypes(module)
+    if (module.usesJsonTypes
       || JsonTypeSupport.dependenciesUseJsonTypes(module.implementationProjection.bindings)) {
       for (name in ['JsonPrimitive', 'JsonObject', 'JsonArray', 'JsonValue', 'JsonNonNullValue'])
         add(name, 'generated JSON type alias ${name}', Context.currentPos());

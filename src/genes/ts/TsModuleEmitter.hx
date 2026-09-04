@@ -282,8 +282,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     endImportTimer();
 
-    if (JsonTypeSupport.moduleUsesJsonTypes(module)
-      || JsonTypeSupport.dependenciesUseJsonTypes(deps)) {
+    if (module.usesJsonTypes || JsonTypeSupport.dependenciesUseJsonTypes(deps)) {
       writeNewline();
       JsonTypeSupport.emitAliases(line -> {
         write(line);

@@ -375,8 +375,8 @@
           "pointer": [
             "boundaries"
           ],
-          "expected": 28,
-          "count": 28
+          "expected": 34,
+          "count": 34
         },
         {
           "id": "reusable-library-source-modules",

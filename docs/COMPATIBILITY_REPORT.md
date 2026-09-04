@@ -113,7 +113,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 | Compile inventory | Generated TypeScript snapshot profiles | 8 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
 | Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |
-| Strict public typing | Explicitly owned exported-surface boundaries | 28 | `blocking` |
+| Strict public typing | Explicitly owned exported-surface boundaries | 34 | `blocking` |
 | Strict public typing | Reusable-library same-source Haxe modules | 4 | `blocking` |
 | Semantic differential | Same-source Haxe modules | 18 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
