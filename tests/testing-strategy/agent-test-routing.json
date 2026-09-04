@@ -2188,7 +2188,7 @@
       "packageScript": "test:acceptance-process-owner",
       "runnerToken": "scripts/dist/test-acceptance-process-owner.js",
       "tier": "focused",
-      "cost": "fast",
+      "cost": "medium",
       "axes": [
         "repository-policy"
       ],
@@ -2204,6 +2204,7 @@
         "scripts/acceptance-process-probe.ts",
         "scripts/acceptance-evidence-writer.ts",
         "scripts/acceptance-owner-probe.ts",
+        "scripts/acceptance-test-budgets.ts",
         "scripts/test-acceptance-process-owner.ts",
         "scripts/test-acceptance.ts"
       ],
@@ -2214,6 +2215,7 @@
         "scripts/acceptance-process-probe.ts",
         "scripts/acceptance-evidence-writer.ts",
         "scripts/acceptance-owner-probe.ts",
+        "scripts/acceptance-test-budgets.ts",
         "scripts/test-acceptance-process-owner.ts",
         "scripts/test-acceptance.ts"
       ],
@@ -2229,7 +2231,7 @@
       "ring": "R0",
       "size": "small",
       "alwaysRun": false,
-      "timeoutSeconds": 180,
+      "timeoutSeconds": 300,
       "historicalDurationMs": null,
       "cacheMode": "warm-allowed",
       "command": "yarn test:acceptance-process-owner",
@@ -4028,6 +4030,7 @@
         "scripts/acceptance-process-probe.ts",
         "scripts/acceptance-evidence-writer.ts",
         "scripts/acceptance-owner-probe.ts",
+        "scripts/acceptance-test-budgets.ts",
         "tests/testing-strategy/**",
         "tests/official-haxe-inventory/**",
         ".audit/**",

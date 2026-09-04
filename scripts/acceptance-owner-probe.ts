@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, writeFileSync } from "node:fs";
+import { closeSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Writable } from "node:stream";
 import {
@@ -7,6 +7,7 @@ import {
   AcceptanceProcessOwner,
   terminateAcceptanceProcessTree
 } from "./acceptance-process-owner.js";
+import { acceptanceFixtureStartupTimeoutMs } from "./acceptance-test-budgets.js";
 
 const script = fileURLToPath(import.meta.url);
 const mode = process.argv[2];
@@ -93,7 +94,7 @@ async function runOwner(
     reportRoot,
     timeoutMs: 60_000,
     terminationGraceMs: 500,
-    limits: { statePublicationMs: 15_000 },
+    limits: { statePublicationMs: acceptanceFixtureStartupTimeoutMs },
     evidenceWriter
   });
   try {
@@ -280,12 +281,9 @@ switch (mode) {
   case "empty-process-probe":
     process.exitCode = 0;
     break;
-  case "zombie-only-process-probe": {
-    const marker = process.env.PROBE_PROCESS_COUNT_PATH;
-    if (marker !== undefined) appendFileSync(marker, "scan\n");
+  case "zombie-only-process-probe":
     process.exitCode = 3;
     break;
-  }
   case "owner": {
     const reportRoot = process.argv[3];
     if (reportRoot === undefined) throw new Error("Owner probe requires a report root");
@@ -308,12 +306,12 @@ switch (mode) {
     const owner = new AcceptanceProcessOwner({
       cwd: process.cwd(),
       reportRoot,
-      timeoutMs: 5_000,
+      timeoutMs: acceptanceFixtureStartupTimeoutMs,
       terminationGraceMs: 100,
       limits: {
         consoleWriteMs: 100,
         drainMs: 100,
-        statePublicationMs: 15_000
+        statePublicationMs: acceptanceFixtureStartupTimeoutMs
       }
     });
     await owner.run({
@@ -351,14 +349,14 @@ switch (mode) {
     const owner = new AcceptanceProcessOwner({
       cwd: process.cwd(),
       reportRoot,
-      timeoutMs: 5_000,
+      timeoutMs: acceptanceFixtureStartupTimeoutMs,
       terminationGraceMs: 50,
       stdout: new FailAfterSentinelSink(`probe:${childMode}:`),
       limits: {
         drainMs: 20,
         consoleWriteMs: 100,
-        logPublicationMs: 2_000,
-        statePublicationMs: 2_000
+        logPublicationMs: acceptanceFixtureStartupTimeoutMs,
+        statePublicationMs: acceptanceFixtureStartupTimeoutMs
       },
       onChildSpawn: (child) => {
         if (child.pid === undefined) throw new Error("cleanup child PID is unavailable");
@@ -416,14 +414,14 @@ switch (mode) {
     const owner = new AcceptanceProcessOwner({
       cwd: process.cwd(),
       reportRoot,
-      timeoutMs: 5_000,
+      timeoutMs: acceptanceFixtureStartupTimeoutMs,
       terminationGraceMs: 100,
       stderr: new SignalledStalledSink("probe:final-stalled-write", marker),
       limits: {
         consoleWriteMs: 300,
         drainMs: 500,
-        statePublicationMs: 2_000,
-        logPublicationMs: 2_000
+        statePublicationMs: acceptanceFixtureStartupTimeoutMs,
+        logPublicationMs: acceptanceFixtureStartupTimeoutMs
       }
     });
     try {

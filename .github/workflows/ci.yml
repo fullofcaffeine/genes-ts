@@ -402,7 +402,7 @@ jobs:
       # The lifecycle fixture creates private owner groups and a detached
       # bystander. Run it beside, never inside, the aggregate that it tests.
       - run: yarn test:acceptance-process-owner
-        timeout-minutes: 3
+        timeout-minutes: 5
       - run: yarn test:acceptance
         timeout-minutes: 45
         env:

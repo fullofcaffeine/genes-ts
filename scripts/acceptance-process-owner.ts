@@ -35,6 +35,28 @@ interface ProcessProbeCommand {
   readonly env?: NodeJS.ProcessEnv;
 }
 
+type EvidenceOperation = "reset-report" | "publish-state" | "publish-log";
+
+/** @internal Typed observations consumed by the process-group wait state machine. */
+export type ProcessGroupObservation =
+  | { readonly kind: "live" }
+  | { readonly kind: "absent" }
+  | { readonly kind: "zombie-only" }
+  | { readonly kind: "degraded-live" }
+  | { readonly kind: "degraded-absent" };
+
+/** @internal Testable process-group observation boundary. */
+export interface ProcessGroupObserver {
+  observeGroup(pid: number, budgetMs: number): Promise<ProcessGroupObservation>;
+  fallbackGroupPresence(pid: number): "live" | "absent";
+}
+
+/** @internal Monotonic time boundary for deterministic wait-loop tests. */
+export interface MonotonicWaitRuntime {
+  now(): number;
+  sleep(milliseconds: number): Promise<void>;
+}
+
 export interface AcceptanceProcessOwnerOptions {
   readonly cwd: string;
   readonly reportRoot: string;
@@ -52,6 +74,8 @@ export interface AcceptanceProcessOwnerOptions {
   readonly terminateProcessTree?: typeof terminateAcceptanceProcessTree;
   /** Test seam that records the exact child identity before child output. */
   readonly onChildSpawn?: (child: ChildProcess) => void;
+  /** Synchronous test observer immediately before an evidence writer starts. */
+  readonly onEvidenceOperationDispatch?: (operation: EvidenceOperation) => void;
 }
 
 interface GateState {
@@ -169,12 +193,23 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function monotonicDeadline(timeoutMs: number): number {
-  return performance.now() + timeoutMs;
+const systemMonotonicWaitRuntime: MonotonicWaitRuntime = {
+  now: () => performance.now(),
+  sleep: delay
+};
+
+function monotonicDeadline(
+  timeoutMs: number,
+  runtime: MonotonicWaitRuntime = systemMonotonicWaitRuntime
+): number {
+  return runtime.now() + timeoutMs;
 }
 
-function remainingMs(deadline: number): number {
-  return Math.max(0, Math.ceil(deadline - performance.now()));
+function remainingMs(
+  deadline: number,
+  runtime: MonotonicWaitRuntime = systemMonotonicWaitRuntime
+): number {
+  return Math.max(0, Math.ceil(deadline - runtime.now()));
 }
 
 function settlesWithin(operation: Promise<unknown>, timeoutMs: number): Promise<boolean> {
@@ -349,21 +384,15 @@ class BoundedOutput {
   }
 }
 
-interface ProcessProbeResult {
-  readonly alive: boolean;
-  readonly degraded: boolean;
-  readonly zombieOnly?: boolean;
-}
-
-function kernelProcessPresence(pid: number, group: boolean): ProcessProbeResult {
+function kernelProcessPresence(pid: number, group: boolean): "live" | "absent" {
   try {
     process.kill(group ? -pid : pid, 0);
-    return { alive: true, degraded: true };
+    return "live";
   } catch (error: unknown) {
     if (error instanceof Error && "code" in error && error.code === "ESRCH") {
-      return { alive: false, degraded: true };
+      return "absent";
     }
-    return { alive: true, degraded: true };
+    return "live";
   }
 }
 
@@ -372,8 +401,8 @@ async function runProcessProbe(
   operation: "--group" | "--pid",
   pid: number,
   timeoutMs: number
-): Promise<ProcessProbeResult> {
-  if (process.platform === "win32") return { alive: false, degraded: false };
+): Promise<ProcessGroupObservation> {
+  if (process.platform === "win32") return { kind: "absent" };
   return new Promise((resolve) => {
     let settled = false;
     const child = spawn(probe.command, [...probe.args, operation, String(pid)], {
@@ -383,7 +412,7 @@ async function runProcessProbe(
       },
       stdio: "ignore"
     });
-    const finish = (result: ProcessProbeResult): void => {
+    const finish = (result: ProcessGroupObservation): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -391,19 +420,20 @@ async function runProcessProbe(
       child.removeListener("exit", onExit);
       resolve(result);
     };
-    const onError = (): void => finish(kernelProcessPresence(pid, operation === "--group"));
+    const degradedFallback = (): ProcessGroupObservation => ({
+      kind: kernelProcessPresence(pid, operation === "--group") === "live"
+        ? "degraded-live"
+        : "degraded-absent"
+    });
+    const onError = (): void => finish(degradedFallback());
     const onExit = (code: number | null): void => {
       if (code === 0) {
         const kernel = kernelProcessPresence(pid, operation === "--group");
-        finish(kernel.alive
-          ? { alive: true, degraded: false }
-          : { alive: false, degraded: false });
+        finish({ kind: kernel });
       }
-      else if (code === 1) finish({ alive: true, degraded: false });
-      else if (code === 3) {
-        finish({ alive: true, degraded: false, zombieOnly: true });
-      }
-      else finish(kernelProcessPresence(pid, operation === "--group"));
+      else if (code === 1) finish({ kind: "live" });
+      else if (code === 3) finish({ kind: "zombie-only" });
+      else finish(degradedFallback());
     };
     const timeout = setTimeout(() => {
       child.removeListener("error", onError);
@@ -411,11 +441,18 @@ async function runProcessProbe(
       child.once("error", () => {});
       child.kill("SIGKILL");
       child.unref();
-      finish(kernelProcessPresence(pid, operation === "--group"));
+      finish(degradedFallback());
     }, Math.max(1, timeoutMs));
     child.once("error", onError);
     child.once("exit", onExit);
   });
+}
+
+function spawnedProcessGroupObserver(probe: ProcessProbeCommand): ProcessGroupObserver {
+  return {
+    observeGroup: (pid, budgetMs) => runProcessProbe(probe, "--group", pid, budgetMs),
+    fallbackGroupPresence: (pid) => kernelProcessPresence(pid, true)
+  };
 }
 
 async function waitForProcessGroupExit(
@@ -423,32 +460,48 @@ async function waitForProcessGroupExit(
   timeoutMs: number,
   probeMs: number,
   onDegraded: () => void,
-  probe: ProcessProbeCommand
+  observer: ProcessGroupObserver,
+  runtime: MonotonicWaitRuntime = systemMonotonicWaitRuntime
 ): Promise<boolean> {
-  const deadline = monotonicDeadline(timeoutMs);
+  const deadline = monotonicDeadline(timeoutMs, runtime);
   let probeDegraded = false;
   let consecutiveZombieOnlyScans = 0;
   do {
-    const availableMs = remainingMs(deadline);
-    const result = probeDegraded
-      ? kernelProcessPresence(pid, true)
-      : await runProcessProbe(probe, "--group", pid, Math.min(probeMs, Math.max(1, availableMs)));
-    if (result.degraded) {
-      probeDegraded = true;
-      onDegraded();
+    const availableMs = remainingMs(deadline, runtime);
+    const observation: ProcessGroupObservation = probeDegraded
+      ? {
+          kind: observer.fallbackGroupPresence(pid) === "live"
+            ? "degraded-live"
+            : "degraded-absent"
+        }
+      : await observer.observeGroup(
+          pid,
+          Math.min(probeMs, Math.max(1, availableMs))
+        );
+    switch (observation.kind) {
+      case "degraded-live":
+      case "degraded-absent":
+        probeDegraded = true;
+        onDegraded();
+        consecutiveZombieOnlyScans = 0;
+        if (observation.kind === "degraded-absent") return true;
+        break;
+      case "zombie-only":
+        consecutiveZombieOnlyScans += 1;
+        if (consecutiveZombieOnlyScans >= 2) return true;
+        break;
+      case "absent":
+        return true;
+      case "live":
+        consecutiveZombieOnlyScans = 0;
+        break;
     }
-    if (result.zombieOnly === true) {
-      consecutiveZombieOnlyScans += 1;
-      if (consecutiveZombieOnlyScans >= 2) return true;
-    } else {
-      consecutiveZombieOnlyScans = 0;
+    const sleepRemainingMs = remainingMs(deadline, runtime);
+    if (sleepRemainingMs > 0) {
+      await runtime.sleep(Math.min(25, sleepRemainingMs));
     }
-    if (!result.alive) return true;
-    const sleepRemainingMs = remainingMs(deadline);
-    if (sleepRemainingMs > 0) await delay(Math.min(25, sleepRemainingMs));
-  } while (remainingMs(deadline) > 0);
-  const final = kernelProcessPresence(pid, true);
-  return !final.alive;
+  } while (remainingMs(deadline, runtime) > 0);
+  return observer.fallbackGroupPresence(pid) === "absent";
 }
 
 async function runBoundedCommand(
@@ -509,6 +562,8 @@ export async function terminateAcceptanceProcessTree(
     return;
   }
 
+  const observer = spawnedProcessGroupObserver(probe);
+
   try {
     process.kill(-pid, "SIGTERM");
   } catch {
@@ -518,7 +573,13 @@ export async function terminateAcceptanceProcessTree(
       return;
     }
   }
-  if (await waitForProcessGroupExit(pid, graceMs, processProbeMs, onProbeDegraded, probe)) return;
+  if (await waitForProcessGroupExit(
+    pid,
+    graceMs,
+    processProbeMs,
+    onProbeDegraded,
+    observer
+  )) return;
   try {
     process.kill(-pid, "SIGKILL");
   } catch {
@@ -529,10 +590,16 @@ export async function terminateAcceptanceProcessTree(
     }
   }
   assert(
-    await waitForProcessGroupExit(pid, graceMs, processProbeMs, onProbeDegraded, probe),
+    await waitForProcessGroupExit(pid, graceMs, processProbeMs, onProbeDegraded, observer),
     `Acceptance process group ${String(pid)} survived SIGKILL`
   );
 }
+
+/** Internal semantic and adapter seams; production callers cannot replace the observer. */
+export const acceptanceProcessOwnerTestOnly = {
+  waitForProcessGroupExit,
+  runProcessProbe
+} as const;
 
 export class AcceptanceInterruptedError extends Error {
   public readonly exitCode: 130 | 143;
@@ -606,7 +673,7 @@ export class AcceptanceProcessOwner {
   }
 
   private async evidenceOperation(
-    operation: "reset-report" | "publish-state" | "publish-log",
+    operation: EvidenceOperation,
     args: ReadonlyArray<string>,
     input: Buffer,
     timeoutMs: number
@@ -614,6 +681,7 @@ export class AcceptanceProcessOwner {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let stderr = "";
+      this.options.onEvidenceOperationDispatch?.(operation);
       const child = spawn(
         this.writer.command,
         [...this.writer.args, operation, this.options.reportRoot, ...args],

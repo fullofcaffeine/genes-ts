@@ -361,6 +361,16 @@ function main(): void {
     "The acceptance gate must retain the acceptance tier");
   assert(gatesById.get("acceptance")?.timeoutSeconds === 2700,
     "The acceptance plan timeout must leave five minutes for owner cleanup and evidence");
+  const acceptanceProcessOwner = gatesById.get("acceptance-process-owner");
+  assert(acceptanceProcessOwner?.cost === "medium",
+    "The acceptance process owner must retain its measured medium cost");
+  assert(acceptanceProcessOwner?.timeoutSeconds === 300,
+    "The acceptance process owner must retain its five-minute plan backstop");
+  assert(stringArray(
+    acceptanceProcessOwner?.owners,
+    "acceptance-process-owner.owners"
+  ).includes("scripts/acceptance-test-budgets.ts"),
+  "The acceptance process owner must own its shared readiness budgets");
   assert(gatesById.get("full-ci")?.tier === "full-release",
     "The full-ci gate must retain the full-release tier");
   const agentGuideOwners = stringArray(
