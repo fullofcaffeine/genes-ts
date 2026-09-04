@@ -6,4 +6,7 @@
  * their short, explicit deadlines.
  */
 export const acceptanceFixtureStartupTimeoutMs = 30_000;
-export const acceptanceFixtureCompletionTimeoutMs = 2 * acceptanceFixtureStartupTimeoutMs;
+// A nested owner can consume two complete startup windows while it publishes
+// log and state evidence. Keep one more startup-sized window for console
+// settlement, cleanup, publication overhead, and process exit.
+export const acceptanceFixtureCompletionTimeoutMs = 3 * acceptanceFixtureStartupTimeoutMs;

@@ -1043,7 +1043,7 @@ A signal during pre-start terminal publication replaces timeout authority and
 preserves exit 130 or 143. Test-only parent spawn evidence records the exact
 gate PID before child output; if that evidence fails, real tree cleanup replaces
 the injected cleanup failure. The fixture runs once in the required job. Its
-own waits are bounded, the workflow adds a three-minute backstop, and the
+own waits are bounded, the workflow adds a five-minute backstop, and the
 always-run artifact includes both the fixture and aggregate reports.
 
 Each subgate keeps at most 8 MiB of output: up to 6 MiB from the start, an
