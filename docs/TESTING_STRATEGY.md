@@ -691,7 +691,21 @@ compiler-server edits, checks exact cold/warm trees, records emitted size, and
 times strict TypeScript separately. A private benchmark define adds nested
 timers for reachability planning and TypeScript class emission. Ordinary builds
 do not include these fine timers. Its generated scale case contains about
-19,000 authored Haxe lines. The command also has a small focused control:
+19,000 authored Haxe lines.
+
+The same report measures four architecture floors. It times a callback-only
+custom generator, one explicit typed-program scan, complete generation, and
+transactional publication of a prepared candidate. The first three use one
+owned compiler server. A ready/go Haxe probe isolates the real
+`OutputTransaction.commit()` wall clock from candidate staging. The report also
+records typed visit counts and process CPU where a subsecond source is
+available. Memory is the maximum exact-process RSS observed before, after, and
+at 250 ms intervals during each request; it is not an operating-system peak.
+Each generation mode edits an identical independent source clone before its
+request. These measurements are report-only. They do not authorize a worker,
+snapshot format, or blocking latency budget.
+
+The command also has a small focused control:
 
 ```bash
 yarn test:haxe-times
@@ -702,8 +716,8 @@ yarn benchmark:compile-stages --out /tmp/genes-compile-stages.json
 The JSON records exact local command paths. Review them before sharing or
 committing the report. See
 [`tests/compile-stage-report/README.md`](../tests/compile-stage-report/README.md)
-for the sampling protocol, output-neutrality checks, and limits of the
-generated workload.
+for the sampling protocol, output-neutrality checks, typed-walker inventory,
+and limits of the generated workload.
 
 ### Performance evidence and CI budgets
 
