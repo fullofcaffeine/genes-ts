@@ -2328,25 +2328,31 @@
       ],
       "ownerPaths": [
         "src/genes/Generator.hx",
+        "src/genes/GenerationFloorProbe.hx",
         "src/genes/util/Timer.hx",
         "scripts/haxe-times.ts",
         "scripts/compile-stage-report.ts",
         "scripts/test-compile-stage-suite.ts",
         "scripts/test-haxe-times.ts",
         "scripts/test-compile-stage-report.ts",
-        "tests/compile-stage-report/README.md"
+        "tests/compile-stage-report/README.md",
+        "tests/compile-stage-report/TYPED_WALKER_INVENTORY.md",
+        "tests/compile-stage-report/src/compilestage/PublicationFloorProbe.hx"
       ],
-      "proves": "Haxe timing output is parsed without dropping unknown phases. Timed and untimed trees remain exact in both compiler profiles, and one TypeScript cold/warm edit control reports stages with exact output equality.",
-      "doesNotProve": "The small control does not establish a production timing baseline, a warm-edit service-level objective, or a blocking CI performance threshold.",
+      "proves": "Haxe timing output is parsed without dropping unknown phases. Timed and untimed trees remain exact in both compiler profiles. One TypeScript cold/warm edit control reports callback, typed-structure, end-to-end, and real transaction-publication floors with exact output equality.",
+      "doesNotProve": "The small control does not establish a production timing baseline, authorize a worker or snapshot boundary, define a warm-edit service-level objective, or set a blocking CI performance threshold.",
       "owners": [
         "src/genes/Generator.hx",
+        "src/genes/GenerationFloorProbe.hx",
         "src/genes/util/Timer.hx",
         "scripts/haxe-times.ts",
         "scripts/compile-stage-report.ts",
         "scripts/test-compile-stage-suite.ts",
         "scripts/test-haxe-times.ts",
         "scripts/test-compile-stage-report.ts",
-        "tests/compile-stage-report/README.md"
+        "tests/compile-stage-report/README.md",
+        "tests/compile-stage-report/TYPED_WALKER_INVENTORY.md",
+        "tests/compile-stage-report/src/compilestage/PublicationFloorProbe.hx"
       ],
       "families": [
         "compiler-server",

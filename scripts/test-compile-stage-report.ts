@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   editPatternForWarmups,
   haxeTimingClockStatus,
+  parseLinuxProcessCpuTicks,
+  parseProcessCpuTime,
   runCompileStageReport,
   stageDistributions
 } from "./compile-stage-report.js";
@@ -135,6 +137,15 @@ strictEqual(haxeTimingClockStatus("linux", "4.3.7"), "unverified");
 strictEqual(haxeTimingClockStatus("darwin", "4.3.8"), "unverified");
 strictEqual(editPatternForWarmups(1), "b-a-b-a");
 strictEqual(editPatternForWarmups(2), "a-b-a-b");
+strictEqual(parseProcessCpuTime("00:01.25"), 1_250);
+strictEqual(parseProcessCpuTime("1:02:03"), 3_723_000);
+strictEqual(parseProcessCpuTime("2-01:02:03.5"), 176_523_500);
+strictEqual(
+  parseLinuxProcessCpuTicks(
+    "123 (worker with ) name) S 1 2 3 4 5 6 7 8 9 10 35 12 0"
+  ),
+  47
+);
 const report = await runCompileStageReport({
   fixture: "control",
   samples: 1,
@@ -142,16 +153,43 @@ const report = await runCompileStageReport({
   workspace: path.join(repoRoot, ".tmp/test-compile-stage-report")
 });
 
-strictEqual(report.schemaVersion, 2);
+strictEqual(report.schemaVersion, 3);
 strictEqual(report.classification, "report-only");
 strictEqual(
   report.environment.workingTreeDirty,
   report.environment.workingTreeStatus.length > 0
 );
 strictEqual(report.measurements.length, 2);
+strictEqual(report.floorMeasurements.length, 4);
 strictEqual(report.protocol.warmups, 2);
 strictEqual(report.protocol.editPattern, "a-b-a-b");
 strictEqual(report.protocol.measuredProfile, "genes-ts");
+strictEqual(
+  report.protocol.generationFloorSourceIsolation,
+  "identical-independent-source-clones"
+);
+strictEqual(report.protocol.processMetrics.rssSamplingIntervalMs, 250);
+strictEqual(report.protocol.processMetrics.publicationCpu, "probe-Sys.cpuTime");
+if (process.platform === "linux") {
+  strictEqual(
+    report.protocol.processMetrics.generationCpu.source,
+    "linux-proc-clock-ticks"
+  );
+  ok(
+    (report.protocol.processMetrics.generationCpu.clockTicksPerSecond ?? 0) > 0
+  );
+} else if (process.platform === "darwin") {
+  strictEqual(
+    report.protocol.processMetrics.generationCpu.source,
+    "fractional-ps"
+  );
+}
+ok(report.protocol.commands.callbackNoopHaxe.some((argument) =>
+  argument.includes("floor-fixtures/callback-noop/src")
+));
+ok(report.protocol.commands.structureScanHaxe.some((argument) =>
+  argument.includes("floor-fixtures/structure-scan/src")
+));
 strictEqual(report.measurements[0]?.edit, "a");
 strictEqual(report.measurements[1]?.edit, "a");
 strictEqual(report.aggregate.coldWall.sampleCount, 1);
@@ -164,6 +202,59 @@ strictEqual(report.aggregate.warmEditWall.unit, "milliseconds");
 strictEqual(report.aggregate.coldHaxeReported.unit, "haxe-reported-seconds");
 strictEqual(report.aggregate.warmEditHaxeReported.unit, "haxe-reported-seconds");
 strictEqual(report.aggregate.typescript.unit, "milliseconds");
+deepStrictEqual(
+  report.floorMeasurements.map((measurement) => measurement.mode).sort(),
+  ["callback-noop", "end-to-end", "publication-only", "structure-scan"]
+);
+for (const mode of [
+  "callback-noop",
+  "structure-scan",
+  "end-to-end",
+  "publication-only"
+] as const) {
+  strictEqual(report.aggregate.floorWall[mode].sampleCount, 1);
+  strictEqual(report.aggregate.floorWall[mode].unit, "milliseconds");
+  strictEqual(typeof report.protocol.floorModeDefinitions[mode], "string");
+}
+const callbackNoop = report.floorMeasurements.find((measurement) =>
+  measurement.mode === "callback-noop"
+);
+const structureScan = report.floorMeasurements.find((measurement) =>
+  measurement.mode === "structure-scan"
+);
+const endToEnd = report.floorMeasurements.find((measurement) =>
+  measurement.mode === "end-to-end"
+);
+const publication = report.floorMeasurements.find((measurement) =>
+  measurement.mode === "publication-only"
+);
+ok(callbackNoop?.counters !== null && callbackNoop?.counters !== undefined);
+ok(structureScan?.counters !== null && structureScan?.counters !== undefined);
+ok(endToEnd !== undefined && publication !== undefined);
+if (process.platform === "linux" || process.platform === "darwin") {
+  ok(callbackNoop.processCpuMs !== null);
+  ok(structureScan.processCpuMs !== null);
+  ok(endToEnd.processCpuMs !== null);
+  ok(callbackNoop.maxSampledRssBytes !== null);
+  ok(structureScan.maxSampledRssBytes !== null);
+  ok(endToEnd.maxSampledRssBytes !== null);
+  ok(publication.maxSampledRssBytes !== null);
+}
+strictEqual(callbackNoop.counters.scanPasses, 0);
+strictEqual(callbackNoop.counters.expressionNodes, 0);
+strictEqual(structureScan.counters.scanPasses, 1);
+strictEqual(
+  structureScan.counters.apiTypeEntries,
+  callbackNoop.counters.apiTypeEntries
+);
+ok(structureScan.counters.expressionNodes > 0);
+ok(structureScan.counters.typeNodes > 0);
+strictEqual(callbackNoop.output.files, 0);
+strictEqual(structureScan.output.files, 0);
+strictEqual(endToEnd.output.sha256, publication.output.sha256);
+ok(publication.processCpuMs !== null);
+ok(publication.output.files > 0);
+ok(publication.output.bytes > 0);
 strictEqual(report.protocol.haxeTiming.source, "--times");
 strictEqual(report.protocol.haxeTiming.reportedUnit, "seconds");
 strictEqual(report.protocol.haxeTiming.absoluteTimingAuthority,

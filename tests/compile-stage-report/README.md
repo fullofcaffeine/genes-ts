@@ -7,7 +7,7 @@ the owner of the delay.
 # Quick correctness check with a small generated project.
 yarn test:compile-stage-report
 
-# Five cold builds and five warm edits of about 19,000 Haxe source lines.
+# Five samples of all four warm floors plus five cold controls.
 yarn benchmark:compile-stages --out /tmp/genes-compile-stages.json
 ```
 
@@ -16,6 +16,27 @@ files after a successful run. The JSON report contains the exact local command
 paths, so do not commit it without checking those paths first. It also records
 whether the measured worktree was dirty and lists the changed paths. Use a
 clean exact commit for publishable baseline or before/after evidence.
+
+The report measures four warm boundary modes for every edit:
+
+- `callback-noop` enters the custom generator and records constant-time API
+  counts. It returns before transaction setup.
+- `structure-scan` adds one read-only visit of declarations, fields, type
+  components, and typed expression trees. It does not build semantic plans.
+- `end-to-end` runs the current complete Genes pipeline and publishes output.
+- `publication-only` stages the end-to-end candidate in a separate Haxe probe.
+  The probe signals ready before the parent times the real transaction commit.
+
+The first three modes use one owned compiler server. Each generation mode owns
+an identical source clone. The harness edits each clone before that mode runs,
+so no mode inherits another mode's changed-source validation. Sample order
+alternates to limit remaining order bias. Publication needs the end-to-end
+candidate, so it runs after that candidate is ready. Warmups exercise all four
+modes and are not reported.
+
+Read
+[`TYPED_WALKER_INVENTORY.md`](TYPED_WALKER_INVENTORY.md) with the report. It
+lists each recursive typed-expression owner and the required compiler APIs.
 
 ## What the report measures
 
@@ -82,10 +103,24 @@ is deliberately outside the reported compiler latency.
 TypeScript runs after each cold/warm pair. Its time is separate from the Haxe
 and Genes time. The report also records generated files, modules, source maps,
 bytes, tree hashes, host load, process priority, toolchains, samples, median,
-p95, mean, and standard deviation. Each sample also records Haxe's reported
+p95, mean, and standard deviation. Linux generation CPU uses the process
+`utime` and `stime` clock ticks from `/proc`; the report records `CLK_TCK`.
+Other POSIX hosts use `ps` only when it provides fractional CPU seconds.
+Publication CPU comes from `Sys.cpuTime()` around `commit()`.
+
+Memory is `maxSampledRssBytes`, not an operating-system peak. The harness reads
+the exact process RSS before and after each request and at 250 ms intervals.
+A short-lived allocation between samples is not visible. The probe owns no
+other work after the ready signal. Each sample also records Haxe's reported
 total and wall milliseconds per Haxe-reported second. That ratio can reveal a
 clock mismatch or host scheduling delay. It cannot identify one cause by
 itself.
+
+The callback and structure modes write one request-local JSON counter file.
+The no-op mode does not traverse the typed program. The scan mode reports one
+pass, API type entries, declaration kinds, fields, expression roots,
+expression-node visits, type roots, and type-component visits. Counts represent
+encounters, not unique compiler object identities.
 
 Process wall time is the absolute timing authority. Haxe 4.3.7 on macOS has a
 known monotonic-clock scale defect: its native timer computes the required
@@ -113,6 +148,16 @@ Use `wallMs` and the millisecond distributions for absolute latency. Values
 with the `haxe-reported-seconds` unit rank compiler owners and compare matched
 runs. Do not describe them as physical milliseconds unless an independent
 clock calibration proves that claim for the exact Haxe build and host.
+
+Use `callback-noop` as the observable Haxe and macro boundary. Use
+`structure-scan` as that boundary plus one explicit typed-program visit. Do not
+subtract two single samples and call the result a stable cost. Use repeated,
+interleaved distributions and report their variance.
+
+The publication wall clock starts when the parent sends `go`. It stops when
+the probe reports a completed commit. Candidate reading and private staging
+happen before `go`. The resulting tree must match the end-to-end candidate by
+exact path and hash.
 
 This command is report-only. It does not enforce an absolute time limit. One
 computer or one contended run cannot define a CI budget. Use repeated results

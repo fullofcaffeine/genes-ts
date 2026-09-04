@@ -68,6 +68,16 @@ class Generator {
 
   static function generate(api: JSGenApi) {
     validateOutputOverrideTiming();
+    #if genes_generation_floor
+    try {
+      GenerationFloorProbe.run(api);
+      removeCompilerSentinel();
+      return;
+    } catch (error:haxe.Exception) {
+      removeCompilerSentinel();
+      throw error;
+    }
+    #end
     final endTransactionSetupTimer = timer('genes.transaction.setup');
     final outputFile = configuredOutputFile == null ? api.outputFile : configuredOutputFile;
     final output = Path.withoutExtension(Path.withoutDirectory(outputFile));
