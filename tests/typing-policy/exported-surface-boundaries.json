@@ -230,6 +230,66 @@
       }
     },
     {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CACHE-INVALIDATION",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes-f8vc.9.2 regression fixture",
+      "reason": "The cache-invalidation regression carries JsonValue through a declaration-only payload. Its recursive JSON object accepts arbitrary string keys while every value remains inside the closed JsonValue algebra.",
+      "source": "tests/typeonly/JsonCacheInvalidation.hx",
+      "match": {
+        "file": "bin/tests/typeonly/JsonCacheInvalidation.d.ts",
+        "export": "JsonCacheInvalidationPayload",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CACHE-INVALIDATION-ARRAY",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes-f8vc.9.2 regression fixture",
+      "reason": "The fixture-local JsonArray alias can contain recursive JSON objects. Those objects accept arbitrary string keys while every value remains inside JsonValue.",
+      "source": "src/genes/ts/JsonArray.hx",
+      "match": {
+        "file": "bin/tests/typeonly/JsonCacheInvalidation.d.ts",
+        "export": "JsonArray",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CACHE-INVALIDATION-NON-NULL",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes-f8vc.9.2 regression fixture",
+      "reason": "The fixture-local JsonNonNullValue alias can still contain a recursive JSON object with arbitrary string keys and JsonValue values.",
+      "source": "src/genes/ts/JsonNonNullValue.hx",
+      "match": {
+        "file": "bin/tests/typeonly/JsonCacheInvalidation.d.ts",
+        "export": "JsonNonNullValue",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CACHE-INVALIDATION-OBJECT",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes-f8vc.9.2 regression fixture",
+      "reason": "The fixture-local JsonObject alias accepts arbitrary string property names while each property value remains precisely JsonValue.",
+      "source": "src/genes/ts/JsonObject.hx",
+      "match": {
+        "file": "bin/tests/typeonly/JsonCacheInvalidation.d.ts",
+        "export": "JsonObject",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CACHE-INVALIDATION-VALUE",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes-f8vc.9.2 regression fixture",
+      "reason": "The fixture-local JsonValue alias is a closed recursive union whose string index comes only from its JSON object member.",
+      "source": "src/genes/ts/JsonValue.hx",
+      "match": {
+        "file": "bin/tests/typeonly/JsonCacheInvalidation.d.ts",
+        "export": "JsonValue",
+        "kinds": ["string-index"]
+      }
+    },
+    {
       "id": "GTS-BOUNDARY-CLASSIC-JSON-ARRAY",
       "scope": "classic-dts-owned-surfaces",
       "owner": "genes.ts.JsonValue",

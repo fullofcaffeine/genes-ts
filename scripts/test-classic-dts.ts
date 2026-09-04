@@ -305,8 +305,7 @@ const classicRegressionFixtureFiles = [
   "tests/TestAsyncAwait.d.ts",
   "tests/TestImportModule.d.ts",
   "tests/TestJsonValue.d.ts",
-  "tests/TestTsTypes.d.ts",
-  "tests/typeonly/JsonCacheInvalidation.d.ts"
+  "tests/TestTsTypes.d.ts"
 ] as const;
 
 // Tink is an external compatibility fixture. The compiler must preserve its
