@@ -4,6 +4,9 @@ import foo.BoundaryTypes;
 import foo.Placeholder;
 import foo.EnumAbstract;
 import foo.JsonAlias;
+import foo.JsonAbstractDefinitionMemo;
+import foo.JsonDefinitionCycleMemo;
+import foo.JsonDefinitionMemo;
 import foo.Narrowing;
 import foo.ServerCallbacks;
 import foo.TypedCatch;
@@ -15,7 +18,8 @@ typedef ThemeFixture = {
 };
 
 class Main {
-  static final Theme: ThemeFixture = Imports.defaultImportWith("./resources/theme.json", "json", "ThemeFixture");
+  static final Theme: ThemeFixture = Imports.defaultImportWith("./resources/theme.json",
+    "json", "ThemeFixture");
 
   static function main() {
     final f = new Foo(1);
@@ -36,6 +40,17 @@ class Main {
     trace(EnumAbstract.recordDemo());
     trace(EnumAbstract.arrayLoopDemo());
     trace(JsonAlias.passthrough({metadata: cast null}).metadata);
+    trace(JsonAbstractDefinitionMemo.recursive({
+      aPlain: {value: "plain", next: null},
+      zJson: {value: cast null, next: null}
+    }));
+    trace(JsonDefinitionMemo.recursive({
+      aPlain: {value: "plain", next: null},
+      zJson: {value: cast null, next: null}
+    }).aPlain.value);
+    trace(JsonDefinitionCycleMemo.recursive({
+      aLeft: {aRight: null, zPayload: cast null}
+    }).aLeft.zPayload);
     final server = {
       off: (event, handler) -> {},
       closeAllConnections: () -> {}
