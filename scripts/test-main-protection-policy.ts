@@ -210,7 +210,7 @@ function main(): void {
   );
   assert(
     genesTs.includes(
-      "- run: yarn test:acceptance-process-owner\n        timeout-minutes: 3"
+      "- run: yarn test:acceptance-process-owner\n        timeout-minutes: 5"
     ),
     "The required process-owner fixture must retain its workflow backstop"
   );

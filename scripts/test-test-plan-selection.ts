@@ -285,6 +285,15 @@ function main(): void {
     ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
   "The process probe did not select its smallest lifecycle owner directly");
 
+  const acceptanceTestBudgets = explain("scripts/acceptance-test-budgets.ts");
+  assert(acceptanceTestBudgets.unknownFiles.length === 0,
+    "The acceptance test budgets must have an explicit test owner");
+  requires(acceptanceTestBudgets, "acceptance-process-owner");
+  assert(acceptanceTestBudgets.selected
+    .find((entry) => entry.id === "acceptance-process-owner")
+    ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
+  "The acceptance test budgets did not select their lifecycle owner directly");
+
   for (const [executablePolicyDoc, owner] of [
     ["docs/NULL_SAFETY.md", "null-safety-policy"],
     ["docs/BRANCH_PROTECTION.md", "ci-protection-policy"]
