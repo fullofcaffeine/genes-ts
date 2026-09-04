@@ -5,6 +5,13 @@ import {
   GenesAgentGuidanceError,
   installGenesAgentGuidance,
 } from "./agents/index.js";
+import {
+  parseWatchArguments,
+  runWatchCommand,
+  WatchCommandUsageError,
+  watchHelp,
+  type WatchCommandOptions,
+} from "./commands/watch.js";
 
 function help(): string {
   return `Genes tooling
@@ -12,28 +19,47 @@ function help(): string {
 Usage:
   genes agents install [--root <project-root>]
   genes agents check [--root <project-root>]
+  genes watch --project-id <id> --hxml <build.hxml> --output <entry>
   genes --help
 
 Commands:
   agents install  Create or update the managed block in root AGENTS.md.
   agents check    Verify that root AGENTS.md has the current managed block.
+  watch           Generate and publish admitted output as inputs change.
 
 The default project root is the current working directory.
 `;
 }
 
 interface AgentsCommand {
+  readonly kind: "agents";
   readonly action: "check" | "install";
   readonly root: string;
 }
 
-function parseArguments(args: readonly string[]): AgentsCommand | "help" {
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+interface WatchCommand {
+  readonly kind: "watch";
+  readonly options: WatchCommandOptions;
+}
+
+type Command = AgentsCommand | WatchCommand | "help" | "watch-help";
+
+function parseArguments(args: readonly string[]): Command {
+  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     return "help";
   }
-  if (args[0] !== "agents" || (args[1] !== "install" && args[1] !== "check")) {
-    throw new Error("Expected `genes agents install` or `genes agents check`.");
+  if (args[0] === "watch") {
+    if (args.length === 1 || args.includes("--help") || args.includes("-h")) {
+      return "watch-help";
+    }
+    return { kind: "watch", options: parseWatchArguments(args.slice(1)) };
   }
+  if (args[0] !== "agents" || (args[1] !== "install" && args[1] !== "check")) {
+    throw new WatchCommandUsageError(
+      "Expected `genes agents install`, `genes agents check`, or `genes watch`.",
+    );
+  }
+  if (args.includes("--help") || args.includes("-h")) return "help";
   let root = process.cwd();
   let hasRoot = false;
   for (let index = 2; index < args.length; index += 1) {
@@ -47,11 +73,11 @@ function parseArguments(args: readonly string[]): AgentsCommand | "help" {
     hasRoot = true;
     index += 1;
   }
-  return { action: args[1], root };
+  return { kind: "agents", action: args[1], root };
 }
 
-function main(args: readonly string[]): number {
-  let command: AgentsCommand | "help";
+async function main(args: readonly string[]): Promise<number> {
+  let command: Command;
   try {
     command = parseArguments(args);
   } catch (error) {
@@ -62,6 +88,19 @@ function main(args: readonly string[]): number {
   if (command === "help") {
     process.stdout.write(help());
     return 0;
+  }
+  if (command === "watch-help") {
+    process.stdout.write(watchHelp());
+    return 0;
+  }
+  if (command.kind === "watch") {
+    try {
+      return await runWatchCommand(command.options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`genes watch: ${message}\n`);
+      return 2;
+    }
   }
 
   try {
@@ -89,4 +128,4 @@ function main(args: readonly string[]): number {
   }
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));
