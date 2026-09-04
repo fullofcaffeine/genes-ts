@@ -167,6 +167,7 @@
     "@typescript/old": "npm:typescript@6.0.3",
     "body-parser": "1.20.6",
     "brace-expansion": "5.0.9",
+    "fast-uri": "3.1.6",
     "handlebars": "4.7.9",
     "ip-address": "10.3.1",
     "js-yaml": "4.3.1",
@@ -175,7 +176,7 @@
     "minimatch": "10.2.5",
     "path-to-regexp": "0.1.13",
     "picomatch": "4.0.4",
-    "qs": "6.15.2",
+    "qs": "6.16.0",
     "@sigstore/core": "3.2.1",
     "sigstore": "4.1.1",
     "tar": "7.5.22"
