@@ -146,6 +146,18 @@
       }
     },
     {
+      "id": "GTS-BOUNDARY-FULL-JSON-CACHE-INVALIDATION",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes-f8vc.9.2 regression fixture",
+      "reason": "The cache-invalidation regression carries JsonValue through a declaration-only payload. Its recursive JSON object accepts arbitrary string keys while every value remains inside the closed JsonValue algebra.",
+      "source": "tests/typeonly/JsonCacheInvalidation.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/tests/typeonly/JsonCacheInvalidation.ts",
+        "export": "JsonCacheInvalidationPayload",
+        "kinds": ["string-index"]
+      }
+    },
+    {
       "id": "GTS-BOUNDARY-FULL-UNKNOWN-NARROW",
       "scope": "genes-ts-full-owned-surfaces",
       "owner": "genes.ts.UnknownNarrow",
