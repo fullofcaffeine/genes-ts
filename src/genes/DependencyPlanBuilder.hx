@@ -539,8 +539,19 @@ class DependencyPlanBuilder {
 
   function collectTypeEdges(kind: DependencyEdgeKind,
       includeExpressionLocals: Bool): Void {
+    function addTypeReference(type: ModuleType, rule: String,
+        pos: Position): Void {
+      #if genes.compile_stage_profile
+      final endImportNormalizationTimer = timer('genes.plan.reachability.typeCollection.importNormalization');
+      #end
+      addReference(kind, type, rule, pos);
+      #if genes.compile_stage_profile
+      endImportNormalizationTimer();
+      #end
+    }
+
     final collector = new TypeReferenceCollector((type, rule,
-        pos) -> addReference(kind, type, rule, pos),
+        pos) -> addTypeReference(type, rule, pos),
       (template, _, _) -> {
         // Both typed implementations and classic declarations can print a raw
         // `JSX.*` projection. Record one shared semantic fact so neither
@@ -555,6 +566,9 @@ class DependencyPlanBuilder {
     // and explicit generic arguments that implementation emission may print.
     // Collect every referenced type before binding allocation; the emitter must
     // never discover another imported type after this point.
+    #if genes.compile_stage_profile
+    final endBoundaryPlanTimer = timer('genes.plan.reachability.typeCollection.boundaryPlanReferences');
+    #end
     if (includeExpressionLocals)
       for (reference in module.tsBoundaryPlan.referencedTypes())
         collector.collect(reference.type,
@@ -564,6 +578,9 @@ class DependencyPlanBuilder {
       for (reference in module.reactStateInitializationPlan.referencedTypes())
         collector.collect(reference.type, 'type.react-state-initialization',
           reference.pos);
+    #if genes.compile_stage_profile
+    endBoundaryPlanTimer();
+    #end
 
     final undefinablePresentTypes: Array<{
       final type: Type;
@@ -623,11 +640,17 @@ class DependencyPlanBuilder {
     function collectExpressionTypes(expression: TypedExpr): Void {
       if (expression == null)
         return;
+      #if genes.compile_stage_profile
+      final endExpressionLocalsTimer = timer('genes.plan.reachability.typeCollection.expressionLocals');
+      #end
       undefinablePresentTypes.resize(0);
       visitExpressionTypes(expression);
       for (marker in undefinablePresentTypes)
         collector.collect(marker.type, 'type.undefinable-present-assertion',
           marker.pos);
+      #if genes.compile_stage_profile
+      endExpressionLocalsTimer();
+      #end
     }
 
     function collectSignature(field: Field): Void {
@@ -656,6 +679,9 @@ class DependencyPlanBuilder {
         continue;
       switch member {
         case MClass(cl, params, fields):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collectParams(params, true, '$kind.owner-parameters',
             cl.pos);
           final publicSurface = PublicSurface.forClass(cl);
@@ -667,7 +693,7 @@ class DependencyPlanBuilder {
             if (kind != DeclarationOnly || cl.isInterface
               || PublicSurface.runtimeSatisfiesInterface(cl,
                 parent.type.get())) {
-              addReference(kind, TClassDecl(parent.type), '$kind.interface',
+              addTypeReference(TClassDecl(parent.type), '$kind.interface',
                 cl.pos);
               collector.collectParams(parent.copyArguments(), true,
                 '$kind.interface-arguments', cl.pos);
@@ -676,7 +702,7 @@ class DependencyPlanBuilder {
           switch publicSurface.superClassFor(params) {
             case null:
             case parent:
-              addReference(kind, TClassDecl(parent.type), '$kind.superclass',
+              addTypeReference(TClassDecl(parent.type), '$kind.superclass',
                 cl.pos);
               collector.collectParams(parent.copyArguments(), true,
                 '$kind.superclass-arguments', cl.pos);
@@ -716,6 +742,9 @@ class DependencyPlanBuilder {
                 collectSignature(field);
               }
           }
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
           if (includeExpressionLocals) {
             for (field in fields)
               collectExpressionTypes(field.expr);
@@ -723,6 +752,9 @@ class DependencyPlanBuilder {
           }
 
         case MEnum(enumType, params):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collectParams(params, true, '$kind.enum-parameters',
             enumType.pos);
           for (constructor in enumType.constructs) {
@@ -737,17 +769,32 @@ class DependencyPlanBuilder {
               default:
             }
           }
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
 
         case MMain(expression):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collect(expression.t, '$kind.main-result', expression.pos);
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
           if (includeExpressionLocals)
             collectExpressionTypes(expression);
 
         case MType(definition, params):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collectParams(params, true, '$kind.typedef-parameters',
             definition.pos);
           collector.collect(definition.type, '$kind.typedef-body',
             definition.pos);
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
       }
     }
   }

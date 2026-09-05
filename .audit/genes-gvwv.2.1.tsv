@@ -1,0 +1,2 @@
+timestamp_utc	decision	why	evidence	result
+2026-09-05T11:55:00Z	Measure before optimizing	The isolated parent benchmark proves a material type-edge owner but not which internal operation is responsible.	genes-gvwv.2 baseline run 33952982602; type edges own 1.742s and 22% at 512 mixed edges	Add benchmark-only timers for boundary-plan roots, member signatures, expression locals, recursive expansion, and import normalization; do not change production planning yet.

@@ -59,7 +59,9 @@ The JSON records:
   load averages;
 - the seed, full command, case order, and every individual sample;
 - exact runtime/type-only import counts and stable output-tree hashes;
-- wall-time and planner-owner distributions for each case; and
+- wall-time and planner-owner distributions for each case;
+- boundary-plan, member-signature, expression-local, recursive-expansion, and
+  import-normalization type-edge distributions and invocation counts; and
 - the measured sensitivity ratio.
 
 The first isolated five-round baseline and every sample are recorded in
