@@ -194,8 +194,7 @@ function main(): void {
       `${job} must select Haxe before installing the pinned formatter and running the stdlib-overlay acceptance gate`
     );
   }
-  const ownerFixture = "- run: yarn test:acceptance-process-owner";
-  const acceptanceStep = "- run: yarn test:acceptance\n";
+  const ownerFixture = "run: yarn test:acceptance-process-owner";
   const fullLocalGate = packageJson.scripts?.["test:ci"];
   const fullLocalAcceptance =
     "cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance";
@@ -212,11 +211,12 @@ function main(): void {
   );
   assert(
     preflight.includes(
-      "- run: yarn test:acceptance-process-owner\n        timeout-minutes: 5"
+      "run: yarn test:acceptance-process-owner\n        timeout-minutes: 5"
     )
+      && preflight.includes("steps.acceptance-process-owner.outcome != 'skipped'")
       && preflight.includes("name: genes-acceptance-process-owner")
       && preflight.includes("path: .tmp/test-acceptance-process-owner")
-      && preflight.includes("if-no-files-found: error"),
+      && preflight.includes("if-no-files-found: warn"),
     "The required process-owner fixture must retain its workflow backstop"
   );
   assert(

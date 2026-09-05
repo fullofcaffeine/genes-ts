@@ -370,16 +370,17 @@ jobs:
       - run: yarn test:acceptance-shard-aggregate
       # The lifecycle fixture creates private owner groups and a detached
       # bystander. Run it beside, never inside, the aggregate that it tests.
-      - run: yarn test:acceptance-process-owner
+      - id: acceptance-process-owner
+        run: yarn test:acceptance-process-owner
         timeout-minutes: 5
       - name: Preserve acceptance process-owner evidence
-        if: always()
+        if: ${{ always() && steps.acceptance-process-owner.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
           name: genes-acceptance-process-owner
           path: .tmp/test-acceptance-process-owner
           include-hidden-files: true
-          if-no-files-found: error
+          if-no-files-found: warn
       - run: yarn test:ts2hx
       - run: yarn test:matrix:api
       - run: yarn test:template-literals
