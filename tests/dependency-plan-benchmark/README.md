@@ -2,57 +2,79 @@
 
 ## What this checks
 
-Before Genes writes an `import` statement, it builds a dependency plan. That
-plan remembers which modules are needed while the program runs, which imports
-exist only for TypeScript type checking, and the order in which runtime modules
-must be initialized.
+Before Genes writes an `import` statement, it builds a dependency plan. The
+plan keeps runtime imports, TypeScript-only imports, and runtime initialization
+order separate.
 
-Some of the planner's current searches walk an existing list from the start.
-That code is simple and preserves order, but many repeated searches could make
-a generated module with hundreds of imports slower than expected. This
-benchmark measures that risk before we consider a more complicated lookup
-table.
-
-Run it with:
+Run the report-only experiment on a quiet host with the pinned toolchains:
 
 ```bash
-yarn benchmark:dependency-plan
+yarn benchmark:dependency-plan \
+  --out /tmp/genes-dependency-plan.json
 ```
 
-The benchmark generates three temporary Haxe modules with 128, 256, and 512
-dependency edges. Half are runtime imports and half are imports used only by
-TypeScript types. For each size it:
+The default protocol runs five rounds. Each round brackets a seeded shuffle of
+the 128-, 256-, and 512-edge cases with the same 256-edge control:
 
-1. performs one unmeasured build to warm filesystem caches;
-2. measures five complete genes-ts builds and reports the median time;
-3. confirms that every requested import reached the generated output; and
-4. hashes the complete output tree after every build to prove that repeated
-   measurements did not change the result.
+```text
+256 control -> seeded 128/256/512 order -> 256 control
+```
 
-Temporary source and output files are removed after a successful report. The
-hash compares repeated builds in the same run; it is not a cross-machine
-golden value because the compiler ownership manifest includes the configured
-output location.
+This arrangement makes run-order drift visible. It does not assume that the
+largest graph always runs last. Every fixture gets one unmeasured warmup, and
+all Haxe children run serially.
+
+## Owner attribution
+
+Every measured build enables Haxe `--times` and the private
+`genes.compile_stage_profile` define. The JSON report keeps process wall time,
+host load, output hashes, and the existing Genes timer rows for inventory,
+reachability roots and expansion, runtime and type-edge collection,
+validation, emission, and publication. Process wall time is the absolute
+latency authority. Haxe timer values rank owners only within the same host and
+toolchain run.
+
+The benchmark also pairs an ordinary 128-edge source with a source-only
+sensitivity control. The control keeps the same 64 runtime and 64 type-only
+imports but repeats every typed dependency reference eight times by default.
+The owner observer must report more combined runtime/type-edge work for that
+control. This proves that the selected planner rows respond to planner input;
+it does not claim that repeated references are a production workload.
+
+The focused `yarn test:compile-stage-report` gate checks the seeded schedule,
+fixed anchors, source shape, stable import count, and timer aggregation without
+running the long benchmark.
+
+## Report contents
+
+The JSON records:
+
+- the exact Git commit and working-tree state;
+- Node and Haxe versions, operating system, CPU count, process priority, and
+  load averages;
+- the seed, full command, case order, and every individual sample;
+- exact runtime/type-only import counts and stable output-tree hashes;
+- wall-time and planner-owner distributions for each case; and
+- the measured sensitivity ratio.
+
+Temporary generated sources and output are removed after a successful run.
+Use `--keep-workspace` only for diagnosis. Keep `--out` outside the repository
+when the report contains machine-local paths.
 
 ## How to read the result
 
-The reported time covers the complete Haxe and Genes build: parsing, typing,
-dependency planning, and writing output. It deliberately does not pretend to
-measure one private function in isolation. A large increase would justify a
-smaller instrumented experiment before optimization. A roughly proportional
-increase is evidence that the current implementation is not yet a practical
-bottleneck.
+The wall-clock ratio says whether larger import graphs still make complete
+builds grow sharply. The bracketing controls show how much of that ratio could
+come from host drift. The planner rows then show whether dependency planning
+is a material share of the increase or whether parsing, typing, dead-code
+elimination, another Genes scan, emission, or publication owns it.
 
-The command is report-only because timing differs across computers and active
-workloads. The report names the Node, Haxe, operating-system, and processor
-architecture used for that run. It has no release threshold, and its numbers
-should not be copied into CI as a performance budget without measurements from
-stable CI hardware.
+Do not optimize the planner from wall time alone. A production optimization is
+justified only when the interleaved samples are stable, the fixed controls are
+credible, and owner timing attributes a material cost to planning. Any such
+change belongs in a separate Bead and must preserve first-occurrence import
+order and both output profiles.
 
-See also:
-
-- `src/genes/DependencyPlan.hx`, which owns the ordered dependency projection;
-- `docs/ARCHITECTURE.md`, which explains why dependency order is a semantic
-  compiler fact rather than printer formatting; and
-- `scripts/test-output-quality.ts`, which owns deterministic output and the
-  repository's existing report-only whole-build timings.
+The command has no CI timing threshold. One workstation run must not become a
+blocking budget. See `docs/TESTING_STRATEGY.md` for the evidence needed before
+a statistical threshold can block a release.

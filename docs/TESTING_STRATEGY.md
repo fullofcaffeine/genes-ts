@@ -684,11 +684,14 @@ whole-language performance benchmark.
 
 `benchmark:dependency-plan` answers a narrower performance question: how a
 single generated module's build time changes as its import graph grows from
-128 to 512 edges. It reports complete warm genes-ts build times and verifies
-identical output hashes, but it sets no CI timing budget. See
+128 to 512 edges. Five rounds bracket a seeded shuffle of those sizes with
+fixed 256-edge controls, so size is not confused with always running later.
+The report records complete build wall time, host load, exact output hashes,
+and the existing Genes owner timers. A same-size repeated-reference control
+must increase the observed runtime/type-edge planner rows before those rows are
+used for attribution. The command still sets no CI timing budget. See
 `tests/dependency-plan-benchmark/README.md` for the fixture shape and guidance
-on interpreting the numbers without mistaking a whole-build result for a
-microbenchmark of one planner function.
+on interpreting the interleaved wall-clock and owner evidence.
 
 `benchmark:compile-stages` answers the broader attribution question before an
 optimization starts. It uses Haxe's authoritative `--times` table and
