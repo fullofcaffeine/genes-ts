@@ -66,6 +66,8 @@ The JSON records:
 
 The first isolated five-round baseline and every sample are recorded in
 [`HOSTED_BASELINE_081CEEA3.md`](HOSTED_BASELINE_081CEEA3.md).
+The measured request-local declaration-normalization cache comparison is in
+[`HOSTED_NORMALIZATION_CACHE_B6C02532.md`](HOSTED_NORMALIZATION_CACHE_B6C02532.md).
 
 Temporary compiler inputs, generated sources, and output are removed before the
 report is published.
