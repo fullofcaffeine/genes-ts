@@ -56,7 +56,7 @@ private typedef NormalizedDependencyReference = {
 class DependencyPlanBuilder {
   final module: Module;
   final edges: Array<DependencyEdge> = [];
-  final normalizedReferences = new ObjectMap<BaseType,
+  final normalizedReferences = new ObjectMap<Ref<BaseType>,
     Array<NormalizedDependencyReference>>();
   var usesJsxNamespaceType = false;
   var hasReactStateBinding = false;
@@ -117,13 +117,14 @@ class DependencyPlanBuilder {
    * binding identity depend only on that typed declaration and this builder's
    * fixed source module, so repeating that work cannot change the result.
    *
-   * The key is the exact compiler-owned declaration object. A textual
+   * The key is the exact lazy compiler reference. A textual
    * module/name key is not sufficient because Haxe can apply `@:native` to two
    * declarations in one module and expose the same rewritten target name for
-   * both. Object identity is safe for this request-local cache and cannot leak
-   * across compiler-server builds. Cached imports are immutable; callers still
-   * append one edge for every occurrence in its original order and with its
-   * original provenance.
+   * both. Haxe explicitly preserves physical identity on `Ref<T>` while
+   * `ref.get()` can encode a fresh structure, so the reference is the precise
+   * request-local cache authority. It cannot leak across compiler-server
+   * builds. Cached imports are immutable; callers still append one edge for
+   * every occurrence in its original order and with its original provenance.
    */
   function normalizedReferencesFor(type: ModuleType): Array<NormalizedDependencyReference> {
     final declaration = declarationFor(type);
@@ -135,12 +136,12 @@ class DependencyPlanBuilder {
     return references;
   }
 
-  static function declarationFor(type: ModuleType): BaseType {
+  static function declarationFor(type: ModuleType): Ref<BaseType> {
     return switch type {
-      case TClassDecl(ref): ref.get();
-      case TEnumDecl(ref): ref.get();
-      case TTypeDecl(ref): ref.get();
-      case TAbstract(ref): ref.get();
+      case TClassDecl(ref): ref;
+      case TEnumDecl(ref): ref;
+      case TTypeDecl(ref): ref;
+      case TAbstract(ref): ref;
     }
   }
 
