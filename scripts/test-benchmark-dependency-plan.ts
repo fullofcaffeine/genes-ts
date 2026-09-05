@@ -1,11 +1,40 @@
-import { deepStrictEqual, ok, strictEqual } from "node:assert";
+import { deepStrictEqual, ok, strictEqual, throws } from "node:assert";
+import { homedir, tmpdir } from "node:os";
+import path from "node:path";
 import {
+  parseOptions,
   plannerPercentOfTotal,
   plannerReportedSeconds,
   scheduleForRound,
   sourceFor,
+  validateWorkspacePath,
   type BenchmarkSample
 } from "./benchmark-dependency-plan.js";
+
+throws(
+  () => parseOptions(["--sensitivity-multiplier", "1"]),
+  /sensitivity multiplier must be greater than 1/
+);
+throws(
+  () => validateWorkspacePath(process.cwd()),
+  /must not be the current directory/
+);
+throws(
+  () => parseOptions(["--workspace", "."]),
+  /must not be the current directory/
+);
+throws(
+  () => validateWorkspacePath(tmpdir()),
+  /must be a child/
+);
+throws(
+  () => validateWorkspacePath(homedir()),
+  /must be a child/
+);
+strictEqual(
+  validateWorkspacePath(path.join(tmpdir(), "genes-dependency-plan-test")),
+  path.resolve(tmpdir(), "genes-dependency-plan-test")
+);
 
 const first = scheduleForRound(1, 20260905);
 const repeated = scheduleForRound(1, 20260905);

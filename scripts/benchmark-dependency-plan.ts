@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync
 } from "node:fs";
-import { cpus, getPriority, loadavg } from "node:os";
+import { cpus, getPriority, loadavg, tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -61,7 +61,7 @@ export interface ScheduledCase {
   readonly referenceMultiplier: number;
 }
 
-interface BenchmarkOptions {
+export interface BenchmarkOptions {
   readonly rounds: number;
   readonly seed: number;
   readonly sensitivityMultiplier: number;
@@ -611,7 +611,28 @@ function positiveInteger(value: string | undefined, label: string): number {
   return parsed;
 }
 
-function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
+function isStrictDescendant(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative !== ""
+    && relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+export function validateWorkspacePath(
+  workspace: string,
+  currentDirectory = process.cwd()
+): string {
+  const resolved = path.resolve(workspace);
+  ok(resolved !== path.resolve(currentDirectory),
+    "--workspace must not be the current directory");
+  const allowedRoots = [path.join(repoRoot, ".tmp"), tmpdir()].map((root) => path.resolve(root));
+  ok(allowedRoots.some((root) => isStrictDescendant(root, resolved)),
+    "--workspace must be a child of the repository .tmp directory or the system temporary directory");
+  return resolved;
+}
+
+export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
   let rounds = defaultRounds;
   let seed = defaultSeed;
   let sensitivityMultiplier = defaultSensitivityMultiplier;
@@ -625,12 +646,13 @@ function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
     else if (argument === "--seed") seed = positiveInteger(args[++index], "seed");
     else if (argument === "--sensitivity-multiplier") {
       sensitivityMultiplier = positiveInteger(args[++index], "sensitivity multiplier");
+      ok(sensitivityMultiplier > 1, "sensitivity multiplier must be greater than 1");
     } else if (argument === "--sensitivity-samples") {
       sensitivitySamples = positiveInteger(args[++index], "sensitivity samples");
     } else if (argument === "--workspace") {
       const value = args[++index];
       ok(value !== undefined, "--workspace requires a path");
-      workspace = path.resolve(value);
+      workspace = value;
     } else if (argument === "--out") {
       const value = args[++index];
       ok(value !== undefined, "--out requires a path");
@@ -643,7 +665,7 @@ function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
     seed,
     sensitivityMultiplier,
     sensitivitySamples,
-    workspace,
+    workspace: validateWorkspacePath(workspace),
     keepWorkspace,
     outputPath
   };
