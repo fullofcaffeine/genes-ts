@@ -6,13 +6,12 @@ import haxe.macro.Expr.Constant;
 import haxe.macro.Expr.ExprDef;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
+import haxe.ds.ObjectMap;
 import genes.Dependencies.DependencySpec;
 import genes.Dependencies.DependencyType;
 import genes.BindingIdentity.BindingIdentity;
 import genes.BindingIdentity.BindingOriginKey;
 import genes.BindingIdentity.CompilerCapabilityId;
-import genes.BindingIdentity.HaxeDeclarationKey;
-import genes.BindingIdentity.HaxeDeclarationKind;
 import genes.BindingIdentity.StaticFieldOriginKey;
 import genes.Dependencies.DependencyRequest;
 import genes.DependencyPlan.DependencyEdge;
@@ -57,8 +56,8 @@ private typedef NormalizedDependencyReference = {
 class DependencyPlanBuilder {
   final module: Module;
   final edges: Array<DependencyEdge> = [];
-  final normalizedReferences = new Map<HaxeDeclarationKind,
-    Map<String, Map<String, Array<NormalizedDependencyReference>>>>();
+  final normalizedReferences = new ObjectMap<BaseType,
+    Array<NormalizedDependencyReference>>();
   var usesJsxNamespaceType = false;
   var hasReactStateBinding = false;
 
@@ -118,30 +117,31 @@ class DependencyPlanBuilder {
    * binding identity depend only on that typed declaration and this builder's
    * fixed source module, so repeating that work cannot change the result.
    *
-   * The three-level key uses the compiler-owned declaration kind, module, and
-   * name separately. It does not depend on rendered type text, source position,
-   * generated names, or traversal order. Cached imports are immutable; callers
-   * still append one edge for every occurrence in its original order and with
-   * its original provenance.
+   * The key is the exact compiler-owned declaration object. A textual
+   * module/name key is not sufficient because Haxe can apply `@:native` to two
+   * declarations in one module and expose the same rewritten target name for
+   * both. Object identity is safe for this request-local cache and cannot leak
+   * across compiler-server builds. Cached imports are immutable; callers still
+   * append one edge for every occurrence in its original order and with its
+   * original provenance.
    */
   function normalizedReferencesFor(type: ModuleType): Array<NormalizedDependencyReference> {
-    final key = HaxeDeclarationKey.fromModuleType(type);
-    var modules = normalizedReferences.get(key.kind);
-    if (modules == null) {
-      modules = [];
-      normalizedReferences.set(key.kind, modules);
-    }
-    var declarations = modules.get(key.module);
-    if (declarations == null) {
-      declarations = [];
-      modules.set(key.module, declarations);
-    }
-    if (declarations.exists(key.name))
-      return declarations.get(key.name);
+    final declaration = declarationFor(type);
+    if (normalizedReferences.exists(declaration))
+      return normalizedReferences.get(declaration);
 
     final references = normalizeRequests(Dependencies.requests(module, type));
-    declarations.set(key.name, references);
+    normalizedReferences.set(declaration, references);
     return references;
+  }
+
+  static function declarationFor(type: ModuleType): BaseType {
+    return switch type {
+      case TClassDecl(ref): ref.get();
+      case TEnumDecl(ref): ref.get();
+      case TTypeDecl(ref): ref.get();
+      case TAbstract(ref): ref.get();
+    }
   }
 
   static function normalizeRequests(requests: Array<DependencyRequest>): Array<NormalizedDependencyReference> {
