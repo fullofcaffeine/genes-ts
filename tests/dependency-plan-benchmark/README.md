@@ -57,6 +57,9 @@ The JSON records:
 - wall-time and planner-owner distributions for each case; and
 - the measured sensitivity ratio.
 
+The first isolated five-round baseline and every sample are recorded in
+[`HOSTED_BASELINE_081CEEA3.md`](HOSTED_BASELINE_081CEEA3.md).
+
 Temporary generated sources and output are removed after a successful run.
 Use `--keep-workspace` only for diagnosis. Keep `--out` outside the repository
 when the report contains machine-local paths.

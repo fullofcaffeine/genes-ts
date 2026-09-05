@@ -2338,6 +2338,7 @@
         "scripts/test-haxe-times.ts",
         "scripts/test-compile-stage-report.ts",
         "tests/dependency-plan-benchmark/README.md",
+        "tests/dependency-plan-benchmark/HOSTED_BASELINE_081CEEA3.md",
         "tests/compile-stage-report/README.md",
         "tests/compile-stage-report/TYPED_WALKER_INVENTORY.md",
         "tests/compile-stage-report/src/compilestage/PublicationFloorProbe.hx"
@@ -2356,6 +2357,7 @@
         "scripts/test-haxe-times.ts",
         "scripts/test-compile-stage-report.ts",
         "tests/dependency-plan-benchmark/README.md",
+        "tests/dependency-plan-benchmark/HOSTED_BASELINE_081CEEA3.md",
         "tests/compile-stage-report/README.md",
         "tests/compile-stage-report/TYPED_WALKER_INVENTORY.md",
         "tests/compile-stage-report/src/compilestage/PublicationFloorProbe.hx"
