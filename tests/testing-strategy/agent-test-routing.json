@@ -2240,7 +2240,7 @@
         ".tmp/test-acceptance-process-owner"
       ],
       "remoteJobs": [
-        "genes-ts"
+        "genes-ts-preflight"
       ]
     },
     {
@@ -3253,15 +3253,23 @@
       ],
       "ownerPaths": [
         "scripts/test-acceptance.ts",
+        "scripts/acceptance-gate-manifest.ts",
+        "scripts/acceptance-gate-ownership.ts",
         "scripts/acceptance-process-owner.ts",
-        "scripts/acceptance-evidence-writer.ts"
+        "scripts/acceptance-evidence-writer.ts",
+        "scripts/test-acceptance-gate-manifest.ts",
+        "scripts/test-acceptance-shard-aggregate.ts"
       ],
       "proves": "The normal stable pull-request compiler, migration, and example owners pass together with the documented default options.",
       "doesNotProve": "Acceptance does not include release, security, every toolchain, or the planned official Haxe lane.",
       "owners": [
         "scripts/test-acceptance.ts",
+        "scripts/acceptance-gate-manifest.ts",
+        "scripts/acceptance-gate-ownership.ts",
         "scripts/acceptance-process-owner.ts",
-        "scripts/acceptance-evidence-writer.ts"
+        "scripts/acceptance-evidence-writer.ts",
+        "scripts/test-acceptance-gate-manifest.ts",
+        "scripts/test-acceptance-shard-aggregate.ts"
       ],
       "families": [
         "compiler",
@@ -3299,7 +3307,8 @@
         ".tmp/test-evidence/acceptance"
       ],
       "remoteJobs": [
-        "genes-ts"
+        "genes-ts-acceptance-shards",
+        "genes-ts-smoke-next-lts"
       ]
     },
     {
@@ -3397,6 +3406,9 @@
         "yarn test:template-literals",
         "yarn test:classic:dts",
         "yarn test:library-profile",
+        "yarn test:acceptance-process-owner",
+        "yarn test:acceptance-manifest",
+        "yarn test:acceptance-shard-aggregate",
         "yarn test:acceptance",
         "yarn test:ts2hx"
       ],
@@ -3487,6 +3499,8 @@
         "vulns",
         "classic",
         "genes-test-plan-and-smoke",
+        "genes-ts-preflight",
+        "genes-ts-acceptance-shards",
         "genes-ts",
         "genes-ts-smoke-next-lts"
       ]
@@ -4032,6 +4046,7 @@
         "scripts/test-*",
         "scripts/prepare-test-tools.mjs",
         "scripts/acceptance-gate-ownership.ts",
+        "scripts/acceptance-gate-manifest.ts",
         "scripts/acceptance-process-owner.ts",
         "scripts/acceptance-process-probe.ts",
         "scripts/acceptance-evidence-writer.ts",

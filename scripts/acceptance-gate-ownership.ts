@@ -1,78 +1,26 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { acceptanceGateManifest } from "./acceptance-gate-manifest.js";
 
 /**
  * Focused compiler contracts that acceptance, rather than an outer CI wrapper,
  * owns.
  *
  * Why: these tests previously ran only from the release-oriented `test:ci`
- * command. The normal stable pull-request job calls `test:acceptance`
- * directly, so regressions in focused compiler contracts could reach main
- * before their direct tests ran.
+ * command. Stable pull-request shards call `test:acceptance <shard>` from the
+ * same manifest, so regressions in focused compiler contracts cannot reach
+ * main before their direct tests run.
  *
  * What/How: `test-acceptance.ts` executes this list exactly once. The
  * validation below rejects a second direct invocation from `test:ci` or either
  * GitHub workflow. Standalone focused commands remain available for iteration.
  */
-export const acceptanceOwnedFocusedGates = [
-  {
-    packageScript: "test:lexical-binding-use-plan",
-    compiledScript: "scripts/dist/test-lexical-binding-use-plan.js"
-  },
-  {
-    packageScript: "test:module-functions",
-    compiledScript: "scripts/dist/test-module-functions.js"
-  },
-  {
-    packageScript: "test:array-index-strict",
-    compiledScript: "scripts/dist/test-array-index-strict.js"
-  },
-  {
-    packageScript: "test:reflection-class-values",
-    compiledScript: "scripts/dist/test-reflection-class-values.js"
-  },
-  {
-    packageScript: "test:abstract-implementation-properties",
-    compiledScript: "scripts/dist/test-abstract-implementation-properties.js"
-  },
-  {
-    packageScript: "test:host-global-identity",
-    compiledScript: "scripts/dist/test-host-global-identity.js"
-  },
-  {
-    packageScript: "test:host-callback-boundary",
-    compiledScript: "scripts/dist/test-host-callback-boundary.js"
-  },
-  {
-    packageScript: "test:runtime-guarded-binding",
-    compiledScript: "scripts/dist/test-runtime-guarded-binding.js"
-  },
-  {
-    packageScript: "test:higher-order-enum-constructors",
-    compiledScript: "scripts/dist/test-higher-order-enum-constructors.js"
-  },
-  {
-    packageScript: "test:enum-payload-narrowing",
-    compiledScript: "scripts/dist/test-enum-payload-narrowing.js"
-  },
-  {
-    packageScript: "test:byte-buffer-cache",
-    compiledScript: "scripts/dist/test-byte-buffer-cache.js"
-  },
-  {
-    packageScript: "test:stdlib-overrides",
-    compiledScript: "scripts/dist/test-stdlib-overrides.js"
-  },
-  {
-    packageScript: "test:nullable-temp-receivers",
-    compiledScript: "scripts/dist/test-nullable-temp-receivers.js"
-  },
-  {
-    packageScript: "test:compile-stage-report",
-    compiledScript: "scripts/dist/test-compile-stage-suite.js",
-    requiresCompilerServer: true
-  }
-] as const;
+export const acceptanceOwnedFocusedGates = acceptanceGateManifest.flatMap((gate) =>
+  gate.focusedPackageScript === undefined ? [] : [{
+    packageScript: gate.focusedPackageScript,
+    compiledScript: gate.args[0] ?? "",
+    ...(gate.requiresCompilerServer ? { requiresCompilerServer: true } : {})
+  }]);
 
 export function shouldRunAcceptanceFocusedGate(
   gate: (typeof acceptanceOwnedFocusedGates)[number],

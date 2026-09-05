@@ -281,12 +281,10 @@ jobs:
           path: .tmp/test-evidence/official-haxe-representative*
           if-no-files-found: error
 
-  genes-ts:
-    name: genes-ts (TS output + todoapp E2E)
+  genes-ts-preflight:
+    name: genes-ts policy and toolchain preflight
     needs: genes-test-plan-and-smoke
-    # This check is protected by branch rules. It must still report a failure
-    # when its preflight fails, because GitHub treats a dependency-skipped
-    # required job as successful.
+    # The protected aggregate depends on this job and reports its exact result.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
@@ -313,36 +311,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
       - run: yarn install --frozen-lockfile
-      - name: Identify the pinned Playwright browser
-        id: playwright-cache
-        run: |
-          node <<'NODE'
-          const { appendFileSync } = require("node:fs");
-          const version = require("./node_modules/@playwright/test/package.json").version;
-          const { browsers } = require("./node_modules/playwright-core/browsers.json");
-          const chromium = browsers.find((browser) =>
-            browser.name === "chromium" && browser.installByDefault === true
-          );
-          const safePart = /^[0-9A-Za-z.-]+$/;
-          if (!safePart.test(version)
-            || chromium == null
-            || !safePart.test(chromium.browserVersion)
-            || !safePart.test(chromium.revision)) {
-            throw new Error("Pinned Playwright Chromium identity is missing or unsafe");
-          }
-          const identity = `${version}-chromium-${chromium.browserVersion}-r${chromium.revision}`;
-          if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is unavailable");
-          appendFileSync(process.env.GITHUB_OUTPUT, `identity=${identity}\n`);
-          console.log(`Playwright cache identity: ${identity}`);
-          NODE
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-cache.outputs.identity }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-playwright-
-            ${{ runner.os }}-playwright-
       - name: Pack tooling for its oldest supported Node release
         run: |
           set -euo pipefail
@@ -377,9 +345,8 @@ jobs:
         with:
           node-version: ${{ steps.toolchains.outputs.node-stable }}
       - uses: ./.github/actions/setup-yarn
-      # This job is a required status. Run the structural policy here so a
-      # required-check rename or matrix change is rejected on the PR that
-      # proposes it, before GitHub settings and workflow output can diverge.
+      # The protected aggregate depends on this job. Run structural policy
+      # here so a required-check or matrix change fails before aggregation.
       - run: yarn test:main-protection-policy
       # Release settings live outside Git. Keep their public live-policy check
       # in this required job so a weakened environment blocks ordinary PRs.
@@ -399,23 +366,19 @@ jobs:
       # in a required PR job; the release-only aggregate is too late to catch a
       # policy regression introduced by an ordinary change.
       - run: yarn test:null-safety
+      - run: yarn test:acceptance-manifest
+      - run: yarn test:acceptance-shard-aggregate
       # The lifecycle fixture creates private owner groups and a detached
       # bystander. Run it beside, never inside, the aggregate that it tests.
-      - run: yarn test:acceptance-process-owner
+      - id: acceptance-process-owner
+        run: yarn test:acceptance-process-owner
         timeout-minutes: 5
-      - run: yarn test:acceptance
-        timeout-minutes: 45
-        env:
-          SKIP_CLASSIC: "1"
-          SKIP_TS2HX: "1"
-      - name: Preserve acceptance owner markers and logs
-        if: always()
+      - name: Preserve acceptance process-owner evidence
+        if: ${{ always() && steps.acceptance-process-owner.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
-          name: genes-acceptance-owner
-          path: |
-            .tmp/test-evidence/acceptance
-            .tmp/test-acceptance-process-owner
+          name: genes-acceptance-process-owner
+          path: .tmp/test-acceptance-process-owner
           include-hidden-files: true
           if-no-files-found: warn
       - run: yarn test:ts2hx
@@ -423,6 +386,127 @@ jobs:
       - run: yarn test:template-literals
       - run: yarn test:classic:dts
       - run: yarn test:library-profile
+
+  genes-ts-acceptance-shards:
+    name: genes-ts acceptance (${{ matrix.shard }})
+    needs: genes-test-plan-and-smoke
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [compiler, react, output, focused-examples]
+    steps:
+      - name: Require the test plan and official Haxe smoke
+        if: ${{ needs.genes-test-plan-and-smoke.result != 'success' }}
+        run: |
+          echo "The test-plan and official-Haxe smoke job did not pass."
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+      - uses: ./.github/actions/setup-yarn
+      - name: Cache Haxe toolchain (lix)
+        uses: actions/cache@v4
+        with:
+          path: ~/haxe
+          key: ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
+      - run: yarn install --frozen-lockfile
+      - name: Identify the pinned Playwright browser
+        if: ${{ matrix.shard == 'focused-examples' }}
+        id: playwright-cache
+        run: |
+          node <<'NODE'
+          const { appendFileSync } = require("node:fs");
+          const version = require("./node_modules/@playwright/test/package.json").version;
+          const { browsers } = require("./node_modules/playwright-core/browsers.json");
+          const chromium = browsers.find((browser) =>
+            browser.name === "chromium" && browser.installByDefault === true
+          );
+          const safePart = /^[0-9A-Za-z.-]+$/;
+          if (!safePart.test(version)
+            || chromium == null
+            || !safePart.test(chromium.browserVersion)
+            || !safePart.test(chromium.revision)) {
+            throw new Error("Pinned Playwright Chromium identity is missing or unsafe");
+          }
+          const identity = `${version}-chromium-${chromium.browserVersion}-r${chromium.revision}`;
+          if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is unavailable");
+          appendFileSync(process.env.GITHUB_OUTPUT, `identity=${identity}\n`);
+          console.log(`Playwright cache identity: ${identity}`);
+          NODE
+      - name: Cache Playwright browsers
+        if: ${{ matrix.shard == 'focused-examples' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-cache.outputs.identity }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-playwright-
+            ${{ runner.os }}-playwright-
+      - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn haxelib install formatter 1.18.0 --quiet
+      - run: yarn test:acceptance ${{ matrix.shard }}
+        env:
+          SKIP_CLASSIC: "1"
+          SKIP_TS2HX: "1"
+          GENES_ACCEPTANCE_TIMEOUT_MS: "900000"
+      - name: Preserve exact shard state and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: genes-acceptance-shard-${{ matrix.shard }}
+          path: .tmp/test-evidence/acceptance-shards/${{ matrix.shard }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+  genes-ts:
+    name: genes-ts (TS output + todoapp E2E)
+    needs: [genes-ts-preflight, genes-ts-acceptance-shards]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+      - uses: ./.github/actions/setup-yarn
+      - run: yarn install --frozen-lockfile
+      - name: Download every acceptance shard artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: genes-acceptance-shard-*
+          path: .tmp/test-evidence/downloaded-acceptance-shards
+          merge-multiple: false
+      - name: Require preflight and complete shard evidence
+        run: |
+          yarn build:scripts
+          node scripts/dist/test-acceptance-shard-aggregate.js \
+            --artifacts .tmp/test-evidence/downloaded-acceptance-shards \
+            --preflight-result "${{ needs.genes-ts-preflight.result }}" \
+            --shards-result "${{ needs.genes-ts-acceptance-shards.result }}" \
+            --out .tmp/test-evidence/acceptance-aggregate/state.json
+      - name: Preserve aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: genes-acceptance-aggregate
+          path: .tmp/test-evidence/acceptance-aggregate
+          include-hidden-files: true
+          if-no-files-found: warn
 
   genes-ts-smoke-next-lts:
     name: genes-ts smoke (Node current / next LTS)

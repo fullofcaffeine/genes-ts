@@ -570,7 +570,7 @@ function verifyToolingReleaseWorkflow(source: string): void {
   }
 }
 
-function verifyRequiredCiOwner(source: string): void {
+function verifyProtectedCiOwner(source: string): void {
   const parsed: unknown = parseYaml(source);
   assert(typeof parsed === "object" && parsed !== null, "CI workflow must be a mapping");
   const workflowRecord = parsed as Record<string, unknown>;
@@ -579,32 +579,38 @@ function verifyRequiredCiOwner(source: string): void {
     "CI workflow must define jobs"
   );
   const jobs = workflowRecord.jobs as Record<string, unknown>;
-  const requiredJob = jobs["genes-ts"];
+  const preflightJob = jobs["genes-ts-preflight"];
   assert(
-    typeof requiredJob === "object" && requiredJob !== null,
-    "CI workflow must define the required genes-ts job"
+    typeof preflightJob === "object" && preflightJob !== null,
+    "CI workflow must define the genes-ts preflight job"
   );
-  const requiredJobRecord = requiredJob as Record<string, unknown>;
+  const preflightJobRecord = preflightJob as Record<string, unknown>;
   assert(
-    Array.isArray(requiredJobRecord.steps),
-    "required genes-ts job must define steps"
+    Array.isArray(preflightJobRecord.steps),
+    "genes-ts preflight job must define steps"
   );
   assert(
-    requiredJobRecord.steps.some(
+    preflightJobRecord.steps.some(
       (step: unknown) =>
         typeof step === "object" &&
         step !== null &&
         (step as Record<string, unknown>).run ===
           "yarn test:tooling-release-workflow"
     ),
-    "the required genes-ts PR job must run the live release-policy owner"
+    "the genes-ts preflight must run the live release-policy owner"
+  );
+  const requiredJob = jobs["genes-ts"] as Record<string, unknown> | undefined;
+  assert(
+    Array.isArray(requiredJob?.needs)
+      && requiredJob.needs.includes("genes-ts-preflight"),
+    "the protected genes-ts aggregate must require the release-policy preflight"
   );
 }
 
 verifyPinnedActions(workflow, "tooling release workflow", toolingActionReferences);
 verifyToolingReleaseWorkflow(workflow);
 verifyProtectedEnvironment();
-verifyRequiredCiOwner(ciWorkflow);
+verifyProtectedCiOwner(ciWorkflow);
 assert(
   !compilerReleaseConfig.includes("npm publish") &&
     !compilerReleaseConfig.includes("@genes-ts/tooling"),
@@ -722,7 +728,7 @@ rejected = false;
 try {
   const command = "      - run: yarn test:tooling-release-workflow\n";
   const withoutRequiredOwner = ciWorkflow.replace(command, "");
-  verifyRequiredCiOwner(
+  verifyProtectedCiOwner(
     withoutRequiredOwner.replace("    steps:\n", `    steps:\n${command}`)
   );
 } catch {
