@@ -21,6 +21,7 @@ export type ProcessResult = {
   readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
+  readonly elapsedMs: number;
 };
 
 export type TreeEntry = {
@@ -109,9 +110,17 @@ export function runBoundedProcess(
     readonly timeoutMs: number;
     readonly label: string;
     readonly env?: NodeJS.ProcessEnv;
+    readonly reportProgress?: boolean;
   }
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+    if (options.reportProgress === true) {
+      process.stderr.write(
+        `[compiler-server] start ${options.label} `
+        + `(deadline ${options.timeoutMs}ms)\n`
+      );
+    }
     const child = spawn(command, [...args], {
       cwd: options.cwd,
       env: options.env,
@@ -152,7 +161,21 @@ export function runBoundedProcess(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      resolve({ code, signal, stdout, stderr });
+      const result = {
+        code,
+        signal,
+        stdout,
+        stderr,
+        elapsedMs: performance.now() - startedAt
+      };
+      if (options.reportProgress === true) {
+        process.stderr.write(
+          `[compiler-server] finish ${options.label} `
+          + `in ${result.elapsedMs.toFixed(0)}ms `
+          + `(code ${String(code)}, signal ${String(signal)})\n`
+        );
+      }
+      resolve(result);
     });
   });
 }
@@ -342,7 +365,8 @@ export class OwnedHaxeCompilerServer {
         {
           cwd,
           timeoutMs,
-          label
+          label,
+          reportProgress: true
         }
       );
       onClientComplete?.();
