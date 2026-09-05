@@ -62,6 +62,8 @@ agents and human contributors should read the scoped guide directly.
 - `ARCHITECTURE.md#compiler-fixture-guide` — where each compiler/ts2hx test belongs
 - `TESTING_STRATEGY.md` — the agentic change loop, compiler harnesses, evidence
   boundaries, todoapp E2E, and “one command” gates
+- `HAXE_C_PERFORMANCE_PRACTICES.md` — which measured haxe.c performance
+  practices transfer to Genes, which already exist, and which do not fit
 - [`../tests/testing-strategy/agent-test-routing.json`](../tests/testing-strategy/agent-test-routing.json)
   — validated change-area routing to focused, acceptance, and full/release gates
 - [`../tooling/README.md`](../tooling/README.md) — what the optional

@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T02:28:57Z	ownership	claimed genes-gvwv while the P0 quiet-host benchmark remains deferred	the task was open, dependency-free, and unclaimed	Bead genes-gvwv	in progress
+2026-09-05T02:39:00Z	provenance	used immutable haxe.c commits instead of its working files	the neighboring checkout was dirty and its main head preceded reviewed performance branches	haxe.c commits 4e33a960, 65c94719, and 71930611	committed evidence only
+2026-09-05T02:47:00Z	baseline	recorded structural output values but rejected loaded-host wall time	host load was about 18 on 12 CPUs with unrelated Haxe compiles	yarn test:output-quality on Genes 703c6dde	57 TS files and 120 classic/declaration files; timing diagnostic only
+2026-09-05T02:48:12Z	candidate	selected hosted acceptance partitioning as the only evidence-backed follow-up	four independent gates consumed about 56 percent of one exact serial acceptance run	GitHub run 33937589075 acceptance state.json	created genes-gvwv.1
+2026-09-05T02:56:00Z	verification	kept the research change documentation-only and ran its focused repository gates	the spike changes no compiler, generated output, runtime, or CI behavior	yarn test:agent-guides; yarn test:agent-test-routing	both passed
+2026-09-05T02:51:23Z	audit	corrected the prior verification row timestamp	the prior row used an estimated future time instead of the observed clock	date -u output 2026-09-05T02:51:23Z	verification result remains valid; this row owns its time
