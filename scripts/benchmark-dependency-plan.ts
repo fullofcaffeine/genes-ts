@@ -499,6 +499,11 @@ interface GitProvenance {
   readonly status: ReadonlyArray<string>;
 }
 
+export function requireCleanStatus(status: ReadonlyArray<string>): void {
+  strictEqual(status.length, 0,
+    "benchmark requires a clean working tree so every sample has one exact source revision");
+}
+
 function gitProvenance(): GitProvenance {
   return {
     commit: execFileSync("git", ["rev-parse", "HEAD"], {
@@ -516,6 +521,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
   strictEqual(compiler.version, toolchains.haxe.stable,
     `benchmark requires pinned Haxe ${toolchains.haxe.stable}`);
   const initialProvenance = gitProvenance();
+  requireCleanStatus(initialProvenance.status);
   const loadAverageBefore = loadavg();
   const fixtures = new Map<string, Fixture>();
   for (const [edges, multiplier] of [
@@ -657,8 +663,10 @@ export function validateWorkspacePath(
 ): string {
   const resolved = path.resolve(workspace);
   const canonical = canonicalPotentialPath(resolved);
-  ok(canonical !== canonicalPotentialPath(currentDirectory),
-    "--workspace must not be the current directory");
+  const liveDirectories = [currentDirectory, repoRoot].map(canonicalPotentialPath);
+  ok(liveDirectories.every((liveDirectory) => canonical !== liveDirectory
+    && !isStrictDescendant(canonical, liveDirectory)),
+  "--workspace must not equal or contain the current directory or repository root");
   const allowedRoots = [path.join(repoRoot, ".tmp"), tmpdir()].map(canonicalPotentialPath);
   ok(allowedRoots.some((root) => isStrictDescendant(root, canonical)),
     "--workspace must be a child of the repository .tmp directory or the system temporary directory");

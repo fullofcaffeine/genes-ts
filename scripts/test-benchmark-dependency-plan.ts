@@ -7,6 +7,7 @@ import {
   parseOptions,
   plannerPercentOfTotal,
   plannerReportedSeconds,
+  requireCleanStatus,
   scheduleForRound,
   sourceFor,
   validateOutputPath,
@@ -20,11 +21,16 @@ throws(
 );
 throws(
   () => validateWorkspacePath(process.cwd()),
-  /must not be the current directory/
+  /must not equal or contain/
 );
 throws(
   () => parseOptions(["--workspace", "."]),
-  /must not be the current directory/
+  /must not equal or contain/
+);
+const liveTreeParent = path.join(tmpdir(), "genes-dependency-plan-live-parent");
+throws(
+  () => validateWorkspacePath(liveTreeParent, path.join(liveTreeParent, "project", "repo")),
+  /must not equal or contain/
 );
 throws(
   () => validateWorkspacePath(tmpdir()),
@@ -32,7 +38,7 @@ throws(
 );
 throws(
   () => validateWorkspacePath(homedir()),
-  /must be a child/
+  /must not equal or contain/
 );
 strictEqual(
   validateWorkspacePath(path.join(tmpdir(), "genes-dependency-plan-test")),
@@ -55,6 +61,8 @@ throws(
   /must not be inside/
 );
 strictEqual(distribution([1, 100]).median, 50.5);
+requireCleanStatus([]);
+throws(() => requireCleanStatus([" M src/genes/Generator.hx"]), /requires a clean working tree/);
 
 const first = scheduleForRound(1, 20260905);
 const repeated = scheduleForRound(1, 20260905);
