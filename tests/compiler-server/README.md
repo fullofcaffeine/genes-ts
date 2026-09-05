@@ -36,6 +36,14 @@ The generated `.tmp` directory is disposable and intentionally ignored. Do not
 turn it into checked-in expected output; the cold build is the executable
 oracle for the warm build.
 
+Each request reports its start and deadline. A completed request also reports
+its exit result and elapsed time. These progress records use stderr so stdout
+remains available for machine-readable compiler tools. Successful stable
+compiles have a three-minute deadline under repository background scheduling
+(six minutes on the advisory preview lane). Expected diagnostic requests keep
+the prior 60-second stable and 120-second preview limits, and the synthetic
+lifecycle timeout remains independently short.
+
 Run the complete stable owner with `yarn test:compiler-server`. Use
 `yarn test:compiler-server:rollback` when changing exception handling,
 transaction cleanup, or the Haxe preview lane: it executes only the TS/classic

@@ -642,8 +642,14 @@ yarn test:ci
 The server command selects the real configured Haxe executable, starts exactly
 one child on a reserved loopback port, and never attaches to an existing
 process. Readiness is a real compilation with a 10-second startup deadline,
-not a successful TCP connection. Stable clients have a 60-second timeout;
-preview clients have 120 seconds. On every success, failure, timeout, or
+not a successful TCP connection. Successful stable clients have a three-minute
+deadline; successful preview clients have six minutes. Expected diagnostic
+clients retain the stricter 60-second stable and 120-second preview deadlines.
+The harness prints each cold and warm request's start and deadline. Completed
+clients also print their result and elapsed time, so a slow success is distinct
+from a stalled client. Progress uses stderr so compiler tools can reserve
+stdout for machine-readable reports. On every
+success, failure, timeout, or
 interrupt, cleanup sends `SIGTERM`, escalates to `SIGKILL` after two seconds,
 awaits the exact child, and verifies that its PID is gone. Logs are retained
 for a bounded failure report.

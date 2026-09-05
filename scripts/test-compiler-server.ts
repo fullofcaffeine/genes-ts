@@ -62,6 +62,26 @@ type Scenario = {
   readonly repeatGeneratorUse?: boolean;
 };
 
+type CompilerClientDeadlines = {
+  readonly successMs: number;
+  readonly expectedFailureMs: number;
+};
+
+/**
+ * Keeps slow successful compilation separate from deliberate failure probes.
+ *
+ * Background scheduling has produced valid stable clients just beyond the old
+ * 60-second shared limit. Three minutes gives those clients bounded headroom;
+ * diagnostics retain the old limit so a missing failure cannot hide as a slow
+ * success. The advisory preview lane keeps the same two-to-one allowance it
+ * had before this split.
+ */
+function compilerClientDeadlines(version: string): CompilerClientDeadlines {
+  return version === toolchains.haxe.preview
+    ? { successMs: 360_000, expectedFailureMs: 120_000 }
+    : { successMs: 180_000, expectedFailureMs: 60_000 };
+}
+
 const tsProfile: Profile = {
   extension: "ts",
   defines: ["genes.ts"]
@@ -320,13 +340,15 @@ async function compileCold(
   timeoutMs: number
 ): Promise<ProcessResult> {
   installRuntime("cold", scenario);
+  const label = `Cold ${scenario.id}`;
   return await runBoundedProcess(
     compiler.binary,
     buildArguments("cold", scenario),
     {
       cwd: workspace(scenario.project),
       timeoutMs,
-      label: `Cold ${scenario.id}`
+      label,
+      reportProgress: true
     }
   );
 }
@@ -337,9 +359,10 @@ async function compileWarm(
   timeoutMs: number
 ): Promise<ProcessResult> {
   installRuntime("warm", scenario);
+  const label = `Warm ${scenario.id}`;
   return await server.compile(
     buildArguments("warm", scenario),
-    `Warm ${scenario.id}`,
+    label,
     timeoutMs,
     workspace(scenario.project)
   );
@@ -660,7 +683,7 @@ async function runRuntimeEvidence(
 async function assertFailureRollback(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,
-  timeoutMs: number
+  deadlines: CompilerClientDeadlines
 ): Promise<void> {
   const profiles = [
     { id: "ts", profile: tsProfile },
@@ -690,8 +713,8 @@ async function assertFailureRollback(
     rmSync(scenarioRoot("warm", good), { recursive: true, force: true });
     seedConfiguredOutput("cold", good);
     seedConfiguredOutput("warm", good);
-    const coldInitial = await compileCold(compiler, good, timeoutMs);
-    const warmInitial = await compileWarm(server, good, timeoutMs);
+    const coldInitial = await compileCold(compiler, good, deadlines.successMs);
+    const warmInitial = await compileWarm(server, good, deadlines.successMs);
     assertSuccess(coldInitial, `Cold ${profile.id} transaction baseline`);
     assertSuccess(
       warmInitial,
@@ -722,14 +745,15 @@ async function assertFailureRollback(
         buildArguments("cold", failing),
         {
           cwd: workspace(failing.project),
-          timeoutMs,
-          label: `Cold ${profile.id} ${failure.id} transaction failure`
+          timeoutMs: deadlines.expectedFailureMs,
+          label: `Cold ${profile.id} ${failure.id} transaction failure`,
+          reportProgress: true
         }
       );
       const warmFailure = await server.compile(
         buildArguments("warm", failing),
         `Warm ${profile.id} ${failure.id} transaction failure`,
-        timeoutMs,
+        deadlines.expectedFailureMs,
         workspace(failing.project)
       );
       for (const [mode, result] of [
@@ -760,8 +784,8 @@ async function assertFailureRollback(
       assertNoPrivateDebris("warm", good);
     }
 
-    const coldRecovery = await compileCold(compiler, good, timeoutMs);
-    const warmRecovery = await compileWarm(server, good, timeoutMs);
+    const coldRecovery = await compileCold(compiler, good, deadlines.successMs);
+    const warmRecovery = await compileWarm(server, good, deadlines.successMs);
     assertSuccess(coldRecovery, `Cold ${profile.id} transaction recovery`);
     assertSuccess(
       warmRecovery,
@@ -904,7 +928,7 @@ async function assertReactStateProjectionServerIsolation(
 async function assertCapabilityIsolation(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,
-  timeoutMs: number
+  expectedFailureMs: number
 ): Promise<void> {
   const scenario: Scenario = {
     id: "capability-disabled",
@@ -919,14 +943,15 @@ async function assertCapabilityIsolation(
     buildArguments("cold", scenario),
     {
       cwd: workspace(scenario.project),
-      timeoutMs,
-      label: "Cold disabled capability"
+      timeoutMs: expectedFailureMs,
+      label: "Cold disabled capability",
+      reportProgress: true
     }
   );
   const warm = await server.compile(
     buildArguments("warm", scenario),
     "Warm disabled capability",
-    timeoutMs,
+    expectedFailureMs,
     workspace(scenario.project)
   );
   const authored = readFileSync(
@@ -964,14 +989,14 @@ async function assertCapabilityIsolation(
 async function assertInvalidOutputOverride(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,
-  timeoutMs: number
+  deadlines: CompilerClientDeadlines
 ): Promise<void> {
   const baseline: Scenario = {
     id: "invalid-output-override",
     project: "project-a",
     profile: tsProfile
   };
-  await compilePair(compiler, server, baseline, timeoutMs);
+  await compilePair(compiler, server, baseline, deadlines.successMs);
   const coldBefore = hashTree(scenarioRoot("cold", baseline));
   const warmBefore = hashTree(scenarioRoot("warm", baseline));
   const invalidOutput = path.join(tempRoot, "invalid-output", "index.js");
@@ -1036,8 +1061,16 @@ async function assertInvalidOutputOverride(
   for (const failure of failures) {
     seedConfiguredOutput("cold", failure.scenario);
     seedConfiguredOutput("warm", failure.scenario);
-    const cold = await compileCold(compiler, failure.scenario, timeoutMs);
-    const warm = await compileWarm(server, failure.scenario, timeoutMs);
+    const cold = await compileCold(
+      compiler,
+      failure.scenario,
+      deadlines.expectedFailureMs
+    );
+    const warm = await compileWarm(
+      server,
+      failure.scenario,
+      deadlines.expectedFailureMs
+    );
     for (const [mode, result] of [["cold", cold], ["warm", warm]] as const) {
       ok(
         result.code !== 0,
@@ -1261,13 +1294,11 @@ async function runRollbackProbe(): Promise<void> {
   rmSync(tempRoot, { recursive: true, force: true });
   resetProject("project-a");
   const compiler = selectedHaxeCompiler(repoRoot);
-  const timeoutMs = compiler.version === toolchains.haxe.preview
-    ? 120_000
-    : 60_000;
+  const deadlines = compilerClientDeadlines(compiler.version);
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   server.installSignalCleanup();
   try {
-    await assertFailureRollback(compiler, server, timeoutMs);
+    await assertFailureRollback(compiler, server, deadlines);
   } finally {
     await server.stop();
   }
@@ -1290,9 +1321,8 @@ async function main(): Promise<void> {
   await assertSignalCleanup();
 
   const compiler = selectedHaxeCompiler(repoRoot);
-  const timeoutMs = compiler.version === toolchains.haxe.preview
-    ? 120_000
-    : 60_000;
+  const deadlines = compilerClientDeadlines(compiler.version);
+  const timeoutMs = deadlines.successMs;
   const unrelated = await listeningServer();
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   server.installSignalCleanup();
@@ -1374,7 +1404,7 @@ async function main(): Promise<void> {
       if (overriddenProfile.id === "classic-mjs")
         overriddenClassicRuntime = overridden;
     }
-    await assertInvalidOutputOverride(compiler, server, timeoutMs);
+    await assertInvalidOutputOverride(compiler, server, deadlines);
 
     classicRuntime = {
       id: "a-classic",
@@ -1583,8 +1613,12 @@ async function main(): Promise<void> {
     };
     await compilePair(compiler, server, projectBClassic, timeoutMs);
 
-    await assertFailureRollback(compiler, server, timeoutMs);
-    await assertCapabilityIsolation(compiler, server, timeoutMs);
+    await assertFailureRollback(compiler, server, deadlines);
+    await assertCapabilityIsolation(
+      compiler,
+      server,
+      deadlines.expectedFailureMs
+    );
 
     const finalReturn: Scenario = {
       ...baseline,
