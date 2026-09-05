@@ -1,9 +1,11 @@
-import { ok, strictEqual } from "node:assert";
+import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   writeFileSync
@@ -111,7 +113,7 @@ export interface BenchmarkSample {
   readonly timings: ReadonlyArray<TimingObservation>;
 }
 
-interface Distribution {
+export interface Distribution {
   readonly sampleCount: number;
   readonly minimum: number;
   readonly median: number;
@@ -350,14 +352,16 @@ export function plannerPercentOfTotal(sample: Pick<BenchmarkSample, "timings">):
     .reduce((sum, row) => sum + row.percentOfTotal, 0);
 }
 
-function distribution(values: ReadonlyArray<number>): Distribution {
+export function distribution(values: ReadonlyArray<number>): Distribution {
   ok(values.length > 0, "cannot summarize an empty distribution");
   const samples = [...values];
   const ordered = [...samples].sort((left, right) => left - right);
   return {
     sampleCount: samples.length,
     minimum: ordered[0] ?? 0,
-    median: ordered[Math.floor(ordered.length / 2)] ?? 0,
+    median: ordered.length % 2 === 0
+      ? ((ordered[ordered.length / 2 - 1] ?? 0) + (ordered[ordered.length / 2] ?? 0)) / 2
+      : ordered[Math.floor(ordered.length / 2)] ?? 0,
     maximum: ordered.at(-1) ?? 0,
     samples
   };
@@ -490,12 +494,28 @@ function gitStatus(): ReadonlyArray<string> {
   return text.length === 0 ? [] : text.split(/\r?\n/);
 }
 
+interface GitProvenance {
+  readonly commit: string;
+  readonly status: ReadonlyArray<string>;
+}
+
+function gitProvenance(): GitProvenance {
+  return {
+    commit: execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim(),
+    status: gitStatus()
+  };
+}
+
 async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBenchmarkReport> {
   strictEqual(process.versions.node, toolchains.node.minimumRuntime,
     `benchmark requires pinned Node ${toolchains.node.minimumRuntime}`);
   const compiler = selectedHaxeCompiler(repoRoot);
   strictEqual(compiler.version, toolchains.haxe.stable,
     `benchmark requires pinned Haxe ${toolchains.haxe.stable}`);
+  const initialProvenance = gitProvenance();
   const loadAverageBefore = loadavg();
   const fixtures = new Map<string, Fixture>();
   for (const [edges, multiplier] of [
@@ -562,17 +582,16 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
   ok(Number.isFinite(detectedRatio) && detectedRatio > 1,
     `planner observer did not detect ${String(options.sensitivityMultiplier)}x repeated references`);
 
-  const status = gitStatus();
+  const finalProvenance = gitProvenance();
+  deepStrictEqual(finalProvenance, initialProvenance,
+    "repository commit or working-tree state changed during the benchmark");
   return {
     schemaVersion: 2,
     classification: "report-only",
     environment: {
-      commit: execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: repoRoot,
-        encoding: "utf8"
-      }).trim(),
-      workingTreeDirty: status.length > 0,
-      workingTreeStatus: status,
+      commit: initialProvenance.commit,
+      workingTreeDirty: initialProvenance.status.length > 0,
+      workingTreeStatus: initialProvenance.status,
       node: process.versions.node,
       haxe: compiler.version,
       platform: process.platform,
@@ -619,16 +638,40 @@ function isStrictDescendant(parent: string, candidate: string): boolean {
     && !path.isAbsolute(relative);
 }
 
+function canonicalPotentialPath(candidate: string): string {
+  let existingAncestor = path.resolve(candidate);
+  const missingSegments: string[] = [];
+  while (!existsSync(existingAncestor)) {
+    const parent = path.dirname(existingAncestor);
+    ok(parent !== existingAncestor,
+      `cannot resolve an existing ancestor for ${candidate}`);
+    missingSegments.unshift(path.basename(existingAncestor));
+    existingAncestor = parent;
+  }
+  return path.join(realpathSync(existingAncestor), ...missingSegments);
+}
+
 export function validateWorkspacePath(
   workspace: string,
   currentDirectory = process.cwd()
 ): string {
   const resolved = path.resolve(workspace);
-  ok(resolved !== path.resolve(currentDirectory),
+  const canonical = canonicalPotentialPath(resolved);
+  ok(canonical !== canonicalPotentialPath(currentDirectory),
     "--workspace must not be the current directory");
-  const allowedRoots = [path.join(repoRoot, ".tmp"), tmpdir()].map((root) => path.resolve(root));
-  ok(allowedRoots.some((root) => isStrictDescendant(root, resolved)),
+  const allowedRoots = [path.join(repoRoot, ".tmp"), tmpdir()].map(canonicalPotentialPath);
+  ok(allowedRoots.some((root) => isStrictDescendant(root, canonical)),
     "--workspace must be a child of the repository .tmp directory or the system temporary directory");
+  return resolved;
+}
+
+export function validateOutputPath(outputPath: string, workspace: string): string {
+  const resolved = path.resolve(outputPath);
+  const canonicalOutput = canonicalPotentialPath(resolved);
+  const canonicalWorkspace = canonicalPotentialPath(workspace);
+  ok(canonicalOutput !== canonicalWorkspace
+    && !isStrictDescendant(canonicalWorkspace, canonicalOutput),
+  "--out must not be inside --workspace because workspace cleanup would delete the report");
   return resolved;
 }
 
@@ -656,18 +699,19 @@ export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
     } else if (argument === "--out") {
       const value = args[++index];
       ok(value !== undefined, "--out requires a path");
-      outputPath = path.resolve(value);
+      outputPath = value;
     } else if (argument === "--keep-workspace") keepWorkspace = true;
     else throw new Error(`Unknown argument: ${String(argument)}`);
   }
+  const validatedWorkspace = validateWorkspacePath(workspace);
   return {
     rounds,
     seed,
     sensitivityMultiplier,
     sensitivitySamples,
-    workspace: validateWorkspacePath(workspace),
+    workspace: validatedWorkspace,
     keepWorkspace,
-    outputPath
+    outputPath: outputPath === null ? null : validateOutputPath(outputPath, validatedWorkspace)
   };
 }
 

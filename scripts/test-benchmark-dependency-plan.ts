@@ -1,12 +1,15 @@
 import { deepStrictEqual, ok, strictEqual, throws } from "node:assert";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import {
+  distribution,
   parseOptions,
   plannerPercentOfTotal,
   plannerReportedSeconds,
   scheduleForRound,
   sourceFor,
+  validateOutputPath,
   validateWorkspacePath,
   type BenchmarkSample
 } from "./benchmark-dependency-plan.js";
@@ -35,6 +38,23 @@ strictEqual(
   validateWorkspacePath(path.join(tmpdir(), "genes-dependency-plan-test")),
   path.resolve(tmpdir(), "genes-dependency-plan-test")
 );
+const symlinkSandbox = mkdtempSync(path.join(tmpdir(), "genes-dependency-plan-link-test-"));
+try {
+  const link = path.join(symlinkSandbox, "checkout");
+  symlinkSync(process.cwd(), link, "dir");
+  throws(
+    () => validateWorkspacePath(path.join(link, "benchmark")),
+    /must be a child/
+  );
+} finally {
+  rmSync(symlinkSandbox, { recursive: true, force: true });
+}
+const disposableWorkspace = path.join(tmpdir(), "genes-dependency-plan-test");
+throws(
+  () => validateOutputPath(path.join(disposableWorkspace, "report.json"), disposableWorkspace),
+  /must not be inside/
+);
+strictEqual(distribution([1, 100]).median, 50.5);
 
 const first = scheduleForRound(1, 20260905);
 const repeated = scheduleForRound(1, 20260905);
