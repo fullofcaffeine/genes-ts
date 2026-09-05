@@ -137,6 +137,39 @@ Classification of the dependency-plan comparison: **directly reusable
 measurement with a current unresolved warning**. Re-measure and attribute; do
 not reject or implement planner work from this ordered, contended run.
 
+The follow-up ran on isolated GitHub Actions run `33952982602`, exact commit
+`081ceea38d54eb288c8955248a08ca2380307186`. The runner used Node 26.1.0,
+Haxe 4.3.7, Linux x64, four logical CPUs, normal priority, and one serial Haxe
+child. Its load average stayed near one. Five seeded rounds bracketed every
+shuffled 128/256/512 sequence with the same 256-edge control.
+
+| Dependency edges | Wall median | Runtime/type-edge median | Share of build |
+| ---: | ---: | ---: | ---: |
+| 128 | 1.683s | 0.169 Haxe-reported seconds | 11% |
+| 256 | 3.030s | 0.578 Haxe-reported seconds | 19% |
+| 512 | 7.985s | 2.054 Haxe-reported seconds | 26% |
+
+Four times as many edges increased whole-build time 4.74x and planner time
+12.15x. Type-edge collection alone used a 1.742-second median and 22% of the
+512-edge build. The before/after 256-edge anchors differed by 0.16% to 2.25%
+within each round. A separate 128-edge control kept the same imports while
+repeating typed references eight times; planner time rose 7.85x. This proves
+that the observer detects the intended owner.
+
+TypeScript implementation emission remained the largest 512-edge owner at a
+4.619-second median and 58% of the build. That does not invalidate the planner
+finding: the independently measured 26% planner share is material, but it does
+mean a planner change cannot claim to remove most total latency.
+
+The complete 31-sample table is in
+`tests/dependency-plan-benchmark/HOSTED_BASELINE_081CEEA3.md`. The exact JSON,
+including every selected timing row, is artifact `9965464764` on the hosted
+run.
+
+Updated classification: **stable material planner cost with a finite
+optimization follow-up**. Task `genes-gvwv.2.1` must first divide type-edge
+collection into smaller measured owners, then optimize only the dominant one.
+
 ### Warm builds
 
 haxe.c retains immutable, content-keyed plans across successful requests. It
@@ -256,7 +289,7 @@ local duplicate-run measurements and define the complete input identity.
 | --- | --- | --- |
 | Nested phase timers and exact work counts | Directly reusable | Already present in Genes. |
 | One-pass scans and request-local indexes | Directly reusable | Already used by merged compiler optimizations. |
-| Current dependency-plan scaling warning | Adaptable | Re-measure with interleaved controls and attribute the cost in `genes-gvwv.2`. |
+| Current dependency-plan scaling warning | Adaptable | Interleaved attribution is complete; `genes-gvwv.2.1` owns the measured type-edge optimization. |
 | Cross-request immutable compiler plans | Adaptable | Wait for the remaining architecture-floor measurement. |
 | Structural output budgets | Directly reusable | Already blocking in both Genes profiles. |
 | Paired runtime benchmark with an independent reference | Adaptable method | Use only for a measured generated-runtime change. |
@@ -271,10 +304,15 @@ local duplicate-run measurements and define the complete input identity.
 
 ## Implementation boundary
 
-The only new implementation task is `genes-gvwv.1`, which owns the acceptance
-partition. The current planner result also creates measurement task
-`genes-gvwv.2`; it does not authorize production code. The implementation
-task's positive contract is:
+The first implementation task was `genes-gvwv.1`, which owned the acceptance
+partition. The later interleaved planner measurement now authorizes one
+separate implementation task, `genes-gvwv.2.1`. Its positive contract is that
+the same typed evidence produces the same ordered dependency multigraph and
+byte-identical output while request-local planning removes the measured
+superlinear type-edge work. Finer attribution must identify that work before
+production code changes.
+
+The acceptance-sharding task's positive contract was:
 
 > The canonical Genes acceptance list authorizes each hosted gate to run in
 > exactly one isolated shard, while one aggregate required check reports the
@@ -293,5 +331,6 @@ Revisit compiler-plan reuse after `genes-f8vc.9.4` identifies a dominant
 request-local floor. Revisit local receipts after repeated representative runs
 show expensive exact duplicates. Revisit runtime benchmarks when a compiler
 change adds or removes generated hot-path work. Revisit dependency-plan code
-only after `genes-gvwv.2` separates graph-size cost from host drift and
-attributes the measured work to an owner.
+only through `genes-gvwv.2.1`, which must preserve first-occurrence order and
+fail closed if finer attribution does not identify one finite optimization
+owner.
