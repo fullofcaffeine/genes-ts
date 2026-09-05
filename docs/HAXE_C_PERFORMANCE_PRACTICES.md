@@ -27,6 +27,9 @@ immutable commit objects and does not treat uncommitted files as evidence.
 
 The review covered these committed owners:
 
+- `src/reflaxe/c/CPhaseTiming.hx` and
+  `examples/caxecraft/profile_compiler.py` own compiler phase measurements and
+  the repeatable cold, warm, and changed-source profile.
 - `docs/test-performance.md` explains test rings, sharding, receipts,
   benchmarks, and budget admission.
 - `scripts/ci/run_toolchain_shard.py` owns exact shard membership, isolated
@@ -37,6 +40,9 @@ The review covered these committed owners:
   handwritten-C runtime comparison.
 - `src/reflaxe/c/frontend/TypedFunctionSourceProvenance.hx` owns request-local
   source snapshots and source-plan reuse.
+- `src/reflaxe/c/lowering/CBodyFunctionReplayCache.hx` and
+  `src/reflaxe/c/lowering/CBodyControlFlowPlanCache.hx` own the distinct
+  cross-request function and control-flow plan caches.
 - `src/reflaxe/c/ir/HxcIRValidator.hx` owns one-pass validation of scoped
   string uses.
 - `src/reflaxe/c/lowering/CBodyControlFlow.hx` owns bounded graph searches and
@@ -102,6 +108,18 @@ Classification: **directly reusable and already adopted**. The deferred
 `genes-f8vc.9.4` benchmark must identify any remaining callback, typed-scan, or
 publication floor before another compiler optimization starts.
 
+The separate `benchmark:dependency-plan` owner already tested one suspected
+planner cost. On its pinned Node 20.19.3, Haxe 4.3.7, macOS/arm64 run, growing
+the mixed runtime/type-only graph from 128 to 512 edges increased the
+five-sample warm whole-build median from 756.1ms to 1074.1ms: 4x the edges took
+1.42x the time. Every size retained a stable output hash and the expected
+runtime/type-only split. This did not demonstrate a material quadratic
+planner bottleneck, so haxe.c's indexing work does not justify reopening that
+optimization now.
+
+Classification of the dependency-plan comparison: **directly reusable and
+already adopted measurement; no new implementation**.
+
 ### Warm builds
 
 haxe.c retains immutable, content-keyed plans across successful requests. It
@@ -112,6 +130,19 @@ Genes keeps request-local semantic state and proves cold and warm output
 equality. It does not yet have evidence that a cross-request Genes plan cache
 is the next dominant cost. The compiler-server benchmark also shows that Haxe
 typing and Genes generation share one process boundary.
+
+The host lifecycle evidence in `tooling/development-session/v1/README.md` and
+`yarn test:host-tooling` proves a different layer: an exact HXML/input
+inventory, one owned Haxe server, serialized rebuilds, accepted input revision
+and output-manifest identities, and failure-atomic publication. This is strong
+reuse and invalidation evidence for the host loop, but it does not skip an
+unchanged Genes semantic plan and it has no latency budget. It therefore does
+not authorize a compiler cache or a separate host optimization from this
+spike.
+
+Classification of the host-lifecycle comparison: **directly reusable and
+already adopted lifecycle method; insufficient latency evidence for new
+work**.
 
 Classification: **adaptable, but not yet authorized**. Wait for
 `genes-f8vc.9.4`. A cache needs exact identity, lifetime, invalidation,
@@ -150,14 +181,18 @@ haxe.c records retained plan size, process memory, cache capacity, allocations,
 and exact operation counts. It treats sampled resident memory as an observed
 value, not an operating-system peak.
 
-Genes `benchmark:compile-stages` already samples exact-process resident memory
-and records typed-visit counts. Its output-quality gate counts generated
-temporaries. The quiet-host benchmark still must determine whether memory or
-publication work limits warm feedback.
+Genes `benchmark:compile-stages` samples exact-process resident memory and
+records typed-visit counts. This covers retained-process observation and
+structural work, but its 250ms sampling can miss short-lived allocations.
+Genes does not count compiler allocations or generated-program allocations.
+The output-quality gate's generated temporary declarations are an output-shape
+measure, not allocation evidence. The quiet-host benchmark still must
+determine whether retained memory or publication work limits warm feedback.
 
-Classification: **directly reusable and already adopted**. Do not add a memory
-limit until repeated runs establish variance and a deliberately larger control
-proves the threshold.
+Classification: **partially adopted; allocation counting remains unmeasured**.
+Do not add a memory or allocation limit until repeated runs establish variance,
+a deliberately larger control proves the threshold, and the measurement can
+observe the claimed compiler or generated-program allocation surface.
 
 ### Test and CI latency
 
@@ -166,15 +201,19 @@ one isolated CI shard and validates the partition before execution. A small
 aggregate job fails unless every shard succeeds. Independent jobs retain their
 logs when another job fails.
 
-Genes already has a canonical acceptance gate list, exact ownership checks,
-per-gate timing, bounded cleanup, and separate output roots. However, the main
-TypeScript acceptance job still executes all 41 gates serially. The current
-artifact proves enough independent long work to justify a partition experiment.
+Genes has one canonical serial acceptance runner, per-gate timing, bounded
+cleanup, and separate output roots. It does not yet have a complete declarative
+gate manifest: `acceptanceOwnedFocusedGates` describes only the focused subset,
+while direct and conditional calls in `scripts/test-acceptance.ts` own the rest.
+The main TypeScript acceptance job executes all 41 gates serially. The current
+artifact proves enough independent long work to justify first modeling the
+complete conditional sequence and then running a partition experiment.
 
 Classification: **directly reusable with a Genes-specific implementation**.
 Task `genes-gvwv.1` keeps the serial reference command while partitioning
-hosted acceptance work. It must preserve every gate exactly once and keep one
-stable required aggregate result.
+hosted acceptance work. It must first create and validate the complete gate
+manifest, preserve every selected gate exactly once for each supported option
+set, and keep one stable required aggregate result.
 
 ### Local evidence receipts
 
@@ -201,10 +240,14 @@ local duplicate-run measurements and define the complete input identity.
 | Cross-request immutable compiler plans | Adaptable | Wait for the remaining architecture-floor measurement. |
 | Structural output budgets | Directly reusable | Already blocking in both Genes profiles. |
 | Paired runtime benchmark with an independent reference | Adaptable method | Use only for a measured generated-runtime change. |
-| Memory, allocation, and operation counters | Directly reusable | Existing harness owns current compiler evidence. |
+| Resident-memory sampling and typed-operation counters | Directly reusable | Partly present in the compile-stage harness; retain its stated sampling limit. |
+| Compiler and generated-program allocation counters | Adaptable | Not measured in Genes; add only for a demonstrated allocation problem with a stable observer. |
 | Exact CI partition with one aggregate result | Directly reusable | Create one implementation Bead. |
 | Content-keyed local test receipts | Adaptable | Gather representative duplicate-run evidence first. |
-| C runtime, Reflaxe IR, pass manager, and native object cache | Target-specific or rejected | Do not import these architectures into Genes. |
+| C runtime and garbage collector | Target-specific | Genes targets JavaScript; reuse benchmark method, not C runtime ownership. |
+| Reflaxe C intermediate representation | Rejected | Genes reads Haxe's typed tree directly; a C-oriented intermediate form would add unrelated semantics and passes. |
+| haxe.c pass manager | Rejected | Genes has no measured need for a general pass scheduler; use the smallest owning plan or emitter instead. |
+| Native object-file cache | Target-specific | Genes publishes source trees, not native object files; its object identity and linker invalidation rules do not transfer. |
 
 ## Implementation boundary
 
@@ -217,7 +260,10 @@ partition. Its positive contract is:
 
 The task does not change compiler behavior, generated bytes, test assertions,
 toolchain coverage, local serial reproduction, or security gates. It must use
-the existing acceptance ownership list and per-gate evidence format.
+the existing per-gate evidence format. Its first prerequisite is a complete
+declarative manifest for all direct, focused, and conditional gates currently
+owned by `scripts/test-acceptance.ts`; the focused ownership array alone is not
+the partition authority.
 
 ## Revisit conditions
 
