@@ -68,6 +68,8 @@ const validRemoteJobs = new Set([
   "vulns",
   "classic",
   "genes-test-plan-and-smoke",
+  "genes-ts-preflight",
+  "genes-ts-acceptance-shards",
   "genes-ts",
   "genes-ts-smoke-next-lts",
   "release"
@@ -674,34 +676,39 @@ function main(): void {
   const representativeJob = jobBlock(
     ci,
     "official-haxe-representative",
+    "genes-ts-preflight"
+  );
+  const preflightJob = jobBlock(
+    ci,
+    "genes-ts-preflight",
+    "genes-ts-acceptance-shards"
+  );
+  const shardJob = jobBlock(
+    ci,
+    "genes-ts-acceptance-shards",
     "genes-ts"
   );
   const requiredGenesJob = jobBlock(ci, "genes-ts", "genes-ts-smoke-next-lts");
   const releaseStart = ci.indexOf("\n  release:");
   assert(releaseStart >= 0, "CI workflow is missing the release job");
   const releaseJob = ci.slice(releaseStart);
-  assert(/^    needs: genes-test-plan-and-smoke$/m.test(requiredGenesJob),
-    "The required genes-ts check must depend on the claim-bearing preflight");
-  assert(/^    if: \$\{\{ !cancelled\(\) \}\}$/m.test(requiredGenesJob),
-    "The required genes-ts check must report when its preflight fails");
+  assert(/^    needs: \[genes-ts-preflight, genes-ts-acceptance-shards\]$/m
+    .test(requiredGenesJob),
+  "The required genes-ts check must aggregate preflight and acceptance shards");
+  assert(/^    if: \$\{\{ always\(\) \}\}$/m.test(requiredGenesJob),
+    "The required genes-ts aggregate must report when an input job fails");
   assert(!/^    continue-on-error:/m.test(requiredGenesJob),
     "The protected genes-ts job must not tolerate a job-level failure");
-  const guardStart = requiredGenesJob.indexOf(
-    "- name: Require the test plan and official Haxe smoke"
-  );
-  const checkoutStart = requiredGenesJob.indexOf(
-    "- uses: actions/checkout@v4"
-  );
-  assert(guardStart >= 0 && checkoutStart > guardStart,
-    "The required genes-ts check is missing its pre-checkout smoke guard");
-  const guardStep = requiredGenesJob.slice(guardStart, checkoutStart);
-  assert(/^        if: \$\{\{ needs\.genes-test-plan-and-smoke\.result != 'success' \}\}$/m
-    .test(guardStep),
-  "The smoke result condition must guard the failing pre-checkout step");
-  assert(/^          exit 1$/m.test(guardStep),
-    "The protected smoke guard must terminate with a nonzero status");
-  assert(!guardStep.includes("continue-on-error"),
-    "The protected smoke guard must not allow its failure to continue");
+  for (const [name, job] of [
+    ["preflight", preflightJob],
+    ["acceptance shards", shardJob]
+  ] as const) {
+    assert(/^    needs: genes-test-plan-and-smoke$/m.test(job),
+      `The ${name} job must depend on the claim-bearing test-plan job`);
+    assert(job.includes("needs.genes-test-plan-and-smoke.result != 'success'")
+      && job.includes("exit 1"),
+    `The ${name} job must fail when the claim-bearing test-plan job fails`);
+  }
   assert(planSmokeJob.includes("- run: yarn test:agent-test-routing"),
     "The plan/smoke sentinel must run routing drift validation");
   assert(planSmokeJob.includes("- run: yarn test:compatibility-report"),

@@ -145,12 +145,13 @@ for (const dependency of [
 ]) {
   assert.match(release, new RegExp(`^      - ${dependency}$`, "m"));
 }
-const genesTs = /^  genes-ts:\n([\s\S]*?)^  genes-ts-smoke-next-lts:/m.exec(ci);
-assert(genesTs, "CI workflow is missing the required genes-ts job");
+const genesTsPreflight = /^  genes-ts-preflight:\n([\s\S]*?)^  genes-ts-acceptance-shards:/m
+  .exec(ci);
+assert(genesTsPreflight, "CI workflow is missing the genes-ts preflight job");
 assert.match(
-  genesTs[1],
+  genesTsPreflight[1],
   /^\s+- run: yarn test:release$/m,
-  "required hosted CI must exercise the release protocol before publication"
+  "the protected aggregate's preflight must exercise the release protocol"
 );
 assert.match(release, /permissions:\n\s+contents: write/);
 assert.doesNotMatch(release, /pull-requests: write|issues: write|write-all/);

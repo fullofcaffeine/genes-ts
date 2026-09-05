@@ -36,6 +36,14 @@ The exact status-check names are:
 Each required check is pinned to the GitHub Actions application rather than
 accepting a same-named status from an arbitrary integration.
 
+The required `genes-ts` context is an always-running aggregate, so its public
+identity does not change when acceptance work is partitioned. A policy and
+toolchain preflight runs beside four isolated acceptance shards. The aggregate
+passes only when the preflight succeeds and every shard publishes the exact
+ordered terminal evidence selected by the canonical acceptance manifest.
+Cancellation, missing artifacts, failed cleanup, or an unexpected gate keeps
+the required context red.
+
 `Haxe preview (non-blocking)`, `Classic Genes (stable, macos-latest)`,
 `genes-ts smoke (Node current / next LTS)`, the Beads worktree matrix, and Dependency
 Review remain useful signals but are not merge requirements. Preview Haxe and

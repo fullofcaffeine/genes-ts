@@ -85,7 +85,7 @@ function main(): void {
     "CI workflow or branch-protection guide changed the required Analyze (JavaScript) check"
   );
 
-  const classic = jobBlock(ci, "classic", "genes-ts");
+  const classic = jobBlock(ci, "classic", "genes-ts-preflight");
   const classicMatrix = `matrix:
         include:
           - os: ubuntu-latest
@@ -103,27 +103,28 @@ function main(): void {
     classic.includes("continue-on-error: ${{ matrix.allow-failure || false }}"),
     "Classic macOS allow-failure must remain connected to job-level continue-on-error"
   );
+  const preflight = jobBlock(ci, "genes-ts-preflight", "genes-ts-acceptance-shards");
+  const shards = jobBlock(ci, "genes-ts-acceptance-shards", "genes-ts");
   const genesTs = jobBlock(ci, "genes-ts", "genes-ts-smoke-next-lts");
   assert(
-    genesTs.includes("- run: yarn test:main-protection-policy"),
-    "The required genes-ts job must execute the structural protection policy"
+    preflight.includes("- run: yarn test:main-protection-policy"),
+    "The genes-ts preflight must execute the structural protection policy"
   );
-  const toolingPack = genesTs.indexOf(
+  const toolingPack = preflight.indexOf(
     "- name: Pack tooling for its oldest supported Node release"
   );
-  const yarnInstall = genesTs.indexOf("- run: yarn install --frozen-lockfile");
-  const playwrightIdentity = genesTs.indexOf(
+  const yarnInstall = shards.indexOf("- run: yarn install --frozen-lockfile");
+  const playwrightIdentity = shards.indexOf(
     "- name: Identify the pinned Playwright browser"
   );
-  const playwrightCache = genesTs.indexOf("- name: Cache Playwright browsers");
+  const playwrightCache = shards.indexOf("- name: Cache Playwright browsers");
   assert(
     yarnInstall >= 0
       && yarnInstall < playwrightIdentity
-      && playwrightIdentity < playwrightCache
-      && playwrightCache < toolingPack,
-    "The required genes-ts job must install the pinned package before identifying and restoring its Playwright browser cache"
+      && playwrightIdentity < playwrightCache,
+    "The examples shard must install the pinned package before identifying and restoring its Playwright browser cache"
   );
-  const playwrightCacheBlock = genesTs.slice(playwrightIdentity, toolingPack);
+  const playwrightCacheBlock = shards.slice(playwrightIdentity);
   assert(
     playwrightCacheBlock.includes('browser.name === "chromium"')
       && playwrightCacheBlock.includes("browser.installByDefault === true")
@@ -149,11 +150,11 @@ function main(): void {
       && todoQa.includes('run("npx", ["playwright", ...pwInstallArgs])'),
     "Todoapp CI must still install the required Chromium revision after cache restore"
   );
-  const toolingMinimumNode = genesTs.indexOf("node-version: 26.1.0");
-  const toolingMinimumCheck = genesTs.indexOf(
+  const toolingMinimumNode = preflight.indexOf("node-version: 26.1.0");
+  const toolingMinimumCheck = preflight.indexOf(
     "- name: Verify the packed tooling package on Node 26.1"
   );
-  const toolingRestoreNode = genesTs.indexOf(
+  const toolingRestoreNode = preflight.indexOf(
     "- name: Restore the repository Node release"
   );
   assert(
@@ -164,12 +165,12 @@ function main(): void {
     "The required genes-ts job must pack tooling, check Node 26.1, and restore the repository Node release"
   );
   assert(
-    genesTs.includes('--tarball "$TOOLING_MINIMUM_TARBALL"')
-      && genesTs.includes('--pack-json "$TOOLING_MINIMUM_PACK_JSON"'),
+    preflight.includes('--tarball "$TOOLING_MINIMUM_TARBALL"')
+      && preflight.includes('--pack-json "$TOOLING_MINIMUM_PACK_JSON"'),
     "The Node 26.1 check must inspect the exact packed tooling candidate"
   );
   for (const [job, nextJob] of [
-    ["genes-ts", "genes-ts-smoke-next-lts"],
+    ["genes-ts-acceptance-shards", "genes-ts"],
     ["genes-ts-smoke-next-lts", "haxe-preview"]
   ] as const) {
     const block = jobBlock(ci, job, nextJob);
@@ -178,7 +179,9 @@ function main(): void {
     const haxeUse =
       "- run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}";
     const formatter = "- run: yarn haxelib install formatter 1.18.0 --quiet";
-    const acceptance = "- run: yarn test:acceptance\n";
+    const acceptance = job === "genes-ts-acceptance-shards"
+      ? "- run: yarn test:acceptance ${{ matrix.shard }}\n"
+      : "- run: yarn test:acceptance\n";
     const haxeInstallIndex = block.indexOf(haxeInstall);
     const haxeUseIndex = block.indexOf(haxeUse);
     const formatterIndex = block.indexOf(formatter);
@@ -204,27 +207,37 @@ function main(): void {
     "The full local gate must run the process-owner fixture outside and before acceptance"
   );
   assert(
-    genesTs.includes(ownerFixture)
-      && genesTs.indexOf(ownerFixture) < genesTs.indexOf(acceptanceStep),
-    "The required genes-ts job must run the process-owner fixture outside and before acceptance"
+    preflight.includes(ownerFixture),
+    "The genes-ts preflight must run the process-owner fixture outside acceptance shards"
   );
   assert(
-    genesTs.includes(
+    preflight.includes(
       "- run: yarn test:acceptance-process-owner\n        timeout-minutes: 5"
-    ),
+    )
+      && preflight.includes("name: genes-acceptance-process-owner")
+      && preflight.includes("path: .tmp/test-acceptance-process-owner")
+      && preflight.includes("if-no-files-found: error"),
     "The required process-owner fixture must retain its workflow backstop"
   );
   assert(
-    genesTs.includes("- run: yarn test:acceptance\n        timeout-minutes: 45")
-      && genesTs.includes("- name: Preserve acceptance owner markers and logs")
-      && genesTs.includes(
-        "- name: Preserve acceptance owner markers and logs\n        if: always()"
-      )
-      && genesTs.includes(
-        "path: |\n            .tmp/test-evidence/acceptance\n            .tmp/test-acceptance-process-owner"
-      )
-      && genesTs.includes("include-hidden-files: true"),
-    "The required genes-ts acceptance step must stay bounded and preserve owner evidence"
+    shards.includes("fail-fast: false")
+      && shards.includes("shard: [compiler, react, output, focused-examples]")
+      && shards.includes("timeout-minutes: 20")
+      && shards.includes("- run: yarn test:acceptance ${{ matrix.shard }}")
+      && shards.includes('GENES_ACCEPTANCE_TIMEOUT_MS: "900000"')
+      && shards.includes("name: genes-acceptance-shard-${{ matrix.shard }}")
+      && shards.includes("if-no-files-found: error"),
+    "Stable acceptance must keep four bounded non-fail-fast shards with exact evidence"
+  );
+  assert(
+    genesTs.includes("name: genes-ts (TS output + todoapp E2E)")
+      && genesTs.includes("needs: [genes-ts-preflight, genes-ts-acceptance-shards]")
+      && genesTs.includes("if: ${{ always() }}")
+      && genesTs.includes('--preflight-result "${{ needs.genes-ts-preflight.result }}"')
+      && genesTs.includes('--shards-result "${{ needs.genes-ts-acceptance-shards.result }}"')
+      && genesTs.includes("pattern: genes-acceptance-shard-*")
+      && genesTs.includes("test-acceptance-shard-aggregate.js"),
+    "The protected genes-ts check must always aggregate preflight and exact shard evidence"
   );
   const preview = jobBlock(ci, "haxe-preview");
   assert(

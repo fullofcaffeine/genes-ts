@@ -1043,11 +1043,26 @@ is the authoritative result.
 It publishes `state.json` and one bounded log per completed subgate to
 `.tmp/test-evidence/acceptance/`. The state uses schema version 2. It records
 the command result, interruption, process cleanup, output quality, and evidence
-publication as separate facts. The required GitHub job uploads that directory
-even when acceptance fails.
+publication as separate facts.
 
-The required job runs `yarn test:acceptance-process-owner` as a separate step
-before the aggregate. That lifecycle fixture creates private process groups and
+Stable hosted CI selects the same manifest with `SKIP_CLASSIC=1` and
+`SKIP_TS2HX=1`, then runs four contiguous shards on separate runners:
+`compiler`, `react`, `output`, and `focused-examples`. Each shard writes to
+`.tmp/test-evidence/acceptance-shards/<shard>/` and uploads its state and logs
+even when it fails. Concatenating the four selected shard sequences must equal
+the serial sequence. `yarn test:acceptance-manifest` checks that rule for all
+32 supported skip-option combinations.
+
+The stable `genes-ts (TS output + todoapp E2E)` status is a small fail-closed
+aggregate. It requires the policy/toolchain preflight and all four shard jobs,
+then validates the exact artifact set, command order, terminal state, exit
+code, cleanup result, and publication result. Missing, duplicate, unknown,
+reordered, failed, or cancelled evidence makes the status fail. Run its local
+synthetic controls with `yarn test:acceptance-shard-aggregate`. The next-LTS
+compatibility lane continues to run the canonical serial command.
+
+The required preflight runs `yarn test:acceptance-process-owner` as a separate
+step beside the shards. That fixture creates private process groups and
 an unrelated detached bystander, so nesting it inside its own owner would make
 abrupt outer cleanup unsafe. It proves bounded timeout and signal cleanup for a
 three-process tree. It also covers an unrelated process that keeps an output
@@ -1062,9 +1077,9 @@ after report reset, active-state publication, and the advisory start marker.
 A signal during pre-start terminal publication replaces timeout authority and
 preserves exit 130 or 143. Test-only parent spawn evidence records the exact
 gate PID before child output; if that evidence fails, real tree cleanup replaces
-the injected cleanup failure. The fixture runs once in the required job. Its
-own waits are bounded, the workflow adds a five-minute backstop, and the
-always-run artifact includes both the fixture and aggregate reports.
+the injected cleanup failure. The fixture runs once in the preflight. Its own
+waits are bounded, the workflow adds a five-minute backstop, and its always-run
+artifact remains separate from shard evidence.
 
 Each subgate keeps at most 8 MiB of output: up to 6 MiB from the start, an
 explicit truncation marker, and the remaining space from the end. Console
@@ -1126,8 +1141,9 @@ POSIX ownership also assumes that a process-group identifier is not reused by
 an unrelated process group between continuous liveness checks. A stronger
 adversarial non-reuse guarantee needs a different Linux ownership primitive.
 
-One 40-minute deadline owns the complete aggregate. The initial bound uses ten
-successful required-job samples: p50 was 1,726 seconds and p95 was 1,803
+One 40-minute deadline owns the complete local or next-LTS serial run. The
+initial bound uses ten successful required-job samples. Its p50 was 1,726
+seconds, and its p95 was 1,803
 seconds. Forty minutes adds approximately 33 percent to that whole-job p95.
 It does not invent unsupported limits for individual subgates. If the deadline
 expires, the runner terminates only the active private process group. The error
@@ -1135,11 +1151,12 @@ and retained state name the active subgate and its log. `SIGINT` and `SIGTERM`
 use the same owned-tree cleanup before the aggregate exits, so cancelling a
 local run does not leave a compiler server or browser fixture behind. Set
 `GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test or a reviewed local
-diagnostic; required CI uses the documented default. The required workflow
-also limits the complete step to 45 minutes. This leaves five minutes for test
-tool preparation, owned cleanup, and evidence upload. The focused test-plan
-route uses the same 45-minute outer bound, so the 40-minute owner always gets
-the first opportunity to clean its tree and write evidence.
+diagnostic; serial CI uses the documented default. Each stable hosted shard has
+a 15-minute owner deadline and a 20-minute job limit. This leaves five minutes
+for owned cleanup and evidence upload. These are safety backstops, not compiler
+performance budgets. The focused test-plan route and next-LTS serial lane keep
+their existing outer bounds. Thus, the owner gets the first opportunity to
+clean its tree and publish evidence.
 
 `test:acceptance` is the normal stable pull-request owner for the focused
 direct-module-binding and strict-array-index contracts. The direct-binding
@@ -1150,8 +1167,8 @@ array indexing proves that generated TypeScript remains valid with
 `noUncheckedIndexedAccess` while preserving the classic and standard Haxe
 runtime result.
 
-Those two tests used to run only as separate steps inside `test:ci`. GitHub's
-normal stable compiler job calls `test:acceptance` directly, so that arrangement
+Those tests used to run only as separate steps inside `test:ci`. GitHub's
+stable jobs call `test:acceptance <shard>` from the same manifest. Thus, the old arrangement
 could discover a regression during release validation rather than on the pull
 request that introduced it. Acceptance now runs each focused owner once. A
 structural assertion invoked by `scripts/test-acceptance.ts` rejects a duplicate
