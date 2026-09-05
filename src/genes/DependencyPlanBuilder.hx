@@ -11,7 +11,10 @@ import genes.Dependencies.DependencyType;
 import genes.BindingIdentity.BindingIdentity;
 import genes.BindingIdentity.BindingOriginKey;
 import genes.BindingIdentity.CompilerCapabilityId;
+import genes.BindingIdentity.HaxeDeclarationKey;
+import genes.BindingIdentity.HaxeDeclarationKind;
 import genes.BindingIdentity.StaticFieldOriginKey;
+import genes.Dependencies.DependencyRequest;
 import genes.DependencyPlan.DependencyEdge;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImport;
@@ -27,6 +30,11 @@ import genes.util.Timer.timer;
 #end
 
 using haxe.macro.TypedExprTools;
+
+private typedef NormalizedDependencyReference = {
+  final referencedType: ModuleType;
+  final importSpec: DependencyImport;
+}
 
 /**
  * Builds one module's dependency graph from typed Haxe facts.
@@ -49,6 +57,8 @@ using haxe.macro.TypedExprTools;
 class DependencyPlanBuilder {
   final module: Module;
   final edges: Array<DependencyEdge> = [];
+  final normalizedReferences = new Map<HaxeDeclarationKind,
+    Map<String, Map<String, Array<NormalizedDependencyReference>>>>();
   var usesJsxNamespaceType = false;
   var hasReactStateBinding = false;
 
@@ -90,16 +100,59 @@ class DependencyPlanBuilder {
       rule: String, pos: Position): Void {
     if (type == null)
       return;
-    final requests = Dependencies.requests(module, type);
-    if (requests.length == 0) {
+    final references = normalizedReferencesFor(type);
+    if (references.length == 0) {
       addEdge(kind, type, null, rule, pos);
       return;
     }
-    for (request in requests) {
-      addEdge(kind, request.referencedType,
-        Bound(new DependencyImport(request.dependency, request.bindingFact)),
+    for (reference in references)
+      addEdge(kind, reference.referencedType, Bound(reference.importSpec),
         rule, pos);
+  }
+
+  /**
+   * Normalizes each declaration once while preserving every encountered edge.
+   *
+   * Type collection can encounter one declaration hundreds of times through
+   * member signatures and expression locals. Import metadata and canonical
+   * binding identity depend only on that typed declaration and this builder's
+   * fixed source module, so repeating that work cannot change the result.
+   *
+   * The three-level key uses the compiler-owned declaration kind, module, and
+   * name separately. It does not depend on rendered type text, source position,
+   * generated names, or traversal order. Cached imports are immutable; callers
+   * still append one edge for every occurrence in its original order and with
+   * its original provenance.
+   */
+  function normalizedReferencesFor(type: ModuleType): Array<NormalizedDependencyReference> {
+    final key = HaxeDeclarationKey.fromModuleType(type);
+    var modules = normalizedReferences.get(key.kind);
+    if (modules == null) {
+      modules = [];
+      normalizedReferences.set(key.kind, modules);
     }
+    var declarations = modules.get(key.module);
+    if (declarations == null) {
+      declarations = [];
+      modules.set(key.module, declarations);
+    }
+    if (declarations.exists(key.name))
+      return declarations.get(key.name);
+
+    final references = normalizeRequests(Dependencies.requests(module, type));
+    declarations.set(key.name, references);
+    return references;
+  }
+
+  static function normalizeRequests(requests: Array<DependencyRequest>): Array<NormalizedDependencyReference> {
+    return [
+      for (request in requests)
+        {
+          referencedType: request.referencedType,
+          importSpec: new DependencyImport(request.dependency,
+            request.bindingFact)
+        }
+    ];
   }
 
   function addImport(kind: DependencyEdgeKind, dependency: DependencySpec,
