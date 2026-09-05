@@ -1,6 +1,4 @@
 import { deepStrictEqual, ok, strictEqual, throws } from "node:assert";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import {
   distribution,
@@ -11,7 +9,6 @@ import {
   scheduleForRound,
   sourceFor,
   validateOutputPath,
-  validateWorkspacePath,
   type BenchmarkSample
 } from "./benchmark-dependency-plan.js";
 
@@ -20,45 +17,17 @@ throws(
   /sensitivity multiplier must be greater than 1/
 );
 throws(
-  () => validateWorkspacePath(process.cwd()),
-  /must not equal or contain/
-);
-throws(
   () => parseOptions(["--workspace", "."]),
-  /must not equal or contain/
+  /Unknown argument/
 );
-const liveTreeParent = path.join(tmpdir(), "genes-dependency-plan-live-parent");
+const disposableWorkspace = path.join(process.cwd(), ".tmp/dependency-plan-benchmark");
 throws(
-  () => validateWorkspacePath(liveTreeParent, path.join(liveTreeParent, "project", "repo")),
-  /must not equal or contain/
-);
-throws(
-  () => validateWorkspacePath(tmpdir()),
-  /must be a child/
+  () => validateOutputPath(path.join(disposableWorkspace, "report.json")),
+  /must not overlap/
 );
 throws(
-  () => validateWorkspacePath(homedir()),
-  /must not equal or contain/
-);
-strictEqual(
-  validateWorkspacePath(path.join(tmpdir(), "genes-dependency-plan-test")),
-  path.resolve(tmpdir(), "genes-dependency-plan-test")
-);
-const symlinkSandbox = mkdtempSync(path.join(tmpdir(), "genes-dependency-plan-link-test-"));
-try {
-  const link = path.join(symlinkSandbox, "checkout");
-  symlinkSync(process.cwd(), link, "dir");
-  throws(
-    () => validateWorkspacePath(path.join(link, "benchmark")),
-    /must be a child/
-  );
-} finally {
-  rmSync(symlinkSandbox, { recursive: true, force: true });
-}
-const disposableWorkspace = path.join(tmpdir(), "genes-dependency-plan-test");
-throws(
-  () => validateOutputPath(path.join(disposableWorkspace, "report.json"), disposableWorkspace),
-  /must not be inside/
+  () => validateOutputPath(path.dirname(disposableWorkspace)),
+  /must not overlap/
 );
 strictEqual(distribution([1, 100]).median, 50.5);
 requireCleanStatus([]);

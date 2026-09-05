@@ -2,15 +2,13 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  existsSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
   readdirSync,
   rmSync,
   writeFileSync
 } from "node:fs";
-import { cpus, getPriority, loadavg, tmpdir } from "node:os";
+import { cpus, getPriority, loadavg } from "node:os";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -68,7 +66,6 @@ export interface BenchmarkOptions {
   readonly seed: number;
   readonly sensitivityMultiplier: number;
   readonly sensitivitySamples: number;
-  readonly workspace: string;
   readonly keepWorkspace: boolean;
   readonly outputPath: string | null;
 }
@@ -527,7 +524,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
   for (const [edges, multiplier] of [
     [128, 1], [256, 1], [512, 1], [128, options.sensitivityMultiplier]
   ] as const) {
-    const fixture = createFixture(options.workspace, edges, multiplier);
+    const fixture = createFixture(defaultWorkspace, edges, multiplier);
     fixtures.set(fixture.key, fixture);
   }
   const fixtureFor = (edges: EdgeCount, multiplier: number): Fixture => {
@@ -644,42 +641,12 @@ function isStrictDescendant(parent: string, candidate: string): boolean {
     && !path.isAbsolute(relative);
 }
 
-function canonicalPotentialPath(candidate: string): string {
-  let existingAncestor = path.resolve(candidate);
-  const missingSegments: string[] = [];
-  while (!existsSync(existingAncestor)) {
-    const parent = path.dirname(existingAncestor);
-    ok(parent !== existingAncestor,
-      `cannot resolve an existing ancestor for ${candidate}`);
-    missingSegments.unshift(path.basename(existingAncestor));
-    existingAncestor = parent;
-  }
-  return path.join(realpathSync(existingAncestor), ...missingSegments);
-}
-
-export function validateWorkspacePath(
-  workspace: string,
-  currentDirectory = process.cwd()
-): string {
-  const resolved = path.resolve(workspace);
-  const canonical = canonicalPotentialPath(resolved);
-  const liveDirectories = [currentDirectory, repoRoot].map(canonicalPotentialPath);
-  ok(liveDirectories.every((liveDirectory) => canonical !== liveDirectory
-    && !isStrictDescendant(canonical, liveDirectory)),
-  "--workspace must not equal or contain the current directory or repository root");
-  const allowedRoots = [path.join(repoRoot, ".tmp"), tmpdir()].map(canonicalPotentialPath);
-  ok(allowedRoots.some((root) => isStrictDescendant(root, canonical)),
-    "--workspace must be a child of the repository .tmp directory or the system temporary directory");
-  return resolved;
-}
-
-export function validateOutputPath(outputPath: string, workspace: string): string {
+export function validateOutputPath(outputPath: string): string {
   const resolved = path.resolve(outputPath);
-  const canonicalOutput = canonicalPotentialPath(resolved);
-  const canonicalWorkspace = canonicalPotentialPath(workspace);
-  ok(canonicalOutput !== canonicalWorkspace
-    && !isStrictDescendant(canonicalWorkspace, canonicalOutput),
-  "--out must not be inside --workspace because workspace cleanup would delete the report");
+  ok(resolved !== defaultWorkspace
+    && !isStrictDescendant(defaultWorkspace, resolved)
+    && !isStrictDescendant(resolved, defaultWorkspace),
+  "--out must not overlap the repository-owned benchmark workspace");
   return resolved;
 }
 
@@ -688,7 +655,6 @@ export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
   let seed = defaultSeed;
   let sensitivityMultiplier = defaultSensitivityMultiplier;
   let sensitivitySamples = defaultSensitivitySamples;
-  let workspace = defaultWorkspace;
   let keepWorkspace = false;
   let outputPath: string | null = null;
   for (let index = 0; index < args.length; index++) {
@@ -700,10 +666,6 @@ export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
       ok(sensitivityMultiplier > 1, "sensitivity multiplier must be greater than 1");
     } else if (argument === "--sensitivity-samples") {
       sensitivitySamples = positiveInteger(args[++index], "sensitivity samples");
-    } else if (argument === "--workspace") {
-      const value = args[++index];
-      ok(value !== undefined, "--workspace requires a path");
-      workspace = value;
     } else if (argument === "--out") {
       const value = args[++index];
       ok(value !== undefined, "--out requires a path");
@@ -711,21 +673,19 @@ export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
     } else if (argument === "--keep-workspace") keepWorkspace = true;
     else throw new Error(`Unknown argument: ${String(argument)}`);
   }
-  const validatedWorkspace = validateWorkspacePath(workspace);
   return {
     rounds,
     seed,
     sensitivityMultiplier,
     sensitivitySamples,
-    workspace: validatedWorkspace,
     keepWorkspace,
-    outputPath: outputPath === null ? null : validateOutputPath(outputPath, validatedWorkspace)
+    outputPath: outputPath === null ? null : validateOutputPath(outputPath)
   };
 }
 
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
-  rmSync(options.workspace, { recursive: true, force: true });
+  rmSync(defaultWorkspace, { recursive: true, force: true });
   try {
     const report = await runBenchmark(options);
     const json = `${JSON.stringify(report, null, 2)}\n`;
@@ -754,7 +714,7 @@ async function main(): Promise<void> {
     );
   } finally {
     if (!options.keepWorkspace) {
-      rmSync(options.workspace, { recursive: true, force: true });
+      rmSync(defaultWorkspace, { recursive: true, force: true });
     }
   }
 }
