@@ -7,6 +7,9 @@ import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 import genes.dts.TypeEmitter;
 import genes.util.TypeUtil;
+#if genes.compile_stage_profile
+import genes.util.Timer.timer;
+#end
 
 using StringTools;
 using haxe.macro.TypeTools;
@@ -43,6 +46,9 @@ class TypeReferenceCollector {
   final includeType: IncludeType;
   final observeTypeOverride: Null<ObserveTypeOverride>;
   final stack = new Map<String, Bool>();
+  #if genes.compile_stage_profile
+  var profileCollectionDepth = 0;
+  #end
 
   public function new(includeType: IncludeType,
       ?observeTypeOverride: ObserveTypeOverride) {
@@ -53,6 +59,10 @@ class TypeReferenceCollector {
   /** Collects applied parameters and, when requested, generic constraints. */
   public function collectParams(params: Array<Type>, withConstraints: Bool,
       rule: String, pos: Position): Void {
+    #if genes.compile_stage_profile
+    final endRecursiveExpansionTimer = profileCollectionDepth == 0 ? timer('genes.plan.reachability.typeCollection.recursiveExpansion') : null;
+    profileCollectionDepth++;
+    #end
     for (param in params) {
       collect(param, '$rule.parameter', pos);
       if (withConstraints)
@@ -63,18 +73,38 @@ class TypeReferenceCollector {
           default:
         }
     }
+    #if genes.compile_stage_profile
+    profileCollectionDepth--;
+    if (endRecursiveExpansionTimer != null)
+      endRecursiveExpansionTimer();
+    #end
   }
 
   /** Collects every named declaration required to render one Haxe type. */
   public function collect(type: Type, rule: String, pos: Position): Void {
     if (type == null)
       return;
+    #if genes.compile_stage_profile
+    final endRecursiveExpansionTimer = profileCollectionDepth == 0 ? timer('genes.plan.reachability.typeCollection.recursiveExpansion') : null;
+    profileCollectionDepth++;
+    #end
     final stackKey = type.toString();
-    if (stack.exists(stackKey))
+    if (stack.exists(stackKey)) {
+      #if genes.compile_stage_profile
+      profileCollectionDepth--;
+      if (endRecursiveExpansionTimer != null)
+        endRecursiveExpansionTimer();
+      #end
       return;
+    }
     stack.set(stackKey, true);
     collectInner(type, rule, pos);
     stack.remove(stackKey);
+    #if genes.compile_stage_profile
+    profileCollectionDepth--;
+    if (endRecursiveExpansionTimer != null)
+      endRecursiveExpansionTimer();
+    #end
   }
 
   function collectInner(type: Type, rule: String, pos: Position): Void {

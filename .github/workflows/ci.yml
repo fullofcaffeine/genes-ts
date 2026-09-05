@@ -21,6 +21,41 @@ permissions:
   contents: read
 
 jobs:
+  dependency-plan-subowner-attribution:
+    name: Temporary dependency-plan sub-owner attribution
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/perf/remove-type-edge-superlinearity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+      - uses: ./.github/actions/setup-yarn
+      - name: Cache Haxe toolchain (lix)
+        uses: actions/cache@v4
+        with:
+          path: ~/haxe
+          key: ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
+      - run: yarn install --frozen-lockfile
+      - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - name: Run five interleaved sub-owner attribution rounds
+        run: yarn benchmark:dependency-plan --out .tmp/dependency-plan-subowners.json
+      - name: Preserve the exact report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-plan-subowners-${{ github.sha }}-${{ github.run_attempt }}
+          path: .tmp/dependency-plan-subowners.json
+          if-no-files-found: error
+
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
