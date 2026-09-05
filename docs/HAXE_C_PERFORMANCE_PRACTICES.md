@@ -29,7 +29,9 @@ The review covered these committed owners:
 
 - `src/reflaxe/c/CPhaseTiming.hx` and
   `examples/caxecraft/profile_compiler.py` own compiler phase measurements and
-  the repeatable cold, warm, and changed-source profile.
+  repeatable cold and unchanged warm profiles.
+- `examples/caxecraft/profile_incremental_edit.py` owns the real source edit
+  and compares rebuilt functions, modules, sidecars, and generated files.
 - `docs/test-performance.md` explains test rings, sharding, receipts,
   benchmarks, and budget admission.
 - `scripts/ci/run_toolchain_shard.py` owns exact shard membership, isolated
@@ -108,17 +110,32 @@ Classification: **directly reusable and already adopted**. The deferred
 `genes-f8vc.9.4` benchmark must identify any remaining callback, typed-scan, or
 publication floor before another compiler optimization starts.
 
-The separate `benchmark:dependency-plan` owner already tested one suspected
-planner cost. On its pinned Node 20.19.3, Haxe 4.3.7, macOS/arm64 run, growing
-the mixed runtime/type-only graph from 128 to 512 edges increased the
-five-sample warm whole-build median from 756.1ms to 1074.1ms: 4x the edges took
-1.42x the time. Every size retained a stable output hash and the expected
-runtime/type-only split. This did not demonstrate a material quadratic
-planner bottleneck, so haxe.c's indexing work does not justify reopening that
-optimization now.
+The separate `benchmark:dependency-plan` owner tested one suspected planner
+cost in July 2026. On its pinned Node 20.19.3, Haxe 4.3.7, macOS/arm64 run, 4x
+the mixed runtime/type-only edges took 1.42x the whole-build median. That result
+is historical: the reviewed compiler requires Node 26 and includes 21 later
+`DependencyPlanBuilder.hx` changes, including a type-edge scan rewrite.
 
-Classification of the dependency-plan comparison: **directly reusable and
-already adopted measurement; no new implementation**.
+The benchmark was repeated on this report's compiler with Node 26.1.0 and Haxe
+4.3.7. Every size again retained one stable output hash and the expected
+runtime/type-only split.
+
+| Dependency edges | Five whole-build samples | Median |
+| ---: | --- | ---: |
+| 128 | 29.76s, 31.15s, 30.48s, 30.37s, 22.80s | 30.37s |
+| 256 | 38.94s, 42.34s, 37.98s, 38.96s, 42.46s | 38.96s |
+| 512 | 105.40s, 138.42s, 153.32s, 161.02s, 165.89s | 153.32s |
+
+Four times as many edges produced a 5.05x median increase. The run used the
+required background priority on a contended host, and the largest samples
+drifted upward by 60.49s. The result therefore proves a current whole-build
+scaling warning, not that dependency planning caused it. Task `genes-gvwv.2`
+must interleave sizes on a quiet host and add owner-specific timing or work
+counts before any planner optimization is authorized.
+
+Classification of the dependency-plan comparison: **directly reusable
+measurement with a current unresolved warning**. Re-measure and attribute; do
+not reject or implement planner work from this ordered, contended run.
 
 ### Warm builds
 
@@ -132,13 +149,15 @@ is the next dominant cost. The compiler-server benchmark also shows that Haxe
 typing and Genes generation share one process boundary.
 
 The host lifecycle evidence in `tooling/development-session/v1/README.md` and
-`yarn test:host-tooling` proves a different layer: an exact HXML/input
-inventory, one owned Haxe server, serialized rebuilds, accepted input revision
-and output-manifest identities, and failure-atomic publication. This is strong
-reuse and invalidation evidence for the host loop, but it does not skip an
-unchanged Genes semantic plan and it has no latency budget. It therefore does
-not authorize a compiler cache or a separate host optimization from this
-spike.
+`yarn test:host-tooling` proves a different layer: the exact declared HXML,
+library, and extra-input closure, one owned Haxe server, serialized rebuilds,
+accepted input revision and output-manifest identities, and failure-atomic
+publication. Macro-owned external inputs must be declared in `extraInputs`;
+the host cannot invalidate an external read it was not told about. This is
+strong reuse and invalidation evidence inside that declared boundary, but it
+does not skip an unchanged Genes semantic plan and it has no latency budget.
+It therefore does not authorize a compiler cache or a separate host
+optimization from this spike.
 
 Classification of the host-lifecycle comparison: **directly reusable and
 already adopted lifecycle method; insufficient latency evidence for new
@@ -237,6 +256,7 @@ local duplicate-run measurements and define the complete input identity.
 | --- | --- | --- |
 | Nested phase timers and exact work counts | Directly reusable | Already present in Genes. |
 | One-pass scans and request-local indexes | Directly reusable | Already used by merged compiler optimizations. |
+| Current dependency-plan scaling warning | Adaptable | Re-measure with interleaved controls and attribute the cost in `genes-gvwv.2`. |
 | Cross-request immutable compiler plans | Adaptable | Wait for the remaining architecture-floor measurement. |
 | Structural output budgets | Directly reusable | Already blocking in both Genes profiles. |
 | Paired runtime benchmark with an independent reference | Adaptable method | Use only for a measured generated-runtime change. |
@@ -252,7 +272,9 @@ local duplicate-run measurements and define the complete input identity.
 ## Implementation boundary
 
 The only new implementation task is `genes-gvwv.1`, which owns the acceptance
-partition. Its positive contract is:
+partition. The current planner result also creates measurement task
+`genes-gvwv.2`; it does not authorize production code. The implementation
+task's positive contract is:
 
 > The canonical Genes acceptance list authorizes each hosted gate to run in
 > exactly one isolated shard, while one aggregate required check reports the
@@ -270,4 +292,6 @@ the partition authority.
 Revisit compiler-plan reuse after `genes-f8vc.9.4` identifies a dominant
 request-local floor. Revisit local receipts after repeated representative runs
 show expensive exact duplicates. Revisit runtime benchmarks when a compiler
-change adds or removes generated hot-path work.
+change adds or removes generated hot-path work. Revisit dependency-plan code
+only after `genes-gvwv.2` separates graph-size cost from host drift and
+attributes the measured work to an owner.
