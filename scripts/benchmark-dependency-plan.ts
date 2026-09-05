@@ -1,10 +1,12 @@
-import { deepStrictEqual, ok, strictEqual } from "node:assert";
+import { ok, strictEqual } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -277,20 +279,25 @@ function treeHash(root: string): string {
   return hash.digest("hex");
 }
 
-function readGenesVersion(): string {
-  const parsed = JSON.parse(readFileSync(path.join(repoRoot, "haxelib.json"), "utf8")) as {
+function readGenesVersion(sourceSnapshotRoot: string): string {
+  const parsed = JSON.parse(
+    readFileSync(path.join(sourceSnapshotRoot, "haxelib.json"), "utf8")
+  ) as {
     readonly version?: unknown;
   };
   ok(typeof parsed.version === "string", "haxelib.json version is missing");
   return parsed.version;
 }
 
-function buildArguments(fixture: Fixture): ReadonlyArray<string> {
+function buildArguments(
+  fixture: Fixture,
+  sourceSnapshotRoot: string
+): ReadonlyArray<string> {
   return [
     "-D", "genes.compile_stage_profile",
-    "-cp", path.join(repoRoot, "src"),
+    "-cp", path.join(sourceSnapshotRoot, "src"),
     "-lib", "helder.set",
-    "-D", `genes-ts=${readGenesVersion()}`,
+    "-D", `genes-ts=${readGenesVersion(sourceSnapshotRoot)}`,
     "--macro", 'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
     "--macro", "genes.Generator.use()",
     "--macro", "genes.js.Async.enable()",
@@ -394,18 +401,21 @@ function createFixture(
 
 async function compile(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
-  fixture: Fixture
+  fixture: Fixture,
+  sourceSnapshotRoot: string
 ): Promise<{
   readonly wallMilliseconds: number;
   readonly timings: ReadonlyArray<TimingObservation>;
 }> {
   const started = performance.now();
-  const result = await runBoundedProcess(compiler.binary, buildArguments(fixture), {
-    cwd: repoRoot,
-    timeoutMs: compileTimeoutMs,
-    label: fixture.key,
-    reportProgress: true
-  });
+  const result = await runBoundedProcess(compiler.binary,
+    buildArguments(fixture, sourceSnapshotRoot), {
+      cwd: repoRoot,
+      timeoutMs: compileTimeoutMs,
+      label: fixture.key,
+      reportProgress: true
+    }
+  );
   const wallMilliseconds = performance.now() - started;
   if (result.code !== 0) {
     throw new Error(
@@ -430,6 +440,7 @@ async function compile(
 
 async function measure(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
+  sourceSnapshotRoot: string,
   fixture: Fixture,
   scheduled: ScheduledCase,
   round: number | null,
@@ -437,7 +448,7 @@ async function measure(
   expectedHash: string
 ): Promise<BenchmarkSample> {
   const loadAverageBefore = loadavg();
-  const result = await compile(compiler, fixture);
+  const result = await compile(compiler, fixture, sourceSnapshotRoot);
   const loadAverageAfter = loadavg();
   verifyEdgeInventory(fixture.outputRoot, fixture.edges);
   const outputHash = treeHash(fixture.outputRoot);
@@ -511,6 +522,25 @@ function gitProvenance(): GitProvenance {
   };
 }
 
+/** Copies compiler inputs from Git objects so live-checkout edits cannot alter samples. */
+export function materializeSourceSnapshot(commit: string, destination: string): void {
+  const tracked = execFileSync(
+    "git",
+    ["ls-tree", "-r", "-z", "--name-only", commit, "--", "src", "haxelib.json"],
+    { cwd: repoRoot, encoding: "utf8" }
+  ).split("\0").filter((entry) => entry.length > 0);
+  ok(tracked.includes("haxelib.json"), "source snapshot is missing haxelib.json");
+  ok(tracked.some((entry) => entry.startsWith("src/")), "source snapshot is missing src files");
+  for (const relative of tracked) {
+    const target = path.join(destination, relative);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, execFileSync("git", ["show", `${commit}:${relative}`], {
+      cwd: repoRoot,
+      encoding: null
+    }));
+  }
+}
+
 async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBenchmarkReport> {
   strictEqual(process.versions.node, toolchains.node.minimumRuntime,
     `benchmark requires pinned Node ${toolchains.node.minimumRuntime}`);
@@ -519,6 +549,8 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
     `benchmark requires pinned Haxe ${toolchains.haxe.stable}`);
   const initialProvenance = gitProvenance();
   requireCleanStatus(initialProvenance.status);
+  const sourceSnapshotRoot = path.join(defaultWorkspace, "revision");
+  materializeSourceSnapshot(initialProvenance.commit, sourceSnapshotRoot);
   const loadAverageBefore = loadavg();
   const fixtures = new Map<string, Fixture>();
   for (const [edges, multiplier] of [
@@ -535,7 +567,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
 
   const hashes = new Map<string, string>();
   for (const fixture of fixtures.values()) {
-    await compile(compiler, fixture);
+    await compile(compiler, fixture, sourceSnapshotRoot);
     verifyEdgeInventory(fixture.outputRoot, fixture.edges);
     hashes.set(fixture.key, treeHash(fixture.outputRoot));
   }
@@ -548,7 +580,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
       const expectedHash = hashes.get(fixture.key);
       ok(expectedHash !== undefined);
       samples.push(await measure(
-        compiler, fixture, scheduled, round, sequenceIndex++, expectedHash
+        compiler, sourceSnapshotRoot, fixture, scheduled, round, sequenceIndex++, expectedHash
       ));
     }
   }
@@ -570,7 +602,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
       const expectedHash = hashes.get(fixture.key);
       ok(expectedHash !== undefined);
       samples.push(await measure(
-        compiler, fixture, scheduled, null, sequenceIndex++, expectedHash
+        compiler, sourceSnapshotRoot, fixture, scheduled, null, sequenceIndex++, expectedHash
       ));
     }
   }
@@ -585,9 +617,6 @@ async function runBenchmark(options: BenchmarkOptions): Promise<DependencyPlanBe
   ok(Number.isFinite(detectedRatio) && detectedRatio > 1,
     `planner observer did not detect ${String(options.sensitivityMultiplier)}x repeated references`);
 
-  const finalProvenance = gitProvenance();
-  deepStrictEqual(finalProvenance, initialProvenance,
-    "repository commit or working-tree state changed during the benchmark");
   return {
     schemaVersion: 2,
     classification: "report-only",
@@ -643,11 +672,27 @@ function isStrictDescendant(parent: string, candidate: string): boolean {
 
 export function validateOutputPath(outputPath: string): string {
   const resolved = path.resolve(outputPath);
-  ok(resolved !== defaultWorkspace
-    && !isStrictDescendant(defaultWorkspace, resolved)
-    && !isStrictDescendant(resolved, defaultWorkspace),
+  let existing = resolved;
+  const missingSegments: string[] = [];
+  while (true) {
+    try {
+      lstatSync(existing);
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") throw error;
+      const parent = path.dirname(existing);
+      ok(parent !== existing, `--out has no existing ancestor: ${resolved}`);
+      missingSegments.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+  const canonical = path.join(realpathSync(existing), ...missingSegments);
+  ok(canonical !== defaultWorkspace
+    && !isStrictDescendant(defaultWorkspace, canonical)
+    && !isStrictDescendant(canonical, defaultWorkspace),
   "--out must not overlap the repository-owned benchmark workspace");
-  return resolved;
+  return canonical;
 }
 
 export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
@@ -686,14 +731,21 @@ export function parseOptions(args: ReadonlyArray<string>): BenchmarkOptions {
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   rmSync(defaultWorkspace, { recursive: true, force: true });
-  try {
-    const report = await runBenchmark(options);
-    const json = `${JSON.stringify(report, null, 2)}\n`;
-    if (options.outputPath !== null) {
-      mkdirSync(path.dirname(options.outputPath), { recursive: true });
-      writeFileSync(options.outputPath, json);
+  const report = await (async (): Promise<DependencyPlanBenchmarkReport> => {
+    try {
+      return await runBenchmark(options);
+    } finally {
+      if (!options.keepWorkspace) {
+        rmSync(defaultWorkspace, { recursive: true, force: true });
+      }
     }
-    process.stdout.write(
+  })();
+  const json = `${JSON.stringify(report, null, 2)}\n`;
+  if (options.outputPath !== null) {
+    mkdirSync(path.dirname(options.outputPath), { recursive: true });
+    writeFileSync(options.outputPath, json);
+  }
+  process.stdout.write(
       "dependency-plan-benchmark:report-only\n"
       + `commit=${report.environment.commit}; Node ${report.environment.node}; `
       + `Haxe ${report.environment.haxe}; priority=${String(report.environment.processPriority)}\n`
@@ -711,12 +763,7 @@ async function main(): Promise<void> {
     process.stdout.write(
       `sensitivity planner ratio=${report.sensitivity.detectedRatio.toFixed(2)}x\n`
       + (options.outputPath === null ? json : `report=${options.outputPath}\n`)
-    );
-  } finally {
-    if (!options.keepWorkspace) {
-      rmSync(defaultWorkspace, { recursive: true, force: true });
-    }
-  }
+  );
 }
 
 if (process.argv[1] !== undefined

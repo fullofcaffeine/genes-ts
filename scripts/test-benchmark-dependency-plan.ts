@@ -1,7 +1,10 @@
 import { deepStrictEqual, ok, strictEqual, throws } from "node:assert";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   distribution,
+  materializeSourceSnapshot,
   parseOptions,
   plannerPercentOfTotal,
   plannerReportedSeconds,
@@ -29,6 +32,35 @@ throws(
   () => validateOutputPath(path.dirname(disposableWorkspace)),
   /must not overlap/
 );
+const symlinkTarget = path.join(disposableWorkspace, "report.json");
+const symlinkPath = path.join(process.cwd(), ".tmp/dependency-plan-report-link.json");
+rmSync(disposableWorkspace, { recursive: true, force: true });
+rmSync(symlinkPath, { force: true });
+try {
+  mkdirSync(disposableWorkspace, { recursive: true });
+  writeFileSync(symlinkTarget, "test-only\n");
+  symlinkSync(symlinkTarget, symlinkPath);
+  throws(() => validateOutputPath(symlinkPath), /must not overlap/);
+} finally {
+  rmSync(symlinkPath, { force: true });
+  rmSync(disposableWorkspace, { recursive: true, force: true });
+}
+const sourceSnapshot = path.join(process.cwd(), ".tmp/dependency-plan-source-snapshot-test");
+const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+rmSync(sourceSnapshot, { recursive: true, force: true });
+try {
+  materializeSourceSnapshot(commit, sourceSnapshot);
+  strictEqual(
+    readFileSync(path.join(sourceSnapshot, "haxelib.json"), "utf8"),
+    execFileSync("git", ["show", `${commit}:haxelib.json`], { encoding: "utf8" })
+  );
+  strictEqual(
+    readFileSync(path.join(sourceSnapshot, "src/genes/Generator.hx"), "utf8"),
+    execFileSync("git", ["show", `${commit}:src/genes/Generator.hx`], { encoding: "utf8" })
+  );
+} finally {
+  rmSync(sourceSnapshot, { recursive: true, force: true });
+}
 strictEqual(distribution([1, 100]).median, 50.5);
 requireCleanStatus([]);
 throws(() => requireCleanStatus([" M src/genes/Generator.hx"]), /requires a clean working tree/);

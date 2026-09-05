@@ -47,6 +47,11 @@ running the long benchmark.
 
 ## Report contents
 
+Before warmup, the command exports `src/` and `haxelib.json` from the recorded
+Git commit into its disposable workspace. Every measured compilation uses that
+snapshot, so edits to the live checkout cannot mix source revisions within one
+report.
+
 The JSON records:
 
 - the exact Git commit and working-tree state;
@@ -60,7 +65,8 @@ The JSON records:
 The first isolated five-round baseline and every sample are recorded in
 [`HOSTED_BASELINE_081CEEA3.md`](HOSTED_BASELINE_081CEEA3.md).
 
-Temporary generated sources and output are removed after a successful run.
+Temporary compiler inputs, generated sources, and output are removed before the
+report is published.
 The workspace is fixed at `.tmp/dependency-plan-benchmark`; the CLI cannot
 redirect recursive cleanup to another directory. Use `--keep-workspace` only
 for diagnosis. Keep `--out` outside the repository when the report contains
