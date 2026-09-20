@@ -23,6 +23,30 @@ it.
   runtime contract from Node 20.9 to Node 26.1+, where Node fixes failed raw
   process replacement without a process abort. Deep configured temporary paths
   use a private length-bounded POSIX socket directory.
+- Add the generation-only `genes watch` command over the public development
+  session. Structured project, HXML, and output options select one session.
+  Optional Lix resolution reuses the existing shell-free resolver. An explicit
+  JavaScript module can validate a complete candidate without accepting a
+  shell command string. Human status and JSON-lines output consume the same
+  version-one events. Recoverable failures stay alive and keep the last good
+  output, while documented exit codes distinguish setup, fatal, and signal
+  closure results. Invalid validator result shapes and write-reported stdout
+  disconnection close owned resources instead of leaving a permanently blocked
+  or orphaned session. Idle reader closure remains caller-owned until another
+  write reports it. Caller-owned diagnostics cannot impersonate internal setup
+  failure. The recorded validator digest is rechecked after module loading,
+  and project-root links fail before any tool or validator code runs. Every
+  HXML argument is now checked before setup. The command rejects an
+  extensionless compiler launcher without running it. It classifies one native
+  4.3.7 image before the version probe. Every POSIX probe and session launch
+  then uses raw exec, so a pseudo-image cannot trigger shell fallback. Human and
+  JSON-lines output use one bounded, ordered backpressure queue. An oversized
+  first record, queue overflow, and a final drain timeout close owned resources
+  with exit `1`. Project-root checks reject links in any component. They accept
+  equivalent path case on case-insensitive filesystems.
+  A cancellable raw-exec version probe now starts after signal ownership. A
+  setup signal or timeout reaps that exact native child. Value-taking options
+  reject a following option token instead of consuming it as a path or ID.
 - Add an explicit `genes agents install` command and a read-only check mode.
   The command installs one versioned managed block in a consumer's root
   `AGENTS.md`. It preserves all project-authored bytes outside that block,

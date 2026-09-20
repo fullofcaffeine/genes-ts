@@ -204,6 +204,175 @@ You usually do **not** need it when:
 Start with the direct compiler workflow. Add host tooling only after the project
 has a concrete watch, warm-compilation, or publication requirement.
 
+## Run the generation-only watch command
+
+Use `genes watch` when a project needs safe, long-lived Genes generation but
+does not have a framework adapter. The command uses the public
+`DevelopmentSession` API. It does not create a second watcher, compiler server,
+or publication path.
+
+The session owns the development output path. Therefore, use one shared HXML
+file and two small entry files:
+
+```hxml
+# build.shared.hxml
+-lib genes-ts
+-cp src
+-main Main
+-D genes.ts
+```
+
+```hxml
+# build.watch.hxml
+build.shared.hxml
+```
+
+```hxml
+# build.hxml
+build.shared.hxml
+-js src-gen/index.ts
+```
+
+Start the development command from the project root:
+
+```bash
+npm exec --no -- genes watch \
+  --project-id my-app/web \
+  --hxml build.watch.hxml \
+  --output src-gen/index.ts \
+  --lix
+```
+
+`--lix` uses the project-installed Lix package to resolve ordered `-lib`
+requests. It does not install packages or use a shell. Omit this option when
+the HXML closure has no library requests.
+
+Each repeated `--hxml` value must be a nonempty path with the literal lowercase
+`.hxml` suffix. This lexical check happens before the command reads the project
+root or starts a tool. Existence, containment, and HXML contents remain part of
+the live session inventory, so a valid path can still appear during repair.
+
+The command admits one trusted native Haxe 4.3.7 image. Before `--version`, it
+classifies a bounded current-platform ELF, Mach-O, or PE structure. A shell,
+Node, CMD, or BAT launcher is rejected before discovery. On POSIX, the version
+probe also uses the package's raw-exec boundary. A malformed pseudo-image can
+therefore fail only as an executable. It cannot fall back to a shell.
+
+When the requested entry is a launcher, the command can use a native binary
+beside `HAXE_STD_PATH`. It can also use the fixed managed
+`~/haxe/versions/4.3.7` layout. The real binary must stay unchanged through the
+exact version probe. Later session launches use the same canonical path and
+raw-exec boundary. Replacing that path with a script makes the launch fail. It
+does not create a hidden compiler child. This protects process ownership. It
+does not attest a hostile compiled proxy or freeze the toolchain path. As
+elsewhere in the tooling contract, the selected compiler is trusted input.
+
+The default validator is explicit Haxe-only admission. A successful Haxe and
+Genes run can publish, but no host type checker or framework build checks the
+candidate. The command prints this limit when it starts.
+
+Use a reviewed JavaScript module when the project needs another admission
+check:
+
+```js
+// genes.watch.mjs
+export default {
+  policyFacts: {
+    validator: "project-typecheck",
+    version: 1,
+  },
+
+  async validate(tree, { signal, recovery }) {
+    const result = await validateCandidate(tree, { signal, recovery });
+    return result.ok
+      ? { ok: true }
+      : { ok: false, diagnostic: result.diagnostic };
+  },
+};
+```
+
+Then add `--validator genes.watch.mjs`. The module must stay inside the project
+root. Its default export must contain a `validate` function and JSON
+`policyFacts`. The result can accept the candidate or reject it with one JSON
+diagnostic. The command does not accept artifact writers or shell command
+strings. The diagnostic is caller-owned data. Its fields do not control the
+command lifecycle.
+
+The command loads the module once. Restart the command after the module or one
+of its imported validator dependencies changes. Keep enough identity in
+`policyFacts` to explain the active validation policy.
+
+Human output presents the same lifecycle facts as short status lines:
+`BUILDING`, `BLOCKED`, `READY`, `DEGRADED`, `CLOSING`, and `CLOSED`. A
+recoverable `BLOCKED` or `DEGRADED` state stays alive for a repair. A degraded
+session keeps the last accepted output tree unchanged.
+
+Use JSON-lines mode for automation:
+
+```bash
+npm exec --no -- genes watch \
+  --project-id my-app/web \
+  --hxml build.watch.hxml \
+  --output src-gen/index.ts \
+  --lix \
+  --json-lines
+```
+
+Every stdout line is one unchanged `DevelopmentEvent` version-one record.
+Status prose and ANSI text never enter stdout in this mode. Automation can use
+the event sequence, revision, generation, failure phase, and retained
+generation directly. If a write reports `EPIPE` or another stream failure, the
+command closes its session and owned compiler before it exits. An idle pipe
+does not notify Node when its reader closes until another write occurs.
+Automation that stops reading while idle must signal the watch process.
+
+A temporarily slow connected consumer does not reorder or duplicate records.
+Each complete UTF-8 record includes its newline. It must fit within 8 MiB
+before the command allocates its output buffer. After Node reports
+backpressure, the command retains at most 1,024 complete records and 8 MiB of
+UTF-8 record bytes. It then resumes on `drain`. One oversized record makes
+stdout fail. A queued record also makes stdout fail if it crosses a queue
+bound. The command reports the limit on stderr and closes the session with exit
+`1`. It tries to drain only the already-bounded ordered prefix. Final drain is
+limited to 30 seconds. The command then closes stdout. Human mode uses the same
+bounded writer.
+
+The command uses these exit codes:
+
+- `0`: the session closed normally;
+- `1`: a fatal session, stdout transport, or shutdown failure;
+- `2`: invalid arguments, Haxe selection, Lix setup, or validator setup;
+- `130`: clean closure after `SIGINT`; and
+- `143`: clean closure after `SIGTERM`.
+
+Recoverable compile and validation failures do not exit. Repair the input and
+wait for a later `generation-accepted` event. A validator module that returns
+an invalid result shape is a setup error, not a recoverable rejection, and
+exits with code `2` after session cleanup.
+
+The project root must be a real directory and its path must not traverse a
+symbolic link or junction. The command checks every path component before it
+probes Haxe, resolves Lix, or loads validator code. It then gives the public
+development session the canonical link-free directory. Equivalent letter case
+is accepted when the host filesystem identifies both spellings as the same
+ordinary directory.
+
+The command installs signal ownership before it probes Haxe. The version probe
+is one asynchronous raw-exec child. `SIGINT`, `SIGTERM`, or the probe timeout
+terminates and reaps that child before setup returns. After setup succeeds, the
+public development session owns compiler shutdown.
+
+An option that requires a value rejects the next token when it starts with
+`-`. Prefix a dash-leading path with `./`, for example `./--build.hxml`.
+
+`genes watch` is a development command. It does not replace the production
+build, validator, or test gates. Run the ordinary output-owning HXML file for
+production:
+
+```bash
+haxe build.hxml
+```
+
 ## A first development session
 
 The smallest useful host supplies three project facts:
@@ -234,7 +403,7 @@ const session = createGenesDevelopmentSession<Diagnostic>({
 
   resolveInvocation: async ({ signal }) => ({
     // Use the native Haxe executable selected by your package manager. The
-    // later `genes watch` CLI owns this discovery for ordinary projects.
+    // `genes watch` command owns this discovery for ordinary projects.
     executable: "/absolute/path/to/haxe",
     cwd: "/workspace/my-app",
     args: ["build.hxml"],
@@ -696,6 +865,11 @@ rolled back, the other output can start normally.
   when only one subtree belongs to the build.
 - `resolveInvocation().executable` is an absolute native Haxe compiler binary
   that supports `--server-listen` and `--connect`, not a shell command string.
+  The thin `genes watch` CLI inspects current-platform ELF, Mach-O, or PE
+  structure before its exact version probe. Thus, an extensionless launcher
+  cannot hide the owned compiler in an undisclosed child process. This is
+  process-shape evidence inside the documented trusted-compiler boundary, not
+  binary attestation.
   On POSIX, tooling starts a trusted Node handoff with no inherited environment,
   transfers the bounded Haxe environment over a private input pipe, and
   replaces that same child with Haxe through raw `execve`. A private control
