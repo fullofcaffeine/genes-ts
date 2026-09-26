@@ -343,12 +343,16 @@ class ModuleFunctionPlan {
         + 'class-method shape',
         owner.pos);
     }
-    if (!field.isPublic
+    // Genuine module functions need no class visibility privilege when moved.
+    // Keep their authored privacy in parsePublicExport; class methods retain
+    // the narrower public-only contract.
+    if ((!field.isPublic && !isModuleFieldsOwner(owner))
       || !field.isStatic
       || !field.kind.equals(Method)
       || field.methodKind != MethNormal) {
       CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-SHAPE-006: "${requestedName}" requires a '
-        + 'public static normal method; ${owner.name}.${field.name} is '
+        +
+        'public static normal method or a normal module-level function; ${owner.name}.${field.name} is '
         + fieldShape(field),
         field.pos);
     }

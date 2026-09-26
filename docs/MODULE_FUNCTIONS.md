@@ -393,6 +393,12 @@ A private selected function is not exported and its module-function metadata is
 not a DCE root. `@:expose` is an explicit public root. Without it, if Haxe
 removes the field, Genes emits no function and reserves no requested name.
 
+Genuine Haxe module-level functions may also use `private`. Their callers in
+the same Haxe module retain access, but the generated function is not exported
+unless explicitly exposed. This lets a public React component compose a
+private component without widening its module API. Class-owned methods still
+require public static visibility; this change does not admit private methods.
+
 Dependency planning remains authoritative for code moved to module scope. For
 example, extracting an instance method can emit `Register.bind`, and Haxe's
 project-wide `js.Lib.global` feature can make a module emit:
@@ -427,7 +433,8 @@ The supported shape accepts:
 
 - either a concrete, non-extern, non-interface `KNormal` class without class
   type parameters or Haxe's synthetic owner for genuine module-level fields;
-- one retained public static `MethNormal` method with a typed function body;
+- one retained public static `MethNormal` class method, or a public or private
+  genuine module-level function, with a typed function body;
 - method-local type parameters and constraints;
 - ordinary, optional/default, and rest arguments;
 - synchronous or `@:jsAsync` methods;

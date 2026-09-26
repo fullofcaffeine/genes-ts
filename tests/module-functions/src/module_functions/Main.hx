@@ -23,6 +23,8 @@ import module_functions.TopLevelSibling.metadata as siblingMetadata;
 /** Executes admitted runtime behavior without target-specific escape syntax. */
 class Main {
   static function main(): Void {
+    if (TopLevelPrivate.publicIdentity("retained") != "retained")
+      throw "Private module function changed its argument";
     final transcript = [
       Selected.before(),
       Selected.selected({label: "typed"}, null, "a", "b"),
