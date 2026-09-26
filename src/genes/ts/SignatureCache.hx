@@ -226,18 +226,24 @@ class SignatureCache {
     }
   }
 
-  public static function enumAbstractLiteralUnionTsType(t: Type): Null<String> {
+  /** Captured source witnesses may recover enum values removed by DCE.
+   * Ordinary late types must match the ordinary printer, which can emit string.
+   */
+  public static function enumAbstractLiteralUnionTsType(t: Type,
+      capturedSourceType = false): Null<String> {
     final normalized = followTypedefs(unlazy(t));
     switch normalized {
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]):
-        final innerUnion = enumAbstractLiteralUnionTsType(inner);
+        final innerUnion = enumAbstractLiteralUnionTsType(inner,
+          capturedSourceType);
         if (innerUnion == null)
           return null;
         return
           Context.defined('genes.ts.no_null_union') ? innerUnion : (innerUnion
           + ' | null');
       case TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        final innerUnion = enumAbstractLiteralUnionTsType(inner);
+        final innerUnion = enumAbstractLiteralUnionTsType(inner,
+          capturedSourceType);
         if (innerUnion == null)
           return null;
         return
@@ -249,7 +255,7 @@ class SignatureCache {
         // A declaration-backed request may run after DCE removes enum fields.
         // Reuse the literal domain frozen before DCE instead of widening an
         // exact generic call witness to the abstract's primitive backing type.
-        final captured = getEnumAbstractTsType(ab);
+        final captured = capturedSourceType ? getEnumAbstractTsType(ab) : null;
         if (captured != null)
           return captured;
         // Use TypeEmitter so we reuse the same enum-abstract value extraction

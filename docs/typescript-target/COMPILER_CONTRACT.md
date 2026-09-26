@@ -357,6 +357,9 @@ as `"canvas" | "document"`, even when dead-code elimination removes the enum's
 implementation fields. A local copied from an admitted projected state read
 keeps that domain when the compiler proves it is never reassigned. A mutable
 string local remains a string if later writes require that wider contract.
+Only retained source witnesses use the saved domain. Ordinary late-stage type
+lookups still match the ordinary printer, including loop locals lowered to
+strings and their existing checked enum conversions.
 
 The signature cache supplies the pre-elimination domain. The existing React
 state initialization and projection plans supply the exact declaration and

@@ -561,7 +561,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     final explicitTypeArguments = stateInitialization == null ? declarationTypeArguments : [
       {
         type: stateInitialization.valueType,
-        tsType: SignatureCache.enumAbstractLiteralUnionTsType(stateInitialization.valueType)
+        tsType: SignatureCache.enumAbstractLiteralUnionTsType(stateInitialization.valueType,
+          true)
       }
     ];
     final enumDecision = boundaryPlan == null ? null : boundaryPlan.enumCall(e);
@@ -2430,7 +2431,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       && plan != null
       && !plan.isReassigned(v)
       && reactStateProjectionPlan != null ? reactStateProjectionPlan.currentValueType(eo) : null;
-    final projectedStateDomain = projectedStateValue == null ? null : SignatureCache.enumAbstractLiteralUnionTsType(projectedStateValue);
+    final projectedStateDomain = projectedStateValue == null ? null : SignatureCache.enumAbstractLiteralUnionTsType(projectedStateValue,
+      true);
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : (projectedStateDomain ?? localTsTypeOverride(eo));
     rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
