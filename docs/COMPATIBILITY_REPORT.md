@@ -109,7 +109,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 
 | Evidence class | Metric | Exact count | Disposition |
 | --- | --- | ---: | --- |
-| Compile inventory | Classic Haxe test modules | 49 | `blocking` |
+| Compile inventory | Classic Haxe test modules | 50 | `blocking` |
 | Compile inventory | Generated TypeScript snapshot profiles | 8 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
 | Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |
