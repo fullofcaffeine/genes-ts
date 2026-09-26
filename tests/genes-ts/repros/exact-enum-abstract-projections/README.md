@@ -50,6 +50,14 @@ generic declaration. Only the three deliberately broad host controls may need
 TypeScript assertions; the exact nested types and runtime helpers may not add
 their own.
 
+An initialized nullable enum local that is never reassigned retains its closed domain.
+For example, `final code: Null<ReviewState> = parseReview(raw)` must keep the
+literal union plus `null`. After a null check, returning `{value: code}` in an
+`Envelope<ReviewState>` must type-check without an assertion. The runtime
+fixture checks a known value, an unknown string, and null input. The compiler
+uses its existing local-write analysis; this does not change the broader type
+policy for reassigned locals or lowered mutable loop temporaries.
+
 The TypeScript profile must emit the tuple and callbacks with the same literal
 union, then use already-exact values directly. A redundant `as` expression is
 not harmless output polish: it hides whether genes-ts actually retained the
