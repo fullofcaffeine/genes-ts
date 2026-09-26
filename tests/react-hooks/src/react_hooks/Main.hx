@@ -141,6 +141,7 @@ class Main {
     final typeOnlyComponent = TypeOnlyComponent.Identity;
     final optionalTypeOnlyComponent = TypeOnlyComponent.OptionalIdentity;
     final blockEdit = GutenbergBlock.BlockEdit;
+    final privateComponentParent = PrivateComponent.PublicNote;
     final stateInitialization = StateInitialization.retainStateInitializationProof;
     final typedProjections = StateProjectionCases.useTypedProjections;
     final lazyProjection = StateProjectionCases.useLazyProjection;

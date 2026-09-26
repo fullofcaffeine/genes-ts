@@ -810,6 +810,30 @@ ok(!helperFreeTopLevel.includes("$global"),
 
 runGeneratedTypeScriptMatrix("tests/module-functions/tsconfig.json");
 
+for (const relative of [
+  "classic/module_functions/TopLevelPrivate.js",
+  "ts/src-gen/module_functions/TopLevelPrivate.ts",
+  "tsx/src-gen/module_functions/TopLevelPrivate.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("function privateIdentity")
+    && !source.includes("export function privateIdentity"),
+    `${relative} retains the private helper without exporting it`);
+}
+run("node", ["--input-type=module", "-e", `
+import {strictEqual} from "node:assert";
+import * as helpers from "./tests/module-functions/out/classic/module_functions/TopLevelPrivate.js";
+strictEqual(Object.hasOwn(helpers, "privateIdentity"), false);
+strictEqual(helpers.publicIdentity("native call"), "native call");
+`]);
+for (const relative of [
+  "classic/module_functions/TopLevelPrivate.d.ts",
+  "ts/dist/out/ts/src-gen/module_functions/TopLevelPrivate.d.ts"
+]) {
+  ok(!readFileSync(path.join(outputRoot, relative), "utf8").includes("privateIdentity"),
+    `${relative} keeps the private helper out of the declaration API`);
+}
+
 assertImplementationShape("classic/module_functions/Selected.js");
 assertImplementationShape("ts/src-gen/module_functions/Selected.ts");
 assertImplementationShape("tsx/src-gen/module_functions/Selected.tsx");
