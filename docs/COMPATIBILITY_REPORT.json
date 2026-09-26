@@ -306,8 +306,8 @@
           "kind": "tracked-files",
           "path": "tests",
           "match": "^Test[^/]*\\.hx$",
-          "expected": 49,
-          "count": 49
+          "expected": 50,
+          "count": 50
         },
         {
           "id": "genes-ts-snapshot-profiles",
