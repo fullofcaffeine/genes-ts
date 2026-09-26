@@ -21,6 +21,27 @@ This document specifically describes the **TypeScript source output mode** (enab
   - **Opt-in:** minimal runtime / “TS-first” mode (less Haxe runtime surface).
 - Provide optional authoring sugar for modern JS/TS patterns (e.g. `@:async` + `await(...)`).
 
+## Local generic functions
+
+Local Haxe functions retain their declared type parameters in TypeScript:
+
+```haxe
+function identity<T>(value:T):T return value;
+final number:Int = identity(7);
+final text:String = identity("seven");
+```
+
+Genes emits a generic callable type and a generic function expression. Haxe's
+typed local declaration supplies the parameters and constraints. Nested
+parameters with the same name receive distinct TypeScript names when an outer
+scope must remain visible. Recursive functions retain their parameters across
+Haxe's separate declaration and assignment. These changes affect type syntax;
+classic JavaScript keeps the same runtime behavior.
+
+The regression is `tests/TestLocalGenericFunctions.hx`. Run `yarn test` and
+`yarn test:genes-ts:full` sequentially because both gates use classic artifacts
+under `bin/`.
+
 ## Non-goals (for 1.0)
 
 - Haxe 5 `--custom-target`. Haxe 4.3.7 first.

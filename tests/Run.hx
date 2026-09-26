@@ -19,6 +19,7 @@ class Run {
       new TestUnknownNarrowing(), new TestJsonValue(), new TestPublicSurface(),
       new TestNullishContract(), new TestWebIdlSupport(),
       new TestRegroupTypeIdentity(), new TestStaticCallableSignature(),
+      new TestLocalGenericFunctions(),
       #end
       new TestAsterisk(),
       new TestBind(),

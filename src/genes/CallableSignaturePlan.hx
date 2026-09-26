@@ -39,7 +39,18 @@ class CallableSignaturePlan {
   final names = new ObjectMap<ClassType, String>();
   final namesByStableIdentity: Map<String, String> = [];
 
-  function new(parameters: Array<TypeParameter>) {
+  final enclosing: Null<CallableSignaturePlan>;
+  final usedNames: Map<String, Bool> = [];
+
+  function new(parameters: Array<TypeParameter>,
+      ?enclosing: CallableSignaturePlan, ?reserved: Array<String>) {
+    this.enclosing = enclosing;
+    if (reserved != null)
+      for (name in reserved)
+        usedNames.set(name, true);
+    if (enclosing != null)
+      for (name in enclosing.usedNames.keys())
+        usedNames.set(name, true);
     parameterValues = parameters.copy();
     final counts: Map<String, Int> = [];
     for (parameter in parameterValues) {
@@ -49,7 +60,14 @@ class CallableSignaturePlan {
       final base = declaration.name;
       final count = counts.exists(base) ? counts.get(base) : 0;
       counts.set(base, count + 1);
-      final emitted = count == 0 ? base : '${base}_$count';
+      var suffix = count;
+      var emitted = suffix == 0 ? base : '${base}_$suffix';
+      while ((enclosing != null || reserved != null)
+        && usedNames.exists(emitted)) {
+        suffix++;
+        emitted = '${base}_$suffix';
+      }
+      usedNames.set(emitted, true);
       names.set(declaration, emitted);
       namesByStableIdentity.set(stableIdentity(declaration), emitted);
     }
@@ -120,6 +138,17 @@ class CallableSignaturePlan {
     return new CallableSignaturePlan(parameters);
   }
 
+  /** Keeps local binders distinct from visible class and enclosing function parameters.
+   * Haxe owns the declaration list through TVar.extra.params; no free-parameter
+   * discovery is needed for a local function. Only these local binders are emitted.
+   */
+  public static function local(declared: Array<TypeParameter>,
+      enclosing: Null<CallableSignaturePlan>,
+      ownerParameters: Array<TypeParameter>): CallableSignaturePlan {
+    return new CallableSignaturePlan(declared, enclosing,
+      ownerParameters.map(p -> p.name));
+  }
+
   /** Returns an immutable-copy view in declaration order. */
   public function parameters(): Array<TypeParameter> {
     return parameterValues.copy();
@@ -145,8 +174,9 @@ class CallableSignaturePlan {
    */
   public function nameFor(parameter: ClassType): Null<String> {
     final exact = names.get(parameter);
+    final own = exact != null ? exact : namesByStableIdentity.get(stableIdentity(parameter));
     return
-      exact != null ? exact : namesByStableIdentity.get(stableIdentity(parameter));
+      own != null ? own : enclosing == null ? null : enclosing.nameFor(parameter);
   }
 
   static function collectParameterConstraints(parameter: TypeParameter,

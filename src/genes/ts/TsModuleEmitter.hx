@@ -2279,6 +2279,106 @@ class TsModuleEmitter extends JsModuleEmitter {
       localTsTypeOverrides.set(variable.id, exactType);
   }
 
+  /** Shared function-expression renderer; local declarations supply exact Haxe binders. */
+  function emitFunctionExpression(e: TypedExpr, f: TFunc,
+      ?parameters: Array<TypeParameter>): Void {
+    final valueIifeDepth = this.valueIifeDepth;
+    final inLoop = this.inLoop;
+    final prevReturn = currentReturnType;
+    final prevVoidLike = currentReturnIsVoidLike;
+    currentReturnType = switch e.t {
+      case TFun(_, ret): ret;
+      default: null;
+    }
+    currentReturnIsVoidLike = currentReturnType != null
+      && isVoidLike(currentReturnType);
+    this.valueIifeDepth = 0;
+    this.inLoop = false;
+    final args = switch e.t {
+      case TFun(args, _): args;
+      default: [];
+    }
+    final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(args);
+    write('function ');
+    if (parameters != null)
+      TypeEmitter.emitParams(this, parameters.map(p -> p.t), true);
+    write('(');
+    for (i in joinIt(0...f.args.length, write.bind(', '))) {
+      final arg = f.args[i];
+      final capturedSourceType = SignatureCache.getLocalSourceType(arg.v);
+      final t = capturedSourceType ?? (i < args.length ? args[i].t : arg.v.t);
+      if (genes.util.TypeUtil.isRest(t))
+        write('...');
+      emitLocalVar(arg.v);
+      final omitType = (arg.v.name == '_'
+        || StringTools.startsWith(arg.v.name, '_'))
+        && typeEmitsAny(t);
+      if (!omitType) {
+        final optional = i < args.length && args[i].opt && i > noOptionalUntil;
+        final nullish = NullishContract.forParameter(t, optional);
+        if (nullish.emitOptionalSyntax && !nullish.usesNullDefault)
+          write('?');
+        write(': ');
+        if (capturedSourceType != null)
+          TypeEmitter.emitCapturedSourceType(this, nullish.emittedType);
+        else
+          TypeEmitter.emitType(this, nullish.emittedType);
+        rememberEmittedLocalType(arg.v, nullish.emittedType, null);
+        if (nullish.usesNullDefault)
+          write(' = null');
+      }
+    }
+    // Omit explicit return annotations so TS can infer and preserve generic
+    // inference. Writing `: any` here causes widespread `unknown` inference
+    // under `strict` in downstream code (e.g. tink.*).
+    write(') ');
+    emitExpr(getFunctionBody(f));
+    this.valueIifeDepth = valueIifeDepth;
+    this.inLoop = inLoop;
+    currentReturnType = prevReturn;
+    currentReturnIsVoidLike = prevVoidLike;
+  }
+
+  /**
+   * Emits the exact generic signature owned by a Haxe local declaration.
+   * Recursive functions start as a null-initialized local, so the binder must
+   * not depend on an initializer being a function expression.
+   */
+  function emitGenericLocalType(v: TVar, type: Type,
+      capturedSourceType: Bool): Bool {
+    final extra = v.extra;
+    if (extra == null || extra.params.length == 0)
+      return false;
+    final previousSignature = currentCallableSignature;
+    currentCallableSignature = CallableSignaturePlan.local(extra.params,
+      previousSignature, currentClass == null ? [] : currentClass.params);
+    TypeEmitter.emitParams(this, extra.params.map(p -> p.t), true);
+    if (capturedSourceType)
+      TypeEmitter.emitCapturedSourceType(this, type, false);
+    else
+      TypeEmitter.emitType(this, type, false);
+    currentCallableSignature = previousSignature;
+    return true;
+  }
+
+  /** Uses the same local-owned binders for initialization and recursive assignment. */
+  function emitGenericLocalValue(v: TVar, value: TypedExpr): Bool {
+    final extra = v.extra;
+    if (extra == null || extra.params.length == 0)
+      return false;
+    switch value.expr {
+      case TFunction(f):
+        final previousSignature = currentCallableSignature;
+        currentCallableSignature = CallableSignaturePlan.local(extra.params,
+          previousSignature, currentClass == null ? [] : currentClass.params);
+        emitFunctionExpression(value, f, extra.params);
+        currentCallableSignature = previousSignature;
+        return true;
+      default:
+        return false;
+    }
+  }
+
   override public function emitVar(declaration: TypedExpr, v: TVar,
       eo: Null<TypedExpr>) {
     if (emitReactStateProjectionDeclaration(declaration, v, eo))
@@ -2324,8 +2424,10 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitLocalVar(v);
     if (!inferExplicitCallType) {
       write(': ');
-      emitLocalType(emittedType, emittedTypeOverride,
-        capturedLocalSourceType != null);
+      if (!emitGenericLocalType(v, emittedType,
+        capturedLocalSourceType != null))
+        emitLocalType(emittedType, emittedTypeOverride,
+          capturedLocalSourceType != null);
     }
     switch (eo) {
       case null:
@@ -2362,7 +2464,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           write('>(');
           emitValueWithExpectedType(null, valueBridge.source);
           write(')');
-        } else {
+        } else if (!emitGenericLocalValue(v, e)) {
           emitValueWithExpectedType(emittedType, e);
         }
     }
@@ -3198,7 +3300,12 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         writeBinop(op);
         writeSpace();
-        emitValueWithExpectedType(lhs.t, rhs);
+        final emittedGeneric = switch [op, lhs.expr] {
+          case [OpAssign, TLocal(v)]: emitGenericLocalValue(v, rhs);
+          default: false;
+        };
+        if (!emittedGeneric)
+          emitValueWithExpectedType(lhs.t, rhs);
       case TUnop(op = OpIncrement | OpDecrement, postFix, target):
         final decision = indexedAccessPlan.targetDecision(e);
         if (decision == null) {
@@ -3376,59 +3483,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TTry(_):
         throw 'Unhandled try/catch, please report';
       case TFunction(f):
-        final valueIifeDepth = this.valueIifeDepth;
-        final inLoop = this.inLoop;
-        final prevReturn = currentReturnType;
-        final prevVoidLike = currentReturnIsVoidLike;
-        currentReturnType = switch e.t {
-          case TFun(_, ret): ret;
-          default: null;
-        }
-        currentReturnIsVoidLike = currentReturnType != null
-          && isVoidLike(currentReturnType);
-        this.valueIifeDepth = 0;
-        this.inLoop = false;
-        final args = switch e.t {
-          case TFun(args, _): args;
-          default: [];
-        }
-        final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(args);
-        write('function (');
-        for (i in joinIt(0...f.args.length, write.bind(', '))) {
-          final arg = f.args[i];
-          final capturedSourceType = SignatureCache.getLocalSourceType(arg.v);
-          final t = capturedSourceType ?? (i < args.length ? args[i].t : arg.v.t);
-          if (genes.util.TypeUtil.isRest(t))
-            write('...');
-          emitLocalVar(arg.v);
-          final omitType = (arg.v.name == '_'
-            || StringTools.startsWith(arg.v.name, '_'))
-            && typeEmitsAny(t);
-          if (!omitType) {
-            final optional = i < args.length && args[i].opt
-              && i > noOptionalUntil;
-            final nullish = NullishContract.forParameter(t, optional);
-            if (nullish.emitOptionalSyntax && !nullish.usesNullDefault)
-              write('?');
-            write(': ');
-            if (capturedSourceType != null)
-              TypeEmitter.emitCapturedSourceType(this, nullish.emittedType);
-            else
-              TypeEmitter.emitType(this, nullish.emittedType);
-            rememberEmittedLocalType(arg.v, nullish.emittedType, null);
-            if (nullish.usesNullDefault)
-              write(' = null');
-          }
-        }
-        // Omit explicit return annotations so TS can infer and preserve generic
-        // inference. Writing `: any` here causes widespread `unknown` inference
-        // under `strict` in downstream code (e.g. tink.*).
-        write(') ');
-        emitExpr(getFunctionBody(f));
-        this.valueIifeDepth = valueIifeDepth;
-        this.inLoop = inLoop;
-        currentReturnType = prevReturn;
-        currentReturnIsVoidLike = prevVoidLike;
+        emitFunctionExpression(e, f);
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):

@@ -53,6 +53,11 @@ evaluation and values stay the same.
   parameters are not duplicated, and static properties are not treated as
   generic callables.
 - `TestStaticCallableSignature.hx` proves runtime behavior.
+- `TestLocalGenericFunctions.hx` covers local generic declarations, including
+  constraints, recursive assignment, captured values, and nested functions.
+  Same-named parameters keep separate identities in class, method, and local
+  scopes. These cases compile under the strict TypeScript matrix and execute
+  in both TypeScript and classic JavaScript profiles.
 - the generated TypeScript consumer in `scripts/test-genes-ts-full.ts` proves
   strict TypeScript accepts valid calls and rejects wrong result types.
 - `tests/classic-dts/consumer.ts` proves classic `.d.ts` output exposes the same
