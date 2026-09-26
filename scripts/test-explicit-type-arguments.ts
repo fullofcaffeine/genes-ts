@@ -76,8 +76,8 @@ requireText(
 );
 requireText(
   generatedTs,
-  'const maybePhase: string | null = LocalFactory.maybe("pending")',
-  "a present generic value must widen directly to an outer nullable result"
+  'const maybePhase: "pending" | "ready" | null = LocalFactory.maybe("pending")',
+  "a present generic value must retain its declared closed domain inside an outer nullable result"
 );
 rejectText(
   generatedTs,
