@@ -55,6 +55,8 @@ class SignatureCache {
   @:persistent static var anonFieldSourceTypes: Map<String, Type> = new Map();
   @:persistent static var typedefSourceTypes: Map<String, Type> = new Map();
   @:persistent static var localSourceTypes: Map<Int, Type> = new Map();
+  @:persistent static var nullableEnumLocalSourceTypes: Map<Int,
+    Type> = new Map();
   @:persistent static var enumAbstractTsTypes: Map<String, String> = new Map();
 
   static inline function classFullName(cl: ClassType): String {
@@ -361,14 +363,23 @@ class SignatureCache {
   /** Saves a local's nested source type when its emitted annotation needs it. */
   static function captureLocal(variable: TVar, includeDirect = false): Void {
     final sourceType = sourceTypeWithEnumAbstract(variable.t);
-    // Direct enum locals retain the existing conservative expression-flow
-    // policy: a lowered mutable loop temporary stays broad and receives its
-    // contained call-boundary assertion. Structural locals need their complete
-    // source type, while function parameters are declaration-safe even when
-    // their enum domain is direct.
+    // Keep direct locals separate: only declaration emission with a complete
+    // no-reassignment proof may use their closed domain. A lowered mutable loop
+    // temporary stays broad and retains its call-boundary assertion. Structural
+    // locals and function parameters retain their existing declaration policy.
     if (sourceType != null
       && (includeDirect || !isDirectEnumAbstractType(variable.t)))
       localSourceTypes.set(variable.id, sourceType);
+    else if (sourceType != null) {
+      // This recovery owns nullable direct domains. Non-null direct locals
+      // already use expression-flow evidence and retain that existing policy.
+      switch followTypedefs(unlazy(sourceType)) {
+        case TAbstract(_.get() => {pack: [], name: "Null"}, [_]) |
+          TType(_.get() => {pack: [], name: "Null"}, [_]):
+          nullableEnumLocalSourceTypes.set(variable.id, sourceType);
+        default:
+      }
+    }
   }
 
   /** Finds local declarations and function parameters in one typed expression. */
@@ -441,6 +452,7 @@ class SignatureCache {
     anonFieldSourceTypes = new Map();
     typedefSourceTypes = new Map();
     localSourceTypes = new Map();
+    nullableEnumLocalSourceTypes = new Map();
     enumAbstractTsTypes = new Map();
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
@@ -513,6 +525,15 @@ class SignatureCache {
 
   public static function getLocalSourceType(variable: TVar): Null<Type> {
     return localSourceTypes.get(variable.id);
+  }
+
+  /**
+   * Retains the closed domain before JS erasure, without declaring flow safety.
+   * The emitter may use this for an initialized, never-reassigned local only.
+   * Mutable lowered temporaries still follow the existing broad-type policy.
+   */
+  public static function getNullableEnumLocalSourceType(variable: TVar): Null<Type> {
+    return nullableEnumLocalSourceTypes.get(variable.id);
   }
 
   /** Saved literal spelling used after dead-code elimination removes constants. */

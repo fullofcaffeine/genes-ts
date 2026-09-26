@@ -2398,7 +2398,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
-    final capturedLocalSourceType = SignatureCache.getLocalSourceType(v);
+    // A nullable enum local can lose its closed domain during Haxe JS lowering.
+    // The existing write analysis proves when one initializer owns its value;
+    // retain that source domain without narrowing mutable loop temporaries.
+    final plan = localBindingPlan;
+    final directSourceType = eo != null && plan != null
+      && !plan.isReassigned(v) ? SignatureCache.getNullableEnumLocalSourceType(v) : null;
+    final capturedLocalSourceType = SignatureCache.getLocalSourceType(v) ?? directSourceType;
     final declaredType = capturedLocalSourceType ?? v.t;
     final narrowedOptionalInit = eo != null
       && requireTempPlan().tempForLocal(v) != null
@@ -2411,7 +2417,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     // result instead of reintroducing Haxe's erased backing type. A reassigned
     // local keeps its declared annotation: otherwise TypeScript would freeze
     // the first narrow result and reject a later assignment Haxe accepted.
-    final plan = localBindingPlan;
     final inferExplicitCallType = eo != null
       && plan != null
       && !plan.isReassigned(v)

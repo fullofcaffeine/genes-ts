@@ -126,7 +126,28 @@ typedef DomainModel = {
 class Main {
   static var selectedReview: ReviewState = ReviewState.Pending;
 
-  static function replaceFromMethod(state: HostState<Phase>, next: Phase): Void {
+  /** Null and an unrecognized string must not manufacture a closed-domain value. */
+  static function parseReview(raw: String): Null<ReviewState> {
+    return switch raw {
+      case "pending": ReviewState.Pending;
+      case "approved": ReviewState.Approved;
+      case _: null;
+    };
+  }
+
+  /** Preserve the declared nullable local through an ordinary typed record return. */
+  static function decodedReview(raw: Null<String>): Null<Envelope<ReviewState>> {
+    final code: Null<ReviewState> = raw == null ? null : parseReview(raw);
+    return code == null ? null : {value: code};
+  }
+
+  static function inferredReview(raw: String): Null<Envelope<ReviewState>> {
+    final code = parseReview(raw);
+    return code == null ? null : {value: code};
+  }
+
+  static function replaceFromMethod(state: HostState<Phase>,
+      next: Phase): Void {
     state.replace(next);
   }
 
@@ -140,15 +161,15 @@ class Main {
    * generated parameter type and creates no runtime conversion.
    */
   static function replaceFromBroadParameter(state: HostState<Phase>,
-      @:ts.type("string") next: Phase): Void {
+    @:ts.type("string")
+      next: Phase): Void {
     state.replace(next);
   }
 
   static function consumePhase(_: Phase): Void {}
 
   /** A broad receiver override must not borrow its nominal Haxe type argument. */
-  static function consumeFromBroadReceiver(
-      @:ts.type("{value: string}") source: ExactBox<Phase>): Void {
+  static function consumeFromBroadReceiver(@:ts.type("{value: string}") source: ExactBox<Phase>): Void {
     consumePhase(source.value);
   }
 
@@ -195,6 +216,16 @@ class Main {
   }
 
   static function main(): Void {
+    final decoded = decodedReview("approved");
+    if (decoded == null
+      || decoded.value != ReviewState.Approved
+      || decodedReview("unknown") != null
+      || decodedReview(null) != null)
+      throw "nullable enum local changed its domain or null behavior";
+    final inferred = inferredReview("pending");
+    if (inferred == null || inferred.value != ReviewState.Pending
+      || inferredReview("unknown") != null)
+      throw "inferred nullable enum local changed its domain";
     final current = model();
     current.select(Phase.Published);
     final review = reviewModel();
