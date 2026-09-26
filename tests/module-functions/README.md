@@ -3,6 +3,13 @@
 This fixture proves the framework-neutral `@:genes.moduleFunction("name")`
 compiler capability in classic JavaScript, TypeScript, and TSX output.
 
+The standard `js.Browser.window` and `js.Browser.document` getters are covered
+by two selected functions. Chromium compares the generated origin with the
+native location and changes the page title after creating a closure. This
+proves that both output profiles read live browser state and preserve ordinary
+captures. The exact `window` module-binding name stays rejected, and arbitrary
+raw target templates retain the existing lexical rejection and output rollback.
+
 It covers both supported ownership shapes: class static methods retain their
 existing `Owner.field` identity through a descriptor seed, while genuine Haxe
 module-level functions emit and import as direct ESM functions without a

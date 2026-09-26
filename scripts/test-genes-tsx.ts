@@ -11,6 +11,8 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -245,7 +247,15 @@ class ServerSourceInline {
       const firstTree = captureGeneratedTree(outputRootRel);
       let buildNumber = 2;
       for (const [source, assertSource] of steps.slice(1)) {
+        const previousModifiedMs = statSync(sourceFile).mtimeMs;
         writeFileSync(sourceFile, source, "utf8");
+        // Haxe invalidates cached source by timestamps with whole-second
+        // precision. Make each edit visible even when a build takes <1s.
+        // Keep the server warm and every generated-output assertion intact.
+        const modified = new Date(Math.max(
+          Date.now(), Math.floor(previousModifiedMs) + 2_000
+        ));
+        utimesSync(sourceFile, modified, modified);
         assertSource(await build(server, `${label} build ${buildNumber}`));
         buildNumber++;
       }

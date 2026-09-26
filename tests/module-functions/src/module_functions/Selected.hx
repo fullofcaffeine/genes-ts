@@ -25,6 +25,18 @@ enum ConstructorNameControl {
 /** Positive controls for zero-wrapper module-function lowering. */
 @:keep
 class Selected {
+  /** Reads the standard browser global at call time after direct relocation. */
+  @:genes.moduleFunction("browserOrigin")
+  public static function browserOrigin(): String {
+    return js.Browser.window.location.origin;
+  }
+
+  /** A nested closure must keep its browser lookup and its ordinary capture. */
+  @:genes.moduleFunction("browserTitleReader")
+  public static function browserTitleReader(prefix: String): () -> String {
+    return () -> prefix + js.Browser.document.title;
+  }
+
   public static var initialized(default, null): String = selected({
     label: "static"
   }, "-init");
