@@ -17,6 +17,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
+import { chromium } from "@playwright/test";
+import { createServer } from "node:http";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
@@ -239,6 +241,12 @@ function assertImplementationShape(relative: string): void {
   ok(source.includes("function sameName")
     && source.includes("Selected.sameName = sameName"),
     `${relative} accepts an exact module name equal to its Haxe field`);
+  for (const name of ["browserOrigin", "browserTitleReader"]) {
+    ok(source.indexOf(`function ${name}(`) >= 0
+      && source.indexOf(`function ${name}(`) < classIndex
+      && source.indexOf(`Selected.${name} = ${name}`) > classIndex,
+      `${relative} relocates the browser read and keeps its exact owner identity`);
+  }
   ok(source.indexOf("function secondaryModuleFunction")
     < source.indexOf("class SecondarySelected")
     && source.indexOf("SecondarySelected.selected = secondaryModuleFunction")
@@ -639,6 +647,7 @@ const negativeCases = [
   ["module_function_identifier", "GENES-MODULE-FUNCTION-IDENTIFIER-004"],
   ["module_function_object_global", "GENES-MODULE-FUNCTION-IDENTIFIER-004"],
   ["module_function_undefined_global", "GENES-MODULE-FUNCTION-IDENTIFIER-004"],
+  ["module_function_window_global", "GENES-MODULE-FUNCTION-IDENTIFIER-004"],
   ["module_function_collision", "GENES-MODULE-FUNCTION-COLLISION-005"],
   ["module_function_duplicate", "GENES-MODULE-FUNCTION-COLLISION-005"],
   ["module_function_instance", "GENES-MODULE-FUNCTION-SHAPE-006"],
@@ -1116,6 +1125,62 @@ for (const [define, diagnostic] of negativeCases) {
 assertCompileFailure("ts", "module_function_private_helper_collision",
   "GENES-MODULE-FUNCTION-COLLISION-005",
   ["genes.ts.lower_private_helpers"]);
+
+// Serve only the generated fixture. Browser globals must be observed in a real
+// browser, with independent native reads and a later title change proving that
+// relocation did not capture initialization-time values.
+// Match the existing todoapp observer's pinned browser setup. The output shard
+// otherwise has no browser installation, even though Playwright is a dependency.
+if (process.env.CI || !existsSync(chromium.executablePath())) {
+  run(process.execPath, [path.join(repoRoot, "node_modules/@playwright/test/cli.js"),
+    "install", ...(process.env.CI ? ["--with-deps"] : []), "chromium"]);
+}
+const browserServer = createServer((request, response) => {
+  const requested = new URL(request.url ?? "/", "http://localhost").pathname;
+  if (requested === "/") {
+    response.setHeader("Content-Type", "text/html");
+    response.end("<!doctype html><title>First title</title>");
+    return;
+  }
+  const file = path.resolve(outputRoot, `.${requested}`);
+  if (!file.startsWith(`${outputRoot}${path.sep}`) || !file.endsWith(".js") || !existsSync(file)) {
+    response.writeHead(404).end();
+    return;
+  }
+  response.setHeader("Content-Type", "text/javascript");
+  response.end(readFileSync(file));
+});
+await new Promise<void>((resolve, reject) => {
+  browserServer.once("error", reject);
+  browserServer.listen(0, "127.0.0.1", resolve);
+});
+let browser;
+try {
+  const address = browserServer.address();
+  ok(address != null && typeof address !== "string");
+  browser = await chromium.launch();
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${address.port}`);
+  for (const modulePath of ["/classic/module_functions/Selected.js", "/ts/dist/out/ts/src-gen/module_functions/Selected.js"]) {
+    const observed = await page.evaluate(async (url) => {
+      // Generated module is a foreign boundary. Verify each callable result
+      // against native browser values below; no product data uses this import.
+      const {Selected} = await import(url);
+      document.title = "First title";
+      const readTitle: () => string = Selected.browserTitleReader("saved:");
+      const first: string = readTitle();
+      document.title = "Changed title";
+      return {origin: Selected.browserOrigin(), expectedOrigin: location.origin,
+        first, later: readTitle()};
+    }, modulePath);
+    deepStrictEqual(observed, {origin: `http://127.0.0.1:${address.port}`,
+      expectedOrigin: `http://127.0.0.1:${address.port}`,
+      first: "saved:First title", later: "saved:Changed title"});
+  }
+} finally {
+  if (browser) await browser.close();
+  await new Promise<void>((resolve, reject) => browserServer.close(error => error ? reject(error) : resolve()));
+}
 
 console.log(
   `module-functions:ok (TS/TSX/classic deterministic output + TS 5/6/7 + runtime identity/descriptor/order/init/registration/cycles + DCE/source maps/declarations + ${negativeCases.length * 2 + 1} rollback negatives)`

@@ -451,6 +451,26 @@ constructors remain opaque. The focused runtime suite covers both boundaries.
 Similar-looking or newly introduced raw templates still fail closed until they
 receive an explicit generalized proof.
 
+The exact zero-argument `window` template is also admitted. Haxe's standard
+`js.Browser.window` getter emits this expression, so direct module functions
+and reviewed React components can read browser state without a wrapper:
+
+```haxe
+@:genes.moduleFunction("pageOrigin")
+function pageOrigin():String {
+  return js.Browser.window.location.origin;
+}
+```
+
+The generated function reads `window.location.origin` when called. A nested
+closure likewise reads the current browser state when that closure runs.
+`window` remains a reserved module-binding name, so a selected function cannot
+shadow this global. This exception does not admit arbitrary raw JavaScript,
+create a browser in Node, or make browser APIs portable to non-browser hosts.
+`yarn test:module-functions` checks native browser results in Chromium for
+both classic output and compiled TypeScript, alongside the existing strict
+TypeScript, source-map, declaration, and rejection checks.
+
 ## Exact names and collisions
 
 The metadata argument must be one nonempty direct string literal using:

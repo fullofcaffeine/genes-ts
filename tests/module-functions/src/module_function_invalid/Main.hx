@@ -79,6 +79,8 @@ class Invalid {
   @:genes.moduleFunction("undefined")
   #elseif module_function_collision
   @:genes.moduleFunction("CollisionOwner")
+  #elseif module_function_window_global
+  @:genes.moduleFunction("window")
   #elseif module_function_duplicate
   @:genes.moduleFunction("duplicateBinding")
   #elseif module_function_instance

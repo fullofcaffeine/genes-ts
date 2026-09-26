@@ -422,6 +422,10 @@ class ModuleFunctionPlan {
    * template contains none of them. Haxe's typed `Array.map` uses the separate
    * fixed `construct` intrinsic with a resolved type expression; its arguments
    * stay inside the ordinary recursive validation.
+   * The standard `js.Browser` getter inlines the exact `window` expression.
+   * That read also has no class privilege. IdentifierPolicy already reserves
+   * `window` for locals and exact module bindings, so relocation cannot add a
+   * function binding that redirects the browser-global read.
    *
    * How: this is an exact allowlist with exact arity, not a string heuristic.
    * Every user-defined or newly introduced template remains opaque and fails
@@ -437,8 +441,8 @@ class ModuleFunctionPlan {
             default: null;
           };
           switch [template, arguments.length] {
-            case ['undefined', 1] | ['{0}', 2] | ['({0})', 2] |
-              ['{0} ?? null', 2] | ['({0}) === undefined', 2]:
+            case ['undefined', 1] | ['window', 1] | ['{0}', 2] |
+              ['({0})', 2] | ['{0} ?? null', 2] | ['({0}) === undefined', 2]:
               true;
             default:
               false;
