@@ -347,3 +347,24 @@ Compatibility aliases (optional):
 ## Recommended `tsconfig` baselines
 
 See the example configs in `examples/typescript-target/`.
+
+## Closed enum domains in React state
+
+A React state value initialized from an optional enum-abstract prop keeps the
+same closed domain in generated TypeScript. For example,
+`State<View> = useState(props.initial ?? View.Canvas)` emits a state type such
+as `"canvas" | "document"`, even when dead-code elimination removes the enum's
+implementation fields. A local copied from an admitted projected state read
+keeps that domain when the compiler proves it is never reassigned. A mutable
+string local remains a string if later writes require that wider contract.
+Only retained source witnesses use the saved domain. Ordinary late-stage type
+lookups still match the ordinary printer, including loop locals lowered to
+strings and their existing checked enum conversions.
+
+The signature cache supplies the pre-elimination domain. The existing React
+state initialization and projection plans supply the exact declaration and
+read identities. The validated HXX plan preserves the same domain in generic
+component calls emitted through React.createElement. This changes type annotations, not React initialization,
+replacement, or evaluation order. Classic output keeps the same runtime calls.
+The `tests/react-hooks` fixture checks strict TS/TSX, wrong-domain rejection,
+classic React rendering and replacement, and deterministic regeneration.

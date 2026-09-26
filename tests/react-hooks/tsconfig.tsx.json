@@ -9,5 +9,5 @@
     "skipLibCheck": false,
     "noEmit": true
   },
-  "include": ["out/tsx/src-gen/**/*.ts", "out/tsx/src-gen/**/*.tsx"]
+  "include": ["out/tsx/src-gen/**/*.ts", "out/tsx/src-gen/**/*.tsx", "enum-state-consumer.ts"]
 }

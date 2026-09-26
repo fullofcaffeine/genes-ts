@@ -143,6 +143,8 @@ class Main {
     final blockEdit = GutenbergBlock.BlockEdit;
     final privateComponentParent = PrivateComponent.PublicNote;
     final stateInitialization = StateInitialization.retainStateInitializationProof;
+    final enumControl = EnumState.EnumControl;
+    final broadEnumLabel = EnumState.useBroadLabel;
     final typedProjections = StateProjectionCases.useTypedProjections;
     final lazyProjection = StateProjectionCases.useLazyProjection;
     final contextualProjection = StateProjectionCases.useContextualProjection;

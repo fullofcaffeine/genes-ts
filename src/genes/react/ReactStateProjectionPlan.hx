@@ -89,6 +89,7 @@ final class ReactStateProjectionPlan {
   final accesses: ObjectMap<TypedExpr, ReactStateProjectedAccessDecision>;
   final capturedDispatchers: ObjectMap<TFunc, Array<TVar>>;
   final containsDispatcher: Bool;
+  final initializationPlan: Null<ReactStateInitializationPlan>;
 
   public static function build(module: Module): ReactStateProjectionPlan {
     // TypeScript can downlevel destructuring itself. Classic output can use the
@@ -107,7 +108,9 @@ final class ReactStateProjectionPlan {
 
   public function new(entries: Map<Int, ReactStateProjectionEntry>,
       accesses: ObjectMap<TypedExpr, ReactStateProjectedAccessDecision>,
-      capturedDispatchers: ObjectMap<TFunc, Array<TVar>>) {
+      capturedDispatchers: ObjectMap<TFunc, Array<TVar>>,
+      ?initializationPlan: ReactStateInitializationPlan) {
+    this.initializationPlan = initializationPlan;
     this.entries = entries;
     this.accesses = accesses;
     this.capturedDispatchers = capturedDispatchers;
@@ -173,6 +176,25 @@ final class ReactStateProjectionPlan {
   /** Returns the prevalidated replacement for this exact field occurrence. */
   public function accessFor(expression: TypedExpr): Null<ReactStateProjectedAccessDecision> {
     return accesses.get(expression);
+  }
+
+  /**
+   * Returns the declaration-owned value type for an admitted current-value read.
+   * Destructuring changes syntax, not the State<T> contract. Reuse the exact
+   * initialization witness so target locals need no reconstruction from names
+   * or tuple indices. Rejected State uses and dispatcher reads grant no type.
+   */
+  public function currentValueType(expression: TypedExpr): Null<Type> {
+    final access = accesses.get(expression);
+    if (access == null || access.access != CurrentValue
+      || initializationPlan == null)
+      return null;
+    final entry = entries.get(access.local.id);
+    if (entry == null)
+      return null;
+    final initial = initializationPlan.forDeclaration(entry.declaration,
+      entry.local, entry.initializer);
+    return initial == null ? null : initial.valueType;
   }
 
   function dispatcherRequest(local: TVar): Null<LexicalBindingRequest> {
@@ -265,7 +287,8 @@ private final class ReactStateProjectionPlanBuilder {
       if (entries.exists(access.localId))
         accesses.set(expression, access.decision);
     }
-    return new ReactStateProjectionPlan(entries, accesses, capturedDispatchers);
+    return new ReactStateProjectionPlan(entries, accesses,
+      capturedDispatchers, initializationPlan);
   }
 
   static function forEachExpression(module: Module,
