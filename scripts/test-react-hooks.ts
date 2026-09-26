@@ -490,6 +490,12 @@ for (const [profile, generated] of [
       `const [siblingState] = useState${setterGeneric}(initial)`
     ), `${profile} source profile preserves the same lexical opaque boundary`);
 }
+for (const [directory, extension] of [["ts/src-gen", "ts"], ["tsx/src-gen", "tsx"]]) {
+  const enumState = source(`out/${directory}/react_hooks/EnumState.${extension}`);
+  ok(enumState.includes('useState<"canvas" | "document">'), "enum state retains the pre-DCE domain");
+  ok(enumState.includes('const mode: "canvas" | "document" = state'), "projected state reads retain the same domain");
+  ok(enumState.includes("let label: string = state"), "mutable string locals stay broad");
+}
 run("node", ["tests/react-hooks/runtime.mjs"]);
 ok(!/\b(?:Dynamic|untyped|any|unknown)\b/.test(typed),
   "typed implementation introduces no broad boundary type");

@@ -246,6 +246,12 @@ class SignatureCache {
       case TAbstract(_.get() => ab, _):
         if (!ab.meta.has(':enum'))
           return null;
+        // A declaration-backed request may run after DCE removes enum fields.
+        // Reuse the literal domain frozen before DCE instead of widening an
+        // exact generic call witness to the abstract's primitive backing type.
+        final captured = getEnumAbstractTsType(ab);
+        if (captured != null)
+          return captured;
         // Use TypeEmitter so we reuse the same enum-abstract value extraction
         // logic as the TS emitter.
         final buf = new StringBuf();

@@ -901,7 +901,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('.createElement');
     if (functionPropsType != null) {
       write('<');
-      TypeEmitter.emitType(this, functionPropsType);
+      // The JSX plan retains this exact Haxe specialization before DCE.
+      TypeEmitter.emitCapturedSourceType(this, functionPropsType);
       write('>');
     }
     write('(');
@@ -992,7 +993,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitComponentPropsTypeArgForTag(tag);
       write('>');
     } else {
-      TypeEmitter.emitType(this, functionPropsType);
+      // The JSX plan retains this exact Haxe specialization before DCE.
+      TypeEmitter.emitCapturedSourceType(this, functionPropsType);
     }
     // React's `key` belongs to Attributes rather than a component's ordinary
     // property object. HXX validates it separately and createElement accepts
@@ -2422,8 +2424,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       && !plan.isReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(declaredType) : declaredType;
+    // Only an unchanged local may inherit the closed state domain. A mutable
+    // String local must still accept later values outside that enum.
+    final projectedStateValue = eo != null
+      && plan != null
+      && !plan.isReassigned(v)
+      && reactStateProjectionPlan != null ? reactStateProjectionPlan.currentValueType(eo) : null;
+    final projectedStateDomain = projectedStateValue == null ? null : SignatureCache.enumAbstractLiteralUnionTsType(projectedStateValue);
     final emittedTypeOverride = (narrowedOptionalInit
-      || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
+      || narrowedNonNullInit || inferExplicitCallType) ? null : (projectedStateDomain ?? localTsTypeOverride(eo));
     rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
     write('${localDeclaration(v, eo != null)} ');
     emitLocalVar(v);
