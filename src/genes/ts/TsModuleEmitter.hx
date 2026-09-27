@@ -583,7 +583,10 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (bridge != null) {
           write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, bridge.target);
+          if (bridge.capturedSourceType)
+            TypeEmitter.emitCapturedSourceType(this, bridge.target);
+          else
+            TypeEmitter.emitType(this, bridge.target);
           write('>(');
           // Preserve the source value's own null/undefined contract before the
           // planned TypeScript assertion. Passing the enum payload's non-null

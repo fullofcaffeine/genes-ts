@@ -167,6 +167,17 @@ class Main {
     return {value: nested};
   }
 
+  /** A generic throwing guard does not become a compiler non-null proof. */
+  static function invalidReview<T>(): T
+    throw "Invalid review";
+
+  static function decodeDecision(raw: String): ReviewDecision {
+    final parsed = parseReview(raw);
+    if (parsed == null)
+      invalidReview();
+    return Selected(parsed);
+  }
+
   /** A switch payload must agree with the source-typed record destination. */
   static function unwrapReviewDecision(decision: ReviewDecision): Envelope<ReviewState> {
     return switch decision {
@@ -257,6 +268,17 @@ class Main {
   }
 
   static function main(): Void {
+    if (unwrapReviewDecision(decodeDecision("approved"))
+      .value != ReviewState.Approved)
+      throw "nullable constructor domain changed";
+    var rejected = false;
+    try
+      decodeDecision("outside")
+    catch (_:haxe.Exception)
+      rejected = true;
+    if (!rejected)
+      throw "invalid constructor input accepted";
+
     final decoded = decodedReview("approved");
     if (decoded == null
       || decoded.value != ReviewState.Approved
