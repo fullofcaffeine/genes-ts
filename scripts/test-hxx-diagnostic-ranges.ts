@@ -54,6 +54,14 @@ const cases: ReadonlyArray<DiagnosticRangeCase> = [
     rangeMarker: "123"
   },
   {
+    name: "details open value",
+    define: "hxx_negative_details_open_type",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: 'final value = <details open="yes">Invalid details</details>;',
+    rangeMarker: 'open="yes"'
+  },
+  {
     name: "dialog open value",
     define: "hxx_negative_dialog_open_type",
     diagnostic: "GTS-HXX-PROP-002",
