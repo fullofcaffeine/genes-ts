@@ -23,7 +23,8 @@ The focused owner covers:
 - repeated requests and changed output roots;
 - source edits, deleted/restored modules, module directives, module functions,
   DCE/library roots, occurrence-local generic extern witnesses, exact React
-  state initialization types through a transparent alias, and import
+  state initialization types through a transparent alias, closed enum locals
+  with lowered conditional initializers, and import
   attributes;
 - a successful build followed by structured-diagnostic and raw-value
   post-staging failures in TS and classic declaration profiles, then recovery;

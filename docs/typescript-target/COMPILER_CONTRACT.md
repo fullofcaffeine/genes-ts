@@ -235,16 +235,22 @@ literal unions** to avoid “stringly” APIs.
 Example:
 - `js.html.RequestCache` → `"default" | "no-store" | ..."`
 
-An initialized nullable enum-abstract local retains its literal union plus
-`null` when the typed program never reassigns it. For example,
+A local declared with an enum-abstract type retains its closed literal union.
+Nullable locals also keep `null`. For example,
 `final code:Null<ReviewState> = parseReview(raw)` retains
 `"pending" | "approved" | null`. A null check then permits a typed record
-return without a TypeScript assertion. Genes retains the source type before
-JavaScript lowering and uses its existing local-write analysis to admit this
-annotation. Reassigned locals and mutable loop temporaries retain their
-existing expression-flow rules. The
-`tests/genes-ts/repros/exact-enum-abstract-projections` fixture proves known,
+return without a TypeScript assertion. Genes captures the declared source type
+before JavaScript lowering and recaptures it from cached compiler-server trees.
+This works even when lowering has split an initializer into branch assignments.
+Reassignment does not widen a declared enum domain: Haxe checks every assigned
+value against that same type. A local declared as `String` remains broad.
+The `tests/genes-ts/repros/exact-enum-abstract-projections` fixture proves known,
 unknown, and null inputs in TypeScript and classic JavaScript.
+
+When Haxe removes an enum match, the existing constructor-specific payload
+projection also retains the receiver local's captured generic arguments.
+Reading a payload with a closed enum-abstract type therefore agrees with its
+destination local without a second assertion or a runtime conversion.
 
 Closed enum-abstract leaves remain literal unions when nested under functions,
 arrays, nullability, aliases, anonymous structures, and generic applications.

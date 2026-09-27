@@ -12,6 +12,12 @@ import genes.react.React.useState;
 import genes.react.State;
 #end
 
+/** Closed domain retained independently in cold and warm compiler requests. */
+private enum abstract ServerMode(String) to String {
+  final First = "first";
+  final Second = "second";
+}
+
 private typedef ServerAnimal = {
   final name: String;
 }
@@ -106,6 +112,12 @@ private extern class ConfigMarker {
  */
 @:genes.moduleDirective("server-project-a-v1")
 class Main {
+  static function restoredMode(saved: Null<ServerMode>,
+      useSaved: Bool): {value: ServerMode} {
+    final mode: ServerMode = useSaved ? saved ?? ServerMode.First : ServerMode.Second;
+    return {value: mode};
+  }
+
   static inline final REVISION = "a1";
 
   static function __init__(): Void {
@@ -206,6 +218,9 @@ class Main {
   #end
 
   public static function main(): Void {
+    if (restoredMode(null, true).value != ServerMode.First
+      || restoredMode(ServerMode.First, false).value != ServerMode.Second)
+      throw "closed local initialization changed";
     #if server_numeric_witness
     final witness = 21;
     #else

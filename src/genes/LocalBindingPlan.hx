@@ -94,8 +94,7 @@ private final class LocalBindingPlanBuilder {
         visit(target);
       case TCall({
         expr: TField(_,
-          FStatic(_.get() => {module: 'js.Syntax'},
-            _.get() => {name: 'code'}))
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, arguments) | TCall({expr: TIdent('__js__')}, arguments):
         // A raw placeholder is a value expression in the typed tree but may be
         // placed on the left of `=`, `++`, `for (... in ...)`, or another

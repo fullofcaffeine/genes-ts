@@ -146,6 +146,33 @@ class Main {
     return code == null ? null : {value: code};
   }
 
+  /** Closed local domains survive fallback and conditional initialization. */
+  static function chosenReview(saved: Null<Envelope<ReviewState>>,
+      fallback: Null<ReviewState>): Envelope<ReviewState> {
+    final defaultReview: ReviewState = fallback ?? ReviewState.Pending;
+    final chosen: ReviewState = saved == null ? defaultReview : saved.value;
+    final aliased: ReviewStateAlias = chosen;
+    return {value: aliased};
+  }
+
+  static function nestedReview(saved: Null<Envelope<ReviewState>>,
+      fallback: Null<ReviewState>): Envelope<ReviewState> {
+    final nested: ReviewState = saved == null ? fallback ?? ReviewState.Pending : saved.value;
+    return {value: nested};
+  }
+
+  /** Haxe checks reassignment against the declared domain; String stays broad. */
+  static function mutableReview(approved: Bool): {value: ReviewState} {
+    var mutable: ReviewState = ReviewState.Pending;
+    if (approved)
+      mutable = ReviewState.Approved;
+    var broad: String = ReviewState.Pending;
+    broad = "outside";
+    if (broad != "outside")
+      throw "broad String local narrowed";
+    return {value: mutable};
+  }
+
   static function replaceFromMethod(state: HostState<Phase>,
       next: Phase): Void {
     state.replace(next);
@@ -226,6 +253,21 @@ class Main {
     if (inferred == null || inferred.value != ReviewState.Pending
       || inferredReview("unknown") != null)
       throw "inferred nullable enum local changed its domain";
+    if (chosenReview(null, null).value != ReviewState.Pending
+      || chosenReview(null, ReviewState.Approved).value != ReviewState.Approved
+      || chosenReview({
+        value: ReviewState.Pending
+      }, ReviewState.Approved).value != ReviewState.Pending)
+      throw "conditional enum local changed the selected value";
+    if (nestedReview(null, null).value != ReviewState.Pending
+      || nestedReview(null, ReviewState.Approved).value != ReviewState.Approved
+      || nestedReview({
+        value: ReviewState.Pending
+      }, ReviewState.Approved).value != ReviewState.Pending)
+      throw "nested conditional enum local changed the selected value";
+    if (mutableReview(false).value != ReviewState.Pending
+      || mutableReview(true).value != ReviewState.Approved)
+      throw "mutable control changed";
     final current = model();
     current.select(Phase.Published);
     final review = reviewModel();

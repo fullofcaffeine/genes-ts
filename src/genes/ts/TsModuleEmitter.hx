@@ -2276,8 +2276,9 @@ class TsModuleEmitter extends JsModuleEmitter {
    * syntax only; classic JavaScript never uses this emitter state.
    */
   function rememberEmittedLocalType(variable: TVar, haxeType: Type,
-      typeOverride: Null<String>): Void {
-    final exactType = typeOverride ?? SignatureCache.enumAbstractLiteralUnionTsType(haxeType);
+      typeOverride: Null<String>, capturedSourceType = false): Void {
+    final exactType = typeOverride ?? SignatureCache.enumAbstractLiteralUnionTsType(haxeType,
+      capturedSourceType);
     if (exactType != null)
       localTsTypeOverrides.set(variable.id, exactType);
   }
@@ -2401,12 +2402,11 @@ class TsModuleEmitter extends JsModuleEmitter {
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
-    // A nullable enum local can lose its closed domain during Haxe JS lowering.
-    // The existing write analysis proves when one initializer owns its value;
-    // retain that source domain without narrowing mutable loop temporaries.
+    // A closed enum local can lose its domain during Haxe JS lowering.
+    // Preserve its declared type even after cached initializer lowering. Haxe
+    // checks every later assignment against that same source domain.
     final plan = localBindingPlan;
-    final directSourceType = eo != null && plan != null
-      && !plan.isReassigned(v) ? SignatureCache.getNullableEnumLocalSourceType(v) : null;
+    final directSourceType = SignatureCache.getDirectEnumLocalSourceType(v);
     final capturedLocalSourceType = SignatureCache.getLocalSourceType(v) ?? directSourceType;
     final declaredType = capturedLocalSourceType ?? v.t;
     final narrowedOptionalInit = eo != null
@@ -2435,7 +2435,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       true);
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : (projectedStateDomain ?? localTsTypeOverride(eo));
-    rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
+    rememberEmittedLocalType(v, emittedType, emittedTypeOverride,
+      capturedLocalSourceType != null);
     write('${localDeclaration(v, eo != null)} ');
     emitLocalVar(v);
     if (!inferExplicitCallType) {
@@ -3018,7 +3019,18 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(runtimeTypeAccessor(TEnumDecl(enumPayloadRead.owner)));
       write('.');
       write(enumPayloadRead.constructor.name);
-      TypeEmitter.emitParams(this, enumPayloadRead.parameters, false);
+      if (enumPayloadRead.capturedSourceParameters) {
+        write('<');
+        for (index in 0...enumPayloadRead.parameters.length) {
+          if (index > 0)
+            write(', ');
+          TypeEmitter.emitCapturedSourceType(this,
+            enumPayloadRead.parameters[index]);
+        }
+        write('>');
+      } else {
+        TypeEmitter.emitParams(this, enumPayloadRead.parameters, false);
+      }
       write('>(');
       emitValueWithExpectedType(null, enumPayloadRead.receiver);
       write(')');

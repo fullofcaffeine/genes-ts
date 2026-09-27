@@ -55,7 +55,7 @@ class SignatureCache {
   @:persistent static var anonFieldSourceTypes: Map<String, Type> = new Map();
   @:persistent static var typedefSourceTypes: Map<String, Type> = new Map();
   @:persistent static var localSourceTypes: Map<Int, Type> = new Map();
-  @:persistent static var nullableEnumLocalSourceTypes: Map<Int,
+  @:persistent static var directEnumLocalSourceTypes: Map<Int,
     Type> = new Map();
   @:persistent static var enumAbstractTsTypes: Map<String, String> = new Map();
 
@@ -372,29 +372,18 @@ class SignatureCache {
     }
   }
 
-  /** Saves a local's nested source type when its emitted annotation needs it. */
+  /** Retains the declared domain, including for later assignments checked by Haxe. */
   static function captureLocal(variable: TVar, includeDirect = false): Void {
     final sourceType = sourceTypeWithEnumAbstract(variable.t);
-    // Keep direct locals separate: only declaration emission with a complete
-    // no-reassignment proof may use their closed domain. A lowered mutable loop
-    // temporary stays broad and retains its call-boundary assertion. Structural
-    // locals and function parameters retain their existing declaration policy.
-    if (sourceType != null
-      && (includeDirect || !isDirectEnumAbstractType(variable.t)))
+    if (sourceType == null)
+      return;
+    if (includeDirect || !isDirectEnumAbstractType(variable.t))
       localSourceTypes.set(variable.id, sourceType);
-    else if (sourceType != null) {
-      // This recovery owns nullable direct domains. Non-null direct locals
-      // already use expression-flow evidence and retain that existing policy.
-      switch followTypedefs(unlazy(sourceType)) {
-        case TAbstract(_.get() => {pack: [], name: "Null"}, [_]) |
-          TType(_.get() => {pack: [], name: "Null"}, [_]):
-          nullableEnumLocalSourceTypes.set(variable.id, sourceType);
-        default:
-      }
-    }
+    else
+      directEnumLocalSourceTypes.set(variable.id, sourceType);
   }
 
-  /** Finds local declarations and function parameters in one typed expression. */
+  /** Finds declarations even when a warm typed tree has split their initializers. */
   static function captureExpression(expression: TypedExpr): Void {
     switch expression.expr {
       case TVar(variable, _):
@@ -464,7 +453,7 @@ class SignatureCache {
     anonFieldSourceTypes = new Map();
     typedefSourceTypes = new Map();
     localSourceTypes = new Map();
-    nullableEnumLocalSourceTypes = new Map();
+    directEnumLocalSourceTypes = new Map();
     enumAbstractTsTypes = new Map();
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
@@ -540,12 +529,12 @@ class SignatureCache {
   }
 
   /**
-   * Retains the closed domain before JS erasure, without declaring flow safety.
-   * The emitter may use this for an initialized, never-reassigned local only.
-   * Mutable lowered temporaries still follow the existing broad-type policy.
+   * Retains the declared local domain independently of initializer lowering.
+   * Haxe checks later writes against this same type. Request-local recapture
+   * also works for warm trees whose initializers have become assignments.
    */
-  public static function getNullableEnumLocalSourceType(variable: TVar): Null<Type> {
-    return nullableEnumLocalSourceTypes.get(variable.id);
+  public static function getDirectEnumLocalSourceType(variable: TVar): Null<Type> {
+    return directEnumLocalSourceTypes.get(variable.id);
   }
 
   /** Saved literal spelling used after dead-code elimination removes constants. */

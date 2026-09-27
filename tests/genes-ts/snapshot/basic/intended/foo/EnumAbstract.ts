@@ -39,11 +39,11 @@ export class EnumAbstract {
 	}
 	static arrayLoopDemo(): string {
 		let count: number = 0;
-		const cache: string = "default";
-		EnumAbstract.accepts((cache as "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"));
+		const cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = "default";
+		EnumAbstract.accepts(cache);
 		++count;
-		const cache1: string = "reload";
-		EnumAbstract.accepts((cache1 as "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"));
+		const cache1: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = "reload";
+		EnumAbstract.accepts(cache1);
 		++count;
 		if (count == null) {
 			return "null";

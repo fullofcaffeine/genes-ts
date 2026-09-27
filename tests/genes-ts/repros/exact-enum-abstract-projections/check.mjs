@@ -3,8 +3,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
+import { SourceMapConsumer } from "source-map";
 import { fileURLToPath } from "node:url";
-import { runTypeScriptMatrix } from "../toolchains.mjs";
+import { runLegacyTypeScript, runTypeScriptMatrix } from "../toolchains.mjs";
 
 const fixtureDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(fixtureDir, "../../../..");
@@ -41,6 +42,20 @@ const source = readFileSync(
   path.join(fixtureDir, "out/typescript/src-gen/Main.ts"),
   "utf8",
 );
+requireFragment(source, 'let mutable: "approved" | "pending"', "reassigned enum domain");
+requireFragment(source, 'let broad: string', "declared String remains broad");
+requireFragment(source, 'const defaultReview: "approved" | "pending"', "non-null fallback domain");
+requireFragment(source, 'const chosen: "approved" | "pending"', "conditional local domain");
+requireFragment(source, 'let nested: "approved" | "pending"', "lowered branch initialization domain");
+const generatedLines = source.split("\n");
+const declarationLine = generatedLines.findIndex(line => line.includes("let nested:"));
+const authoredLines = readFileSync(path.join(fixtureDir, "src/Main.hx"), "utf8").split("\n");
+const expectedLine = authoredLines.findIndex(line => line.includes("final nested:")) + 1;
+const map = new SourceMapConsumer(JSON.parse(readFileSync(path.join(fixtureDir, "out/typescript/src-gen/Main.ts.map"), "utf8")));
+const original = map.originalPositionFor({line: declarationLine + 1, column: generatedLines[declarationLine].indexOf("nested")});
+if (!original.source?.endsWith("/Main.hx") || original.line !== expectedLine) {
+  throw new Error(`nested initializer source map lost its authored declaration: ${JSON.stringify(original)}`);
+}
 requireFragment(
   source,
   "const state: ['draft' | 'published', (value: 'draft' | 'published') => void] = DomainHost.make",
@@ -145,5 +160,7 @@ requireFragment(
   "classic declaration preserves an explicit enum projection",
 );
 run("node", ["tests/genes-ts/repros/exact-enum-abstract-projections/runtime.mjs"]);
+runLegacyTypeScript(["-p", "tests/genes-ts/repros/exact-enum-abstract-projections/tsconfig.json", "--noEmit", "false", "--outDir", "tests/genes-ts/repros/exact-enum-abstract-projections/out/typescript/runtime"]);
+run("node", ["tests/genes-ts/repros/exact-enum-abstract-projections/runtime.mjs", "./out/typescript/runtime/index.js"]);
 
 console.log("exact-enum-abstract-projections-repro-ok");
