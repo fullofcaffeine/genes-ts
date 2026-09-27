@@ -2403,10 +2403,10 @@ class TsModuleEmitter extends JsModuleEmitter {
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
     // A closed enum local can lose its domain during Haxe JS lowering.
-    // Signature capture reuses source write analysis before complex initializers
-    // become branch assignments. Source-reassigned locals remain broad.
+    // Preserve its declared type even after cached initializer lowering. Haxe
+    // checks every later assignment against that same source domain.
     final plan = localBindingPlan;
-    final directSourceType = SignatureCache.getImmutableEnumLocalSourceType(v);
+    final directSourceType = SignatureCache.getDirectEnumLocalSourceType(v);
     final capturedLocalSourceType = SignatureCache.getLocalSourceType(v) ?? directSourceType;
     final declaredType = capturedLocalSourceType ?? v.t;
     final narrowedOptionalInit = eo != null

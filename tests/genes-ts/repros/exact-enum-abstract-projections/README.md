@@ -50,17 +50,16 @@ generic declaration. Only the three deliberately broad host controls may need
 TypeScript assertions; the exact nested types and runtime helpers may not add
 their own.
 
-An initialized enum local that is never reassigned retains its closed domain,
+A local declared with an enum type retains its closed domain,
 including non-null fallback and conditional initializers. For example, `final
 code: Null<ReviewState> = parseReview(raw)` must keep the literal union plus
 `null`. After a null check, returning `{value: code}` in an
 `Envelope<ReviewState>` must type-check without an assertion. The runtime
 fixture checks a known value, an unknown string, and null input. The fixture
 also checks saved-versus-default values and nested fallback initializers in
-both runtimes. Before the fix, their locals widened to `string`. The compiler
-checks writes before lowering splits an initializer into branch assignments.
-It reuses its existing local-write analysis; this does not change the broader
-type policy for source-reassigned locals.
+both runtimes. Before the fix, their locals widened to `string`. The declared type survives even when lowering splits an initializer into
+branch assignments in a cached compiler-server tree. Reassigned enum locals
+retain the same declared domain because Haxe checks their later assignments.
 
 The TypeScript profile must emit the tuple and callbacks with the same literal
 union, then use already-exact values directly. A redundant `as` expression is
@@ -71,8 +70,10 @@ Three controls deliberately expose broad `string` in TypeScript: one parameter,
 one generic host field, and one receiver whose whole target type is overridden.
 Those values still need a small assertion when they enter the closed phase
 slot. They prevent the compiler from confusing a narrow Haxe authoring type
-with the broader type it actually printed. The mutable source-local control
-stays broad. The basic array-loop snapshot now keeps exact domains for the unchanged iteration values and needs no cast.
+with the broader type it actually printed. The mutable enum-local control retains its declared domain and returns a typed
+record after reassignment. A separate local declared as `String` accepts an
+outside value. The basic array-loop snapshot keeps exact iteration domains
+and needs no cast.
 
 The classic profile runs the same Haxe source against a tiny global host and
 proves that the metadata and TypeScript-only reasoning add no wrapper, helper,

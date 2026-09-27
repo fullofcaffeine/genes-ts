@@ -42,7 +42,8 @@ const source = readFileSync(
   path.join(fixtureDir, "out/typescript/src-gen/Main.ts"),
   "utf8",
 );
-requireFragment(source, 'let mutable: string', "reassigned source control");
+requireFragment(source, 'let mutable: "approved" | "pending"', "reassigned enum domain");
+requireFragment(source, 'let broad: string', "declared String remains broad");
 requireFragment(source, 'const defaultReview: "approved" | "pending"', "non-null fallback domain");
 requireFragment(source, 'const chosen: "approved" | "pending"', "conditional local domain");
 requireFragment(source, 'let nested: "approved" | "pending"', "lowered branch initialization domain");

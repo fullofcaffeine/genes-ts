@@ -235,17 +235,16 @@ literal unions** to avoid “stringly” APIs.
 Example:
 - `js.html.RequestCache` → `"default" | "no-store" | ..."`
 
-An initialized enum-abstract local retains its closed literal union when the
-authored program never reassigns it. Nullable locals also keep `null`. For
-example, `final code:Null<ReviewState> = parseReview(raw)` retains `"pending"
-| "approved" | null`. A null check then permits a typed record return without
-a TypeScript assertion. Genes retains the source type and checks writes before
-JavaScript lowering. It reuses the existing local-write analysis only for
-bodies with closed-local candidates. Lowering can split a nested initializer
-into a declaration and branch assignments; these remain one source
-initialization. Source-reassigned locals retain their existing expression-flow
-rules. The
-`tests/genes-ts/repros/exact-enum-abstract-projections` fixture proves known,
+A local declared with an enum-abstract type retains its closed literal union.
+Nullable locals also keep `null`. For example,
+`final code:Null<ReviewState> = parseReview(raw)` retains
+`"pending" | "approved" | null`. A null check then permits a typed record
+return without a TypeScript assertion. Genes captures the declared source type
+before JavaScript lowering and recaptures it from cached compiler-server trees.
+This works even when lowering has split an initializer into branch assignments.
+Reassignment does not widen a declared enum domain: Haxe checks every assigned
+value against that same type. A local declared as `String` remains broad.
+The `tests/genes-ts/repros/exact-enum-abstract-projections` fixture proves known,
 unknown, and null inputs in TypeScript and classic JavaScript.
 
 When Haxe removes an enum match, the existing constructor-specific payload

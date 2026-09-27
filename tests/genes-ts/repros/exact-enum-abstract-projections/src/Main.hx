@@ -161,12 +161,16 @@ class Main {
     return {value: nested};
   }
 
-  /** Reassigned source locals keep the existing broad annotation policy. */
-  static function mutableReview(approved: Bool): String {
+  /** Haxe checks reassignment against the declared domain; String stays broad. */
+  static function mutableReview(approved: Bool): {value: ReviewState} {
     var mutable: ReviewState = ReviewState.Pending;
     if (approved)
       mutable = ReviewState.Approved;
-    return mutable;
+    var broad: String = ReviewState.Pending;
+    broad = "outside";
+    if (broad != "outside")
+      throw "broad String local narrowed";
+    return {value: mutable};
   }
 
   static function replaceFromMethod(state: HostState<Phase>,
@@ -261,7 +265,8 @@ class Main {
         value: ReviewState.Pending
       }, ReviewState.Approved).value != ReviewState.Pending)
       throw "nested conditional enum local changed the selected value";
-    if (mutableReview(false) != "pending" || mutableReview(true) != "approved")
+    if (mutableReview(false).value != ReviewState.Pending
+      || mutableReview(true).value != ReviewState.Approved)
       throw "mutable control changed";
     final current = model();
     current.select(Phase.Published);

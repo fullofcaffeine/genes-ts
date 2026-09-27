@@ -46,11 +46,6 @@ final class LocalBindingPlan {
     return new LocalBindingPlanBuilder().build(module);
   }
 
-  /** The same write proof can be captured before Haxe lowers source initializers. */
-  public static function forExpression(expression: TypedExpr): LocalBindingPlan {
-    return new LocalBindingPlanBuilder().buildExpression(expression);
-  }
-
   public function new(reassignedLocalIds: Map<Int, Bool>) {
     this.reassignedLocalIds = reassignedLocalIds;
   }
@@ -85,11 +80,6 @@ private final class LocalBindingPlanBuilder {
           visit(expression);
         case MEnum(_, _) | MType(_, _):
       }
-    return new LocalBindingPlan(reassignedLocalIds);
-  }
-
-  public function buildExpression(expression: TypedExpr): LocalBindingPlan {
-    visit(expression);
     return new LocalBindingPlan(reassignedLocalIds);
   }
 
