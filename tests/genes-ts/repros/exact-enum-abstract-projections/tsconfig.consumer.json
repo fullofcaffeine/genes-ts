@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["ambient.d.ts", "consumer.ts"]
+}

@@ -18,6 +18,12 @@ private enum abstract ServerMode(String) to String {
   final Second = "second";
 }
 
+/** Payload declarations must survive the same cached source-type path. */
+private enum ServerDecision {
+  Selected(value: ServerMode);
+  Empty;
+}
+
 private typedef ServerAnimal = {
   final name: String;
 }
@@ -116,6 +122,13 @@ class Main {
       useSaved: Bool): {value: ServerMode} {
     final mode: ServerMode = useSaved ? saved ?? ServerMode.First : ServerMode.Second;
     return {value: mode};
+  }
+
+  static function decisionMode(decision: ServerDecision): {value: ServerMode} {
+    return switch decision {
+      case Selected(value): {value: value};
+      case Empty: {value: ServerMode.First};
+    };
   }
 
   static inline final REVISION = "a1";
@@ -221,6 +234,9 @@ class Main {
     if (restoredMode(null, true).value != ServerMode.First
       || restoredMode(ServerMode.First, false).value != ServerMode.Second)
       throw "closed local initialization changed";
+    if (decisionMode(Selected(ServerMode.Second)).value != ServerMode.Second
+      || decisionMode(Empty).value != ServerMode.First)
+      throw "enum payload declaration changed";
     #if server_numeric_witness
     final witness = 21;
     #else

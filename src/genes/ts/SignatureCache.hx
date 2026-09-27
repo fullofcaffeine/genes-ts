@@ -58,6 +58,12 @@ class SignatureCache {
   @:persistent static var directEnumLocalSourceTypes: Map<Int,
     Type> = new Map();
   @:persistent static var enumAbstractTsTypes: Map<String, String> = new Map();
+  @:persistent static var enumConstructorSourceTypes: Map<String,
+    Type> = new Map();
+
+  static inline function enumConstructorKey(owner: EnumType,
+      constructor: EnumField): String
+    return owner.module + '.' + owner.name + '::' + constructor.name;
 
   static inline function classFullName(cl: ClassType): String {
     final declaredPath = cl.pack.concat([cl.name]).join('.');
@@ -455,6 +461,7 @@ class SignatureCache {
     localSourceTypes = new Map();
     directEnumLocalSourceTypes = new Map();
     enumAbstractTsTypes = new Map();
+    enumConstructorSourceTypes = new Map();
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
@@ -463,6 +470,14 @@ class SignatureCache {
         switch t {
           case TClassDecl(ref):
             captureClass(ref.get());
+          case TEnumDecl(ref):
+            final owner = ref.get();
+            for (constructor in owner.constructs) {
+              final sourceType = sourceTypeWithEnumAbstract(constructor.type);
+              if (sourceType != null)
+                enumConstructorSourceTypes.set(enumConstructorKey(owner,
+                  constructor), sourceType);
+            }
           case TTypeDecl(ref):
             final definition = ref.get();
             final sourceType = sourceTypeWithEnumAbstract(definition.type);
@@ -526,6 +541,13 @@ class SignatureCache {
 
   public static function getLocalSourceType(variable: TVar): Null<Type> {
     return localSourceTypes.get(variable.id);
+  }
+
+  /** Payload declarations must agree with source-typed switch locals after abstract erasure. */
+  public static function getEnumConstructorSourceType(owner: EnumType,
+      constructor: EnumField): Null<Type> {
+    return enumConstructorSourceTypes.get(enumConstructorKey(owner,
+      constructor));
   }
 
   /**

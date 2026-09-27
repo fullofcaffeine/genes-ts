@@ -252,6 +252,12 @@ projection also retains the receiver local's captured generic arguments.
 Reading a payload with a closed enum-abstract type therefore agrees with its
 destination local without a second assertion or a runtime conversion.
 
+Ordinary enum constructor declarations also retain enum-abstract payload
+domains. The constructor parameter and discriminated-union field use the same
+captured source signature, so a switch can read the value directly. TypeScript
+callers cannot supply text outside the declared domain. Classic JavaScript and
+its existing declaration-profile policy are unchanged.
+
 Closed enum-abstract leaves remain literal unions when nested under functions,
 arrays, nullability, aliases, anonymous structures, and generic applications.
 Haxe first validates that callers use the declared enum-abstract domain rather
