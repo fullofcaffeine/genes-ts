@@ -126,12 +126,14 @@ typedef HtmlProps = HtmlPropsOf<DomElement>;
 typedef HtmlPropsOf<T> = {
   @:optional var children: Node;
   @:optional var key: Key;
+
   /**
    * React distinguishes an omitted ref, JavaScript `undefined`, and an
    * explicitly supplied `null`. `Undefinable` protects the authored inner
    * `Null` from Haxe's optional-field wrapper so HXX can validate all three.
    */
   @:optional var ref: Undefinable<ReactRef<T>>;
+
   @:optional var id: String;
   @:optional var className: String;
   @:optional var title: String;
@@ -196,6 +198,20 @@ typedef ButtonProps = {
   @:optional var name: String;
   @:optional var type: String;
   @:optional var value: FormValue;
+}
+
+/**
+ * Native disclosure state for React's details element.
+ *
+ * An absent `open` prop leaves the browser default intact; false closes the
+ * disclosure and true opens it. Keep this Boolean on the element-specific
+ * contract so unrelated HTML elements do not acquire the attribute.
+ */
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef DetailsProps = {
+  > HtmlProps,
+  var ?open: Bool;
 }
 
 /**

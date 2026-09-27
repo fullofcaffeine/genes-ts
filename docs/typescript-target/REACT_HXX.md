@@ -943,3 +943,23 @@ prop/child mutation, including mutation through a marker-bound alias, with
 `GTS-JSX-INTENT-010` while retaining the last committed output. Provider
 coverage is explicit and extensible; it is not a claim that every third-party
 JSX namespace is built in.
+
+### Native details disclosures
+
+Use the optional Boolean `open` property to control a native disclosure:
+
+```haxe
+final expanded = <details open={true}><summary>Items</summary>Content</details>;
+final collapsed = <details open={false}><summary>Items</summary>Content</details>;
+final browserDefault = <details><summary>Items</summary>Content</details>;
+```
+
+Previously HXX rejected `open` on `details`. The element-specific property
+contract now accepts a Boolean before generation. A string such as `open="yes"`
+remains invalid, and unrelated elements such as `div` do not gain this property.
+React renders true as the native Boolean attribute and omits it for false or
+absence. All four JSX/createElement profiles share this check and runtime proof.
+This addition does not introduce details-specific event or ref APIs.
+
+Run `yarn test:focus -- hxx-tsx` to verify strict generated types, React rendering,
+and rejected property values.

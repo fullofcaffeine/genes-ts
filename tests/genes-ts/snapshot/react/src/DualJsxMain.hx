@@ -32,6 +32,9 @@ typedef DualJsxTranscript = {
   final multipleRequiredChildrenHtml: String;
   final dashedSvgHtml: String;
   final dialogHtml: String;
+  final detailsOpenHtml: String;
+  final detailsClosedHtml: String;
+  final detailsDefaultHtml: String;
   final inputRefHtml: String;
   final namedRefHtml: String;
   final cleanupRefHtml: String;
@@ -220,6 +223,9 @@ class DualJsxMain {
     // Dialog-specific properties stay closed and useful in Haxe. In
     // particular, the contextual event target is the native DialogElement,
     // so this `close()` call is checked before any target profile is emitted.
+    final detailsOpenElement = <details open={true}><summary>Items</summary>Content</details>;
+    final detailsClosedElement = <details open={false}><summary>Items</summary>Content</details>;
+    final detailsDefaultElement = <details><summary>Items</summary>Content</details>;
     final dialogElement = <dialog
       open
       closedby="any"
@@ -424,6 +430,9 @@ class DualJsxMain {
         renderToStaticMarkup(multipleRequiredChildrenElement),
       dashedSvgHtml: renderToStaticMarkup(dashedSvgElement),
       dialogHtml: renderToStaticMarkup(dialogElement),
+      detailsOpenHtml: renderToStaticMarkup(detailsOpenElement),
+      detailsClosedHtml: renderToStaticMarkup(detailsClosedElement),
+      detailsDefaultHtml: renderToStaticMarkup(detailsDefaultElement),
       inputRefHtml: renderToStaticMarkup(inputRefElement),
       namedRefHtml: renderToStaticMarkup(namedInputRefElement),
       cleanupRefHtml: renderToStaticMarkup(cleanupRefElement),

@@ -308,6 +308,10 @@ class Negative {
     final value = <div href="/wrong" />;
     #elseif hxx_negative_intrinsic_prop_type
     final value = <button disabled="yes" />;
+    #elseif hxx_negative_details_open_type
+    final value = <details open="yes">Invalid details</details>;
+    #elseif hxx_negative_div_open
+    final value = <div open={true}>Invalid div</div>;
     #elseif hxx_negative_dialog_open_type
     final value = <dialog open="yes">Invalid dialog</dialog>;
     #elseif hxx_negative_dialog_event_target
