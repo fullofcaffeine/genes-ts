@@ -50,13 +50,17 @@ generic declaration. Only the three deliberately broad host controls may need
 TypeScript assertions; the exact nested types and runtime helpers may not add
 their own.
 
-An initialized nullable enum local that is never reassigned retains its closed domain.
-For example, `final code: Null<ReviewState> = parseReview(raw)` must keep the
-literal union plus `null`. After a null check, returning `{value: code}` in an
+An initialized enum local that is never reassigned retains its closed domain,
+including non-null fallback and conditional initializers. For example, `final
+code: Null<ReviewState> = parseReview(raw)` must keep the literal union plus
+`null`. After a null check, returning `{value: code}` in an
 `Envelope<ReviewState>` must type-check without an assertion. The runtime
-fixture checks a known value, an unknown string, and null input. The compiler
-uses its existing local-write analysis; this does not change the broader type
-policy for reassigned locals or lowered mutable loop temporaries.
+fixture checks a known value, an unknown string, and null input. The fixture
+also checks saved-versus-default values and nested fallback initializers in
+both runtimes. Before the fix, their locals widened to `string`. The compiler
+checks writes before lowering splits an initializer into branch assignments.
+It reuses its existing local-write analysis; this does not change the broader
+type policy for source-reassigned locals.
 
 The TypeScript profile must emit the tuple and callbacks with the same literal
 union, then use already-exact values directly. A redundant `as` expression is
@@ -67,9 +71,8 @@ Three controls deliberately expose broad `string` in TypeScript: one parameter,
 one generic host field, and one receiver whose whole target type is overridden.
 Those values still need a small assertion when they enter the closed phase
 slot. They prevent the compiler from confusing a narrow Haxe authoring type
-with the broader type it actually printed. The existing basic snapshot's
-lowered array-loop control separately proves that a genuinely widened mutable
-string keeps the same safeguard.
+with the broader type it actually printed. The mutable source-local control
+stays broad. The basic array-loop snapshot now keeps exact domains for the unchanged iteration values and needs no cast.
 
 The classic profile runs the same Haxe source against a tiny global host and
 proves that the metadata and TypeScript-only reasoning add no wrapper, helper,

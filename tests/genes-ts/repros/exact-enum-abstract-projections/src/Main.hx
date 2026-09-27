@@ -146,6 +146,29 @@ class Main {
     return code == null ? null : {value: code};
   }
 
+  /** Closed local domains survive fallback and conditional initialization. */
+  static function chosenReview(saved: Null<Envelope<ReviewState>>,
+      fallback: Null<ReviewState>): Envelope<ReviewState> {
+    final defaultReview: ReviewState = fallback ?? ReviewState.Pending;
+    final chosen: ReviewState = saved == null ? defaultReview : saved.value;
+    final aliased: ReviewStateAlias = chosen;
+    return {value: aliased};
+  }
+
+  static function nestedReview(saved: Null<Envelope<ReviewState>>,
+      fallback: Null<ReviewState>): Envelope<ReviewState> {
+    final nested: ReviewState = saved == null ? fallback ?? ReviewState.Pending : saved.value;
+    return {value: nested};
+  }
+
+  /** Reassigned source locals keep the existing broad annotation policy. */
+  static function mutableReview(approved: Bool): String {
+    var mutable: ReviewState = ReviewState.Pending;
+    if (approved)
+      mutable = ReviewState.Approved;
+    return mutable;
+  }
+
   static function replaceFromMethod(state: HostState<Phase>,
       next: Phase): Void {
     state.replace(next);
@@ -226,6 +249,20 @@ class Main {
     if (inferred == null || inferred.value != ReviewState.Pending
       || inferredReview("unknown") != null)
       throw "inferred nullable enum local changed its domain";
+    if (chosenReview(null, null).value != ReviewState.Pending
+      || chosenReview(null, ReviewState.Approved).value != ReviewState.Approved
+      || chosenReview({
+        value: ReviewState.Pending
+      }, ReviewState.Approved).value != ReviewState.Pending)
+      throw "conditional enum local changed the selected value";
+    if (nestedReview(null, null).value != ReviewState.Pending
+      || nestedReview(null, ReviewState.Approved).value != ReviewState.Approved
+      || nestedReview({
+        value: ReviewState.Pending
+      }, ReviewState.Approved).value != ReviewState.Pending)
+      throw "nested conditional enum local changed the selected value";
+    if (mutableReview(false) != "pending" || mutableReview(true) != "approved")
+      throw "mutable control changed";
     final current = model();
     current.select(Phase.Published);
     final review = reviewModel();

@@ -14,10 +14,10 @@ globalThis.DomainHost = {
   },
 };
 
-await import("./out/classic/index.js");
+await import(process.argv[2] ?? "./out/classic/index.js");
 
 if (selected !== "published") {
-  throw new Error(`classic tuple replacement selected ${String(selected)}`);
+  throw new Error(`tuple replacement selected ${String(selected)}`);
 }
 
-console.log("exact-enum-abstract-projections-classic-ok");
+console.log("exact-enum-abstract-projections-runtime-ok");

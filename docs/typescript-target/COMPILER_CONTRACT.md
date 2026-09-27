@@ -235,14 +235,16 @@ literal unions** to avoid “stringly” APIs.
 Example:
 - `js.html.RequestCache` → `"default" | "no-store" | ..."`
 
-An initialized nullable enum-abstract local retains its literal union plus
-`null` when the typed program never reassigns it. For example,
-`final code:Null<ReviewState> = parseReview(raw)` retains
-`"pending" | "approved" | null`. A null check then permits a typed record
-return without a TypeScript assertion. Genes retains the source type before
-JavaScript lowering and uses its existing local-write analysis to admit this
-annotation. Reassigned locals and mutable loop temporaries retain their
-existing expression-flow rules. The
+An initialized enum-abstract local retains its closed literal union when the
+authored program never reassigns it. Nullable locals also keep `null`. For
+example, `final code:Null<ReviewState> = parseReview(raw)` retains `"pending"
+| "approved" | null`. A null check then permits a typed record return without
+a TypeScript assertion. Genes retains the source type and checks writes before
+JavaScript lowering. It reuses the existing local-write analysis only for
+bodies with closed-local candidates. Lowering can split a nested initializer
+into a declaration and branch assignments; these remain one source
+initialization. Source-reassigned locals retain their existing expression-flow
+rules. The
 `tests/genes-ts/repros/exact-enum-abstract-projections` fixture proves known,
 unknown, and null inputs in TypeScript and classic JavaScript.
 

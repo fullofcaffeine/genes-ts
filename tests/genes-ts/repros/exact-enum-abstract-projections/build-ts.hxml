@@ -7,3 +7,5 @@
 -D genes.ts
 
 -dce full
+
+-debug

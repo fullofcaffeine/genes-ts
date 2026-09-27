@@ -46,6 +46,11 @@ final class LocalBindingPlan {
     return new LocalBindingPlanBuilder().build(module);
   }
 
+  /** The same write proof can be captured before Haxe lowers source initializers. */
+  public static function forExpression(expression: TypedExpr): LocalBindingPlan {
+    return new LocalBindingPlanBuilder().buildExpression(expression);
+  }
+
   public function new(reassignedLocalIds: Map<Int, Bool>) {
     this.reassignedLocalIds = reassignedLocalIds;
   }
@@ -83,6 +88,11 @@ private final class LocalBindingPlanBuilder {
     return new LocalBindingPlan(reassignedLocalIds);
   }
 
+  public function buildExpression(expression: TypedExpr): LocalBindingPlan {
+    visit(expression);
+    return new LocalBindingPlan(reassignedLocalIds);
+  }
+
   function visit(expression: TypedExpr): Void {
     switch expression.expr {
       case TBinop(OpAssign | OpAssignOp(_), target, value):
@@ -94,8 +104,7 @@ private final class LocalBindingPlanBuilder {
         visit(target);
       case TCall({
         expr: TField(_,
-          FStatic(_.get() => {module: 'js.Syntax'},
-            _.get() => {name: 'code'}))
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, arguments) | TCall({expr: TIdent('__js__')}, arguments):
         // A raw placeholder is a value expression in the typed tree but may be
         // placed on the left of `=`, `++`, `for (... in ...)`, or another
