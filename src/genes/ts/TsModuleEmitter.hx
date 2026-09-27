@@ -4569,6 +4569,9 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     for (ctorName in et.names) {
       final c = et.constructs.get(ctorName);
+      final capturedConstructor = SignatureCache.getEnumConstructorSourceType(et,
+        c);
+      final constructorType = capturedConstructor ?? c.type;
       final ctorParams = c.params != null ? c.params.map(p -> p.t) : [];
       writeNewline();
       emitComment(c.doc);
@@ -4584,13 +4587,16 @@ class TsModuleEmitter extends JsModuleEmitter {
         write(', ');
       }
       write('_hx_index: ${c.index}');
-      switch c.type {
+      switch constructorType {
         case TFun(args, _):
           for (arg in args) {
             write(', ');
             emitIdent(arg.name);
             write(': ');
-            emitType(arg.t);
+            if (capturedConstructor != null)
+              TypeEmitter.emitCapturedSourceType(this, arg.t);
+            else
+              emitType(arg.t);
           }
         default:
       }
@@ -4603,7 +4609,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       write('export const ');
       write(ctorName);
       write(': ');
-      switch c.type {
+      switch constructorType {
         case TFun(args, ret):
           final allParams = enumParams.concat(c.params.map(p -> p.t));
           final used = new Map<String, Bool>();
@@ -4617,7 +4623,10 @@ class TsModuleEmitter extends JsModuleEmitter {
             if (nullish.emitOptionalSyntax)
               write('?');
             write(': ');
-            emitType(nullish.emittedType);
+            if (capturedConstructor != null)
+              TypeEmitter.emitCapturedSourceType(this, nullish.emittedType);
+            else
+              emitType(nullish.emittedType);
           }
           write(') => ');
           emitType(ret);

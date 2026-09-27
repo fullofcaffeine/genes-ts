@@ -23,6 +23,12 @@ enum abstract ReviewState(String) to String {
   final Approved = "approved";
 }
 
+/** Ordinary enum payloads must retain the declared closed value domain. */
+enum ReviewDecision {
+  Selected(value: ReviewState);
+  Empty;
+}
+
 /** Named alias proves the closed leaf survives typedef resolution. */
 typedef ReviewStateAlias = ReviewState;
 
@@ -161,6 +167,14 @@ class Main {
     return {value: nested};
   }
 
+  /** A switch payload must agree with the source-typed record destination. */
+  static function unwrapReviewDecision(decision: ReviewDecision): Envelope<ReviewState> {
+    return switch decision {
+      case Selected(value): {value: value};
+      case Empty: {value: ReviewState.Pending};
+    };
+  }
+
   /** Haxe checks reassignment against the declared domain; String stays broad. */
   static function mutableReview(approved: Bool): {value: ReviewState} {
     var mutable: ReviewState = ReviewState.Pending;
@@ -268,6 +282,10 @@ class Main {
     if (mutableReview(false).value != ReviewState.Pending
       || mutableReview(true).value != ReviewState.Approved)
       throw "mutable control changed";
+    if (unwrapReviewDecision(Selected(ReviewState.Approved))
+      .value != ReviewState.Approved || unwrapReviewDecision(Empty)
+      .value != ReviewState.Pending)
+      throw "enum payload domain changed";
     final current = model();
     current.select(Phase.Published);
     final review = reviewModel();

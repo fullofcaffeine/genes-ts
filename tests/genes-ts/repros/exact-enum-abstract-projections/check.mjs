@@ -37,6 +37,7 @@ function runFailure(command, args, expected, label) {
 rmSync(path.join(fixtureDir, "out"), { recursive: true, force: true });
 run("haxe", ["tests/genes-ts/repros/exact-enum-abstract-projections/build-ts.hxml"]);
 runTypeScriptMatrix(["-p", "tests/genes-ts/repros/exact-enum-abstract-projections/tsconfig.json"]);
+runTypeScriptMatrix(["-p", "tests/genes-ts/repros/exact-enum-abstract-projections/tsconfig.consumer.json"]);
 
 const source = readFileSync(
   path.join(fixtureDir, "out/typescript/src-gen/Main.ts"),

@@ -75,6 +75,13 @@ record after reassignment. A separate local declared as `String` accepts an
 outside value. The basic array-loop snapshot keeps exact iteration domains
 and needs no cast.
 
+An ordinary `ReviewDecision.Selected(ReviewState)` constructor must preserve
+the same domain in its parameter and payload field. The native TypeScript
+consumer accepts known values, rejects outside text, and reads the payload
+after discriminant narrowing. Both runtimes execute the Haxe switch. The
+compiler-server fixture separately checks this declaration across warm builds.
+Classic declaration profile semantics remain unchanged.
+
 The classic profile runs the same Haxe source against a tiny global host and
 proves that the metadata and TypeScript-only reasoning add no wrapper, helper,
 or changed JavaScript behavior. Its generated declaration also keeps
