@@ -248,6 +248,11 @@ rules. The
 `tests/genes-ts/repros/exact-enum-abstract-projections` fixture proves known,
 unknown, and null inputs in TypeScript and classic JavaScript.
 
+When Haxe removes an enum match, the existing constructor-specific payload
+projection also retains the receiver local's captured generic arguments.
+Reading a payload with a closed enum-abstract type therefore agrees with its
+destination local without a second assertion or a runtime conversion.
+
 Closed enum-abstract leaves remain literal unions when nested under functions,
 arrays, nullability, aliases, anonymous structures, and generic applications.
 Haxe first validates that callers use the declared enum-abstract domain rather

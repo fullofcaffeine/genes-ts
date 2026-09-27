@@ -3019,7 +3019,18 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(runtimeTypeAccessor(TEnumDecl(enumPayloadRead.owner)));
       write('.');
       write(enumPayloadRead.constructor.name);
-      TypeEmitter.emitParams(this, enumPayloadRead.parameters, false);
+      if (enumPayloadRead.capturedSourceParameters) {
+        write('<');
+        for (index in 0...enumPayloadRead.parameters.length) {
+          if (index > 0)
+            write(', ');
+          TypeEmitter.emitCapturedSourceType(this,
+            enumPayloadRead.parameters[index]);
+        }
+        write('>');
+      } else {
+        TypeEmitter.emitParams(this, enumPayloadRead.parameters, false);
+      }
       write('>(');
       emitValueWithExpectedType(null, enumPayloadRead.receiver);
       write(')');

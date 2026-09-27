@@ -76,6 +76,11 @@ requireText(
 );
 requireText(
   generatedTs,
+  'const value: "pending" | "ready" = Register.unsafeCast<LocalResult.Present<"pending" | "ready">>(localPhase).value',
+  "an erased enum match must retain the source receiver domain in its existing variant projection"
+);
+requireText(
+  generatedTs,
   'const maybePhase: "pending" | "ready" | null = LocalFactory.maybe("pending")',
   "a present generic value must retain its declared closed domain inside an outer nullable result"
 );

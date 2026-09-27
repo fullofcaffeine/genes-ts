@@ -322,17 +322,19 @@ class TsEnumPayloadReadDecision {
   public final constructor: EnumField;
   public final parameters: Array<Type>;
   public final payloadName: String;
+  public final capturedSourceParameters: Bool;
   public final pos: Position;
 
   public function new(expression: TypedExpr, receiver: TypedExpr,
       owner: Ref<EnumType>, constructor: EnumField, parameters: Array<Type>,
-      payloadName: String) {
+      payloadName: String, capturedSourceParameters = false) {
     this.expression = expression;
     this.receiver = receiver;
     this.owner = owner;
     this.constructor = constructor;
     this.parameters = parameters.copy();
     this.payloadName = payloadName;
+    this.capturedSourceParameters = capturedSourceParameters;
     this.pos = expression.pos;
   }
 
@@ -814,6 +816,9 @@ private class TsBoundaryPlanBuilder {
    * - the receiver retains the exact applied enum type;
    * - the result retains the exact payload type.
    *
+   * A captured signature for that same receiver local may preserve closed
+   * abstract arguments erased by lowering; it does not authorize the read.
+   *
    * Strings, generated property names, and TypeScript diagnostics contribute
    * no authority. Constructor-local generic parameters are initially rejected
    * because their exact application is not represented by the enum receiver.
@@ -874,9 +879,22 @@ private class TsBoundaryPlanBuilder {
     };
     if (!compareExactTypes(payload.t, expression.t))
       return null;
+    // The lowered tree proves the constructor read. The same local's checked
+    // source signature can additionally retain closed abstract arguments that
+    // JS lowering erased. Keep those arguments in the existing variant view
+    // so its payload agrees with the source-typed destination local.
+    final sourceType = switch parts.receiver.expr {
+      case TLocal(variable): SignatureCache.getLocalSourceType(variable);
+      default: null;
+    };
+    final sourceApplication = sourceType == null ? null : exactEnumApplication(sourceType);
+    final retainSource = sourceApplication != null
+      && sameBaseIdentity(sourceApplication.owner.get(),
+        application.owner.get());
     return new TsEnumPayloadReadDecision(expression, parts.receiver,
-      application.owner, parts.constructor, application.parameters,
-      payload.name);
+      application.owner, parts.constructor,
+      retainSource ? sourceApplication.parameters : application.parameters,
+      payload.name, retainSource);
   }
 
   static function enumConstructorOwner(type: Type): Null<Ref<EnumType>> {
