@@ -131,6 +131,15 @@ class Main {
     };
   }
 
+  static function invalidMode<T>(): T
+    throw "Invalid mode";
+
+  static function decodedMode(value: Null<ServerMode>): ServerDecision {
+    if (value == null)
+      invalidMode();
+    return Selected(value);
+  }
+
   static inline final REVISION = "a1";
 
   static function __init__(): Void {
@@ -234,7 +243,7 @@ class Main {
     if (restoredMode(null, true).value != ServerMode.First
       || restoredMode(ServerMode.First, false).value != ServerMode.Second)
       throw "closed local initialization changed";
-    if (decisionMode(Selected(ServerMode.Second)).value != ServerMode.Second
+    if (decisionMode(decodedMode(ServerMode.Second)).value != ServerMode.Second
       || decisionMode(Empty).value != ServerMode.First)
       throw "enum payload declaration changed";
     #if server_numeric_witness

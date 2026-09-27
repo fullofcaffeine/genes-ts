@@ -96,3 +96,10 @@ Run the focused proof with:
 ```sh
 node tests/genes-ts/repros/exact-enum-abstract-projections/check.mjs
 ```
+
+Nullable decoded values must also retain the closed domain when passed to an
+ordinary enum constructor. The generic throwing guard is opaque to TypeScript;
+the existing identity assertion remains, but its target must use the captured
+constructor signature, not the erased `string` backing type. Both runtimes
+check the accepted value and reject invalid input before construction. This
+adds no claim that Genes analyzes arbitrary throwing helper functions.

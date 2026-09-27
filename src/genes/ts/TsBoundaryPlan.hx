@@ -156,11 +156,14 @@ class TsEnumArgumentBridge {
   public final index: Int;
   public final source: TypedExpr;
   public final target: Type;
+  public final capturedSourceType: Bool;
 
-  public function new(index: Int, source: TypedExpr, target: Type) {
+  public function new(index: Int, source: TypedExpr, target: Type,
+      capturedSourceType = false) {
     this.index = index;
     this.source = source;
     this.target = target;
+    this.capturedSourceType = capturedSourceType;
   }
 }
 
@@ -1292,6 +1295,18 @@ private class TsBoundaryPlanBuilder {
     if (Lambda.exists(arguments, TypeUtil.isNullConstant))
       return true;
 
+    // Keep nullability evidence on the lowered call, but render an admitted
+    // bridge with the same source signature as the constructor declaration.
+    // Erasure can otherwise turn a closed enum payload into `string` here.
+    final sourceArguments = switch erasedCastSource(callee).expr {
+      case TField(_, FEnum(owner, field)):
+        final sourceType = SignatureCache.getEnumConstructorSourceType(owner.get(),
+          field);
+        sourceType == null ? null : callableArguments(haxe.macro.TypeTools.applyTypeParameters(sourceType,
+          owner.get()
+          .params, application.parameters));
+      default: null;
+    };
     final bridges = new Array<TsEnumArgumentBridge>();
     for (index in 0...arguments.length) {
       if (index >= application.argumentTypes.length)
@@ -1304,7 +1319,9 @@ private class TsBoundaryPlanBuilder {
       if ((relation == NullabilityOnly && !isKnownNonNull(arguments[index]))
         || (targetParameter != null && targetParameter != sourceParameter)) {
         if (!isTypeScriptAcceptedTopLevelWidening(target, source.t))
-          bridges.push(new TsEnumArgumentBridge(index, source, target));
+          bridges.push(new TsEnumArgumentBridge(index,
+            source, sourceArguments != null && index < sourceArguments.length ? sourceArguments[index].t : target, sourceArguments != null
+            && index < sourceArguments.length));
       }
     }
 
