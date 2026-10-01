@@ -103,3 +103,18 @@ the existing identity assertion remains, but its target must use the captured
 constructor signature, not the erased `string` backing type. Both runtimes
 check the accepted value and reject invalid input before construction. This
 adds no claim that Genes analyzes arbitrary throwing helper functions.
+
+A generic `DomainResult<ReviewState>` return must instantiate `Value` with the
+same closed domain under full DCE. Before the fix, branches emitted
+`Value<string>` and strict TypeScript rejected the method body. The declaration
+already preserved the right union; the missing fact was at the constructor
+call. This fixture pairs strict generated-code and external-consumer checks
+with both runtimes. It does not widen the return type or assert away the error.
+
+The same result contract is exercised by a direct module function, a return
+inside a loop, and a nullable payload after an opaque throwing guard. A nested
+callback deliberately returns `DomainResult<String>` containing `outside`;
+it must keep its own broad contract even inside a closed-result method. The
+nullable conversion remains authorized by lowered Haxe types, but its printed
+target agrees with the captured generic argument. The compiler-server corpus
+also carries this declared generic return through cold and warm requests.

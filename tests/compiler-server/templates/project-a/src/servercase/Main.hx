@@ -24,6 +24,12 @@ private enum ServerDecision {
   Empty;
 }
 
+/** A captured return domain must be fresh for each compiler-server request. */
+private enum ServerResult<T> {
+  Value(value: T);
+  Invalid;
+}
+
 private typedef ServerAnimal = {
   final name: String;
 }
@@ -239,7 +245,23 @@ class Main {
   }
   #end
 
+  static function genericMode(raw: String): ServerResult<ServerMode> {
+    return switch raw {
+      case "first": ServerResult.Value(ServerMode.First);
+      case "second": ServerResult.Value(ServerMode.Second);
+      case _: ServerResult.Invalid;
+    };
+  }
+
   public static function main(): Void {
+    switch genericMode("second") {
+      case Value(value):
+        if (value != ServerMode.Second)
+          throw "generic return changed";
+      case Invalid:
+        throw "generic return rejected";
+    }
+
     if (restoredMode(null, true).value != ServerMode.First
       || restoredMode(ServerMode.First, false).value != ServerMode.Second)
       throw "closed local initialization changed";

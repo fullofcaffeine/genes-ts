@@ -572,7 +572,18 @@ class TsModuleEmitter extends JsModuleEmitter {
       // the exact destination application, payload bridges, and every type-only
       // dependency this expression is allowed to print.
       emitValue(e);
-      TypeEmitter.emitParams(this, enumDecision.parameters, false);
+      if (enumDecision.capturedSourceParameters
+        && enumDecision.parameters.length > 0) {
+        write('<');
+        for (index in 0...enumDecision.parameters.length) {
+          if (index > 0)
+            write(', ');
+          TypeEmitter.emitCapturedSourceType(this,
+            enumDecision.parameters[index]);
+        }
+        write('>');
+      } else
+        TypeEmitter.emitParams(this, enumDecision.parameters, false);
       write('(');
       for (i in 0...params.length) {
         if (i > 0)

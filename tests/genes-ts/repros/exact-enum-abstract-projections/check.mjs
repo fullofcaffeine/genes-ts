@@ -48,6 +48,26 @@ requireFragment(source, 'let broad: string', "declared String remains broad");
 requireFragment(source, 'const defaultReview: "approved" | "pending"', "non-null fallback domain");
 requireFragment(source, 'const chosen: "approved" | "pending"', "conditional local domain");
 requireFragment(source, 'let nested: "approved" | "pending"', "lowered branch initialization domain");
+requireFragment(source, 'DomainResult.Value<string>("outside")', "nested callback keeps its own broad return");
+// These are output-shape contracts: literal inference alone must not hide a
+// missing destination decision in one of the independently claimed paths.
+function methodSource(text, name) {
+  const start = text.indexOf(`\tstatic ${name}(`);
+  if (start < 0) throw new Error(`Missing generated method ${name}`);
+  const end = text.indexOf("\n\t}", start);
+  if (end < 0) throw new Error(`Missing generated method end for ${name}`);
+  return text.slice(start, end);
+}
+const decoderSource = readFileSync(path.join(fixtureDir, "out/typescript/src-gen/ReviewDecoder.ts"), "utf8");
+for (const [text, method, values] of [
+  [source, "genericReview", ["approved", "pending"]],
+  [source, "loopReview", ["pending"]],
+  [decoderSource, "reviewFromText", ["approved", "pending"]],
+]) {
+  const body = methodSource(text, method);
+  for (const value of values) requireFragment(body,
+    `DomainResult.Value<"approved" | "pending">("${value}")`, `${method} captured generic return`);
+}
 const generatedLines = source.split("\n");
 const declarationLine = generatedLines.findIndex(line => line.includes("let nested:"));
 const authoredLines = readFileSync(path.join(fixtureDir, "src/Main.hx"), "utf8").split("\n");
