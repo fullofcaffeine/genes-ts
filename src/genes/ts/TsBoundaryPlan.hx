@@ -253,16 +253,18 @@ class TsEnumCallDecision {
   public final call: TypedExpr;
   public final callee: TypedExpr;
   public final parameters: Array<Type>;
+  public final capturedSourceParameters: Bool;
   public final argumentTypes: Array<Type>;
   public final bridges: Array<TsEnumArgumentBridge>;
   public final pos: Position;
 
   public function new(call: TypedExpr, callee: TypedExpr,
       parameters: Array<Type>, argumentTypes: Array<Type>,
-      bridges: Array<TsEnumArgumentBridge>) {
+      bridges: Array<TsEnumArgumentBridge>, capturedSourceParameters = false) {
     this.call = call;
     this.callee = callee;
     this.parameters = parameters.copy();
+    this.capturedSourceParameters = capturedSourceParameters;
     this.argumentTypes = argumentTypes.copy();
     this.bridges = bridges.copy();
     this.pos = call.pos;
@@ -665,6 +667,9 @@ private class TsBoundaryPlanBuilder {
   var currentOwnerModule: Null<String>;
   var currentOwnerName: Null<String>;
   var currentFieldName: Null<String>;
+  // Key the captured contract by the exact outer function, never by traversal
+  // position. A nested callback must not inherit its enclosing method's return.
+  final functionSourceReturns = new ObjectMap<TypedExpr, Type>();
 
   public function new() {}
 
@@ -678,6 +683,16 @@ private class TsBoundaryPlanBuilder {
           currentOwnerName = classType.name;
           for (field in fields) {
             currentFieldName = field.name;
+            final signature = SignatureCache.getSig(classType, field.isStatic,
+              field.name);
+            if (field.expr != null && signature != null
+              && signature.retSourceType != null) {
+              switch field.expr.expr {
+                case TFunction(_): functionSourceReturns.set(field.expr,
+                    signature.retSourceType);
+                default:
+              }
+            }
             visit(field.expr, field.type, null);
           }
           currentFieldName = null;
@@ -709,7 +724,8 @@ private class TsBoundaryPlanBuilder {
    * identities and records decisions only for the reviewed parent slots.
    */
   function visit(expression: Null<TypedExpr>, expected: Null<Type>,
-      currentReturn: Null<Type>): Void {
+      currentReturn: Null<Type>, ?sourceReturn: Type,
+      ?sourceExpected: Type): Void {
     if (expression == null)
       return;
     switch expression.expr {
@@ -719,15 +735,16 @@ private class TsBoundaryPlanBuilder {
         planEnumReference(expression, expected);
       case TEnumParameter(receiver, constructor, _):
         planEnumPayloadRead(expression, receiver, constructor);
-        visit(receiver, null, currentReturn);
+        visit(receiver, null, currentReturn, sourceReturn);
       case TFunction(fn):
-        visit(fn.expr, null, fn.t);
+        visit(fn.expr, null, fn.t, functionSourceReturns.get(expression));
       case TReturn(value):
         if (value != null) {
           if (!planPrototypeBackedReturn(expression, value, currentReturn))
             planValueBridge(expression, ReturnValue, value, currentReturn,
               returnBridges);
-          visit(value, currentReturn, currentReturn);
+          visit(value, currentReturn, currentReturn, sourceReturn,
+            sourceReturn);
         }
       case TVar(variable, initializer):
         if (initializer != null) {
@@ -740,73 +757,80 @@ private class TsBoundaryPlanBuilder {
             prototypeBackedLocals.set(variable.id, prototypeTarget);
           planValueBridge(expression, VariableInitializer, initializer,
             variable.t, initializerBridges, initializer);
-          visit(initializer, variable.t, currentReturn);
+          visit(initializer, variable.t, currentReturn, sourceReturn);
         }
       case TBinop(OpAssign, left, right):
         if (!planHostCallbackBridge(expression, left, right))
           planValueBridge(expression, AssignmentRhs, right, left.t,
             assignmentBridges);
-        visit(left, null, currentReturn);
-        visit(right, left.t, currentReturn);
+        visit(left, null, currentReturn, sourceReturn);
+        visit(right, left.t, currentReturn, sourceReturn);
       case TBinop(OpAssignOp(_), left, right):
-        visit(left, null, currentReturn);
-        visit(right, left.t, currentReturn);
+        visit(left, null, currentReturn, sourceReturn);
+        visit(right, left.t, currentReturn, sourceReturn);
       case TCall(callee, arguments):
-        if (!planEnumCall(expression, callee, arguments, expected))
+        if (!planEnumCall(expression, callee, arguments, expected,
+          sourceExpected))
           planCall(expression, callee, arguments);
-        visit(callee, null, currentReturn);
+        visit(callee, null, currentReturn, sourceReturn);
         final formal = callableArguments(callee.t);
         for (index in 0...arguments.length)
           visit(arguments[index], formal != null && index < formal.length ? formal[index].t : null,
-            currentReturn);
+            currentReturn, sourceReturn);
       case TNew(owner, parameters, arguments):
         final formal = constructorArguments(owner.get(), parameters);
         planConstructor(expression, arguments, formal);
         for (index in 0...arguments.length)
           visit(arguments[index], formal != null && index < formal.length ? formal[index].t : null,
-            currentReturn);
+            currentReturn, sourceReturn);
       case TIf(condition, thenValue, elseValue):
-        visit(condition, null, currentReturn);
+        visit(condition, null, currentReturn, sourceReturn);
         final guard = opaqueRuntimeGuard(condition);
         if (guard != null)
           planImmediateRuntimeGuardedBinding(thenValue, guard.raw,
             guard.target, thenValue.pos);
-        visit(thenValue, expected, currentReturn);
+        visit(thenValue, expected, currentReturn, sourceReturn, sourceExpected);
         if (elseValue != null)
-          visit(elseValue, expected, currentReturn);
+          visit(elseValue, expected, currentReturn, sourceReturn,
+            sourceExpected);
       case TSwitch(condition, cases, defaultValue):
-        visit(condition, null, currentReturn);
+        visit(condition, null, currentReturn, sourceReturn);
         for (entry in cases) {
           for (value in entry.values)
-            visit(value, null, currentReturn);
+            visit(value, null, currentReturn, sourceReturn);
           final previousNarrowingCount = activeEnumNarrowings.length;
           addEnumSwitchNarrowings(condition, entry.values);
-          visit(entry.expr, expected, currentReturn);
+          visit(entry.expr, expected, currentReturn, sourceReturn,
+            sourceExpected);
           activeEnumNarrowings.resize(previousNarrowingCount);
         }
         if (defaultValue != null)
-          visit(defaultValue, expected, currentReturn);
+          visit(defaultValue, expected, currentReturn, sourceReturn,
+            sourceExpected);
       case TTry(body, catches):
-        visit(body, expected, currentReturn);
+        visit(body, expected, currentReturn, sourceReturn, sourceExpected);
         for (entry in catches)
-          visit(entry.expr, expected, currentReturn);
+          visit(entry.expr, expected, currentReturn, sourceReturn,
+            sourceExpected);
       case TBlock(values):
         for (index in 0...values.length)
           visit(values[index], index == values.length - 1 ? expected : null,
-            currentReturn);
+            currentReturn, sourceReturn,
+            index == values.length - 1 ? sourceExpected : null);
       case TParenthesis(inner) | TMeta(_, inner):
-        visit(inner, expected, currentReturn);
+        visit(inner, expected, currentReturn, sourceReturn, sourceExpected);
       case TCast(inner, null):
-        visit(inner, expected, currentReturn);
+        visit(inner, expected, currentReturn, sourceReturn, sourceExpected);
       case TArrayDecl(values):
         final element = arrayElement(expected);
         for (value in values)
-          visit(value, element, currentReturn);
+          visit(value, element, currentReturn, sourceReturn);
       case TField(receiver, field):
         planRuntimeByteCacheRead(expression, receiver, field, expected);
-        visit(receiver, null, currentReturn);
+        visit(receiver, null, currentReturn, sourceReturn);
       default:
-        expression.iter(child -> visit(child, null, currentReturn));
+        expression.iter(child -> visit(child, null, currentReturn,
+          sourceReturn));
     }
   }
 
@@ -1284,12 +1308,19 @@ private class TsBoundaryPlanBuilder {
   }
 
   function planEnumCall(call: TypedExpr, callee: TypedExpr,
-      arguments: Array<TypedExpr>, expected: Null<Type>): Bool {
+      arguments: Array<TypedExpr>, expected: Null<Type>,
+      sourceExpected: Null<Type>): Bool {
     final destination = expected == null ? call.t : expected;
     final application = TypeUtil.enumConstructorApplication(callee,
       destination);
     if (application == null)
       return false;
+    // Source return signatures retain closed enum domains erased by full DCE.
+    // Recover only this same constructor's destination application. Lowered
+    // argument types below remain the authority for nullability conversions.
+    final sourceApplication = sourceExpected == null ? null : TypeUtil.enumConstructorApplication(callee,
+      sourceExpected);
+    final parameters = sourceApplication == null ? application.parameters : sourceApplication.parameters;
     // Keep the established `never` inference path for explicit null literals.
     // This first boundary-plan slice owns destination-driven non-null payloads.
     if (Lambda.exists(arguments, TypeUtil.isNullConstant))
@@ -1298,15 +1329,18 @@ private class TsBoundaryPlanBuilder {
     // Keep nullability evidence on the lowered call, but render an admitted
     // bridge with the same source signature as the constructor declaration.
     // Erasure can otherwise turn a closed enum payload into `string` here.
-    final sourceArguments = switch erasedCastSource(callee).expr {
+    final sourceSignatureArguments = switch erasedCastSource(callee).expr {
       case TField(_, FEnum(owner, field)):
         final sourceType = SignatureCache.getEnumConstructorSourceType(owner.get(),
           field);
         sourceType == null ? null : callableArguments(haxe.macro.TypeTools.applyTypeParameters(sourceType,
           owner.get()
-          .params, application.parameters));
+          .params, parameters));
       default: null;
     };
+    // A generic constructor such as Value<T>(value:T) has no enum abstract
+    // in its own signature. Its captured destination supplies that argument.
+    final sourceArguments = sourceSignatureArguments != null ? [for (argument in sourceSignatureArguments) argument.t] : (sourceApplication == null ? null : sourceApplication.argumentTypes);
     final bridges = new Array<TsEnumArgumentBridge>();
     for (index in 0...arguments.length) {
       if (index >= application.argumentTypes.length)
@@ -1320,13 +1354,13 @@ private class TsBoundaryPlanBuilder {
         || (targetParameter != null && targetParameter != sourceParameter)) {
         if (!isTypeScriptAcceptedTopLevelWidening(target, source.t))
           bridges.push(new TsEnumArgumentBridge(index,
-            source, sourceArguments != null && index < sourceArguments.length ? sourceArguments[index].t : target, sourceArguments != null
+            source, sourceArguments != null && index < sourceArguments.length ? sourceArguments[index] : target, sourceArguments != null
             && index < sourceArguments.length));
       }
     }
 
-    final decision = new TsEnumCallDecision(call, callee,
-      application.parameters, application.argumentTypes, bridges);
+    final decision = new TsEnumCallDecision(call, callee, parameters,
+      application.argumentTypes, bridges, sourceApplication != null);
     enumCalls.set(callee, decision);
     enumDecisions.push(decision);
     return true;

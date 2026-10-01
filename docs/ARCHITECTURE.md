@@ -571,6 +571,17 @@ emission therefore use the same compiler-owned types for both explicit generic
 arguments and any exact payload assertion. A payload that already has the
 right nullable/plain shape is unchanged.
 
+A declared method or module-function return may retain a closed enum-abstract
+argument that full DCE erases from the executable tree. The boundary planner
+binds the existing captured return signature to that exact function expression.
+It carries this source destination through returns and their conditional,
+switch, block, try, and transparent-wrapper result slots. A constructor of the
+same enum can then print the captured generic parameters. The lowered call
+still owns argument/nullability conversions; source spelling is not new flow
+proof. Entering a nested function resets the return context, so an outer
+method cannot specialize an unrelated callback. This does not recover source
+signatures for arbitrary anonymous callbacks or invent new inference facts.
+
 ### Enum payload reads after Haxe erases a match
 
 Haxe can also prove that generic parameters make every enum constructor except
