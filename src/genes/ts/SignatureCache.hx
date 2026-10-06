@@ -554,9 +554,13 @@ class SignatureCache {
    * Retains the declared local domain independently of initializer lowering.
    * Haxe checks later writes against this same type. Request-local recapture
    * also works for warm trees whose initializers have become assignments.
+   * Inlining can allocate a new local ID after capture while retaining its
+   * typed enum declaration. That surviving type is also an exact witness;
+   * names, positions and initializer values are never used to recover it.
    */
   public static function getDirectEnumLocalSourceType(variable: TVar): Null<Type> {
-    return directEnumLocalSourceTypes.get(variable.id);
+    return
+      directEnumLocalSourceTypes.get(variable.id) ?? (isDirectEnumAbstractType(variable.t) ? variable.t : null);
   }
 
   /** Saved literal spelling used after dead-code elimination removes constants. */

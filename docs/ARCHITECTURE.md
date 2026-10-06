@@ -52,7 +52,10 @@ where multiple emitters or passes need the same semantic decision.
    renderer. Enum-constructor nullability bridges use that same captured
    signature for their assertion target after the lowered call establishes the
    conversion. This preserves closed payload types without treating an opaque
-   throwing helper as flow evidence. Directive capture adds no roots or dependency edges.
+   throwing helper as flow evidence. When inlining assigns a new local ID,
+   a surviving typed enum declaration also supplies an exact local witness.
+   This does not infer a domain from the variable name or its initializer;
+   a declared String remains broad. Directive capture adds no roots or dependency edges.
 3. `Generator` receives `JSGenApi`, groups typed types into `Module` values,
    records exposed/library roots, and creates shared plans.
 4. Runtime, type-only, and declaration-only reachability are expanded without
