@@ -356,7 +356,7 @@ function assertNoGeneratedDomSupportGraph(generatedRelDir: string): void {
     `${generatedRelDir} published browser typedef modules loaded only through ambient externs`);
 }
 
-function assertHaxeHxxNegatives(): void {
+function assertHaxeHxxNegatives(rangeDiagnostics: ReadonlyMap<string, string>): void {
   const negativeSource = readFileSync(
     path.join(repoRoot, "tests/genes-ts/snapshot/react/negative/Negative.hx"),
     "utf8"
@@ -462,6 +462,11 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_null_to_undefinable", "GTS-HXX-PROP-002"]
   ];
   for (const [define, diagnostic, sourceMarker = "final value =", outputMarker] of cases) {
+    // Report each cold compilation so a bounded run retains the last active
+    // case and wall-clock cost, even if the outer gate stops this process.
+    const rangeOutput = rangeDiagnostics.get(define);
+    console.log(`genes-tsx:negative:start ${define} observation=${rangeOutput === undefined ? "cold" : "range-check"}`);
+    const startedAt = performance.now();
     const branchLine = negativeSource.findIndex((line) =>
       line.includes(`#if ${define}`) || line.includes(`#elseif ${define}`)
     );
@@ -471,13 +476,16 @@ function assertHaxeHxxNegatives(): void {
       .findIndex((line) => line.includes(sourceMarker));
     ok(sourceOffset >= 0, `${define} has no '${sourceMarker}' expression`);
     const sourceLine = branchLine + sourceOffset + 2;
-    const result = spawnSync(
-      "haxe",
-      ["tests/genes-ts/snapshot/react/build-negative.hxml", "-D", define],
-      { cwd: repoRoot, encoding: "utf8" }
-    );
-    strictEqual(result.status === 0, false, `${define} unexpectedly compiled`);
-    const output = `${result.stdout}${result.stderr}`;
+    let output = rangeOutput;
+    if (output === undefined) {
+      const result = spawnSync(
+        "haxe",
+        ["tests/genes-ts/snapshot/react/build-negative.hxml", "-D", define],
+        { cwd: repoRoot, encoding: "utf8" }
+      );
+      strictEqual(result.status === 0, false, `${define} unexpectedly compiled`);
+      output = `${result.stdout}${result.stderr}`;
+    }
     ok(output.includes(`[${diagnostic}]`), `${define} did not report ${diagnostic}:\n${output}`);
     if (outputMarker !== undefined) {
       ok(output.includes(outputMarker), `${define} did not report ${outputMarker}:\n${output}`);
@@ -486,6 +494,7 @@ function assertHaxeHxxNegatives(): void {
       output.includes(`Negative.hx:${sourceLine}:`),
       `${define} did not retain the authored HXX line ${sourceLine}:\n${output}`
     );
+    console.log(`genes-tsx:negative:passed ${define} durationMs=${Math.round(performance.now() - startedAt)}`);
   }
 
   const duplicateProvider = readFileSync(
@@ -796,8 +805,10 @@ rmrf("tests/genes-ts/snapshot/react/out/custom-provider");
 rmrf("tests/genes-ts/snapshot/react/out/packed-consumer");
 rmrf("tests/genes-ts/snapshot/react/out/context-first-dom");
 
-assertHxxDiagnosticRanges();
-assertHaxeHxxNegatives();
+// Both assertion sets inspect the same cold failure where their complete
+// compiler arguments agree. No source/configuration mutation occurs between
+// them, and the observations never survive this invocation of the gate.
+assertHaxeHxxNegatives(assertHxxDiagnosticRanges());
 ok(!existsSync(path.join(
   repoRoot,
   "tests/genes-ts/snapshot/react/out/negative/js/html"

@@ -244,9 +244,18 @@ function publishedFiles(directory: string): ReadonlyArray<string> {
   return files;
 }
 
-export function assertHxxDiagnosticRanges(): void {
+/**
+ * Returns diagnostics already proved to fail without publishing files. The
+ * caller may apply additional assertions to these same observations before
+ * changing the source or compiler configuration. Only the default build
+ * arguments qualify; provider overrides must be compiled separately.
+ */
+export function assertHxxDiagnosticRanges(): ReadonlyMap<string, string> {
+  const verifiedDefaultDiagnostics = new Map<string, string>();
   assertDiagnosticBlockGrouping();
   for (const rangeCase of cases) {
+    console.log(`genes-tsx:range:start ${rangeCase.define}`);
+    const startedAt = performance.now();
     const sourcePath = path.join(repoRoot, rangeCase.sourceFile);
     const sourceLines = readFileSync(sourcePath, "utf8").split(/\r?\n/);
     const lineIndex = sourceLines.findIndex((line) =>
@@ -313,9 +322,14 @@ export function assertHxxDiagnosticRanges(): void {
       0,
       `${rangeCase.name} published output after a failed HXX check:\n${files.join("\n")}`
     );
+    if (rangeCase.extraArgs === undefined) {
+      verifiedDefaultDiagnostics.set(rangeCase.define, output);
+    }
+    console.log(`genes-tsx:range:passed ${rangeCase.define} durationMs=${Math.round(performance.now() - startedAt)}`);
   }
 
   rmSync(negativeOutputDir, { recursive: true, force: true });
+  return verifiedDefaultDiagnostics;
 }
 
 if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === __filename) {

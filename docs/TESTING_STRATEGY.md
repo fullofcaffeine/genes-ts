@@ -591,6 +591,14 @@ What these cover:
 - **Strict TS typecheck**: `tsc -p ...` on generated TS/TSX.
 - **Runtime smoke**: execute compiled JS under Node.
 
+The TSX gate checks both diagnostic ranges and negative-case messages. When
+those checks use the same compiler arguments, they inspect one fresh compiler
+result. Range checks first prove failure, exact source coordinates and no
+published files. Message checks then verify the diagnostic ID and authored
+line. Provider overrides compile separately. Results are not saved for later
+runs, and source or compiler settings must not change between the checks.
+Per-case start and completion messages show where a timeout occurred.
+
 The authoritative same-source and output-quality layers are separately
 available:
 
