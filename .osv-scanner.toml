@@ -3,6 +3,18 @@
 # Keep exceptions narrow and time-bounded. Prefer upgrading dependencies over
 # ignoring vulnerabilities.
 
+# Removal and re-evaluation owner: genes-mlv9, due before 2026-10-20.
+# These are usage exclusions, not claims that the packages are fixed.
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2026-10-20
+reason = "Recursive braces expansion is outside Genes usage: the installed consumers are semantic-release branch matching and commit-analyzer, whose micromatch matching APIs delegate to picomatch, not braces parse/compile/expand. Release patterns come from reviewed release.config.cjs; commit text is matched data. Recheck on consumer or API changes. Removal: genes-mlv9."
+
+[[IgnoredVulns]]
+id = "GHSA-ch52-4w7c-c8xp"
+ignoreUntil = 2026-10-20
+reason = "The reported shared-cache behavior is outside Genes usage: the installed http-cache-semantics consumer is make-fetch-happen, whose cache policy constructs and revalidates with shared=false, verified through native policy serialization. Genes does not expose this dependency as a shared HTTP cache. Recheck on consumer or cache-mode changes. Removal: genes-mlv9."
+
 [[PackageOverrides]]
 name = "lix"
 ecosystem = "npm"

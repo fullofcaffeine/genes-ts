@@ -555,7 +555,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
     isRecord(peerDependencies) &&
       peerDependencies.postcss === "8.5.25" &&
       peerDependencies["postcss-modules"] === "9.0.1" &&
-      peerDependencies["postcss-selector-parser"] === "7.1.4" &&
+      peerDependencies["postcss-selector-parser"] === "7.1.6" &&
       peerDependencies.typescript === programApiEngine.version &&
       Object.keys(peerDependencies).length === 4 &&
       isRecord(peerDependenciesMeta) &&
@@ -1061,7 +1061,7 @@ console.log("tooling-packed-consumer:ok");
       "--package-lock=false",
       "postcss@8.5.25",
       "postcss-modules@9.0.1",
-      "postcss-selector-parser@7.1.4",
+      "postcss-selector-parser@7.1.6",
       `typescript@${programApiEngine.version}`,
     ],
     consumer,
