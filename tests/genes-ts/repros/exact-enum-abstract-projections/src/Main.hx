@@ -132,6 +132,40 @@ typedef DomainModel = {
 class Main {
   static var selectedReview: ReviewState = ReviewState.Pending;
 
+  /** Full DCE must not widen a generic result instantiated by this return type. */
+  public static function genericReview(raw: Null<String>): DomainResult<ReviewState> {
+    return switch raw {
+      case "pending": DomainResult.Value(ReviewState.Pending);
+      case "approved": DomainResult.Value(ReviewState.Approved);
+      case _: DomainResult.Invalid;
+    };
+  }
+
+  /** Returns inside a loop keep the method contract through non-result operands. */
+  public static function loopReview(values: Array<String>): DomainResult<ReviewState> {
+    for (value in values)
+      if (value == "pending")
+        return DomainResult.Value(ReviewState.Pending);
+    return DomainResult.Invalid;
+  }
+
+  /** A broad nested callback must not borrow this outer method's closed result. */
+  public static function callbackReview(): DomainResult<ReviewState> {
+    final callbacks: Array<Void->DomainResult<String>> = [
+      function(): DomainResult<String> {
+        return DomainResult.Value("outside");
+      }
+    ];
+    switch callbacks[0]() {
+      case Value(value):
+        if (value != "outside")
+          throw "nested callback narrowed";
+      case Invalid:
+        throw "nested callback changed";
+    }
+    return DomainResult.Value(ReviewState.Approved);
+  }
+
   /** Null and an unrecognized string must not manufacture a closed-domain value. */
   static function parseReview(raw: String): Null<ReviewState> {
     return switch raw {
@@ -176,6 +210,14 @@ class Main {
     if (parsed == null)
       invalidReview();
     return Selected(parsed);
+  }
+
+  /** Source generic parameters must not erase the lowered nullable argument bridge. */
+  public static function decodeGenericDecision(raw: String): DomainResult<ReviewState> {
+    final parsed = parseReview(raw);
+    if (parsed == null)
+      invalidReview();
+    return DomainResult.Value(parsed);
   }
 
   /** A switch payload must agree with the source-typed record destination. */
@@ -268,6 +310,34 @@ class Main {
   }
 
   static function main(): Void {
+    for (result in [
+      ReviewDecoder.reviewFromText("approved"),
+      loopReview(["outside", "pending"]),
+      callbackReview(),
+      decodeGenericDecision("approved")
+    ]) {
+      switch result {
+        case Value(value):
+          if (value != ReviewState.Approved && value != ReviewState.Pending)
+            throw "generic return lost domain";
+        case Invalid:
+          throw "generic return lost value";
+      }
+    }
+
+    switch genericReview("approved") {
+      case Value(value):
+        if (value != ReviewState.Approved)
+          throw "generic result domain changed";
+      case Invalid:
+        throw "valid generic result rejected";
+    }
+    switch genericReview("outside") {
+      case Invalid:
+      case Value(_):
+        throw "outside generic result accepted";
+    }
+
     if (unwrapReviewDecision(decodeDecision("approved"))
       .value != ReviewState.Approved)
       throw "nullable constructor domain changed";
