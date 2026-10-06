@@ -213,7 +213,7 @@ files.
 Install the exact optional peers:
 
 ```bash
-npm install --save-exact postcss@8.5.25 postcss-modules@9.0.1 postcss-selector-parser@7.1.4
+npm install --save-exact postcss@8.5.25 postcss-modules@9.0.1 postcss-selector-parser@7.1.6
 ```
 
 Import `createPostcssModulesManifest` from

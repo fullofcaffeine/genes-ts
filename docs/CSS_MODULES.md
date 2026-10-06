@@ -59,7 +59,7 @@ For a pinned PostCSS Modules project, install these exact optional peers:
 npm install --save-exact \
   postcss@8.5.25 \
   postcss-modules@9.0.1 \
-  postcss-selector-parser@7.1.4
+  postcss-selector-parser@7.1.6
 ```
 
 Then call the fixed provider:

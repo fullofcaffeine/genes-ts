@@ -154,7 +154,7 @@
     "lix": "^16.0.2",
     "postcss": "8.5.25",
     "postcss-modules": "9.0.1",
-    "postcss-selector-parser": "7.1.4",
+    "postcss-selector-parser": "7.1.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.3.0",
@@ -184,7 +184,10 @@
     "qs": "6.16.0",
     "@sigstore/core": "3.2.1",
     "sigstore": "4.1.1",
-    "tar": "7.5.22"
+    "tar": "7.5.22",
+    "postcss-selector-parser": "7.1.6",
+    "source-map-js": "1.2.2",
+    "proxy-addr": "2.0.8"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
