@@ -338,6 +338,29 @@ class Main {
         throw "outside generic result accepted";
     }
 
+    final callbackDecisions = [false, true].map(approved -> {
+      final callbackState: ReviewState = approved ? ReviewState.Approved : ReviewState.Pending;
+      var callbackBroad: String = ReviewState.Pending;
+      callbackBroad = approved ? "outside" : "other";
+      if (callbackBroad != (approved ? "outside" : "other"))
+        throw "inlined String local narrowed";
+      return ReviewDecision.Selected(callbackState);
+    });
+    if (callbackDecisions.length != 2
+      || unwrapReviewDecision(callbackDecisions[0]).value != ReviewState.Pending
+      || unwrapReviewDecision(callbackDecisions[1])
+        .value != ReviewState.Approved)
+      throw "inlined callback local changed its domain or value";
+    final callbackNullable = [false, true].map(present -> {
+      final callbackOptional: Null<ReviewState> = present ? ReviewState.Approved : null;
+      return
+        callbackOptional == null ? ReviewDecision.Empty : ReviewDecision.Selected(callbackOptional);
+    });
+    if (callbackNullable.length != 2
+      || callbackNullable[0] != ReviewDecision.Empty
+      || unwrapReviewDecision(callbackNullable[1])
+        .value != ReviewState.Approved)
+      throw "inlined nullable local changed its domain or null behavior";
     if (unwrapReviewDecision(decodeDecision("approved"))
       .value != ReviewState.Approved)
       throw "nullable constructor domain changed";

@@ -262,6 +262,14 @@ class Main {
         throw "generic return rejected";
     }
 
+    final mappedModes = [false, true].map(second -> {
+      final mode: ServerMode = second ? ServerMode.Second : ServerMode.First;
+      return ServerDecision.Selected(mode);
+    });
+    if (mappedModes.length != 2
+      || decisionMode(mappedModes[0]).value != ServerMode.First
+      || decisionMode(mappedModes[1]).value != ServerMode.Second)
+      throw "inlined callback local domain changed";
     if (restoredMode(null, true).value != ServerMode.First
       || restoredMode(ServerMode.First, false).value != ServerMode.Second)
       throw "closed local initialization changed";
