@@ -6,12 +6,14 @@ import haxe.macro.Expr.Constant;
 import haxe.macro.Expr.ExprDef;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
+import haxe.ds.ObjectMap;
 import genes.Dependencies.DependencySpec;
 import genes.Dependencies.DependencyType;
 import genes.BindingIdentity.BindingIdentity;
 import genes.BindingIdentity.BindingOriginKey;
 import genes.BindingIdentity.CompilerCapabilityId;
 import genes.BindingIdentity.StaticFieldOriginKey;
+import genes.Dependencies.DependencyRequest;
 import genes.DependencyPlan.DependencyEdge;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImport;
@@ -27,6 +29,11 @@ import genes.util.Timer.timer;
 #end
 
 using haxe.macro.TypedExprTools;
+
+private typedef NormalizedDependencyReference = {
+  final referencedType: ModuleType;
+  final importSpec: DependencyImport;
+}
 
 /**
  * Builds one module's dependency graph from typed Haxe facts.
@@ -49,6 +56,8 @@ using haxe.macro.TypedExprTools;
 class DependencyPlanBuilder {
   final module: Module;
   final edges: Array<DependencyEdge> = [];
+  final normalizedReferences = new ObjectMap<Ref<BaseType>,
+    Array<NormalizedDependencyReference>>();
   var usesJsxNamespaceType = false;
   var hasReactStateBinding = false;
 
@@ -90,16 +99,61 @@ class DependencyPlanBuilder {
       rule: String, pos: Position): Void {
     if (type == null)
       return;
-    final requests = Dependencies.requests(module, type);
-    if (requests.length == 0) {
+    final references = normalizedReferencesFor(type);
+    if (references.length == 0) {
       addEdge(kind, type, null, rule, pos);
       return;
     }
-    for (request in requests) {
-      addEdge(kind, request.referencedType,
-        Bound(new DependencyImport(request.dependency, request.bindingFact)),
+    for (reference in references)
+      addEdge(kind, reference.referencedType, Bound(reference.importSpec),
         rule, pos);
+  }
+
+  /**
+   * Normalizes each declaration once while preserving every encountered edge.
+   *
+   * Type collection can encounter one declaration hundreds of times through
+   * member signatures and expression locals. Import metadata and canonical
+   * binding identity depend only on that typed declaration and this builder's
+   * fixed source module, so repeating that work cannot change the result.
+   *
+   * The key is the exact lazy compiler reference. A textual
+   * module/name key is not sufficient because Haxe can apply `@:native` to two
+   * declarations in one module and expose the same rewritten target name for
+   * both. Haxe explicitly preserves physical identity on `Ref<T>` while
+   * `ref.get()` can encode a fresh structure, so the reference is the precise
+   * request-local cache authority. It cannot leak across compiler-server
+   * builds. Cached imports are immutable; callers still append one edge for
+   * every occurrence in its original order and with its original provenance.
+   */
+  function normalizedReferencesFor(type: ModuleType): Array<NormalizedDependencyReference> {
+    final declaration = declarationFor(type);
+    if (normalizedReferences.exists(declaration))
+      return normalizedReferences.get(declaration);
+
+    final references = normalizeRequests(Dependencies.requests(module, type));
+    normalizedReferences.set(declaration, references);
+    return references;
+  }
+
+  static function declarationFor(type: ModuleType): Ref<BaseType> {
+    return switch type {
+      case TClassDecl(ref): ref;
+      case TEnumDecl(ref): ref;
+      case TTypeDecl(ref): ref;
+      case TAbstract(ref): ref;
     }
+  }
+
+  static function normalizeRequests(requests: Array<DependencyRequest>): Array<NormalizedDependencyReference> {
+    return [
+      for (request in requests)
+        {
+          referencedType: request.referencedType,
+          importSpec: new DependencyImport(request.dependency,
+            request.bindingFact)
+        }
+    ];
   }
 
   function addImport(kind: DependencyEdgeKind, dependency: DependencySpec,
@@ -539,8 +593,19 @@ class DependencyPlanBuilder {
 
   function collectTypeEdges(kind: DependencyEdgeKind,
       includeExpressionLocals: Bool): Void {
+    function addTypeReference(type: ModuleType, rule: String,
+        pos: Position): Void {
+      #if genes.compile_stage_profile
+      final endImportNormalizationTimer = timer('genes.plan.reachability.typeCollection.importNormalization');
+      #end
+      addReference(kind, type, rule, pos);
+      #if genes.compile_stage_profile
+      endImportNormalizationTimer();
+      #end
+    }
+
     final collector = new TypeReferenceCollector((type, rule,
-        pos) -> addReference(kind, type, rule, pos),
+        pos) -> addTypeReference(type, rule, pos),
       (template, _, _) -> {
         // Both typed implementations and classic declarations can print a raw
         // `JSX.*` projection. Record one shared semantic fact so neither
@@ -555,6 +620,9 @@ class DependencyPlanBuilder {
     // and explicit generic arguments that implementation emission may print.
     // Collect every referenced type before binding allocation; the emitter must
     // never discover another imported type after this point.
+    #if genes.compile_stage_profile
+    final endBoundaryPlanTimer = timer('genes.plan.reachability.typeCollection.boundaryPlanReferences');
+    #end
     if (includeExpressionLocals)
       for (reference in module.tsBoundaryPlan.referencedTypes())
         collector.collect(reference.type,
@@ -564,6 +632,9 @@ class DependencyPlanBuilder {
       for (reference in module.reactStateInitializationPlan.referencedTypes())
         collector.collect(reference.type, 'type.react-state-initialization',
           reference.pos);
+    #if genes.compile_stage_profile
+    endBoundaryPlanTimer();
+    #end
 
     final undefinablePresentTypes: Array<{
       final type: Type;
@@ -623,11 +694,17 @@ class DependencyPlanBuilder {
     function collectExpressionTypes(expression: TypedExpr): Void {
       if (expression == null)
         return;
+      #if genes.compile_stage_profile
+      final endExpressionLocalsTimer = timer('genes.plan.reachability.typeCollection.expressionLocals');
+      #end
       undefinablePresentTypes.resize(0);
       visitExpressionTypes(expression);
       for (marker in undefinablePresentTypes)
         collector.collect(marker.type, 'type.undefinable-present-assertion',
           marker.pos);
+      #if genes.compile_stage_profile
+      endExpressionLocalsTimer();
+      #end
     }
 
     function collectSignature(field: Field): Void {
@@ -656,6 +733,9 @@ class DependencyPlanBuilder {
         continue;
       switch member {
         case MClass(cl, params, fields):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collectParams(params, true, '$kind.owner-parameters',
             cl.pos);
           final publicSurface = PublicSurface.forClass(cl);
@@ -667,7 +747,7 @@ class DependencyPlanBuilder {
             if (kind != DeclarationOnly || cl.isInterface
               || PublicSurface.runtimeSatisfiesInterface(cl,
                 parent.type.get())) {
-              addReference(kind, TClassDecl(parent.type), '$kind.interface',
+              addTypeReference(TClassDecl(parent.type), '$kind.interface',
                 cl.pos);
               collector.collectParams(parent.copyArguments(), true,
                 '$kind.interface-arguments', cl.pos);
@@ -676,7 +756,7 @@ class DependencyPlanBuilder {
           switch publicSurface.superClassFor(params) {
             case null:
             case parent:
-              addReference(kind, TClassDecl(parent.type), '$kind.superclass',
+              addTypeReference(TClassDecl(parent.type), '$kind.superclass',
                 cl.pos);
               collector.collectParams(parent.copyArguments(), true,
                 '$kind.superclass-arguments', cl.pos);
@@ -716,6 +796,9 @@ class DependencyPlanBuilder {
                 collectSignature(field);
               }
           }
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
           if (includeExpressionLocals) {
             for (field in fields)
               collectExpressionTypes(field.expr);
@@ -723,6 +806,9 @@ class DependencyPlanBuilder {
           }
 
         case MEnum(enumType, params):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collectParams(params, true, '$kind.enum-parameters',
             enumType.pos);
           for (constructor in enumType.constructs) {
@@ -737,17 +823,32 @@ class DependencyPlanBuilder {
               default:
             }
           }
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
 
         case MMain(expression):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collect(expression.t, '$kind.main-result', expression.pos);
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
           if (includeExpressionLocals)
             collectExpressionTypes(expression);
 
         case MType(definition, params):
+          #if genes.compile_stage_profile
+          final endMemberSignaturesTimer = timer('genes.plan.reachability.typeCollection.memberSignatures');
+          #end
           collector.collectParams(params, true, '$kind.typedef-parameters',
             definition.pos);
           collector.collect(definition.type, '$kind.typedef-body',
             definition.pos);
+          #if genes.compile_stage_profile
+          endMemberSignaturesTimer();
+          #end
       }
     }
   }

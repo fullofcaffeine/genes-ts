@@ -11,6 +11,7 @@ import {
   requireCleanStatus,
   scheduleForRound,
   sourceFor,
+  typeEdgeSubownerReportedSeconds,
   validateOutputPath,
   type BenchmarkSample
 } from "./benchmark-dependency-plan.js";
@@ -118,10 +119,22 @@ const synthetic = {
       percentOfTotal: 40,
       percentOfParent: 50,
       count: 1
+    },
+    {
+      id: "genes.plan.reachability.typeCollection.memberSignatures",
+      path: "genes.plan.reachability.expand/genes.plan.reachability.typeEdges/genes.plan.reachability.typeCollection.memberSignatures",
+      reportedSeconds: 0.5,
+      percentOfTotal: 10,
+      percentOfParent: 50,
+      count: 64
     }
   ]
 } satisfies Pick<BenchmarkSample, "timings">;
 strictEqual(plannerReportedSeconds(synthetic), 1);
 strictEqual(plannerPercentOfTotal(synthetic), 20);
+strictEqual(typeEdgeSubownerReportedSeconds(
+  synthetic,
+  "genes.plan.reachability.typeCollection.memberSignatures"
+), 0.5);
 
 process.stdout.write("dependency-plan benchmark controls passed\n");

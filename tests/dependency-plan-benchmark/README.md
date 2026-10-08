@@ -59,11 +59,15 @@ The JSON records:
   load averages;
 - the seed, full command, case order, and every individual sample;
 - exact runtime/type-only import counts and stable output-tree hashes;
-- wall-time and planner-owner distributions for each case; and
+- wall-time and planner-owner distributions for each case;
+- boundary-plan, member-signature, expression-local, recursive-expansion, and
+  import-normalization type-edge distributions and invocation counts; and
 - the measured sensitivity ratio.
 
 The first isolated five-round baseline and every sample are recorded in
 [`HOSTED_BASELINE_081CEEA3.md`](HOSTED_BASELINE_081CEEA3.md).
+The measured request-local declaration-normalization cache comparison is in
+[`HOSTED_NORMALIZATION_CACHE_B6C02532.md`](HOSTED_NORMALIZATION_CACHE_B6C02532.md).
 
 Temporary compiler inputs, generated sources, and output are removed before the
 report is published.

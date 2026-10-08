@@ -31,6 +31,13 @@ const defaultSeed = 20260905;
 const defaultSensitivityMultiplier = 8;
 const defaultSensitivitySamples = 3;
 const compileTimeoutMs = 15 * 60_000;
+const typeEdgeSubownerIds = [
+  "genes.plan.reachability.typeCollection.boundaryPlanReferences",
+  "genes.plan.reachability.typeCollection.memberSignatures",
+  "genes.plan.reachability.typeCollection.expressionLocals",
+  "genes.plan.reachability.typeCollection.recursiveExpansion",
+  "genes.plan.reachability.typeCollection.importNormalization"
+] as const;
 const selectedTimingIds = new Set([
   "total",
   "parsing",
@@ -44,6 +51,7 @@ const selectedTimingIds = new Set([
   "genes.plan.reachability.expand",
   "genes.plan.reachability.runtimeEdges",
   "genes.plan.reachability.typeEdges",
+  ...typeEdgeSubownerIds,
   "genes.validate.modules",
   "genes.emit.implementation",
   "genes.publish.transaction"
@@ -127,6 +135,11 @@ interface CaseAggregate {
   readonly wallMilliseconds: Distribution;
   readonly plannerReportedSeconds: Distribution;
   readonly plannerPercentOfTotal: Distribution;
+  readonly typeEdgeSubowners: ReadonlyArray<{
+    readonly id: typeof typeEdgeSubownerIds[number];
+    readonly reportedSeconds: Distribution;
+    readonly invocationCount: Distribution;
+  }>;
 }
 
 interface DependencyPlanBenchmarkReport {
@@ -356,6 +369,15 @@ export function plannerPercentOfTotal(sample: Pick<BenchmarkSample, "timings">):
     .reduce((sum, row) => sum + row.percentOfTotal, 0);
 }
 
+export function typeEdgeSubownerReportedSeconds(
+  sample: Pick<BenchmarkSample, "timings">,
+  id: typeof typeEdgeSubownerIds[number]
+): number {
+  return sample.timings
+    .filter((row) => row.id === id)
+    .reduce((sum, row) => sum + row.reportedSeconds, 0);
+}
+
 export function distribution(values: ReadonlyArray<number>): Distribution {
   ok(values.length > 0, "cannot summarize an empty distribution");
   const samples = [...values];
@@ -489,7 +511,15 @@ function aggregateSamples(samples: ReadonlyArray<BenchmarkSample>): ReadonlyArra
       referenceMultiplier: first.referenceMultiplier,
       wallMilliseconds: distribution(group.map((sample) => sample.wallMilliseconds)),
       plannerReportedSeconds: distribution(group.map(plannerReportedSeconds)),
-      plannerPercentOfTotal: distribution(group.map(plannerPercentOfTotal))
+      plannerPercentOfTotal: distribution(group.map(plannerPercentOfTotal)),
+      typeEdgeSubowners: typeEdgeSubownerIds.map((id) => ({
+        id,
+        reportedSeconds: distribution(group.map((sample) =>
+          typeEdgeSubownerReportedSeconds(sample, id))),
+        invocationCount: distribution(group.map((sample) => sample.timings
+          .filter((row) => row.id === id)
+          .reduce((sum, row) => sum + row.count, 0)))
+      }))
     };
   });
 }
@@ -759,6 +789,9 @@ async function main(): Promise<void> {
         + `wall median=${aggregate.wallMilliseconds.median.toFixed(1)}ms; `
         + `planner share median=${aggregate.plannerPercentOfTotal.median.toFixed(1)}%\n`
       );
+      process.stdout.write(`${aggregate.typeEdgeSubowners.map((owner) =>
+        `${owner.id.split(".").at(-1)}=${owner.reportedSeconds.median.toFixed(3)}s`
+      ).join("; ")}\n`);
     }
     process.stdout.write(
       `sensitivity planner ratio=${report.sensitivity.detectedRatio.toFixed(2)}x\n`

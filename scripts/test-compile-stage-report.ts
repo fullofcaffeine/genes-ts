@@ -36,6 +36,26 @@ function assertOptionalReachabilityRows(
     {
       id: "genes.plan.reachability.declarationEdges",
       path: "genes.plan.reachability.expand/genes.plan.reachability.declarationEdges"
+    },
+    {
+      id: "genes.plan.reachability.typeCollection.boundaryPlanReferences",
+      path: "genes.plan.reachability.typeCollection.boundaryPlanReferences"
+    },
+    {
+      id: "genes.plan.reachability.typeCollection.memberSignatures",
+      path: "genes.plan.reachability.typeCollection.memberSignatures"
+    },
+    {
+      id: "genes.plan.reachability.typeCollection.expressionLocals",
+      path: "genes.plan.reachability.typeCollection.expressionLocals"
+    },
+    {
+      id: "genes.plan.reachability.typeCollection.recursiveExpansion",
+      path: "genes.plan.reachability.typeCollection.recursiveExpansion"
+    },
+    {
+      id: "genes.plan.reachability.typeCollection.importNormalization",
+      path: "genes.plan.reachability.typeCollection.importNormalization"
     }
   ]) {
     const row = rows.find((candidate) => candidate.id === expected.id);
@@ -59,7 +79,14 @@ for (const [source, timerIds] of [
   ["src/genes/DependencyPlanBuilder.hx", [
     "genes.plan.reachability.runtimeEdges",
     "genes.plan.reachability.typeEdges",
-    "genes.plan.reachability.declarationEdges"
+    "genes.plan.reachability.declarationEdges",
+    "genes.plan.reachability.typeCollection.boundaryPlanReferences",
+    "genes.plan.reachability.typeCollection.memberSignatures",
+    "genes.plan.reachability.typeCollection.expressionLocals",
+    "genes.plan.reachability.typeCollection.importNormalization"
+  ]],
+  ["src/genes/TypeReferenceCollector.hx", [
+    "genes.plan.reachability.typeCollection.recursiveExpansion"
   ]]
 ] as const) {
   const authoredSource = readFileSync(path.join(repoRoot, source), "utf8");
@@ -114,6 +141,26 @@ const syntheticFineRows = [
   syntheticFineRow(
     "genes.plan.reachability.declarationEdges",
     "genes.plan.reachability.expand/genes.plan.reachability.declarationEdges"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeCollection.boundaryPlanReferences",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges/genes.plan.reachability.typeCollection.boundaryPlanReferences"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeCollection.memberSignatures",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges/genes.plan.reachability.typeCollection.memberSignatures"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeCollection.expressionLocals",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges/genes.plan.reachability.typeCollection.expressionLocals"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeCollection.recursiveExpansion",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges/genes.plan.reachability.typeCollection.memberSignatures/genes.plan.reachability.typeCollection.recursiveExpansion"
+  ),
+  syntheticFineRow(
+    "genes.plan.reachability.typeCollection.importNormalization",
+    "genes.plan.reachability.expand/genes.plan.reachability.typeEdges/genes.plan.reachability.typeCollection.memberSignatures/genes.plan.reachability.typeCollection.recursiveExpansion/genes.plan.reachability.typeCollection.importNormalization"
   )
 ];
 assertOptionalReachabilityRows(syntheticFineRows, "positive hierarchy control");
