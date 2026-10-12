@@ -96,6 +96,19 @@ class TrackingSink extends Writable {
   }
 }
 
+/** PID markers are complete records, never POSIX process-group selectors. */
+function parsePidMarker(contents: string): number {
+  ok(/^[1-9][0-9]*\n$/u.test(contents), "Incomplete or invalid PID marker");
+  const pid = Number(contents.trim());
+  ok(Number.isSafeInteger(pid) && pid > 1, "Invalid child PID marker");
+  return pid;
+}
+
+for (const invalid of ["", "\n", "0\n", "1\n", "-2\n", "12", "12x\n", "9007199254740992\n"]) {
+  throws(() => parsePidMarker(invalid), /PID marker/u);
+}
+strictEqual(parsePidMarker("12345\n"), 12345);
+
 async function isRunning(
   pid: number,
   timeoutMs = processStartupTimeoutMs
@@ -743,7 +756,7 @@ try {
         cleanupFailureOwner.unref();
       }
       if (existsSync(cleanupFailurePidPath)) {
-        const markerPid = Number(readFileSync(cleanupFailurePidPath, "utf8").trim());
+        const markerPid = parsePidMarker(readFileSync(cleanupFailurePidPath, "utf8"));
         if (Number.isSafeInteger(markerPid) && !cleanupPids.includes(markerPid)) {
           cleanupPids = [...cleanupPids, markerPid];
         }
@@ -820,7 +833,7 @@ try {
         missingPidOwner.unref();
       }
       if (existsSync(missingPidPath)) {
-        const missingPid = Number(readFileSync(missingPidPath, "utf8").trim());
+        const missingPid = parsePidMarker(readFileSync(missingPidPath, "utf8"));
         try {
           process.kill(-missingPid, "SIGKILL");
         } catch {
@@ -851,7 +864,7 @@ try {
     let fallbackPid: number | null = null;
     try {
       await waitForPath(fallbackMarkerPath, fixtureCompletionTimeoutMs);
-      fallbackPid = Number(readFileSync(fallbackMarkerPath, "utf8").trim());
+      fallbackPid = parsePidMarker(readFileSync(fallbackMarkerPath, "utf8"));
       await rejects(waitForPath(failedMarkerPath, 100), /Timed out waiting/u);
       const failedMarkerExit = await waitForExit(
         failedMarkerOwner,
@@ -1293,7 +1306,7 @@ try {
     performance.now() - stdinFailureStarted < fixtureCompletionTimeoutMs,
     "Writer stdin failure escaped its bound"
   );
-  const stdinFailurePid = Number(readFileSync(stdinFailurePidPath, "utf8").trim());
+  const stdinFailurePid = parsePidMarker(readFileSync(stdinFailurePidPath, "utf8"));
   strictEqual(await isRunning(stdinFailurePid), false, "Failed evidence writer survived");
 
   const stateTimeoutRoot = path.join(reportRoot, "state-timeout");
