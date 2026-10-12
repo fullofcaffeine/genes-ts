@@ -680,10 +680,11 @@ export function recoveredAdmissionMode(
 }
 
 /**
- * Records an exact live tree from an older host without rewriting that tree.
+ * Records an exact live tree from another publisher without rewriting it.
  *
  * Every generated and supplemental file appears as an unchanged transition.
- * The only new public byte is DevelopmentSession's commit marker.
+ * Only DevelopmentSession's commit marker changes. Replacement binds its
+ * exact previous state; first import requires the marker to be absent.
  */
 export function prepareExistingGenerationImport(
   layout: SessionLayout,
@@ -693,6 +694,7 @@ export function prepareExistingGenerationImport(
   acceptedAt: number,
   validatorPolicyFacts: JsonValue,
   sessionNonce: string,
+  previousMarker: ExpectedFileState = ABSENT,
 ): PreparedPublication {
   const accepted: AcceptedGeneration = Object.freeze({
     generation: 1,
@@ -805,7 +807,7 @@ export function prepareExistingGenerationImport(
       artifacts: Object.freeze(artifacts),
       commitMarker: Object.freeze({
         path: layout.generationMarkerRelative,
-        prior: ABSENT,
+        prior: previousMarker,
         next: Object.freeze({
           kind: "file" as const,
           sha256: sha256Bytes(marker),

@@ -37,7 +37,9 @@ import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
 } from "./session/runtime.js";
-import { acquireSessionLock } from "./session/session-lock.js";
+import { acceptedGenerationBytes } from "./session/publication.js";
+import { readExistingGenerationMarkerDigest } from "./session/index.js";
+import { acquireSessionLock, claimSessionRootOwner } from "./session/session-lock.js";
 import type {
   DevelopmentEvent,
   DevelopmentSession,
@@ -443,8 +445,11 @@ async function execute(vector: Vector): Promise<void> {
     mkdirSync(path.dirname(treeExtraInput), { recursive: true });
     writeFileSync(treeExtraInput, "{\"version\":1}\n", "utf8");
   }
-  const usesExistingGeneration =
+  const usesReplacement =
+    vector.id === "existing-generation-replacement-survives-first-build-failure";
+  const usesExistingGeneration = usesReplacement ||
     vector.id === "existing-generation-survives-first-build-failure";
+  let previousMarkerSha256: string | null = null;
   let existingImport: ExistingGenerationImport | undefined;
   let existingAdapter: Buffer | null = null;
   if (usesExistingGeneration) {
@@ -498,6 +503,22 @@ async function execute(vector: Vector): Promise<void> {
         }),
       ]),
     });
+  }
+  if (usesReplacement) {
+    const scope = {projectRoot: root, projectIdentity: vector.id,
+      publicOutputFile: "src-gen/index.ts", stateDirectory: ".genes/dev"};
+    const layout = resolveSessionLayout(root, vector.id, scope.publicOutputFile, scope.stateDirectory);
+    const markerPath = path.join(root, layout.generationMarkerRelative);
+    mkdirSync(path.dirname(markerPath), {recursive: true});
+    claimSessionRootOwner(layout);
+    // Independent prior acceptance: its manifest deliberately differs from
+    // the complete replacement claimed above. Ordinary resume must reject it.
+    writeFileSync(markerPath, acceptedGenerationBytes(layout, {
+      sessionNonce: "prior-session", generation: 7, revision: 8,
+      acceptedAt: 10, manifestDigest: "a".repeat(64),
+    }, existingImport!.supplementalFiles.map(file => ({...file, source: "validator"}))));
+    previousMarkerSha256 = readExistingGenerationMarkerDigest(scope);
+    assert.notEqual(previousMarkerSha256, null);
   }
   const hold =
     vector.id === "burst-supersedes-active-candidate" ||
@@ -673,7 +694,9 @@ async function execute(vector: Vector): Promise<void> {
       validatorPolicyFacts: { vector: vector.id },
       ...(existingImport === undefined
         ? {}
-        : { existingGeneration: { import: existingImport } }),
+        : { existingGeneration: usesReplacement
+            ? {replace: {previousMarkerSha256: previousMarkerSha256!, files: existingImport}}
+            : {import: existingImport} }),
       ...(vector.extraInputs === undefined
         ? {}
         : { extraInputs: vector.extraInputs }),
@@ -745,7 +768,7 @@ async function execute(vector: Vector): Promise<void> {
         break;
     }
 
-    assert.equal(session.state.kind, vector.expected.finalState, vector.id);
+    assert.equal(session.state.kind, vector.expected.finalState, `${vector.id}: ${JSON.stringify(session.inspect())}`);
     assert.equal(
       session.inspect().newestRevision,
       vector.expected.revisionsObserved,

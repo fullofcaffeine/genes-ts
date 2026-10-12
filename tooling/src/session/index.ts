@@ -16,6 +16,7 @@ export type {
   ExistingGenerationFile,
   ExistingGenerationImport,
   ExistingGenerationPolicy,
+  ExistingGenerationReplacement,
   FailurePhase,
   FileDelta,
   GenesDevelopmentOptions,
@@ -41,6 +42,7 @@ export {
   readGenesOutput,
 } from "./genes-output.js";
 export { HAXE_4_3_7_DEVELOPMENT_JS_POLICY } from "./effective-invocation.js";
+export { readExistingGenerationMarkerDigest } from "./existing-generation.js";
 export {
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,
   DEVELOPMENT_SESSION_EVENT_VERSION,

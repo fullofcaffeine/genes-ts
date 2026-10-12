@@ -61,6 +61,7 @@ import {
   type SessionLayout,
 } from "./session/layout.js";
 import { snapshotExistingGenerationPolicy } from "./session/existing-generation.js";
+import { readExistingGenerationMarkerDigest } from "./session/index.js";
 import {
   readLiveSupplementalFile,
   recoveredArtifactsMatchPublishedFiles,
@@ -6504,5 +6505,343 @@ for (const source of ["prepared", "admitted"] as const) {
           }),
     }),
   );
+}
+await withHarness("explicit-replacement", async (first) => {
+  await first.session.start();
+  await first.session.waitForIdle();
+  assert.equal(first.session.state.kind, "ready");
+  await first.session.close();
+  const layout = resolveSessionLayout(
+    first.root, "fixture-explicit-replacement", "src-gen/index.ts", ".genes/dev",
+  );
+  const before = readPublishedMarker(layout);
+  assert.equal(before.state.kind, "file");
+  if (before.state.kind !== "file") throw new Error("fixture needs an accepted marker");
+  const replacement = seedOwnedOutput(layout, "export const value = 2;\n");
+  const genesFiles = [...replacement.files, replacement.manifestFile].map(file => ({
+    path: logicalOutputPath(layout, file.relativePath),
+    sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+  }));
+  const previousMarkerSha256 = before.state.sha256;
+  let validations = 0;
+  const second = makeHarness("explicit-replacement", undefined, options => ({
+    ...options,
+    existingGeneration: {replace: {
+      previousMarkerSha256, files: {genesFiles, supplementalFiles: []},
+    }},
+    validate: async tree => {
+      validations++;
+      assert.equal(tree.kind, "recovered-live");
+      assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const value = 2;\n");
+      return {ok: true};
+    },
+  }), first.root);
+  try {
+    // A later failed compile must retain the newly admitted committed tree.
+    second.compiler.steps.push({fail: "fixture next compilation fails"});
+    await second.session.start();
+    const admitted = await second.session.firstAccepted;
+    await second.session.waitForIdle();
+    assert.equal(validations, 1);
+    assert.equal(admitted.manifestDigest, replacement.manifestDigest);
+    assert.equal(admitted.compilerMode, "external");
+    assert.equal(second.session.state.kind, "degraded");
+    assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const value = 2;\n");
+    assert.equal(readPublishedMarker(layout).manifestDigest, replacement.manifestDigest);
+  } finally {
+    await second.session.close();
+  }
+});
+// Exact replacement claims are copied before asynchronous startup work.
+{
+  const files: ExistingGenerationImport = {genesFiles: [], supplementalFiles: []};
+  assert.throws(() => snapshotExistingGenerationPolicy({
+    import: files, replace: {previousMarkerSha256: "a".repeat(64), files},
+  }), /mutually exclusive/u);
+  assert.throws(() => snapshotExistingGenerationPolicy({
+    replace: {previousMarkerSha256: "not-a-digest", files},
+  }), /exact prior marker digest/u);
+  const claim = {previousMarkerSha256: "a".repeat(64), files};
+  const captured = snapshotExistingGenerationPolicy({replace: claim});
+  claim.previousMarkerSha256 = "b".repeat(64);
+  assert.equal(captured?.replace?.previousMarkerSha256, "a".repeat(64));
+  assert.equal(Object.isFrozen(captured?.replace?.files.genesFiles), true);
+}
+
+for (const scenario of [
+  "stale-marker", "missing-marker", "incomplete-inventory", "changed-file",
+  "validator-rejection", "mutation-during-validation", "marker-race",
+  "input-race", "v2-validator-mismatch",
+] as const) {
+  const name = `replacement-${scenario}`;
+  await withHarness(name, async first => {
+    const scope = {
+      projectRoot: first.root, projectIdentity: `fixture-${name}`,
+      publicOutputFile: "src-gen/index.ts", stateDirectory: ".genes/dev",
+    };
+    assert.equal(readExistingGenerationMarkerDigest(scope), null);
+    await first.session.start();
+    await first.session.waitForIdle();
+    await first.session.close();
+    const layout = resolveSessionLayout(
+      first.root, scope.projectIdentity, scope.publicOutputFile, scope.stateDirectory,
+    );
+    const markerPath = path.join(first.root, layout.generationMarkerRelative);
+    if (scenario === "v2-validator-mismatch") {
+      const prior = readPublishedMarker(layout);
+      assert.notEqual(prior.accepted, null);
+      writeFileSync(markerPath, canonicalJson({
+        protocol: "genes.tooling.accepted-generation.v2",
+        sessionNonce: "old-marker", generation: 1, revision: 1, acceptedAt: 1,
+        manifestDigest: prior.manifestDigest!,
+        publicEntry: layout.publicEntryAuthority,
+        publicEntryPath: layout.publicOutputRelative,
+        publicOutputRoot: layout.publicOutputRootAuthority,
+        publicOutputRootPath: layout.publicOutputRootRelative!,
+      }) + "\n");
+    }
+    const originalMarker = readFileSync(markerPath);
+    const previousMarkerSha256 = readExistingGenerationMarkerDigest(scope)!;
+    assert.equal(previousMarkerSha256, sha256Bytes(originalMarker));
+    const live = seedOwnedOutput(layout, "export const replacement = true;\n");
+    const genesFiles = [...live.files, live.manifestFile].map(file => ({
+      path: logicalOutputPath(layout, file.relativePath),
+      sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+    }));
+    if (scenario === "incomplete-inventory") genesFiles.pop();
+    if (scenario === "missing-marker") rmSync(markerPath);
+    if (scenario === "changed-file") writeFileSync(layout.publicOutputFile, "// outside edit\n");
+    let validations = 0;
+    const second = makeHarness(name, undefined, options => ({
+      ...options,
+      existingGeneration: {replace: {
+        previousMarkerSha256: scenario === "stale-marker" ? "0".repeat(64) : previousMarkerSha256,
+        files: {genesFiles, supplementalFiles: []},
+      }},
+      validate: async () => {
+        validations++;
+        if (scenario === "mutation-during-validation") {
+          writeFileSync(layout.publicOutputFile, "// outside edit\n");
+        }
+        if (scenario === "marker-race") {
+          // A valid, newer record must not be overwritten by the captured claim.
+          writeFileSync(markerPath, acceptedGenerationBytes(layout, {
+            sessionNonce: "another-writer", generation: 9, revision: 9,
+            acceptedAt: 9, manifestDigest: live.manifestDigest,
+          }, []));
+        }
+        if (scenario === "input-race") {
+          writeFileSync(second.source, "class Main { static final changed = true; }\n");
+          currentWatch(second).change(second.source);
+        }
+        return scenario === "validator-rejection"
+          ? {ok: false, diagnostic: {code: "HOST-REJECTED", message: "replacement rejected"}}
+          : {ok: true, ...(scenario === "v2-validator-mismatch"
+              ? {artifacts: [{path: "host/unclaimed.ts", content: "// not claimed\n"}]}
+              : {})};
+      },
+    }), first.root);
+    try {
+      await second.session.start();
+      await assert.rejects(second.session.firstAccepted, /fatal session failure/u, scenario);
+      assert.equal(second.compiler.calls, 0, scenario);
+      assert.equal(eventKinds(second).includes("generation-accepted"), false, scenario);
+      const rejectedBeforeValidation = [
+        "stale-marker", "missing-marker", "incomplete-inventory", "changed-file",
+      ].includes(scenario);
+      assert.equal(validations, rejectedBeforeValidation ? 0 : 1, scenario);
+      assert.equal(readFileSync(layout.publicOutputFile, "utf8"),
+        scenario === "changed-file" || scenario === "mutation-during-validation"
+          ? "// outside edit\n" : "export const replacement = true;\n", scenario);
+      if (scenario === "missing-marker") assert.equal(existsSync(markerPath), false);
+      else if (scenario === "marker-race") assert.equal(readPublishedMarker(layout).accepted?.generation, 9);
+      else assert.deepEqual(readFileSync(markerPath), originalMarker, scenario);
+      assert.equal(existsSync(path.join(first.root, "host/unclaimed.ts")), false);
+    } finally {
+      await second.session.close();
+    }
+  });
+}
+for (const omitPrepared of [false, true]) {
+  const name = `replacement-supplemental-${omitPrepared ? "omitted" : "retained"}`;
+  const receipt = {path: "host/receipt.json", content: '{"checked":true}\n'};
+  await withHarness(name, async first => {
+    await first.session.start();
+    await first.session.waitForIdle();
+    assert.equal(first.session.state.kind, "ready");
+    await first.session.close();
+    const layout = resolveSessionLayout(first.root, `fixture-${name}`, "src-gen/index.ts", ".genes/dev");
+    const before = readPublishedMarker(layout);
+    assert.equal(before.state.kind, "file");
+    if (before.state.kind !== "file") throw new Error("fixture needs prior acceptance");
+    const live = seedOwnedOutput(layout, "export const replacement = true;\n");
+    const genesFiles = [...live.files, live.manifestFile].map(file => ({
+      path: logicalOutputPath(layout, file.relativePath),
+      sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+    }));
+    let validations = 0;
+    const second = makeHarness(name, undefined, options => ({
+      ...options,
+      existingGeneration: {replace: {
+        previousMarkerSha256: before.state.kind === "file" ? before.state.sha256 : "",
+        files: {genesFiles, supplementalFiles: before.supplementalFiles
+          .filter(file => !omitPrepared || file.source !== "prepared")},
+      }},
+      validate: async () => { validations++; return {ok: true, artifacts: [receipt]}; },
+    }), first.root);
+    try {
+      second.compiler.steps.push({fail: "keep replacement for observation"});
+      await second.session.start();
+      if (omitPrepared) {
+        await assert.rejects(second.session.firstAccepted, /fatal session failure/u);
+        assert.equal(validations, 0);
+        assert.deepEqual(readPublishedMarker(layout).state, before.state);
+      } else {
+        await second.session.firstAccepted;
+        await second.session.waitForIdle();
+        assert.equal(validations, 1);
+        assert.equal(second.session.state.kind, "degraded");
+        assert.deepEqual(readPublishedMarker(layout).supplementalFiles, before.supplementalFiles);
+        assert.deepEqual(before.supplementalFiles.map(file => [file.path, file.source]), [
+          ["host/prepared.txt", "prepared"], [receipt.path, "validator"],
+        ]);
+      }
+      assert.equal(readFileSync(path.join(first.root, "host/prepared.txt"), "utf8"), "prepared input\n");
+      assert.equal(readFileSync(path.join(first.root, receipt.path), "utf8"), receipt.content);
+    } finally { await second.session.close(); }
+  }, undefined, options => ({
+    ...options,
+    prepareRevision: () => ({ok: true, prepared: {classPaths: [], files: [{
+      relativePath: "prepared.txt", publishPath: "host/prepared.txt", content: "prepared input\n",
+    }]}}),
+    validate: async () => ({ok: true, artifacts: [receipt]}),
+  }));
+}
+
+for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker"] as const) {
+  const name = `replacement-rollback-${checkpoint}`;
+  await withHarness(name, async first => {
+    await first.session.start();
+    await first.session.waitForIdle();
+    await first.session.close();
+    const layout = resolveSessionLayout(first.root, `fixture-${name}`, "src-gen/index.ts", ".genes/dev");
+    const before = readPublishedMarker(layout);
+    if (before.state.kind !== "file") throw new Error("fixture needs prior acceptance");
+    const live = seedOwnedOutput(layout, "export const replacement = true;\n");
+    const second = makeHarness(name, dependencies => ({
+      ...dependencies,
+      publish: options => publishArtifacts({...options, faultInjector: current => {
+        if (current === checkpoint) throw new Error("fixture interrupts replacement");
+      }}),
+    }), options => ({
+      ...options,
+      existingGeneration: {replace: {
+        previousMarkerSha256: before.state.kind === "file" ? before.state.sha256 : "",
+        files: {genesFiles: [...live.files, live.manifestFile].map(file => ({
+          path: logicalOutputPath(layout, file.relativePath),
+          sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+        })), supplementalFiles: []},
+      }},
+    }), first.root);
+    try {
+      await second.session.start();
+      await assert.rejects(second.session.firstAccepted, /fatal session failure/u);
+      assert.deepEqual(readPublishedMarker(layout).state, before.state, checkpoint);
+      assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const replacement = true;\n");
+      assert.equal(eventKinds(second).includes("generation-accepted"), false);
+    } finally { await second.session.close(); }
+  });
+}
+
+{
+  const name = "replacement-cancel-and-lock";
+  const validating = deferred<void>();
+  const release = deferred<void>();
+  await withHarness(name, async first => {
+    await first.session.start();
+    await first.session.waitForIdle();
+    await first.session.close();
+    const layout = resolveSessionLayout(first.root, `fixture-${name}`, "src-gen/index.ts", ".genes/dev");
+    const before = readPublishedMarker(layout);
+    if (before.state.kind !== "file") throw new Error("fixture needs prior acceptance");
+    const live = seedOwnedOutput(layout, "export const replacement = true;\n");
+    const second = makeHarness(name, undefined, options => ({
+      ...options,
+      existingGeneration: {replace: {
+        previousMarkerSha256: before.state.kind === "file" ? before.state.sha256 : "",
+        files: {genesFiles: [...live.files, live.manifestFile].map(file => ({
+          path: logicalOutputPath(layout, file.relativePath),
+          sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+        })), supplementalFiles: []},
+      }},
+      validate: async () => { validating.resolve(); await release.promise; return {ok: true}; },
+    }), first.root);
+    try {
+      const start = second.session.start();
+      await validating.promise;
+      assert.throws(() => acquireSessionLock(layout), /already|active|lock/u);
+      const close = second.session.close();
+      release.resolve();
+      await Promise.all([start, close]);
+      await assert.rejects(second.session.firstAccepted, /closed before its first admission/u);
+      assert.deepEqual(readPublishedMarker(layout).state, before.state);
+      assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const replacement = true;\n");
+      assert.equal(eventKinds(second).includes("generation-accepted"), false);
+    } finally { release.resolve(); await second.session.close(); }
+  });
+}
+for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker"] as const) {
+  const name = `replacement-crash-${checkpoint}`;
+  await withHarness(name, async first => {
+    await first.session.start();
+    await first.session.waitForIdle();
+    await first.session.close();
+    const layout = resolveSessionLayout(first.root, `fixture-${name}`, "src-gen/index.ts", ".genes/dev");
+    const before = readPublishedMarker(layout);
+    if (before.state.kind !== "file") throw new Error("fixture needs prior acceptance");
+    const live = seedOwnedOutput(layout, "export const replacement = true;\n");
+    const crashed = spawnSync(process.execPath, [path.join(
+      path.dirname(fileURLToPath(import.meta.url)), "session-replacement-crash-fixture.js",
+    )], {encoding: "utf8", timeout: 30_000, env: {
+      ...process.env, GENES_REPLACEMENT_ROOT: first.root,
+      GENES_REPLACEMENT_IDENTITY: `fixture-${name}`, GENES_REPLACEMENT_CHECKPOINT: checkpoint,
+    }});
+    assert.equal(crashed.status, 73, crashed.stderr);
+    assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const replacement = true;\n");
+    if (checkpoint === "after-journal-prepared") {
+      assert.deepEqual(readPublishedMarker(layout).state, before.state);
+    } else {
+      assert.equal(readPublishedMarker(layout).manifestDigest, live.manifestDigest);
+    }
+    let validations = 0;
+    const second = makeHarness(name, undefined, options => ({
+      ...options,
+      // An unfinished marker transaction rolls back, allowing the exact claim
+      // to retry. A committed marker resumes normally after revalidation.
+      existingGeneration: checkpoint === "after-journal-prepared" ? {replace: {
+        previousMarkerSha256: before.state.kind === "file" ? before.state.sha256 : "",
+        files: {genesFiles: [...live.files, live.manifestFile].map(file => ({
+          path: logicalOutputPath(layout, file.relativePath),
+          sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+        })), supplementalFiles: []},
+      }} : {},
+      validate: async tree => {
+        validations++;
+        assert.equal(tree.kind, "recovered-live");
+        assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const replacement = true;\n");
+        return {ok: true};
+      },
+    }), first.root);
+    try {
+      second.compiler.steps.push({fail: "preserve recovered generation"});
+      await second.session.start();
+      await second.session.firstAccepted;
+      await second.session.waitForIdle();
+      assert.equal(second.session.state.kind, "degraded", JSON.stringify(second.events));
+      assert.ok(validations > 0);
+      assert.equal(readPublishedMarker(layout).manifestDigest, live.manifestDigest);
+      assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const replacement = true;\n");
+    } finally { await second.session.close(); }
+  });
 }
 console.log("genes tooling development session runtime: ok");

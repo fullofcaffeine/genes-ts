@@ -316,6 +316,49 @@ tells Genes to check and reuse the generation already recorded by the session.
 Omit `existingGeneration` when a fresh session build must be the only accepted
 starting point.
 
+A committed build installed while the session is stopped can differ from its
+last acceptance record. Ordinary restart deliberately rejects that mismatch.
+A host can request a new admission explicitly:
+
+```ts
+import { readExistingGenerationMarkerDigest } from "@genes-ts/tooling/session";
+
+const previousMarkerSha256 = readExistingGenerationMarkerDigest({
+  projectRoot, projectIdentity, publicOutputFile, stateDirectory,
+});
+if (previousMarkerSha256 === null) {
+  throw new Error("No prior acceptance record; use the first-import path");
+}
+
+const session = createGenesDevelopmentSession<Diagnostic>({
+  // ...the same scope and normal options...
+  existingGeneration: {
+    replace: {
+      previousMarkerSha256,
+      files: trustedReplacementInventory,
+    },
+  },
+});
+```
+
+`trustedReplacementInventory` has the same complete file claims as `import`.
+Derive it from the host's trusted build or integration record, not a scan that
+silently accepts arbitrary edits. The digest helper only reads the prior
+record. It does not grant permission to replace it, recover journals, or start
+a writer. Session startup checks the digest again under the public-root lock.
+Publication checks both the claimed files and the prior marker after validation.
+
+`import` and `replace` are mutually exclusive. Replacement retains each saved
+supplemental file's preparation or validation role. Every previously owned
+supplemental path must remain in the replacement claim; this handoff does not
+remove files or transfer their ownership. Newly claimed supplemental files
+must be reproduced exactly by validation. A version-3 marker lacks those roles:
+complete a normal session build before requesting replacement from that format.
+A stale digest, incomplete claim, changed input, rejected validation, or shutdown
+cannot establish acceptance. The replacement bytes remain available for repair.
+After successful admission, restart normally with `existingGeneration: {}`;
+do not reuse the now-stale replacement request.
+
 The import fails before it changes any public file when a digest, byte count,
 file mode, path, symbolic-link check, or validator result differs. This strict
 check prevents an old ownership record from claiming a user-edited file.
