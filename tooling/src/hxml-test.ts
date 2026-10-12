@@ -19,6 +19,11 @@ import {
   inventoryHxml,
 } from "./hxml/index.js";
 
+// These probes check compiler semantics, not launch performance. Allow the
+// launcher and its children to run on a background-scheduled development host,
+// while retaining a finite guard against a hung native process.
+const nativeProbeTimeoutMs = 30_000;
+
 function write(root: string, relative: string, content: string): string {
   const absolute = path.join(root, relative);
   mkdirSync(path.dirname(absolute), { recursive: true });
@@ -217,7 +222,7 @@ async function main(): Promise<void> {
     const missingClassPathNative = spawnSync(
       "haxe",
       missingClassPathInventory.effectiveArguments,
-      { cwd: root, encoding: "utf8", timeout: 2_000 },
+      { cwd: root, encoding: "utf8", timeout: nativeProbeTimeoutMs },
     );
     assert.equal(missingClassPathNative.error, undefined);
     assert.equal(
@@ -358,7 +363,7 @@ async function main(): Promise<void> {
       const native = spawnSync("haxe", [`${option}=fixture`], {
         cwd: root,
         encoding: "utf8",
-        timeout: 2_000,
+        timeout: nativeProbeTimeoutMs,
       });
       assert.equal(
         native.error,
@@ -653,10 +658,14 @@ async function main(): Promise<void> {
       );
       chmodSync(fakeHaxelib, 0o755);
     }
-    const haxeVersion = spawnSync("haxe", ["--version"], {
+    const haxeVersionProbe = spawnSync("haxe", ["--version"], {
       cwd: root,
       encoding: "utf8",
-    }).stdout.trim();
+      timeout: nativeProbeTimeoutMs,
+    });
+    assert.equal(haxeVersionProbe.error, undefined);
+    assert.equal(haxeVersionProbe.status, 0, haxeVersionProbe.stderr);
+    const haxeVersion = haxeVersionProbe.stdout.trim();
     const nativeHaxe =
       process.env.HAXE_STD_PATH === undefined
         ? path.join(
@@ -686,7 +695,7 @@ async function main(): Promise<void> {
       {
         cwd: root,
         encoding: "utf8",
-        timeout: 2_000,
+        timeout: nativeProbeTimeoutMs,
         env: {
           ...process.env,
           PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}`,
