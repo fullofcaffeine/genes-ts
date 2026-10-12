@@ -90,7 +90,7 @@
     "test:release-recovery": "yarn build:scripts && node scripts/dist/test-release-recovery.js",
     "test:release-workflow": "yarn build:scripts && node scripts/dist/test-release-workflow.js",
     "test:release": "yarn test:release-workflow && yarn test:release-artifact && yarn test:release-recovery",
-    "test:tooling-release-workflow": "yarn build:scripts && node scripts/dist/test-tooling-release-workflow.js",
+    "test:tooling-release-workflow": "node scripts/test-tooling-environment-transport.mjs && yarn build:scripts && node scripts/dist/test-tooling-release-workflow.js",
     "test:tooling-github-release": "yarn build:scripts && node scripts/dist/test-tooling-github-release.js",
     "test:secrets": "yarn build:scripts && node scripts/dist/secret-scan.js",
     "test:vulns": "yarn build:scripts && node scripts/dist/osv-scan.js",
