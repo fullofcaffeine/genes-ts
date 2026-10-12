@@ -28,7 +28,9 @@ import type {
 } from "./types.js";
 
 /**
- * Observes an acceptance record for an explicit host replacement decision.
+ * Observes a root-scoped acceptance record for an explicit replacement decision.
+ * Legacy v1 state must migrate with its original accepted tree intact first.
+ * A null result does not establish absence of an entry-scoped legacy record.
  * This read grants no admission: startup rechecks the digest under its writer
  * lock, and publication compares the same record again after host validation.
  */

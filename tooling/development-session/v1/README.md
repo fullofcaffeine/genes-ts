@@ -496,6 +496,13 @@ A stopped host may install a new, complete generated tree through its trusted
 build or integration workflow. The old acceptance marker then describes a
 different tree. Ordinary restart must reject that difference.
 
+Legacy entry-scoped v1 state must migrate with its original accepted tree
+intact before the host installs a replacement. The digest helper observes
+root-scoped records only; null does not prove that no legacy record exists.
+If the tree was replaced prematurely, preserve it separately and restore the
+exact accepted bytes before migration. Missing accepted bytes require recovery
+from trusted history; deleting the marker is not a supported recovery path.
+
 The optional `existingGeneration.replace` request binds the exact prior marker
 SHA-256 to a complete replacement inventory. The public read-only
 `readExistingGenerationMarkerDigest` helper exposes the digest without exposing

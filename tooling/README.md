@@ -318,7 +318,16 @@ starting point.
 
 A committed build installed while the session is stopped can differ from its
 last acceptance record. Ordinary restart deliberately rejects that mismatch.
-A host can request a new admission explicitly:
+For legacy entry-scoped v1 state, first start and close a current session
+with the original accepted tree intact. This migrates its acceptance record
+to the root-scoped format. Only then install the replacement tree. Migration
+requires the old accepted bytes; replacement does not bypass that requirement.
+If replacement happened too early, preserve the replacement separately and
+restore the exact accepted tree before migration. If those bytes are unavailable,
+stop and recover them from the trusted build or source history. Never delete
+acceptance records to force import.
+
+After that prerequisite, a host can request a new admission explicitly:
 
 ```ts
 import { readExistingGenerationMarkerDigest } from "@genes-ts/tooling/session";
@@ -327,7 +336,7 @@ const previousMarkerSha256 = readExistingGenerationMarkerDigest({
   projectRoot, projectIdentity, publicOutputFile, stateDirectory,
 });
 if (previousMarkerSha256 === null) {
-  throw new Error("No prior acceptance record; use the first-import path");
+  throw new Error("No root-scoped acceptance record; check legacy migration before first import");
 }
 
 const session = createGenesDevelopmentSession<Diagnostic>({

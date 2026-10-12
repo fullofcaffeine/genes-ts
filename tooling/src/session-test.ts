@@ -6804,6 +6804,7 @@ for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker
     await first.session.close();
     const layout = resolveSessionLayout(first.root, `fixture-${name}`, "src-gen/index.ts", ".genes/dev");
     const before = readPublishedMarker(layout);
+    assert.ok(before.accepted);
     if (before.state.kind !== "file") throw new Error("fixture needs prior acceptance");
     const live = seedOwnedOutput(layout, "export const replacement = true;\n");
     const crashed = spawnSync(process.execPath, [path.join(
@@ -6841,7 +6842,9 @@ for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker
     try {
       second.compiler.steps.push({fail: "preserve recovered generation"});
       await second.session.start();
-      await second.session.firstAccepted;
+      const recovered = await second.session.firstAccepted;
+      assert.equal(recovered.generation, before.accepted.generation + 1);
+      assert.equal(recovered.revision, before.accepted.revision + 1);
       await second.session.waitForIdle();
       assert.equal(second.session.state.kind, "degraded", JSON.stringify(second.events));
       assert.ok(validations > 0);

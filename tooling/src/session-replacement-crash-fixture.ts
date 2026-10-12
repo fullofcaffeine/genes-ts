@@ -24,7 +24,7 @@ try {
   const live = readGenesOutput(layout.publicOutputRoot, layout.outputIdentity, true)!;
   const prepared = prepareExistingGenerationImport(
     layout, `${layout.candidatesRelative}/replacement-crash`, live, [],
-    123, {policy: "fixture"}, "replacement-crash", prior.state,
+    123, {policy: "fixture"}, "replacement-crash", prior.state, prior.accepted,
   );
   await publishArtifacts({
     projectRoot: root,

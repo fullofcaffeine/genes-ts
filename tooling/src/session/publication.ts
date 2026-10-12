@@ -694,8 +694,8 @@ export function prepareExistingGenerationImport(
   acceptedAt: number,
   validatorPolicyFacts: JsonValue,
   sessionNonce: string,
-  previousMarker: ExpectedFileState = ABSENT,
-  previousAccepted: Pick<AcceptedGeneration, "generation" | "revision"> | null = null,
+  previousMarker: ExpectedFileState,
+  previousAccepted: Pick<AcceptedGeneration, "generation" | "revision"> | null,
 ): PreparedPublication {
   const accepted: AcceptedGeneration = Object.freeze({
     generation: (previousAccepted?.generation ?? 0) + 1,
