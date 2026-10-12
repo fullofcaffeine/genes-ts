@@ -84,6 +84,8 @@ jobs:
           test "$(node -p "require('./tooling/package.json').version")" = "$RELEASE_VERSION"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Run full release gates
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: yarn test:ci
       - id: local-package
         name: Pack and independently verify candidate bytes

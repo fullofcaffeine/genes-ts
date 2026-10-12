@@ -60,4 +60,5 @@ assert.equal(preflight.steps.find(step => step.run === "yarn test:tooling-releas
 const release = load(readFileSync(new URL("../.github/workflows/release-tooling.yml", import.meta.url), "utf8"));
 assert.deepEqual(release.permissions, { contents: "read", "id-token": "write", actions: "read" });
 assert.equal(release.jobs.publish.steps.find(step => step.run === "node scripts/verify-tooling-release-environment.mjs --live").env.GH_TOKEN, "${{ github.token }}");
+assert.equal(release.jobs.publish.steps.find(step => step.run === "yarn test:ci").env.GH_TOKEN, "${{ github.token }}");
 console.log("tooling-environment-transport:ok");
