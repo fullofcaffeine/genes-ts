@@ -506,6 +506,8 @@ installed application files are unchanged transitions in the transaction.
 
 The existing event protocol is unchanged. Acceptance emits an external
 generation, resolves `firstAccepted`, and precedes the initial normal build.
+Replacement advances both generation and revision from the prior accepted
+record. First import starts at one; ordinary recovery retains its identifiers.
 If that build fails, the admitted replacement remains available. Omission of
 the new option preserves ordinary restart behavior. The additive conformance
 vector `existing-generation-replacement-survives-first-build-failure` exercises

@@ -695,10 +695,11 @@ export function prepareExistingGenerationImport(
   validatorPolicyFacts: JsonValue,
   sessionNonce: string,
   previousMarker: ExpectedFileState = ABSENT,
+  previousAccepted: Pick<AcceptedGeneration, "generation" | "revision"> | null = null,
 ): PreparedPublication {
   const accepted: AcceptedGeneration = Object.freeze({
-    generation: 1,
-    revision: 1,
+    generation: (previousAccepted?.generation ?? 0) + 1,
+    revision: (previousAccepted?.revision ?? 0) + 1,
     acceptedAt,
     manifestDigest: live.manifestDigest,
     compilerMode: "external",

@@ -6510,11 +6510,15 @@ await withHarness("explicit-replacement", async (first) => {
   await first.session.start();
   await first.session.waitForIdle();
   assert.equal(first.session.state.kind, "ready");
+  first.session.invalidate({path: "src/Main.hx", impact: {rebuild: true}});
+  await first.session.waitForIdle();
   await first.session.close();
   const layout = resolveSessionLayout(
     first.root, "fixture-explicit-replacement", "src-gen/index.ts", ".genes/dev",
   );
   const before = readPublishedMarker(layout);
+  assert.ok(before.accepted);
+  assert.equal(before.accepted.generation, 2);
   assert.equal(before.state.kind, "file");
   if (before.state.kind !== "file") throw new Error("fixture needs an accepted marker");
   const replacement = seedOwnedOutput(layout, "export const value = 2;\n");
@@ -6545,6 +6549,8 @@ await withHarness("explicit-replacement", async (first) => {
     assert.equal(validations, 1);
     assert.equal(admitted.manifestDigest, replacement.manifestDigest);
     assert.equal(admitted.compilerMode, "external");
+    assert.equal(admitted.generation, before.accepted.generation + 1);
+    assert.equal(admitted.revision, before.accepted.revision + 1);
     assert.equal(second.session.state.kind, "degraded");
     assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const value = 2;\n");
     assert.equal(readPublishedMarker(layout).manifestDigest, replacement.manifestDigest);

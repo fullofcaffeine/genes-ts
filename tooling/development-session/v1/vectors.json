@@ -3066,7 +3066,7 @@
         "external-generation",
         "last-good"
       ],
-      "description": "An explicit claim for a complete replacement tree and the exact prior acceptance record permits host validation; a failed next build retains the replacement.",
+      "description": "An exact replacement advances prior generation 7 and revision 8 to generation 8 and revision 9; failed build revision 10 retains that replacement.",
       "script": [
         "start",
         "recovery-none",
@@ -3079,10 +3079,10 @@
       ],
       "expected": {
         "finalState": "degraded",
-        "revisionsObserved": 2,
+        "revisionsObserved": 10,
         "acceptedGenerations": 1,
-        "acceptedRevision": 1,
-        "retainedGeneration": 1,
+        "acceptedRevision": 9,
+        "retainedGeneration": 8,
         "firstAccepted": "resolved",
         "publicationAttempts": 1,
         "publicWrites": 0,
@@ -3122,8 +3122,8 @@
           "state": {
             "kind": "degraded",
             "accepted": {
-              "generation": 1,
-              "revision": 1,
+              "generation": 8,
+              "revision": 9,
               "acceptedAt": 1000001,
               "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
               "compilerMode": "external",
@@ -3136,15 +3136,15 @@
             },
             "failure": {
               "phase": "compile",
-              "revision": 2,
+              "revision": 10,
               "recoverable": true,
               "diagnostic": {
                 "code": "HAXE_COMPILE_FAILED",
                 "message": "haxe compile failed"
               },
               "retained": {
-                "generation": 1,
-                "revision": 1,
+                "generation": 8,
+                "revision": 9,
                 "acceptedAt": 1000001,
                 "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
                 "compilerMode": "external",
@@ -3158,10 +3158,10 @@
             }
           },
           "lastSequence": 6,
-          "newestRevision": 2,
+          "newestRevision": 10,
           "accepted": {
-            "generation": 1,
-            "revision": 1,
+            "generation": 8,
+            "revision": 9,
             "acceptedAt": 1000001,
             "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
             "compilerMode": "external",
@@ -3183,8 +3183,8 @@
             "event": {
               "kind": "generation-accepted",
               "accepted": {
-                "generation": 1,
-                "revision": 1,
+                "generation": 8,
+                "revision": 9,
                 "acceptedAt": 1000001,
                 "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
                 "compilerMode": "external",
@@ -3207,8 +3207,8 @@
               "state": {
                 "kind": "degraded",
                 "accepted": {
-                  "generation": 1,
-                  "revision": 1,
+                  "generation": 8,
+                  "revision": 9,
                   "acceptedAt": 1000001,
                   "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
                   "compilerMode": "external",
@@ -3221,15 +3221,15 @@
                 },
                 "failure": {
                   "phase": "compile",
-                  "revision": 2,
+                  "revision": 10,
                   "recoverable": true,
                   "diagnostic": {
                     "code": "HAXE_COMPILE_FAILED",
                     "message": "haxe compile failed"
                   },
                   "retained": {
-                    "generation": 1,
-                    "revision": 1,
+                    "generation": 8,
+                    "revision": 9,
                     "acceptedAt": 1000001,
                     "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
                     "compilerMode": "external",
@@ -3253,15 +3253,15 @@
               "kind": "failed",
               "failure": {
                 "phase": "compile",
-                "revision": 2,
+                "revision": 10,
                 "recoverable": true,
                 "diagnostic": {
                   "code": "HAXE_COMPILE_FAILED",
                   "message": "haxe compile failed"
                 },
                 "retained": {
-                  "generation": 1,
-                  "revision": 1,
+                  "generation": 8,
+                  "revision": 9,
                   "acceptedAt": 1000001,
                   "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
                   "compilerMode": "external",

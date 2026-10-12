@@ -641,6 +641,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             this.#options.validatorPolicyFacts,
             this.#sessionNonce,
             published.state,
+            published.accepted,
           );
           const ticket = prepared.plan.authorizationDigest;
           await this.#dependencies.publish({
