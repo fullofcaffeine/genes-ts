@@ -19,6 +19,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 concurrency:
   group: release-tooling-npm
@@ -49,6 +50,8 @@ jobs:
           git fetch --no-tags origin main
           test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
       - name: Verify live production approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/verify-tooling-release-environment.mjs --live
       - id: toolchains
         run: node scripts/emit-toolchain-outputs.mjs
@@ -81,6 +84,8 @@ jobs:
           test "$(node -p "require('./tooling/package.json').version")" = "$RELEASE_VERSION"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Run full release gates
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: yarn test:ci
       - id: local-package
         name: Pack and independently verify candidate bytes

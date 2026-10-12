@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,26 +95,37 @@ async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
 
-async function fetchEnvironment(policy) {
+/** Reads only the canonical repository; never forwards credentials on redirects. */
+export async function fetchEnvironment(policy, { token = null, fetchImpl = fetch } = {}) {
+  assert(policy?.repository === canonicalRepository,
+    `release-environment policy repository must be ${canonicalRepository}`);
   const endpoint =
     `https://api.github.com/repos/${policy.repository}` +
     `/environments/${encodeURIComponent(policy.environment)}`;
   let lastError;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
+    let status = null;
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetchImpl(endpoint, {
+        redirect: "error",
         headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "application/vnd.github+json",
           "X-GitHub-Api-Version": "2022-11-28",
         },
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok)
-        throw new Error(`GitHub environment API returned HTTP ${response.status}`);
+      if (!response.ok) {
+        status = response.status;
+        throw new Error("GitHub environment response was unsuccessful");
+      }
       return await response.json();
-    } catch (error) {
-      lastError = error;
+    } catch {
+      // Native errors can include request details. Keep credentials out of diagnostics.
+      lastError = new Error(Number.isInteger(status)
+        ? `GitHub environment API returned HTTP ${status}; check GitHub authentication and Actions read permission`
+        : "GitHub environment request failed; check network access and GitHub authentication");
       if (attempt < 3)
         await new Promise((resolve) => setTimeout(resolve, attempt * 500));
     }
@@ -143,11 +155,22 @@ function parseArguments(argv) {
   );
 }
 
+/** Prefer explicit tokens; local users may reuse their existing github.com login. */
+export function githubCredential(environment = process.env, readLocal = () => execFileSync(
+  "gh", ["auth", "token", "--hostname", "github.com"],
+  { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 },
+)) {
+  const explicit = environment.GH_TOKEN?.trim() || environment.GITHUB_TOKEN?.trim();
+  if (explicit) return explicit;
+  if (environment.CI) return null;
+  try { return readLocal().trim() || null; } catch { return null; }
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const policy = await readJson(options.policyPath);
   const environment = options.live
-    ? await fetchEnvironment(policy)
+    ? await fetchEnvironment(policy, { token: githubCredential() })
     : await readJson(path.resolve(options.environmentPath));
   const result = verifyEnvironmentPolicy(policy, environment);
   console.log(

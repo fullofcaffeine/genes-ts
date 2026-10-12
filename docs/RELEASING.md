@@ -385,6 +385,14 @@ node scripts/verify-tooling-release-environment.mjs --live
 yarn test:tooling-release-workflow
 ```
 
+The verifier uses `GH_TOKEN`, then `GITHUB_TOKEN`, when set. Outside CI it
+can read the existing `gh auth login` credential for `github.com`. It never
+prints or saves the credential. Without a credential it requests the public
+endpoint anonymously; API failures still stop the check. CI supplies its job
+token with `actions: read`, the permission required by GitHub's
+[Get an environment endpoint](https://docs.github.com/en/rest/deployments/environments#get-an-environment).
+Requests stay on the canonical repository endpoint and reject redirects.
+
 The expected result states that self-review and administrator bypass are off
 and protected branches are on. A network/API failure also fails closed; the
 checked-in policy is not treated as proof of the live GitHub setting.
