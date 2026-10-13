@@ -359,6 +359,8 @@ export interface ExistingGenerationPolicy {
  * Host-authorized handoff after another publisher installed a complete tree.
  * The digest binds the exact previous acceptance record, including its scope
  * and supplemental ownership. File claims alone cannot replace that authority.
+ * An exact retry after uncertain completion revalidates and reuses the current
+ * committed replacement. A later accepted generation invalidates that proof.
  */
 export interface ExistingGenerationReplacement {
   readonly previousMarkerSha256: string;

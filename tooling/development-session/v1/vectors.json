@@ -3277,6 +3277,227 @@
           }
         ]
       }
+    },
+    {
+      "id": "existing-generation-replacement-retry-retains-acceptance",
+      "family": "startup",
+      "covers": [
+        "existing-generation-replacement",
+        "exact-replacement-retry",
+        "no-repeat-publication",
+        "external-generation",
+        "last-good"
+      ],
+      "description": "An exact retry revalidates a committed replacement at generation 8 and revision 9, preserving its acceptance time without publishing again; failed build revision 10 retains that result.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "existing-generation-retried",
+        "validate-accepted",
+        "build-started",
+        "compile-failed"
+      ],
+      "expected": {
+        "finalState": "degraded",
+        "revisionsObserved": 10,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 9,
+        "retainedGeneration": 8,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 0,
+        "publicWrites": 0,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "ready",
+          "building",
+          "degraded"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "degraded",
+            "accepted": {
+              "generation": 8,
+              "revision": 9,
+              "acceptedAt": 42,
+              "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+              "compilerMode": "external",
+              "files": {
+                "created": [],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": false
+            },
+            "failure": {
+              "phase": "compile",
+              "revision": 10,
+              "recoverable": true,
+              "diagnostic": {
+                "code": "HAXE_COMPILE_FAILED",
+                "message": "haxe compile failed"
+              },
+              "retained": {
+                "generation": 8,
+                "revision": 9,
+                "acceptedAt": 42,
+                "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+                "compilerMode": "external",
+                "files": {
+                  "created": [],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": false
+              }
+            }
+          },
+          "lastSequence": 6,
+          "newestRevision": 10,
+          "accepted": {
+            "generation": 8,
+            "revision": 9,
+            "acceptedAt": 42,
+            "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+            "compilerMode": "external",
+            "files": {
+              "created": [],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": false
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 2,
+            "at": 1000001,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 8,
+                "revision": 9,
+                "acceptedAt": 42,
+                "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+                "compilerMode": "external",
+                "files": {
+                  "created": [],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": false
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000004,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "degraded",
+                "accepted": {
+                  "generation": 8,
+                  "revision": 9,
+                  "acceptedAt": 42,
+                  "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+                  "compilerMode": "external",
+                  "files": {
+                    "created": [],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": false
+                },
+                "failure": {
+                  "phase": "compile",
+                  "revision": 10,
+                  "recoverable": true,
+                  "diagnostic": {
+                    "code": "HAXE_COMPILE_FAILED",
+                    "message": "haxe compile failed"
+                  },
+                  "retained": {
+                    "generation": 8,
+                    "revision": 9,
+                    "acceptedAt": 42,
+                    "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+                    "compilerMode": "external",
+                    "files": {
+                      "created": [],
+                      "updated": [],
+                      "deleted": []
+                    },
+                    "entryChanged": false
+                  }
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000005,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "compile",
+                "revision": 10,
+                "recoverable": true,
+                "diagnostic": {
+                  "code": "HAXE_COMPILE_FAILED",
+                  "message": "haxe compile failed"
+                },
+                "retained": {
+                  "generation": 8,
+                  "revision": 9,
+                  "acceptedAt": 42,
+                  "manifestDigest": "d9d01b8018b720cdc1c3d8ca7513ad8dea8b134d94db2c544b8419245d75bc91",
+                  "compilerMode": "external",
+                  "files": {
+                    "created": [],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": false
+                }
+              }
+            }
+          }
+        ]
+      }
     }
   ]
 }

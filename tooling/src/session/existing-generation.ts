@@ -113,10 +113,10 @@ export function snapshotExistingGenerationPolicy(
     "supplementalFiles",
   );
   genesFiles.sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    Buffer.from(left.path).compare(Buffer.from(right.path)),
   );
   supplementalFiles.sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    Buffer.from(left.path).compare(Buffer.from(right.path)),
   );
   const files = Object.freeze({
     genesFiles: Object.freeze(genesFiles),
@@ -146,7 +146,7 @@ export function checkExistingGenesFiles(
       mode: file.mode,
     }))
     .sort((left, right) =>
-      left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+      Buffer.from(left.path).compare(Buffer.from(right.path)),
     );
   if (actual.length !== imported.genesFiles.length) {
     throw new Error("existing generation import names a different Genes file set");

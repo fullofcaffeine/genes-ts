@@ -70,6 +70,7 @@ import {
   acceptedGenerationBytes,
   admissionDigest,
   readPublishedMarker,
+  recoveredAdmissionMode,
   sessionProjectDigest,
 } from "./session/publication.js";
 import {
@@ -84,6 +85,7 @@ import type {
   DevelopmentEvent,
   DevelopmentSession,
   ExistingGenerationImport,
+  ExistingGenerationReplacement,
   GenesDevelopmentOptions,
   JsonValue,
 } from "./session/types.js";
@@ -4401,6 +4403,42 @@ assert.equal(
   }
 }
 
+{
+  const scratch = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-linked-marker-parent-")),
+  );
+  try {
+    const projectRoot = path.join(scratch, "project");
+    const outsideRoot = path.join(scratch, "outside");
+    mkdirSync(projectRoot);
+    mkdirSync(outsideRoot);
+    const scope = {
+      projectRoot,
+      projectIdentity: "fixture-linked-marker-parent",
+      publicOutputFile: "src-gen/index.ts",
+      stateDirectory: ".state",
+    };
+    const layout = resolveSessionLayout(
+      scope.projectRoot, scope.projectIdentity,
+      scope.publicOutputFile, scope.stateDirectory,
+    );
+    const outsideMarker = path.join(
+      outsideRoot,
+      ...layout.generationMarkerRelative.split("/").slice(1),
+    );
+    mkdirSync(path.dirname(outsideMarker), { recursive: true });
+    writeFileSync(outsideMarker, "not JSON\n");
+    symlinkSync(outsideRoot, path.join(projectRoot, ".genes"));
+    assert.throws(
+      () => readExistingGenerationMarkerDigest(scope),
+      /symlink-traversal/u,
+      "the digest helper must reject a linked control parent before reading its marker",
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 await withHarness(
   "prepared-file-cannot-claim-session-controls",
   async (harness) => {
@@ -6558,6 +6596,148 @@ await withHarness("explicit-replacement", async (first) => {
     await second.session.close();
   }
 });
+await withHarness("replacement-retry", async first => {
+  await first.session.start();
+  await first.session.waitForIdle();
+  await first.session.close();
+  const layout = resolveSessionLayout(
+    first.root, "fixture-replacement-retry", "src-gen/index.ts", ".genes/dev",
+  );
+  const before = readPublishedMarker(layout);
+  if (before.state.kind !== "file") throw new Error("fixture needs prior acceptance");
+  const live = seedOwnedOutput(layout, "export const replacement = true;\n");
+  const claim: ExistingGenerationReplacement = {
+    previousMarkerSha256: before.state.sha256,
+    files: {
+      genesFiles: [...live.files, live.manifestFile].map(file => ({
+        path: logicalOutputPath(layout, file.relativePath),
+        sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+      })),
+      supplementalFiles: [],
+    },
+  };
+  const second = makeHarness("replacement-retry", undefined, options => ({
+    ...options, existingGeneration: {replace: claim},
+  }), first.root);
+  try {
+    second.compiler.steps.push({fail: "retain the committed replacement"});
+    await second.session.start();
+    await second.session.firstAccepted;
+    await second.session.waitForIdle();
+  } finally { await second.session.close(); }
+  const committed = readPublishedMarker(layout);
+  assert.equal(committed.format, "v5");
+  assert.match(committed.replacementDigest!, /^[a-f0-9]{64}$/u);
+  const markerPath = path.join(first.root, layout.generationMarkerRelative);
+  const markerBytes = readFileSync(markerPath);
+  const outputBytes = readFileSync(layout.publicOutputFile);
+  const outputMode = statSync(layout.publicOutputFile).mode & 0o777;
+  for (const scenario of [
+    "exact", "prior", "hash", "size", "mode", "missing-file", "extra-file",
+    "supplemental", "policy", "live-file", "live-mode", "validator-rejection",
+    "mutation-during-validation", "marker-race", "input-race",
+  ] as const) {
+    writeFileSync(markerPath, markerBytes);
+    writeFileSync(layout.publicOutputFile, outputBytes);
+    chmodSync(layout.publicOutputFile, outputMode);
+    let request = claim;
+    const genesFiles = claim.files.genesFiles.map((file, index) => index !== 0 ? file : {
+      ...file,
+      ...(scenario === "hash" ? {sha256: "0".repeat(64)} : {}),
+      ...(scenario === "size" ? {sizeBytes: file.sizeBytes + 1} : {}),
+      ...(scenario === "mode" ? {mode: file.mode ^ 0o111} : {}),
+    });
+    if (scenario === "missing-file") genesFiles.pop();
+    if (scenario === "extra-file") genesFiles.push({
+      path: "src-gen/extra.ts", sha256: "0".repeat(64), sizeBytes: 0, mode: 0o644,
+    });
+    request = {
+      previousMarkerSha256: scenario === "prior" ? "0".repeat(64) : claim.previousMarkerSha256,
+      files: {
+        // Caller order is not identity; startup normalizes the exact claim.
+        genesFiles: genesFiles.reverse(),
+        supplementalFiles: scenario === "supplemental" ? [{
+          path: "host/extra.json", sha256: "0".repeat(64), sizeBytes: 0, mode: 0o644,
+        }] : [],
+      },
+    };
+    if (scenario === "live-file") writeFileSync(layout.publicOutputFile, "// unaccepted edit\n");
+    if (scenario === "live-mode") chmodSync(layout.publicOutputFile, outputMode ^ 0o111);
+    let publications = 0;
+    let validations = 0;
+    const retry = makeHarness("replacement-retry", dependencies => ({
+      ...dependencies,
+      publish: options => { publications++; return publishArtifacts(options); },
+    }), options => ({
+      ...options,
+      existingGeneration: {replace: request},
+      validatorPolicyFacts: {policy: scenario === "policy" ? "different" : "fixture"},
+      validate: async () => {
+        validations++;
+        if (scenario === "mutation-during-validation") {
+          chmodSync(layout.publicOutputFile, outputMode ^ 0o111);
+        }
+        if (scenario === "marker-race") {
+          writeFileSync(markerPath, acceptedGenerationBytes(layout, {
+            sessionNonce: "other-writer", generation: 9, revision: 9,
+            acceptedAt: 9, manifestDigest: live.manifestDigest,
+          }, []));
+        }
+        if (scenario === "input-race") {
+          writeFileSync(retry.source, "class Main { static final changed = true; }\n");
+          currentWatch(retry).change(retry.source);
+        }
+        return scenario === "validator-rejection"
+          ? {ok: false, diagnostic: {code: "HOST-REJECTED", message: "retry rejected"}}
+          : {ok: true};
+      },
+    }), first.root);
+    try {
+      retry.compiler.steps.push({fail: "retain retry result"});
+      await retry.session.start();
+      if (scenario === "exact") {
+        const accepted = await retry.session.firstAccepted;
+        assert.equal(accepted.generation, committed.accepted?.generation);
+        assert.equal(accepted.revision, committed.accepted?.revision);
+        assert.equal(accepted.acceptedAt, committed.accepted?.acceptedAt);
+        await retry.session.waitForIdle();
+        assert.equal(retry.session.state.kind, "degraded");
+      } else {
+        await assert.rejects(retry.session.firstAccepted, /fatal session failure/u, scenario);
+        assert.equal(retry.compiler.calls, 0, scenario);
+        assert.equal(eventKinds(retry).includes("generation-accepted"), false, scenario);
+      }
+      assert.equal(publications, 0, scenario);
+      const checksLiveValidation = ["exact", "validator-rejection", "mutation-during-validation", "marker-race", "input-race"].includes(scenario);
+      assert.equal(validations, checksLiveValidation ? 1 : 0, scenario);
+      if (scenario !== "marker-race") assert.deepEqual(readFileSync(markerPath), markerBytes, scenario);
+    } finally { await retry.session.close(); }
+  }
+  // A subsequent normal generation invalidates the retry proof even if the
+  // replacement request itself is unchanged.
+  writeFileSync(markerPath, markerBytes);
+  writeFileSync(layout.publicOutputFile, outputBytes);
+  chmodSync(layout.publicOutputFile, outputMode);
+  const normal = makeHarness("replacement-retry", undefined, options => ({
+    ...options, existingGeneration: {},
+  }), first.root);
+  try {
+    await normal.session.start();
+    await normal.session.waitForIdle();
+    assert.equal(normal.session.state.kind, "ready");
+    assert.equal(readPublishedMarker(layout).replacementDigest, null);
+  } finally { await normal.session.close(); }
+  const stale = makeHarness("replacement-retry", undefined, options => ({
+    ...options, existingGeneration: {replace: claim},
+  }), first.root);
+  try {
+    await stale.session.start();
+    await assert.rejects(stale.session.firstAccepted, /fatal session failure/u);
+    assert.equal(stale.compiler.calls, 0);
+    assert.equal(eventKinds(stale).includes("generation-accepted"), false);
+  } finally { await stale.session.close(); }
+});
+
 // Exact replacement claims are copied before asynchronous startup work.
 {
   const files: ExistingGenerationImport = {genesFiles: [], supplementalFiles: []};
@@ -6572,6 +6752,50 @@ await withHarness("explicit-replacement", async (first) => {
   claim.previousMarkerSha256 = "b".repeat(64);
   assert.equal(captured?.replace?.previousMarkerSha256, "a".repeat(64));
   assert.equal(Object.isFrozen(captured?.replace?.files.genesFiles), true);
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-replacement-unicode-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root, "fixture-replacement-unicode", "src-gen/index.ts", ".genes/dev",
+    );
+    const files: ExistingGenerationImport = {
+      genesFiles: [],
+      supplementalFiles: ["\u{10000}.json", "\uE000.json"].map(filePath => ({
+        path: filePath, sha256: "a".repeat(64), sizeBytes: 0, mode: 0o644,
+      })),
+    };
+    const replacement = snapshotExistingGenerationPolicy({
+      replace: {previousMarkerSha256: "b".repeat(64), files},
+    })?.replace;
+    assert.notEqual(replacement, undefined);
+    const claimed = replacement!.files.supplementalFiles.map(file => ({
+      ...file, source: "validator" as const,
+    }));
+    const markerPath = path.join(root, layout.generationMarkerRelative);
+    mkdirSync(path.dirname(markerPath), { recursive: true });
+    writeFileSync(markerPath, acceptedGenerationBytes(layout, {
+      sessionNonce: "replacement-unicode", generation: 1, revision: 1,
+      acceptedAt: 1, manifestDigest: "c".repeat(64),
+    }, claimed));
+    const parsed = readPublishedMarker(layout);
+    const authorization = admissionDigest(layout, "c".repeat(64), {}, claimed);
+    assert.deepEqual(
+      claimed.map(file => file.path),
+      parsed.supplementalFiles.map(file => file.path),
+      "replacement claims must use the marker's UTF-8 byte order",
+    );
+    assert.equal(
+      recoveredAdmissionMode(layout, "c".repeat(64), {}, parsed, authorization),
+      "replayable",
+      "an interrupted replacement must retain its admission digest",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 for (const scenario of [
@@ -6796,7 +7020,9 @@ for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker
     } finally { release.resolve(); await second.session.close(); }
   });
 }
-for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker"] as const) {
+for (const checkpoint of [
+  "after-journal-prepared", "after-publish:commit-marker", "after-cleanup:journal",
+] as const) {
   const name = `replacement-crash-${checkpoint}`;
   await withHarness(name, async first => {
     await first.session.start();
@@ -6819,19 +7045,25 @@ for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker
       assert.deepEqual(readPublishedMarker(layout).state, before.state);
     } else {
       assert.equal(readPublishedMarker(layout).manifestDigest, live.manifestDigest);
+      assert.notEqual(readPublishedMarker(layout).replacementDigest, null);
     }
+    const markerAfterCrash = readPublishedMarker(layout);
     let validations = 0;
-    const second = makeHarness(name, undefined, options => ({
+    let publications = 0;
+    const second = makeHarness(name, dependencies => ({
+      ...dependencies,
+      publish: options => { publications++; return publishArtifacts(options); },
+    }), options => ({
       ...options,
-      // An unfinished marker transaction rolls back, allowing the exact claim
-      // to retry. A committed marker resumes normally after revalidation.
-      existingGeneration: checkpoint === "after-journal-prepared" ? {replace: {
+      // The caller cannot know whether the crashed process committed. All
+      // crash points must accept the same exact request after revalidation.
+      existingGeneration: {replace: {
         previousMarkerSha256: before.state.kind === "file" ? before.state.sha256 : "",
         files: {genesFiles: [...live.files, live.manifestFile].map(file => ({
           path: logicalOutputPath(layout, file.relativePath),
           sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
         })), supplementalFiles: []},
-      }} : {},
+      }},
       validate: async tree => {
         validations++;
         assert.equal(tree.kind, "recovered-live");
@@ -6848,6 +7080,10 @@ for (const checkpoint of ["after-journal-prepared", "after-publish:commit-marker
       await second.session.waitForIdle();
       assert.equal(second.session.state.kind, "degraded", JSON.stringify(second.events));
       assert.ok(validations > 0);
+      assert.equal(publications, checkpoint === "after-journal-prepared" ? 1 : 0);
+      if (checkpoint !== "after-journal-prepared") {
+        assert.deepEqual(readPublishedMarker(layout).state, markerAfterCrash.state);
+      }
       assert.equal(readPublishedMarker(layout).manifestDigest, live.manifestDigest);
       assert.equal(readFileSync(layout.publicOutputFile, "utf8"), "export const replacement = true;\n");
     } finally { await second.session.close(); }

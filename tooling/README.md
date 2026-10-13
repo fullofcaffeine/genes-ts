@@ -363,10 +363,18 @@ supplemental path must remain in the replacement claim; this handoff does not
 remove files or transfer their ownership. Newly claimed supplemental files
 must be reproduced exactly by validation. A version-3 marker lacks those roles:
 complete a normal session build before requesting replacement from that format.
-A stale digest, incomplete claim, changed input, rejected validation, or shutdown
-cannot establish acceptance. The replacement bytes remain available for repair.
-After successful admission, restart normally with `existingGeneration: {}`;
-do not reuse the now-stale replacement request.
+A stale unrelated digest, incomplete claim, changed input, rejected validation,
+or shutdown cannot establish acceptance. The replacement bytes remain available
+for repair. After successful admission, restart normally with
+`existingGeneration: {}`.
+
+If a process stops before reporting the result, retry the same replacement
+request with the same validator policy. The accepted marker retains that exact
+request's identity. Startup checks the complete live inventory and runs host
+validation again. An already committed replacement reuses its generation and
+revision without publishing another marker. Changed claims and requests from
+before a later successful generation remain stale and are rejected. This retry
+also works after transaction cleanup; it does not depend on a surviving journal.
 
 The import fails before it changes any public file when a digest, byte count,
 file mode, path, symbolic-link check, or validator result differs. This strict
@@ -623,8 +631,10 @@ rolled back, the other output can start normally.
 
   A version 2 accepted marker names the root-owned Genes output tree. Version 3
   also names each prepared or validator-produced file, but cannot distinguish
-  which step created it. Version 4 records that source. Restart recovery reads
-  all three formats and rebuilds the matching authorization value, so an
+  which step created it. Version 4 records that source. Version 5 also records
+  the exact replacement request's identity, or null for ordinary publication.
+  Restart recovery reads all four formats and rebuilds the matching
+  authorization value, so an
   upgrade does not reject valid earlier work merely because a newer format
   learned more. On startup and after an HXML change, the session also checks
   saved paths against the current authored inputs. If a path has become

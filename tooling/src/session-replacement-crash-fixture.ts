@@ -1,9 +1,11 @@
 import { publishArtifacts } from "./artifacts/index.js";
 import { readGenesOutput } from "./session/genes-output.js";
-import { resolveSessionLayout } from "./session/layout.js";
+import { snapshotExistingGenerationPolicy } from "./session/existing-generation.js";
+import { logicalOutputPath, resolveSessionLayout } from "./session/layout.js";
 import {
   prepareExistingGenerationImport,
   readPublishedMarker,
+  replacementRequestDigest,
 } from "./session/publication.js";
 import { acquireSessionLock } from "./session/session-lock.js";
 
@@ -13,7 +15,8 @@ const root = process.env.GENES_REPLACEMENT_ROOT;
 const identity = process.env.GENES_REPLACEMENT_IDENTITY;
 const checkpoint = process.env.GENES_REPLACEMENT_CHECKPOINT;
 if (root === undefined || identity === undefined ||
-    (checkpoint !== "after-journal-prepared" && checkpoint !== "after-publish:commit-marker")) {
+    (checkpoint !== "after-journal-prepared" && checkpoint !== "after-publish:commit-marker" &&
+      checkpoint !== "after-cleanup:journal")) {
   throw new Error("replacement crash fixture requires a root, identity and checkpoint");
 }
 const layout = resolveSessionLayout(root, identity, "src-gen/index.ts", ".genes/dev");
@@ -22,9 +25,20 @@ try {
   const prior = readPublishedMarker(layout);
   if (prior.state.kind !== "file") throw new Error("fixture requires prior acceptance");
   const live = readGenesOutput(layout.publicOutputRoot, layout.outputIdentity, true)!;
+  const replacement = snapshotExistingGenerationPolicy({replace: {
+    previousMarkerSha256: prior.state.sha256,
+    files: {
+      genesFiles: [...live.files, live.manifestFile].map(file => ({
+        path: logicalOutputPath(layout, file.relativePath),
+        sha256: file.digest, sizeBytes: file.sizeBytes, mode: file.mode,
+      })),
+      supplementalFiles: [],
+    },
+  }})!.replace!;
   const prepared = prepareExistingGenerationImport(
     layout, `${layout.candidatesRelative}/replacement-crash`, live, [],
     123, {policy: "fixture"}, "replacement-crash", prior.state, prior.accepted,
+    replacementRequestDigest(layout, replacement, live.manifestDigest, {policy: "fixture"}, []),
   );
   await publishArtifacts({
     projectRoot: root,

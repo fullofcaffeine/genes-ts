@@ -77,6 +77,7 @@ import {
   preparePublication,
   readPublishedMarker,
   recoveredAdmissionMode,
+  replacementRequestDigest,
   sessionProjectDigest,
   type AdmissionRecoveryMode,
   type PublishedSupplementalFile,
@@ -518,8 +519,17 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   ): Promise<AcceptedGeneration | null> {
     if (this.#existingGeneration === null) return null;
     const replacement = this.#existingGeneration.replace;
+    const repeatsCommittedReplacement = replacement !== undefined &&
+      published.manifestDigest !== null &&
+      published.replacementDigest === replacementRequestDigest(
+        this.#layout,
+        replacement,
+        published.manifestDigest,
+        this.#options.validatorPolicyFacts,
+        published.supplementalFiles,
+      );
     if (
-      replacement !== undefined && (
+      replacement !== undefined && !repeatsCommittedReplacement && (
         published.state.kind !== "file" ||
         published.state.sha256 !== replacement.previousMarkerSha256
       )
@@ -534,7 +544,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#layout.outputIdentity,
       false,
     );
-    if (published.manifestDigest === null || replacement !== undefined) {
+    if (
+      published.manifestDigest === null ||
+      (replacement !== undefined && !repeatsCommittedReplacement)
+    ) {
       const imported = replacement?.files ?? this.#existingGeneration.import;
       if (live === null) {
         if (imported === undefined) return null;
@@ -602,9 +615,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         !recoveredArtifactsMatchPublishedFiles(
           admission.artifacts ?? [],
           supplementalFiles,
-          // A new admission records a v4 marker even when its prior marker
+          // A new admission records a v5 marker even when its prior marker
           // was v2. Legacy recovery allowances must not bless unclaimed files.
-          "v4",
+          "v5",
         )
       ) {
         throw new ExistingGenerationStartupError(
@@ -642,6 +655,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             this.#sessionNonce,
             published.state,
             published.accepted,
+            replacement === undefined ? null : replacementRequestDigest(
+              this.#layout,
+              replacement,
+              live.manifestDigest,
+              this.#options.validatorPolicyFacts,
+              supplementalFiles,
+            ),
           );
           const ticket = prepared.plan.authorizationDigest;
           await this.#dependencies.publish({
@@ -674,8 +694,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (published.accepted === null) {
       throw new Error("the accepted-generation marker has no generation facts");
     }
+    if (replacement !== undefined) {
+      checkExistingGenesFiles(this.#layout, replacement.files, live);
+    }
     assertImportMatchesPublished(
-      this.#existingGeneration.import,
+      replacement?.files ?? this.#existingGeneration.import,
       published.supplementalFiles,
     );
     const extraFiles = published.supplementalFiles.map((file) =>
@@ -747,6 +770,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const file of published.supplementalFiles) {
       readLiveSupplementalFile(this.#layout, file);
+    }
+    if (replacement !== undefined) {
+      checkExistingGenesFiles(this.#layout, replacement.files, currentLive);
+      if (!sameFileState(readPublishedMarker(this.#layout).state, published.state)) {
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "the accepted replacement marker changed while the host checked it",
+        );
+      }
     }
     const accepted: AcceptedGeneration = Object.freeze({
       ...published.accepted,

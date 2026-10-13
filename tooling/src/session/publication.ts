@@ -20,6 +20,7 @@ import {
   type PublicationPlan,
 } from "../artifacts/index.js";
 import {
+  inspectParentsNoFollow,
   readFileState,
   sameFileState,
 } from "../artifacts/filesystem.js";
@@ -27,7 +28,12 @@ import {
   portablePathIdentity,
   validatePortableRelativePath,
 } from "../artifacts/validate-plan.js";
-import type { AcceptedGeneration, FileDelta, JsonValue } from "./types.js";
+import type {
+  AcceptedGeneration,
+  ExistingGenerationReplacement,
+  FileDelta,
+  JsonValue,
+} from "./types.js";
 import {
   logicalOutputPath,
   portableProjectPathsOverlap,
@@ -114,6 +120,35 @@ export function admissionDigest(
 
 export type AdmissionRecoveryMode = "replayable" | "rebuild-required";
 
+/**
+ * Identifies a normalized replacement request after its journal is removed.
+ * The accepted marker stores this digest atomically with the new generation.
+ * It proves only which request committed; every retry still checks live files
+ * and obtains fresh host admission under the public-root writer lock.
+ */
+export function replacementRequestDigest(
+  layout: SessionLayout,
+  replacement: ExistingGenerationReplacement,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
+  supplementalFiles: readonly PublishedSupplementalFile[],
+): string {
+  return canonicalDigest({
+    protocol: "genes.tooling.existing-generation-replacement.v1",
+    previousMarkerSha256: replacement.previousMarkerSha256,
+    files: {
+      genesFiles: replacement.files.genesFiles.map((file) => ({ ...file })),
+      supplementalFiles: replacement.files.supplementalFiles.map((file) => ({ ...file })),
+    },
+    admissionDigest: admissionDigest(
+      layout,
+      manifestDigest,
+      validatorPolicyFacts,
+      supplementalFiles,
+    ),
+  });
+}
+
 /** Rebuilds the exact identity written before recovery mode joined admission. */
 function v4AdmissionDigest(
   layout: SessionLayout,
@@ -198,7 +233,7 @@ export interface PreparedPublication {
 }
 
 export interface PublishedMarker {
-  readonly format: "absent" | "v2" | "v3" | "v4";
+  readonly format: "absent" | "v2" | "v3" | "v4" | "v5";
   readonly manifestDigest: string | null;
   readonly accepted: Readonly<{
     readonly generation: number;
@@ -207,6 +242,8 @@ export interface PublishedMarker {
   }> | null;
   readonly state: ExpectedFileState;
   readonly supplementalFiles: readonly PublishedSupplementalFile[];
+  /** Exact replacement proof for the current generation only. */
+  readonly replacementDigest: string | null;
 }
 
 export interface PublishedSupplementalFile {
@@ -391,7 +428,7 @@ export function rootAcceptedGenerationBytes(
   })}\n`;
 }
 
-/** Encodes a root-owned generation that also records non-Genes files. */
+/** Encodes file ownership and the optional exact replacement retry proof. */
 export function acceptedGenerationBytes(
   layout: SessionLayout,
   accepted: Pick<
@@ -403,9 +440,10 @@ export function acceptedGenerationBytes(
     | "manifestDigest"
   >,
   supplementalFiles: readonly PublishedSupplementalFile[],
+  replacementDigest: string | null = null,
 ): string {
   return `${canonicalJson({
-    protocol: "genes.tooling.accepted-generation.v4",
+    protocol: "genes.tooling.accepted-generation.v5",
     sessionNonce: accepted.sessionNonce,
     generation: accepted.generation,
     revision: accepted.revision,
@@ -415,6 +453,7 @@ export function acceptedGenerationBytes(
     publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
     publicEntry: layout.publicEntryAuthority,
     publicEntryPath: layout.publicOutputRelative,
+    replacementDigest,
     supplementalFiles: supplementalFiles.map((file) => ({
       source: file.source,
       path: file.path,
@@ -433,6 +472,11 @@ export function acceptedGenerationBytes(
 export function readPublishedMarker(
   layout: SessionLayout,
 ): PublishedMarker {
+  inspectParentsNoFollow(
+    layout.projectRoot,
+    layout.generationMarkerRelative,
+    false,
+  );
   const absolute = path.join(
     layout.projectRoot,
     ...layout.generationMarkerRelative.split("/"),
@@ -444,6 +488,7 @@ export function readPublishedMarker(
       accepted: null,
       state: ABSENT,
       supplementalFiles: Object.freeze([]),
+      replacementDigest: null,
     });
   }
   const stats = lstatSync(absolute);
@@ -465,11 +510,14 @@ export function readPublishedMarker(
   const v2 = protocol === "genes.tooling.accepted-generation.v2";
   const v3 = protocol === "genes.tooling.accepted-generation.v3";
   const v4 = protocol === "genes.tooling.accepted-generation.v4";
+  const v5 = protocol === "genes.tooling.accepted-generation.v5";
   const expectedKeys = v2
     ? "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce"
-    : "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce,supplementalFiles";
+    : v5
+      ? "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,replacementDigest,revision,sessionNonce,supplementalFiles"
+      : "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce,supplementalFiles";
   if (
-    (!v2 && !v3 && !v4) ||
+    (!v2 && !v3 && !v4 && !v5) ||
     Object.keys(record).sort().join(",") !== expectedKeys ||
     typeof record.sessionNonce !== "string" ||
     record.sessionNonce.length === 0 ||
@@ -481,6 +529,10 @@ export function readPublishedMarker(
     (record.acceptedAt as number) < 0 ||
     typeof record.manifestDigest !== "string" ||
     !/^[0-9a-f]{64}$/u.test(record.manifestDigest) ||
+    (v5 && record.replacementDigest !== null && (
+      typeof record.replacementDigest !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(record.replacementDigest)
+    )) ||
     record.publicOutputRoot !== layout.publicOutputRootAuthority ||
     record.publicEntry !== layout.publicEntryAuthority ||
     typeof record.publicOutputRootPath !== "string" ||
@@ -577,7 +629,7 @@ export function readPublishedMarker(
     }
   }
   return Object.freeze({
-    format: v2 ? "v2" : v3 ? "v3" : "v4",
+    format: v2 ? "v2" : v3 ? "v3" : v4 ? "v4" : "v5",
     manifestDigest: record.manifestDigest,
     accepted: Object.freeze({
       generation: record.generation as number,
@@ -586,6 +638,7 @@ export function readPublishedMarker(
     }),
     state: markerState,
     supplementalFiles,
+    replacementDigest: v5 ? record.replacementDigest as string | null : null,
   });
 }
 
@@ -595,7 +648,8 @@ export function readPublishedMarker(
  *
  * A v2 marker names only the Genes output tree. The older v3 marker names
  * extra files but not the step that produced them. V4 records that missing
- * fact. When no marker exists yet, recovery may be finishing any format, so
+ * fact. V5 adds replacement retry proof and uses the current admission format.
+ * When no marker exists yet, recovery may be finishing any format, so
  * every empty-file identity remains valid.
  */
 export function recoveredAdmissionDigests(
@@ -604,6 +658,16 @@ export function recoveredAdmissionDigests(
   validatorPolicyFacts: JsonValue,
   marker: PublishedMarker,
 ): readonly string[] {
+  if (marker.format === "v5") {
+    return Object.freeze([
+      admissionDigest(
+        layout,
+        manifestDigest,
+        validatorPolicyFacts,
+        marker.supplementalFiles,
+      ),
+    ]);
+  }
   if (marker.format === "v4") {
     return Object.freeze([
       admissionDigest(
@@ -696,6 +760,7 @@ export function prepareExistingGenerationImport(
   sessionNonce: string,
   previousMarker: ExpectedFileState,
   previousAccepted: Pick<AcceptedGeneration, "generation" | "revision"> | null,
+  replacementDigest: string | null = null,
 ): PreparedPublication {
   const accepted: AcceptedGeneration = Object.freeze({
     generation: (previousAccepted?.generation ?? 0) + 1,
@@ -787,6 +852,7 @@ export function prepareExistingGenerationImport(
       manifestDigest: accepted.manifestDigest,
     },
     supplementalFiles,
+    replacementDigest,
   );
   writeFileSync(markerAbsolute, marker, { mode: 0o600 });
   chmodSync(markerAbsolute, 0o600);

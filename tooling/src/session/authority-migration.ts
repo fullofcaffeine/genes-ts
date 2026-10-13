@@ -567,7 +567,8 @@ export function auditSessionAuthority(layout: SessionLayout): void {
     } else if (
       fields.protocol === "genes.tooling.accepted-generation.v2" ||
       fields.protocol === "genes.tooling.accepted-generation.v3" ||
-      fields.protocol === "genes.tooling.accepted-generation.v4"
+      fields.protocol === "genes.tooling.accepted-generation.v4" ||
+      fields.protocol === "genes.tooling.accepted-generation.v5"
     ) {
       if (
         typeof fields.publicOutputRoot !== "string" ||

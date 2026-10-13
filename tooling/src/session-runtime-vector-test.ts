@@ -37,7 +37,12 @@ import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
 } from "./session/runtime.js";
-import { acceptedGenerationBytes } from "./session/publication.js";
+import {
+  acceptedGenerationBytes,
+  replacementRequestDigest,
+} from "./session/publication.js";
+import { snapshotExistingGenerationPolicy } from "./session/existing-generation.js";
+import { readGenesOutput } from "./session/genes-output.js";
 import { readExistingGenerationMarkerDigest } from "./session/index.js";
 import { acquireSessionLock, claimSessionRootOwner } from "./session/session-lock.js";
 import type {
@@ -445,7 +450,9 @@ async function execute(vector: Vector): Promise<void> {
     mkdirSync(path.dirname(treeExtraInput), { recursive: true });
     writeFileSync(treeExtraInput, "{\"version\":1}\n", "utf8");
   }
-  const usesReplacement =
+  const retriesReplacement =
+    vector.id === "existing-generation-replacement-retry-retains-acceptance";
+  const usesReplacement = retriesReplacement ||
     vector.id === "existing-generation-replacement-survives-first-build-failure";
   const usesExistingGeneration = usesReplacement ||
     vector.id === "existing-generation-survives-first-build-failure";
@@ -519,6 +526,23 @@ async function execute(vector: Vector): Promise<void> {
     }, existingImport!.supplementalFiles.map(file => ({...file, source: "validator"}))));
     previousMarkerSha256 = readExistingGenerationMarkerDigest(scope);
     assert.notEqual(previousMarkerSha256, null);
+    if (retriesReplacement) {
+      const live = readGenesOutput(layout.publicOutputRoot, layout.outputIdentity, true)!;
+      const replacement = snapshotExistingGenerationPolicy({replace: {
+        previousMarkerSha256: previousMarkerSha256!, files: existingImport!,
+      }})!.replace!;
+      const supplemental = replacement.files.supplementalFiles.map(file => ({
+        ...file, source: "validator" as const,
+      }));
+      // The new session sees the committed result but receives the original
+      // request. Its independent expectation forbids another publication.
+      writeFileSync(markerPath, acceptedGenerationBytes(layout, {
+        sessionNonce: "committed-replacement", generation: 8, revision: 9,
+        acceptedAt: 42, manifestDigest: live.manifestDigest,
+      }, supplemental, replacementRequestDigest(
+        layout, replacement, live.manifestDigest, {vector: vector.id}, supplemental,
+      )));
+    }
   }
   const hold =
     vector.id === "burst-supersedes-active-candidate" ||
