@@ -6,6 +6,15 @@ it.
 
 ## Unreleased
 
+- Add explicit development-session admission for a complete generated tree
+  installed while the session is stopped. The host supplies the exact prior
+  acceptance digest and replacement file inventory. Genes validates the tree
+  and commits only its acceptance record under the existing writer lock.
+  Ordinary restart still rejects an unexpected replacement. The new read-only
+  digest helper avoids exposing private control paths to host adapters.
+  Version-5 accepted markers retain the exact replacement request's identity,
+  so retrying after a crash revalidates and reuses an already committed result.
+  Ordinary publication clears this identity; changed or older requests fail.
 - Launch every Haxe compiler child through one internal no-shell authority.
   On POSIX, a trusted Node child replaces itself with the absolute Haxe target
   through raw `execve`; Windows starts the canonical native `.exe` directly.

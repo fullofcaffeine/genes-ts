@@ -316,6 +316,66 @@ tells Genes to check and reuse the generation already recorded by the session.
 Omit `existingGeneration` when a fresh session build must be the only accepted
 starting point.
 
+A committed build installed while the session is stopped can differ from its
+last acceptance record. Ordinary restart deliberately rejects that mismatch.
+For legacy entry-scoped v1 state, first start and close a current session
+with the original accepted tree intact. This migrates its acceptance record
+to the root-scoped format. Only then install the replacement tree. Migration
+requires the old accepted bytes; replacement does not bypass that requirement.
+If replacement happened too early, preserve the replacement separately and
+restore the exact accepted tree before migration. If those bytes are unavailable,
+stop and recover them from the trusted build or source history. Never delete
+acceptance records to force import.
+
+After that prerequisite, a host can request a new admission explicitly:
+
+```ts
+import { readExistingGenerationMarkerDigest } from "@genes-ts/tooling/session";
+
+const previousMarkerSha256 = readExistingGenerationMarkerDigest({
+  projectRoot, projectIdentity, publicOutputFile, stateDirectory,
+});
+if (previousMarkerSha256 === null) {
+  throw new Error("No root-scoped acceptance record; check legacy migration before first import");
+}
+
+const session = createGenesDevelopmentSession<Diagnostic>({
+  // ...the same scope and normal options...
+  existingGeneration: {
+    replace: {
+      previousMarkerSha256,
+      files: trustedReplacementInventory,
+    },
+  },
+});
+```
+
+`trustedReplacementInventory` has the same complete file claims as `import`.
+Derive it from the host's trusted build or integration record, not a scan that
+silently accepts arbitrary edits. The digest helper only reads the prior
+record. It does not grant permission to replace it, recover journals, or start
+a writer. Session startup checks the digest again under the public-root lock.
+Publication checks both the claimed files and the prior marker after validation.
+
+`import` and `replace` are mutually exclusive. Replacement retains each saved
+supplemental file's preparation or validation role. Every previously owned
+supplemental path must remain in the replacement claim; this handoff does not
+remove files or transfer their ownership. Newly claimed supplemental files
+must be reproduced exactly by validation. A version-3 marker lacks those roles:
+complete a normal session build before requesting replacement from that format.
+A stale unrelated digest, incomplete claim, changed input, rejected validation,
+or shutdown cannot establish acceptance. The replacement bytes remain available
+for repair. After successful admission, restart normally with
+`existingGeneration: {}`.
+
+If a process stops before reporting the result, retry the same replacement
+request with the same validator policy. The accepted marker retains that exact
+request's identity. Startup checks the complete live inventory and runs host
+validation again. An already committed replacement reuses its generation and
+revision without publishing another marker. Changed claims and requests from
+before a later successful generation remain stale and are rejected. This retry
+also works after transaction cleanup; it does not depend on a surviving journal.
+
 The import fails before it changes any public file when a digest, byte count,
 file mode, path, symbolic-link check, or validator result differs. This strict
 check prevents an old ownership record from claiming a user-edited file.
@@ -571,8 +631,10 @@ rolled back, the other output can start normally.
 
   A version 2 accepted marker names the root-owned Genes output tree. Version 3
   also names each prepared or validator-produced file, but cannot distinguish
-  which step created it. Version 4 records that source. Restart recovery reads
-  all three formats and rebuilds the matching authorization value, so an
+  which step created it. Version 4 records that source. Version 5 also records
+  the exact replacement request's identity, or null for ordinary publication.
+  Restart recovery reads all four formats and rebuilds the matching
+  authorization value, so an
   upgrade does not reject valid earlier work merely because a newer format
   learned more. On startup and after an HXML change, the session also checks
   saved paths against the current authored inputs. If a path has become

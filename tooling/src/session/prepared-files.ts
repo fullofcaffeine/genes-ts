@@ -312,7 +312,7 @@ export function recoveredArtifactsMatchPublishedFiles(
     readonly sizeBytes: number;
     readonly mode: number;
   }[],
-  markerFormat: "absent" | "v2" | "v3" | "v4" = "v4",
+  markerFormat: "absent" | "v2" | "v3" | "v4" | "v5" = "v5",
 ): boolean {
   const paths = artifacts.map((artifact, index) =>
     validatePortableRelativePath(

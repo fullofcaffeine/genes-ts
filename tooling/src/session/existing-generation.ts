@@ -11,22 +11,61 @@ import {
 import {
   logicalOutputPath,
   portableProjectPathsOverlap,
+  resolveSessionLayout,
   type SessionLayout,
 } from "./layout.js";
-import type { PublishedSupplementalFile } from "./publication.js";
+import {
+  readPublishedMarker,
+  type PublishedSupplementalFile,
+} from "./publication.js";
 import type { GenesOutputInventory } from "./genes-output.js";
 import type {
   CandidateFile,
   ExistingGenerationImport,
   ExistingGenerationPolicy,
+  GenesDevelopmentOptions,
+  JsonValue,
 } from "./types.js";
+
+/**
+ * Observes a root-scoped acceptance record for an explicit replacement decision.
+ * Legacy v1 state must migrate with its original accepted tree intact first.
+ * A null result does not establish absence of an entry-scoped legacy record.
+ * This read grants no admission: startup rechecks the digest under its writer
+ * lock, and publication compares the same record again after host validation.
+ */
+export function readExistingGenerationMarkerDigest(
+  scope: Pick<
+    GenesDevelopmentOptions<JsonValue>,
+    "projectRoot" | "projectIdentity" | "publicOutputFile" | "stateDirectory"
+  >,
+): string | null {
+  const layout = resolveSessionLayout(
+    scope.projectRoot,
+    scope.projectIdentity,
+    scope.publicOutputFile,
+    scope.stateDirectory,
+  );
+  const marker = readPublishedMarker(layout);
+  return marker.state.kind === "file" ? marker.state.sha256 : null;
+}
 
 /** Copies and validates the optional host claim before the session starts. */
 export function snapshotExistingGenerationPolicy(
   policy: ExistingGenerationPolicy | undefined,
 ): ExistingGenerationPolicy | null {
   if (policy === undefined) return null;
-  const imported = policy.import;
+  const replacement = policy.replace;
+  if (replacement !== undefined && policy.import !== undefined) {
+    throw new Error("existing generation import and replacement are mutually exclusive");
+  }
+  if (
+    replacement !== undefined &&
+    !/^[0-9a-f]{64}$/u.test(replacement.previousMarkerSha256)
+  ) {
+    throw new Error("existing generation replacement needs an exact prior marker digest");
+  }
+  const imported = replacement?.files ?? policy.import;
   if (imported === undefined) return Object.freeze({});
   const seen = new Map<string, string>();
   const snapshotFiles = (
@@ -36,7 +75,7 @@ export function snapshotExistingGenerationPolicy(
     files.map((file, index) => {
       const portablePath = validatePortableRelativePath(
         file.path,
-        `existingGeneration.import.${subject}[${index}].path`,
+        `existingGeneration.${replacement === undefined ? "import" : "replace.files"}.${subject}[${index}].path`,
       );
       const identity = portablePathIdentity(portablePath);
       const previous = seen.get(identity);
@@ -74,17 +113,23 @@ export function snapshotExistingGenerationPolicy(
     "supplementalFiles",
   );
   genesFiles.sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    Buffer.from(left.path).compare(Buffer.from(right.path)),
   );
   supplementalFiles.sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    Buffer.from(left.path).compare(Buffer.from(right.path)),
   );
-  return Object.freeze({
-    import: Object.freeze({
-      genesFiles: Object.freeze(genesFiles),
-      supplementalFiles: Object.freeze(supplementalFiles),
-    }),
+  const files = Object.freeze({
+    genesFiles: Object.freeze(genesFiles),
+    supplementalFiles: Object.freeze(supplementalFiles),
   });
+  return replacement === undefined
+    ? Object.freeze({ import: files })
+    : Object.freeze({
+        replace: Object.freeze({
+          previousMarkerSha256: replacement.previousMarkerSha256,
+          files,
+        }),
+      });
 }
 
 /** Checks the older host's exact claim for every compiler-owned output file. */
@@ -101,7 +146,7 @@ export function checkExistingGenesFiles(
       mode: file.mode,
     }))
     .sort((left, right) =>
-      left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+      Buffer.from(left.path).compare(Buffer.from(right.path)),
     );
   if (actual.length !== imported.genesFiles.length) {
     throw new Error("existing generation import names a different Genes file set");

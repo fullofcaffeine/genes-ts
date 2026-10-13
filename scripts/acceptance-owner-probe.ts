@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { closeSync, writeFileSync } from "node:fs";
+import { closeSync, renameSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Writable } from "node:stream";
 import {
@@ -11,6 +11,13 @@ import { acceptanceFixtureStartupTimeoutMs } from "./acceptance-test-budgets.js"
 
 const script = fileURLToPath(import.meta.url);
 const mode = process.argv[2];
+
+/** Existence must imply a complete PID: readers use these records for cleanup. */
+function publishPidMarker(target: string, pid: number): void {
+  const pending = `${target}.pending`;
+  writeFileSync(pending, `${String(pid)}\n`);
+  renameSync(pending, target);
+}
 
 class SignalledStalledSink extends Writable {
   public constructor(
@@ -239,7 +246,7 @@ switch (mode) {
     const operationFault = faultOperation === operation;
     if ((operationFault || terminalStateFault) && fault === "stdin-close-stall") {
       const pidPath = process.env.PROBE_WRITER_PID_PATH;
-      if (pidPath !== undefined) writeFileSync(pidPath, `${String(process.pid)}\n`);
+      if (pidPath !== undefined) publishPidMarker(pidPath, process.pid);
       closeSync(0);
       stayAlive();
       break;
@@ -362,10 +369,10 @@ switch (mode) {
         if (child.pid === undefined) throw new Error("cleanup child PID is unavailable");
         const fallbackPidPath = process.env.PROBE_FALLBACK_PID_PATH;
         if (fallbackPidPath !== undefined) {
-          writeFileSync(fallbackPidPath, `${String(child.pid)}\n`);
+          publishPidMarker(fallbackPidPath, child.pid);
         }
         const pidPath = process.env.PROBE_PID_PATH;
-        if (pidPath !== undefined) writeFileSync(pidPath, `${String(child.pid)}\n`);
+        if (pidPath !== undefined) publishPidMarker(pidPath, child.pid);
         childIdentityRecorded = true;
       },
       terminateProcessTree: async (child, graceMs, processProbeMs, onProbeDegraded, processProbe) => {

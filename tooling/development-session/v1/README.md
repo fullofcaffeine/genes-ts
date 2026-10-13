@@ -490,6 +490,54 @@ name the same object. All four paths must exist as normal files or directories.
 A symbolic link cannot provide this proof. If a crash leaves the entry absent,
 restart with its original spelling.
 
+## Explicit replacement of an existing generation
+
+A stopped host may install a new, complete generated tree through its trusted
+build or integration workflow. The old acceptance marker then describes a
+different tree. Ordinary restart must reject that difference.
+
+Legacy entry-scoped v1 state must migrate with its original accepted tree
+intact before the host installs a replacement. The digest helper observes
+root-scoped records only; null does not prove that no legacy record exists.
+If the tree was replaced prematurely, preserve it separately and restore the
+exact accepted bytes before migration. Missing accepted bytes require recovery
+from trusted history; deleting the marker is not a supported recovery path.
+
+The optional `existingGeneration.replace` request binds the exact prior marker
+SHA-256 to a complete replacement inventory. The public read-only
+`readExistingGenerationMarkerDigest` helper exposes the digest without exposing
+private control paths. Startup holds the existing writer lock before checking
+the request and invoking host validation. The marker transaction then compares
+every claimed file and the old marker again. It changes only the marker; the
+installed application files are unchanged transitions in the transaction.
+
+The existing event protocol is unchanged. Acceptance emits an external
+generation, resolves `firstAccepted`, and precedes the initial normal build.
+Replacement advances both generation and revision from the prior accepted
+record. First import starts at one; ordinary recovery retains its identifiers.
+An exact replacement retry also retains the committed identifiers. The version-5
+accepted marker stores a digest of the prior marker, normalized complete claim,
+scope, and admission policy. After a crash, the host can submit the same request
+without knowing whether publication committed. Startup rechecks the live files
+and host validation, then reuses the accepted result without another publication.
+Ordinary publication clears this replacement identity. Changed requests and
+retries after a later accepted generation fail; there is no historical receipt
+lookup. Older marker formats remain readable but do not provide this retry proof.
+If that build fails, the admitted replacement remains available. Omission of
+the new option preserves ordinary restart behavior. The additive conformance
+vector `existing-generation-replacement-survives-first-build-failure` exercises
+this boundary through the native runtime, using a prior record with a different
+manifest digest. The runtime suite covers rejected and racing claims as well.
+Native crash observers repeat the same request before marker commit, after
+marker commit, and after journal cleanup.
+
+Supplemental files retain their recorded roles. An explicit replacement cannot
+silently drop a previously owned supplemental path. Newly claimed supplemental
+files require exact validator output. Version-3 records lack role information
+and require a normal successful build before replacement. Do not delete a
+marker or change the state directory to bypass this check. See the
+[public handoff example](../../README.md) for the request shape.
+
 ## Publication and reads
 
 Filesystem publication moves more than one file. A request that reads a

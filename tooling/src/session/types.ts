@@ -346,10 +346,25 @@ export interface ExistingGenerationImport {
  *
  * An empty object can reuse a generation already recorded by
  * DevelopmentSession. `import` is required only for the first handoff from an
- * older host publisher.
+ * older host publisher. `replace` explicitly admits a different complete tree
+ * against an exact prior acceptance record.
  */
 export interface ExistingGenerationPolicy {
   readonly import?: ExistingGenerationImport;
+  /** Explicit replacement; mutually exclusive with a first-generation import. */
+  readonly replace?: ExistingGenerationReplacement;
+}
+
+/**
+ * Host-authorized handoff after another publisher installed a complete tree.
+ * The digest binds the exact previous acceptance record, including its scope
+ * and supplemental ownership. File claims alone cannot replace that authority.
+ * An exact retry after uncertain completion revalidates and reuses the current
+ * committed replacement. A later accepted generation invalidates that proof.
+ */
+export interface ExistingGenerationReplacement {
+  readonly previousMarkerSha256: string;
+  readonly files: ExistingGenerationImport;
 }
 
 /** A typed host result for pre-typing input preparation. */

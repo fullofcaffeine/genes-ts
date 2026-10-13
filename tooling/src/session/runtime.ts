@@ -77,6 +77,7 @@ import {
   preparePublication,
   readPublishedMarker,
   recoveredAdmissionMode,
+  replacementRequestDigest,
   sessionProjectDigest,
   type AdmissionRecoveryMode,
   type PublishedSupplementalFile,
@@ -517,13 +518,37 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     published: ReturnType<typeof readPublishedMarker>,
   ): Promise<AcceptedGeneration | null> {
     if (this.#existingGeneration === null) return null;
+    const replacement = this.#existingGeneration.replace;
+    const repeatsCommittedReplacement = replacement !== undefined &&
+      published.manifestDigest !== null &&
+      published.replacementDigest === replacementRequestDigest(
+        this.#layout,
+        replacement,
+        published.manifestDigest,
+        this.#options.validatorPolicyFacts,
+        published.supplementalFiles,
+      );
+    if (
+      replacement !== undefined && !repeatsCommittedReplacement && (
+        published.state.kind !== "file" ||
+        published.state.sha256 !== replacement.previousMarkerSha256
+      )
+    ) {
+      throw new Error("existing generation replacement has a stale or missing prior marker");
+    }
+    if (replacement !== undefined && published.format === "v3") {
+      throw new Error("existing generation replacement needs supplemental ownership recorded by a normal generation first");
+    }
     const live = readGenesOutput(
       this.#layout.publicOutputRoot,
       this.#layout.outputIdentity,
       false,
     );
-    if (published.manifestDigest === null) {
-      const imported = this.#existingGeneration.import;
+    if (
+      published.manifestDigest === null ||
+      (replacement !== undefined && !repeatsCommittedReplacement)
+    ) {
+      const imported = replacement?.files ?? this.#existingGeneration.import;
       if (live === null) {
         if (imported === undefined) return null;
         throw new Error("existing generation import has no live Genes output");
@@ -535,6 +560,25 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }
       checkExistingGenesFiles(this.#layout, imported, live);
       const checked = checkExistingGenerationFiles(this.#layout, imported);
+      // Replacement cannot silently abandon a previously owned companion file.
+      // Keep its preparation/validation authority when carrying it forward.
+      const previousByPath = new Map(
+        published.supplementalFiles.map((file) => [file.path, file]),
+      );
+      if (replacement !== undefined) {
+        const claimedPaths = new Set(checked.published.map((file) => file.path));
+        for (const previous of published.supplementalFiles) {
+          if (!claimedPaths.has(previous.path)) {
+            throw new Error(
+              "existing generation replacement omits an owned supplemental file: " + previous.path,
+            );
+          }
+        }
+      }
+      const supplementalFiles = checked.published.map((file) => ({
+        ...file,
+        source: previousByPath.get(file.path)?.source ?? file.source,
+      }));
       const inventory = this.#inventory;
       if (inventory === null) {
         throw new Error("existing generation import has no HXML inventory");
@@ -570,8 +614,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (
         !recoveredArtifactsMatchPublishedFiles(
           admission.artifacts ?? [],
-          checked.published,
-          "v4",
+          supplementalFiles,
+          // A new admission records a v5 marker even when its prior marker
+          // was v2. Legacy recovery allowances must not bless unclaimed files.
+          "v5",
         )
       ) {
         throw new ExistingGenerationStartupError(
@@ -603,10 +649,19 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             this.#layout,
             stageRelativePath,
             live,
-            checked.published,
+            supplementalFiles,
             this.#dependencies.now(),
             this.#options.validatorPolicyFacts,
             this.#sessionNonce,
+            published.state,
+            published.accepted,
+            replacement === undefined ? null : replacementRequestDigest(
+              this.#layout,
+              replacement,
+              live.manifestDigest,
+              this.#options.validatorPolicyFacts,
+              supplementalFiles,
+            ),
           );
           const ticket = prepared.plan.authorizationDigest;
           await this.#dependencies.publish({
@@ -639,8 +694,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (published.accepted === null) {
       throw new Error("the accepted-generation marker has no generation facts");
     }
+    if (replacement !== undefined) {
+      checkExistingGenesFiles(this.#layout, replacement.files, live);
+    }
     assertImportMatchesPublished(
-      this.#existingGeneration.import,
+      replacement?.files ?? this.#existingGeneration.import,
       published.supplementalFiles,
     );
     const extraFiles = published.supplementalFiles.map((file) =>
@@ -712,6 +770,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const file of published.supplementalFiles) {
       readLiveSupplementalFile(this.#layout, file);
+    }
+    if (replacement !== undefined) {
+      checkExistingGenesFiles(this.#layout, replacement.files, currentLive);
+      if (!sameFileState(readPublishedMarker(this.#layout).state, published.state)) {
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "the accepted replacement marker changed while the host checked it",
+        );
+      }
     }
     const accepted: AcceptedGeneration = Object.freeze({
       ...published.accepted,
