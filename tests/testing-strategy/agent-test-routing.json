@@ -1763,12 +1763,18 @@
       ],
       "ownerPaths": [
         "scripts/test-genes-tsx.ts",
+        "scripts/test-hxx-diagnostic-ranges.ts",
+        "scripts/hxx-negative-batch.ts",
+        "scripts/test-hxx-negative-batch.ts",
         "tests/genes-ts/snapshot/react"
       ],
       "proves": "The shared checked HXX plan produces the reviewed source-preserving and createElement profiles for the named fixtures.",
       "doesNotProve": "TSX snapshots alone do not prove browser behavior or every React ecosystem contract.",
       "owners": [
         "scripts/test-genes-tsx.ts",
+        "scripts/test-hxx-diagnostic-ranges.ts",
+        "scripts/hxx-negative-batch.ts",
+        "scripts/test-hxx-negative-batch.ts",
         "tests/genes-ts/snapshot/react"
       ],
       "families": [
