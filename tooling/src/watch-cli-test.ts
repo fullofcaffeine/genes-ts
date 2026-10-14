@@ -1503,7 +1503,11 @@ try {
     invalidValidatorStarted.event.event.kind === "started"
       ? invalidValidatorStarted.event.event.endpoint.port
       : -1;
-  assert.notEqual(invalidValidatorPort, -1);
+  assert.notEqual(
+    invalidValidatorPort,
+    -1,
+    `invalid validator fixture must observe an owned server before proving shutdown; stdout=${invalidValidator.stdout}; stderr=${invalidValidator.stderr}`,
+  );
   assert.equal(
     await portClosed(invalidValidatorPort),
     true,
