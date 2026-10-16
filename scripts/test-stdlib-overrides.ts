@@ -355,6 +355,34 @@ function revisionFile(
   );
 }
 
+/** Prove the selected source, including JavaScript overrides, at the pinned revision. */
+function assertSelectedUpstream(
+  entry: StdlibOverride,
+  repository: string,
+  distributionRoot: string
+): void {
+  const modulePath = entry.module.replaceAll(".", "/") + ".hx";
+  const sharedPath = "std/" + modulePath;
+  const javascriptPath = "std/js/_std/" + modulePath;
+  const reviewedPaths = gitText(repository, [
+    "ls-tree", "--name-only", entry.haxeRevision, "--", sharedPath, javascriptPath
+  ]).split("\n");
+  const selectedPath = reviewedPaths.includes(javascriptPath) ? javascriptPath : sharedPath;
+  ok(reviewedPaths.includes(selectedPath), `${entry.module} must exist at the reviewed revision`);
+  strictEqual(
+    entry.upstreamPath,
+    selectedPath,
+    `${entry.module} must use the source selected by Haxe's JavaScript target`
+  );
+  const installedPath = existsSync(path.join(distributionRoot, javascriptPath))
+    ? javascriptPath : sharedPath;
+  strictEqual(
+    installedPath,
+    selectedPath,
+    `${entry.module} installed source precedence must match the reviewed revision`
+  );
+}
+
 function selectedFormatterVersion(): string {
   const result = runResult("haxelib", ["list", "formatter"]);
   assertSuccess(result, "Haxe formatter inventory");
@@ -507,6 +535,7 @@ mkdirSync(outputRoot, { recursive: true });
 try {
   for (const entry of manifest.overrides) {
     assertManifestEntry(entry, sourceContract);
+    assertSelectedUpstream(entry, sourceRepository, haxeDistributionRoot);
     const identity = `${entry.platform}:${entry.module}`;
     ok(!identities.has(identity), `Duplicate stdlib override: ${identity}`);
     ok(
@@ -624,6 +653,15 @@ try {
     (entry) => entry.module === "haxe.io.Bytes" && entry.platform === "js"
   );
   ok(bytesEntry !== undefined, "The Bytes JS override is registered");
+  throws(
+    () => assertSelectedUpstream(
+      { ...bytesEntry, upstreamPath: "std/haxe/io/Bytes.hx" },
+      sourceRepository,
+      haxeDistributionRoot
+    ),
+    /source selected by Haxe's JavaScript target/,
+    "shared Bytes source cannot replace its existing JavaScript implementation"
+  );
 
   const positive = runResult(
     "haxe",
@@ -643,7 +681,7 @@ try {
 
   const unicodeTs = readOutput("out/ts/src-gen/UnicodeString.ts");
   ok(!unicodeTs.includes("data.bytes"), "validation keeps typed Bytes storage instead of an optional cache");
-  ok(!unicodeTs.includes("static toUpperCase"), "default std DCE prunes unused abstract implementation fields");
+  ok(!unicodeTs.includes("static substring"), "default std DCE prunes unused abstract implementation fields");
   const unicodeMap = new SourceMapConsumer(JSON.parse(readOutput("out/ts/src-gen/UnicodeString.ts.map")) as RawSourceMap);
   const mappedByteRead = unicodeMap.originalPositionFor(generatedPoint(unicodeTs, "b.b[pos++]!"));
   ok(mappedByteRead.source?.endsWith("src/UnicodeString.js.hx"), "the byte read maps to the reviewed UnicodeString overlay");
