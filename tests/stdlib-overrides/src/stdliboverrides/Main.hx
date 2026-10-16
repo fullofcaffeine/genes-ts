@@ -9,6 +9,7 @@ extern class NodeConsole {
 
 final class Main {
   public static function main(): Void {
+    UnicodeValidation.verify();
     NodeConsole.log(Bytes.ofHex("000f107f80ff").toHex());
   }
 }

@@ -1,7 +1,7 @@
 # JavaScript stdlib-overlay fixture
 
-This fixture proves both the reusable Genes overlay mechanism and the first
-reviewed module, `haxe.io.Bytes`.
+This fixture proves the reusable Genes overlay mechanism, `haxe.io.Bytes`,
+and `UnicodeString`.
 
 ## Why it exists
 
@@ -122,6 +122,17 @@ The expected runtime transcript is:
 ```text
 000f107f80ff
 ```
+
+Before printing that transcript, `UnicodeValidation.verify` checks independently
+specified valid and invalid UTF-8 bytes. These cover scalar boundaries,
+overlong encodings, surrogates, truncation, invalid continuation bytes and mixed
+Unicode text. It also checks `RawNative` rejection and Unicode character
+operations. Any mismatch throws and fails the runtime check.
+
+The UnicodeString overlay uses typed `Bytes.get` reads in the unchanged Haxe
+validator. Its provenance comes from the shared `std/UnicodeString.hx` module,
+which the JavaScript target normally selects. Source maps, cold/warm output,
+default DCE, and the installed package each retain independent checks.
 
 The complete ownership model and future-overlay workflow are in
 [`docs/STDLIB_OVERRIDES.md`](../../docs/STDLIB_OVERRIDES.md).

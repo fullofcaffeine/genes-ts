@@ -276,7 +276,9 @@ Use this sequence:
 1. Prove that the issue belongs to a JavaScript stdlib module and cannot be
    solved from typed evidence already available to Genes.
 2. Create a focused Genes Bead and isolated worktree.
-3. Copy the exact module from the pinned Haxe JavaScript `_std` directory.
+3. Copy the exact module selected by the pinned Haxe JavaScript target: its
+   JavaScript `_std` implementation, or the shared `std/` module when there is
+   no target-specific implementation. The manifest must name that exact module.
 4. Format it with Genes' pinned Haxe formatter.
 5. Save it as `src/<module path>.js.hx`.
 6. Restore std-path DCE semantics for every copied class that needs them,
@@ -308,3 +310,28 @@ The fixture and its expected evidence are described in
 [`tests/stdlib-overrides/README.md`](../tests/stdlib-overrides/README.md).
 
 Prepared by the GameCarry agent.
+
+## UTF-8 validation without an optional cache
+
+`UnicodeString.validate(bytes, UTF8)` checks bytes before an application
+decodes them. Haxe's shared implementation uses `Bytes.fastGet` on a backing
+buffer. Inlining removes the helper identity, leaving an optional `data.bytes`
+read in TypeScript. The validator knows the buffer is initialized; an arbitrary
+JavaScript buffer does not have that guarantee.
+
+The JavaScript overlay keeps Haxe's validation algorithm and replaces its
+seven reads with `b.get(pos++)`. This typed API reads the same bytes through
+the existing `Bytes` object. It needs no cache-presence assertion or new
+compiler rule. The loop still checks every index against the byte length.
+Malformed sequences return `false`; `RawNative` remains unsupported.
+
+The complete module is pinned to Haxe 4.3.7. Its other methods are unchanged,
+and `@:dce` preserves default pruning of unused abstract implementation fields.
+The manifest records each edit and verifies the shared source from the exact
+Haxe revision. This is a JavaScript implementation choice, not a change to
+Haxe's cross-target UTF-8 contract.
+
+The existing stdlib fixture checks valid scalar boundaries, overlong encodings,
+surrogates, invalid continuation bytes, truncation, and mixed Unicode text.
+It compares standard Haxe, classic Genes and strict TypeScript runtimes.
+The byte-cache negative fixture still rejects raw reads from fresh buffers.

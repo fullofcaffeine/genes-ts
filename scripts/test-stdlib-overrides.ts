@@ -194,10 +194,13 @@ function assertManifestEntry(
     64
   );
   assertHex(entry.overrideSha256, `${entry.module}.overrideSha256`, 64);
+  const modulePath = entry.module.replaceAll(".", "/") + ".hx";
   ok(
-    entry.upstreamPath.startsWith("std/js/_std/")
-      && !entry.upstreamPath.split("/").includes(".."),
-    `${entry.module}.upstreamPath must name a JavaScript stdlib module`
+    ["std/" + modulePath, "std/js/_std/" + modulePath]
+      .includes(entry.upstreamPath)
+      && !entry.module.includes("/")
+      && !entry.module.split(".").some(part => part.length === 0),
+    `${entry.module}.upstreamPath must name its exact standard or JavaScript module`
   );
   ok(entry.edits.length > 0, `${entry.module} must declare a reviewed edit`);
   for (const [index, edit] of entry.edits.entries()) {
@@ -575,6 +578,13 @@ try {
   }
 
   assertOverlayInventory([...localPaths], discoveredOverlays);
+  const unicodeEntry = manifest.overrides.find(entry => entry.module === "UnicodeString");
+  ok(unicodeEntry !== undefined, "The UnicodeString overlay must be registered");
+  throws(
+    () => assertManifestEntry({ ...unicodeEntry, upstreamPath: "std/haxe/io/Bytes.hx" }, sourceContract),
+    /exact standard or JavaScript module/,
+    "a different stdlib module cannot supply the overlay provenance"
+  );
   const mutationControl = manifest.overrides[0];
   ok(mutationControl !== undefined, "A manifest entry is required");
   throws(
@@ -630,6 +640,14 @@ try {
   );
   run("haxe", ["tests/stdlib-overrides/build-classic.hxml"]);
   run("haxe", ["tests/stdlib-overrides/build-standard.hxml"]);
+
+  const unicodeTs = readOutput("out/ts/src-gen/UnicodeString.ts");
+  ok(!unicodeTs.includes("data.bytes"), "validation keeps typed Bytes storage instead of an optional cache");
+  ok(!unicodeTs.includes("static toUpperCase"), "default std DCE prunes unused abstract implementation fields");
+  const unicodeMap = new SourceMapConsumer(JSON.parse(readOutput("out/ts/src-gen/UnicodeString.ts.map")) as RawSourceMap);
+  const mappedByteRead = unicodeMap.originalPositionFor(generatedPoint(unicodeTs, "b.b[pos++]!"));
+  ok(mappedByteRead.source?.endsWith("src/UnicodeString.js.hx"), "the byte read maps to the reviewed UnicodeString overlay");
+  strictEqual(mappedByteRead.line, sourceLine(readFileSync(path.join(repoRoot, unicodeEntry.localPath), "utf8"), "var c: Int = b.get(pos++);"));
 
   const bytesTs = readOutput("out/ts/src-gen/haxe/io/Bytes.ts");
   assertBytesTypeScript(bytesTs);
@@ -787,6 +805,8 @@ try {
       bytesTs,
       "warm and cold TypeScript emit the same Bytes module"
     );
+    strictEqual(readOutput("out/warm-ts-one/src-gen/UnicodeString.ts"), unicodeTs,
+      "warm and cold TypeScript emit the same UnicodeString module");
 
     const warmClassic = path.join(outputRoot, "warm-classic/index.js");
     const warmClassicResult = await server.compile(
@@ -805,6 +825,8 @@ try {
       readOutput("out/classic/haxe/io/Bytes.js"),
       "warm and cold classic output remain identical"
     );
+    strictEqual(readOutput("out/warm-classic/UnicodeString.js"), readOutput("out/classic/UnicodeString.js"),
+      "warm and cold classic UnicodeString output remain identical");
 
     const warmTsTwo = path.join(outputRoot, "warm-ts-two/src-gen/index.ts");
     const warmTsAgain = await server.compile(
@@ -826,6 +848,8 @@ try {
       bytesTs,
       "a classic request does not contaminate the next warm TypeScript request"
     );
+    strictEqual(readOutput("out/warm-ts-two/src-gen/UnicodeString.ts"), unicodeTs,
+      "a classic request does not contaminate UnicodeString TypeScript output");
   } finally {
     await server.stop();
   }

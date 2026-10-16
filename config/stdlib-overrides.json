@@ -27,6 +27,39 @@
           "reason": "Bytes.toHex reads only valid positions in the fixed hexadecimal alphabet, so its lookup table contains Int values even though general String.charCodeAt calls return Null<Int> on JavaScript."
         }
       ]
+    },
+    {
+      "module": "UnicodeString",
+      "platform": "js",
+      "localPath": "src/UnicodeString.js.hx",
+      "haxeVersion": "4.3.7",
+      "haxeRepository": "https://github.com/HaxeFoundation/haxe.git",
+      "haxeRevision": "e0b355c6be312c1b17382603f018cf52522ec651",
+      "upstreamPath": "std/UnicodeString.hx",
+      "upstreamSha256": "6183421556f274f37123c586238ba461eeab2c1aed5433e406587f687400e080",
+      "formatterVersion": "1.18.0",
+      "canonicalUpstreamSha256": "83319ce994a8a5a0e67d9c3860f6cd83358b83420bfd84f7d15db46ad4dd31ea",
+      "overrideSha256": "581eb64e4a1cecd6df65ee56f69d1c7cda4c11052eddfb2f6169c3981c731736",
+      "edits": [
+        {
+          "from": "@:forward\n",
+          "to": "@:dce\n@:forward\n",
+          "count": 1,
+          "reason": "Restore standard-path field pruning for the abstract implementation when this module is resolved from the Genes classpath under default std DCE."
+        },
+        {
+          "from": "        var data = b.getData();",
+          "to": "        // Read through typed Bytes storage. The upstream fastGet cache loses\n        // its initialization evidence after Haxe inlining on JavaScript.",
+          "count": 1,
+          "reason": "The validator already owns typed Bytes and checks every read against its length. It does not need an untyped optional backing-buffer cache."
+        },
+        {
+          "from": "Bytes.fastGet(data, pos++)",
+          "to": "b.get(pos++)",
+          "count": 7,
+          "reason": "Keep the upstream byte-validation algorithm and index increments while preserving the initialized Bytes storage type through inlining."
+        }
+      ]
     }
   ]
 }
