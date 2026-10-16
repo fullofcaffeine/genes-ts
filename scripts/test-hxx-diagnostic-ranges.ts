@@ -6,10 +6,10 @@
  * expected range merely because the expected ID appeared elsewhere.
  */
 import { ok, strictEqual } from "node:assert";
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { compileHxxNegative, runHxxNegativeBatch } from "./hxx-negative-batch.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,10 +250,13 @@ function publishedFiles(directory: string): ReadonlyArray<string> {
  * changing the source or compiler configuration. Only the default build
  * arguments qualify; provider overrides must be compiled separately.
  */
-export function assertHxxDiagnosticRanges(): ReadonlyMap<string, string> {
+export async function assertHxxDiagnosticRanges(): Promise<ReadonlyMap<string, string>> {
   const verifiedDefaultDiagnostics = new Map<string, string>();
   assertDiagnosticBlockGrouping();
-  for (const rangeCase of cases) {
+  strictEqual(new Set(cases.map((value) => value.define)).size, cases.length,
+    "HXX range fixtures must own distinct output directories");
+  await runHxxNegativeBatch(cases, async (rangeCase) => {
+    const caseOutputDir = path.join(negativeOutputDir, rangeCase.define);
     console.log(`genes-tsx:range:start ${rangeCase.define}`);
     const startedAt = performance.now();
     const sourcePath = path.join(repoRoot, rangeCase.sourceFile);
@@ -276,21 +279,17 @@ export function assertHxxDiagnosticRanges(): ReadonlyMap<string, string> {
     const expectedStart = markerIndex + 1;
     const expectedEnd = expectedStart + rangeCase.rangeMarker.length;
 
-    rmSync(negativeOutputDir, { recursive: true, force: true });
-    const result = spawnSync(
-      "haxe",
+    rmSync(caseOutputDir, { recursive: true, force: true });
+    const result = await compileHxxNegative(
+      repoRoot,
       [
         "tests/genes-ts/snapshot/react/build-negative.hxml",
         "-D",
         rangeCase.define,
+        "-D",
+        `genes.output=${path.join(caseOutputDir, "index.tsx")}`,
         ...(rangeCase.extraArgs ?? [])
-      ],
-      { cwd: repoRoot, encoding: "utf8" }
-    );
-    strictEqual(
-      result.error,
-      undefined,
-      `${rangeCase.name} failed to start Haxe`
+      ]
     );
     strictEqual(
       result.status === 0,
@@ -316,7 +315,7 @@ export function assertHxxDiagnosticRanges(): ReadonlyMap<string, string> {
     strictEqual(reported.start, expectedStart, `${rangeCase.name} start drifted`);
     strictEqual(reported.end, expectedEnd, `${rangeCase.name} end drifted`);
 
-    const files = publishedFiles(negativeOutputDir);
+    const files = publishedFiles(caseOutputDir);
     strictEqual(
       files.length,
       0,
@@ -326,12 +325,12 @@ export function assertHxxDiagnosticRanges(): ReadonlyMap<string, string> {
       verifiedDefaultDiagnostics.set(rangeCase.define, output);
     }
     console.log(`genes-tsx:range:passed ${rangeCase.define} durationMs=${Math.round(performance.now() - startedAt)}`);
-  }
+  });
 
   rmSync(negativeOutputDir, { recursive: true, force: true });
   return verifiedDefaultDiagnostics;
 }
 
 if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === __filename) {
-  assertHxxDiagnosticRanges();
+  await assertHxxDiagnosticRanges();
 }

@@ -599,6 +599,15 @@ line. Provider overrides compile separately. Results are not saved for later
 runs, and source or compiler settings must not change between the checks.
 Per-case start and completion messages show where a timeout occurred.
 
+Independent range and negative fixtures run with at most two Haxe children.
+Each fixture owns an output directory keyed by its unique test define. All
+children finish before provider mutations or shared cleanup can start. A
+failed assertion stops new admissions and waits for active observations.
+The existing acceptance process owner still owns deadlines and descendant
+cleanup. Set `GENES_HXX_NEGATIVE_WORKERS=1` for the serial reference path;
+only `1` and `2` are accepted. This option does not change the selected cases,
+diagnostic assertions, range checks, or later TypeScript and runtime checks.
+
 The authoritative same-source and output-quality layers are separately
 available:
 
