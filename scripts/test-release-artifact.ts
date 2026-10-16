@@ -173,6 +173,7 @@ try {
   const entries = unzipSync(new Uint8Array(readFileSync(firstPath)));
   for (const requiredPath of [
     "src/haxe/io/Bytes.js.hx",
+    "src/UnicodeString.js.hx",
     "config/stdlib-overrides.json",
     "docs/STDLIB_OVERRIDES.md",
     "tests/stdlib-overrides/README.md",
@@ -241,6 +242,8 @@ try {
       "",
       "final class Main {",
       "  public static function main():Void {",
+      '    if (!UnicodeString.validate(Bytes.ofHex("f09f9880"), haxe.io.Encoding.UTF8)) throw "valid UTF-8 rejected";',
+      '    if (UnicodeString.validate(Bytes.ofHex("eda080"), haxe.io.Encoding.UTF8)) throw "surrogate UTF-8 accepted";',
       '    NodeConsole.log(Bytes.ofHex("000f107f80ff").toHex());',
       "  }",
       "}",
@@ -300,6 +303,14 @@ try {
     /Parsed .*stdlib-consumer\/\.haxelib\/genes-ts\/9,8,7\/src\/haxe\/io\/Bytes\.js\.hx/,
     "a clean -lib genes-ts consumer must select Bytes.js.hx from the isolated installed package"
   );
+  assert.match(
+    packagedCompileOutput.split(path.sep).join("/"),
+    /Parsed .*stdlib-consumer\/\.haxelib\/genes-ts\/9,8,7\/src\/UnicodeString\.js\.hx/,
+    "the clean consumer must resolve UnicodeString from the installed package"
+  );
+  const packagedUnicode = readFileSync(path.join(generatedRoot, "UnicodeString.ts"), "utf8");
+  assert(!packagedUnicode.includes("data.bytes") && !packagedUnicode.includes("static charAt"),
+    "the package preserves typed UTF-8 reads and default std DCE");
   const packagedBytes = readFileSync(
     path.join(generatedRoot, "haxe/io/Bytes.ts"),
     "utf8"

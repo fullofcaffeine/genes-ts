@@ -434,6 +434,12 @@ and packaged Haxelib/Lix selection. See
 [`tests/stdlib-overrides/README.md`](../tests/stdlib-overrides/README.md) for
 the `haxe.io.Bytes` example.
 
+`UnicodeString.js.hx` uses the same mechanism for Haxe's shared UTF-8 validator.
+It replaces raw optional-cache reads with typed `Bytes.get` calls while keeping
+the validation algorithm. The manifest admits only the exact module path in
+`std/` or `std/js/_std/`; both sources are checked against the pinned Haxe tree.
+This does not relax the unsafe-buffer controls described below.
+
 ### Haxe runtime byte caches on native buffers
 
 Haxe 4.3.7's JavaScript `haxe.io.Bytes` implementation adds `hxBytes` and
