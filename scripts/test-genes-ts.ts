@@ -170,6 +170,7 @@ run("node", ["tests/genes-ts/snapshot/basic/out/dist/index.js"]);
 run("node", ["tests/genes-ts/repros/computed-native-member-call/check.mjs"]);
 run("node", ["tests/genes-ts/repros/discriminated-unions/check.mjs"]);
 run("node", ["tests/genes-ts/repros/exact-enum-abstract-projections/check.mjs"]);
+run("node", ["tests/genes-ts/repros/nullable-record-widening/check.mjs"]);
 
 rmrf("tests/genes-ts/snapshot/resource-imports/out");
 run("haxe", ["tests/genes-ts/snapshot/resource-imports/build.hxml"]);
