@@ -1228,10 +1228,9 @@ brace-expansion@5.0.12, brace-expansion@^5.0.5:
   dependencies:
     balanced-match "^4.0.2"
 
-braces@^3.0.3:
-  version "3.0.3"
-  resolved "https://registry.yarnpkg.com/braces/-/braces-3.0.3.tgz#490332f40919452272d55a8480adc0c441358789"
-  integrity sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA==
+braces@^3.0.3, "braces@git+https://github.com/fullofcaffeine/braces.git#bca44d5cf49c64d9f31fdc06ef9b09a13f9ac89d":
+  version "3.0.3-caf.1"
+  resolved "git+https://github.com/fullofcaffeine/braces.git#bca44d5cf49c64d9f31fdc06ef9b09a13f9ac89d"
   dependencies:
     fill-range "^7.1.1"
 
@@ -2272,10 +2271,10 @@ hosted-git-info@^9.0.0, hosted-git-info@^9.0.3:
   dependencies:
     lru-cache "^11.1.0"
 
-http-cache-semantics@^4.1.1:
-  version "4.2.0"
-  resolved "https://registry.yarnpkg.com/http-cache-semantics/-/http-cache-semantics-4.2.0.tgz#205f4db64f8562b76a4ff9235aa5279839a09dd5"
-  integrity sha512-dTxcvPXqPvXBQpq5dUr6mEMJX4oIEFv6bwom3FDwKRDsuIjjJGANqhBuoAn9c1RQJIdAKav33ED65E2ys+87QQ==
+http-cache-semantics@4.3.0, http-cache-semantics@^4.1.1:
+  version "4.3.0"
+  resolved "https://registry.yarnpkg.com/http-cache-semantics/-/http-cache-semantics-4.3.0.tgz#09eead3b16c6d85552857cc3fbd888d8353a2aaf"
+  integrity sha512-M5t5LlJpS1UHMjvwRQVdFHvPISGeLAxNcrWuJkeGh0KxsqCHZ1O3NXZU/8x7cD0BDcGW8kapxMKTvwlqrNkHkA==
 
 http-errors@~2.0.0, http-errors@~2.0.1:
   version "2.0.1"
