@@ -533,6 +533,14 @@ Haxe's accepted static relationship into TypeScript. If Haxe source first
 checks `value != null`, TypeScript understands the same guard and Genes emits
 the direct call without an assertion.
 
+The reverse conversion needs no assertion: a present `T` already fits
+`T | null`. For a named record, the widening check preserves its typedef
+identity before following the anonymous representation. The existing boundary
+comparator checks the exact declaration and generic arguments; this does not
+authorize arbitrary structural conversions or changes inside generic arguments.
+The paired runtime and strict-consumer regression is
+[`nullable-record-widening`](../tests/genes-ts/repros/nullable-record-widening/README.md).
+
 Inline expansion can expose the same principle at a single local-variable
 read. For example, Haxe may preserve evaluation order for an inline receiver
 call by introducing a nullable temporary:
