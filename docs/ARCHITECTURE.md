@@ -593,6 +593,15 @@ signatures for arbitrary anonymous callbacks or invent new inference facts.
 
 ### Enum payload reads after Haxe erases a match
 
+An enum match can also survive as a static field's value expression. The shared
+expression emitter must emit a throwing branch as a statement, rather than
+send the same throw back through value generation. TypeScript's value wrapper
+uses a lexical arrow and direct returns, preserving inferred branch types and
+the current receiver without an untyped `$this` parameter. Classic JavaScript
+keeps its existing result wrapper. The enum-payload fixture independently checks
+initialization order, one evaluation per initializer, and startup failure when
+the selected branch throws.
+
 Haxe can also prove that generic parameters make every enum constructor except
 one impossible. It may then erase an authored one-case match:
 

@@ -38,6 +38,6 @@ class Main {
       String> = Reduction.Reduced("elided");
     final visibleValue: Reduction<Int, Failure, Failure,
       String> = Reduction.Failed(new Failure("visible"));
-    NodeConsole.log([elided(elidedValue), visible(visibleValue), imported()].join("|"));
+    NodeConsole.log([elided(elidedValue), visible(visibleValue), imported(), StaticSelection.result()].join("|"));
   }
 }
