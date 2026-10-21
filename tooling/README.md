@@ -52,12 +52,57 @@ An HXML file is Haxe's build-argument file. It names class paths, libraries,
 defines, and other inputs. `inventoryHxml` reads that declared graph
 so the host does not guess which files affect a build.
 
-If you only run Haxe once in CI, keep doing that; this package is for a
-long-lived development process. If you are building such a process today,
+For a one-shot native compiler invocation, use the public `./haxe` boundary
+described below. For a long-lived development process,
 `createGenesDevelopmentSession` is the normal starting point. The lower-level
 subpaths remain public for hosts with a narrower need and for the session's own
 implementation; an application should not rebuild the same lifecycle from
 them.
+
+## Run an explicitly selected native compiler
+
+Import `launchHaxe`, `runHaxeSync`, and their option types from
+`@genes-ts/tooling/haxe` or the package root. These functions reuse the session
+launcher without creating a session. The caller selects an absolute native
+executable, ordered arguments, working directory, and complete environment.
+No ambient environment is merged. No shell interprets arguments or executes a
+script wrapper. Native-image inspection is a format check, not binary
+attestation; callers must trust the selected path against concurrent replacement.
+
+```ts
+import { launchHaxe } from "@genes-ts/tooling/haxe";
+
+const launched = launchHaxe(selectedExecutable, ["build.hxml"], {
+  cwd: projectDirectory,
+  environment: { HAXE_STD_PATH: selectedStandardLibrary },
+  stdout: "pipe",
+  stderr: "pipe",
+});
+// Install child error/close handlers and bounded output readers immediately.
+// Observe launched.handoff as well as native completion.
+```
+
+`child` is the owned Node child process. On POSIX, the trusted runner replaces
+itself with the compiler, preserving its PID. Its stdin carries the environment
+handoff and is unavailable as compiler input. `handoff` reports the launch
+attempt, not successful compilation. A launch can throw synchronously; child
+errors, handoff rejection, exit status, and signal termination remain distinct
+failure observations. Always handle them.
+
+This boundary does not collect output, set asynchronous deadlines, accept an
+abort signal, or terminate children for the caller. The host must drain pipes,
+enforce byte limits, own timeout and cancellation timers, send termination,
+and wait for child completion. Ignored streams need no reader. The child is
+**not detached**: this API does not create or terminate a process group and does
+not promise descendant cleanup. A host that requires group termination cannot
+treat it as a replacement for a detached process launcher.
+
+`runHaxeSync` returns Node's UTF-8 `SpawnSyncReturns<string>`, including its error,
+status, signal, stdout, and stderr. It accepts `timeoutMs` and uses Node's default
+output buffer limit. Node's synchronous timeout may still wait for a child that
+ignores termination. Use the asynchronous boundary when the host needs its own
+cancellation and output policy. `inspectNativeExecutableFile` is available for
+an early format check; launch still checks the selected executable itself.
 
 ### Pick the reading path that matches your job
 

@@ -387,6 +387,7 @@ const expectedPublicExports = [
   "./development-session/v1/protocol.schema.json",
   "./development-session/v1/vectors.json",
   "./development-session/v1/vectors.schema.json",
+  "./haxe",
   "./haxe-server",
   "./haxe-wait-server/v1/vectors.json",
   "./haxe-wait-server/v1/vectors.schema.json",
@@ -455,6 +456,8 @@ function verifyInventory(result: PackResult): readonly string[] {
     "dist/watch/index.d.ts",
     "dist/loop/index.js",
     "dist/loop/index.d.ts",
+    "dist/haxe/index.js",
+    "dist/haxe/index.d.ts",
     "dist/haxe-server/index.js",
     "dist/haxe-server/index.d.ts",
     "dist/session/index.js",
@@ -719,6 +722,10 @@ import {
   createTypeScriptDeclarationManifest,
   type TypeScriptDeclarationManifestOptions,
 } from "@genes-ts/tooling/css-modules/typescript-declaration";
+import { launchHaxe, runHaxeSync, type HaxeLaunchOptions, type HaxeLaunch } from "@genes-ts/tooling/haxe";
+const nativeLaunch: (executable: string, args: readonly string[], options: HaxeLaunchOptions) => HaxeLaunch = launchHaxe;
+void nativeLaunch;
+void runHaxeSync;
 import { inventoryHxml, type HxmlInventory } from "@genes-ts/tooling/hxml";
 import {
   resolveLixLibraryGroup,
@@ -828,6 +835,7 @@ void typeWitness;
     path.join(consumer, "runtime.mjs"),
     `import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -846,9 +854,33 @@ import * as declarationProvider from "@genes-ts/tooling/css-modules/typescript-d
 import * as hxml from "@genes-ts/tooling/hxml";
 import * as lix from "@genes-ts/tooling/lix";
 import * as loop from "@genes-ts/tooling/loop";
+import * as nativeHaxe from "@genes-ts/tooling/haxe";
 import * as server from "@genes-ts/tooling/haxe-server";
 import * as session from "@genes-ts/tooling/session";
 import * as watch from "@genes-ts/tooling/watch";
+
+// A packed consumer must reject an executable script before its body runs.
+if (process.platform !== "win32") {
+  const rejectionRoot = mkdtempSync(path.join(os.tmpdir(), "genes-public-native-"));
+  const wrapper = path.join(rejectionRoot, "wrapper");
+  const marker = path.join(rejectionRoot, "executed");
+  try {
+    writeFileSync(wrapper, "#!/bin/sh\\nprintf wrapper > executed\\n", { mode: 0o755 });
+    let rejected = false;
+    try {
+      nativeHaxe.launchHaxe(wrapper, [], {
+        cwd: rejectionRoot, environment: {}, stdout: "ignore", stderr: "ignore",
+      });
+    } catch (error) {
+      rejected = error instanceof nativeHaxe.HaxeLaunchError;
+    }
+    if (!rejected || existsSync(marker)) {
+      throw new Error("public native launch accepted an executable script");
+    }
+  } finally {
+    rmSync(rejectionRoot, { recursive: true, force: true });
+  }
+}
 
 // createRequire resolves the package export map and loads the real JSON value.
 // Keep this runtime probe independent from evolving static JSON import syntax.
@@ -868,6 +900,11 @@ const guidancePath = requireJson.resolve("@genes-ts/tooling/agent-guidance/v1/AG
 
 const witnesses = [
   root.publishArtifacts,
+  root.launchHaxe,
+  nativeHaxe.launchHaxe,
+  nativeHaxe.runHaxeSync,
+  nativeHaxe.inspectNativeExecutableFile,
+  nativeHaxe.HaxeLaunchError,
   agents.checkGenesAgentGuidance,
   agents.installGenesAgentGuidance,
   artifacts.recoverArtifacts,
@@ -887,7 +924,7 @@ const witnesses = [
   session.readGenesOutput,
   session.assertCandidateContainsOnlyOwnedFiles,
 ];
-if (witnesses.slice(0, 13).some((value) => typeof value !== "function")) {
+if (witnesses.slice(0, 18).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
 if ("measureInstalledPackageClosure" in cssModules) {

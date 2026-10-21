@@ -79,7 +79,11 @@
     "./artifact-transactions/v1/vectors.schema.json": "./artifact-transactions/v1/vectors.schema.json",
     "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json",
     "./watch-orchestration/v1/vectors.schema.json": "./watch-orchestration/v1/vectors.schema.json",
-    "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json"
+    "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json",
+    "./haxe": {
+      "types": "./dist/haxe/index.d.ts",
+      "import": "./dist/haxe/index.js"
+    }
   },
   "files": [
     "CHANGELOG.md",
@@ -139,7 +143,11 @@
     "artifact-transactions/v1/README.md",
     "watch-orchestration/v1/*.json",
     "watch-orchestration/v1/README.md",
-    "README.md"
+    "README.md",
+    "dist/haxe/**/*.d.ts",
+    "dist/haxe/**/*.d.ts.map",
+    "dist/haxe/**/*.js",
+    "dist/haxe/**/*.js.map"
   ],
   "scripts": {
     "build": "npm exec --no -- tsc6 -p tsconfig.json",

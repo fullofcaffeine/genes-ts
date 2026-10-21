@@ -6,6 +6,11 @@ it.
 
 ## Unreleased
 
+- Expose the maintained native compiler launcher through `./haxe` and the
+  package root. One-shot hosts can preserve exact arguments and environment
+  without executable script fallback. Hosts retain output limits, cancellation,
+  and child completion; this API does not provide detached process groups.
+
 - Add explicit development-session admission for a complete generated tree
   installed while the session is stopped. The host supplies the exact prior
   acceptance digest and replacement file inventory. Genes validates the tree
