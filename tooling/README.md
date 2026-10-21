@@ -62,9 +62,10 @@ them.
 ## Run an explicitly selected native compiler
 
 Import `launchHaxe`, `runHaxeSync`, and their option types from
-`@genes-ts/tooling/haxe` or the package root. The public Node child types require the pinned
-`@types/node` peer, which npm installs automatically. These functions reuse the session
-launcher without creating a session. The caller selects an absolute native
+`@genes-ts/tooling/haxe` or the package root. The public Node child types require
+the pinned `@types/node` peer, which npm installs automatically. The public
+declaration explicitly loads these types; callers need no ambient type-discovery
+setting. These functions reuse the session launcher without creating a session. The caller selects an absolute native
 executable, ordered arguments, working directory, and complete environment.
 On POSIX, raw `execve` receives only the selected environment. On Windows,
 Node launches the executable directly and can propagate Node-specific variables,

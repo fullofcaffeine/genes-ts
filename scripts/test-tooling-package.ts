@@ -689,6 +689,7 @@ function verifyCleanConsumer(tarball: string, tempRoot: string): void {
           strict: true,
           noEmit: true,
           skipLibCheck: false,
+          types: [],
         },
         include: ["consumer.ts"],
       },
