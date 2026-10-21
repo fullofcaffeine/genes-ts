@@ -79,7 +79,11 @@
     "./artifact-transactions/v1/vectors.schema.json": "./artifact-transactions/v1/vectors.schema.json",
     "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json",
     "./watch-orchestration/v1/vectors.schema.json": "./watch-orchestration/v1/vectors.schema.json",
-    "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json"
+    "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json",
+    "./haxe": {
+      "types": "./dist/haxe/index.d.ts",
+      "import": "./dist/haxe/index.js"
+    }
   },
   "files": [
     "CHANGELOG.md",
@@ -139,7 +143,11 @@
     "artifact-transactions/v1/README.md",
     "watch-orchestration/v1/*.json",
     "watch-orchestration/v1/README.md",
-    "README.md"
+    "README.md",
+    "dist/haxe/**/*.d.ts",
+    "dist/haxe/**/*.d.ts.map",
+    "dist/haxe/**/*.js",
+    "dist/haxe/**/*.js.map"
   ],
   "scripts": {
     "build": "npm exec --no -- tsc6 -p tsconfig.json",
@@ -151,7 +159,8 @@
     "postcss": "8.5.25",
     "postcss-modules": "9.0.1",
     "postcss-selector-parser": "7.1.6",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "@types/node": "26.4.0"
   },
   "peerDependenciesMeta": {
     "postcss": {
