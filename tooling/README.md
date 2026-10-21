@@ -65,8 +65,11 @@ Import `launchHaxe`, `runHaxeSync`, and their option types from
 `@genes-ts/tooling/haxe` or the package root. These functions reuse the session
 launcher without creating a session. The caller selects an absolute native
 executable, ordered arguments, working directory, and complete environment.
-No ambient environment is merged. No shell interprets arguments or executes a
-script wrapper. Native-image inspection is a format check, not binary
+On POSIX, raw `execve` receives only the selected environment. On Windows,
+Node launches the executable directly and can propagate Node-specific variables,
+such as `NODE_V8_COVERAGE`, or permission-mode `NODE_OPTIONS`. This API does not
+promise exact environment isolation on Windows. No shell interprets arguments
+or executes a script wrapper. Native-image inspection is a format check, not binary
 attestation; callers must trust the selected path against concurrent replacement.
 
 ```ts
