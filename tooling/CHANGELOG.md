@@ -9,7 +9,8 @@ it.
 - Expose the maintained native compiler launcher through `./haxe` and the
   package root. One-shot hosts can preserve exact arguments and environment
   without executable script fallback. POSIX uses the selected environment exactly;
-  Windows retains Node environment propagation limits. Hosts retain output limits, cancellation,
+  Windows retains Node environment propagation limits. The public child types
+  require the pinned Node declaration peer. Hosts retain output limits, cancellation,
   and child completion; this API does not provide detached process groups.
 
 - Add explicit development-session admission for a complete generated tree

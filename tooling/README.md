@@ -62,7 +62,8 @@ them.
 ## Run an explicitly selected native compiler
 
 Import `launchHaxe`, `runHaxeSync`, and their option types from
-`@genes-ts/tooling/haxe` or the package root. These functions reuse the session
+`@genes-ts/tooling/haxe` or the package root. The public Node child types require the pinned
+`@types/node` peer, which npm installs automatically. These functions reuse the session
 launcher without creating a session. The caller selects an absolute native
 executable, ordered arguments, working directory, and complete environment.
 On POSIX, raw `execve` receives only the selected environment. On Windows,

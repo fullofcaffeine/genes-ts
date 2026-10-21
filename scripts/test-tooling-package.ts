@@ -560,7 +560,8 @@ function verifyPackageMetadata(): { name: string; version: string } {
       peerDependencies["postcss-modules"] === "9.0.1" &&
       peerDependencies["postcss-selector-parser"] === "7.1.6" &&
       peerDependencies.typescript === programApiEngine.version &&
-      Object.keys(peerDependencies).length === 4 &&
+      peerDependencies["@types/node"] === "26.4.0" &&
+      Object.keys(peerDependencies).length === 5 &&
       isRecord(peerDependenciesMeta) &&
       Object.keys(peerDependenciesMeta).length === 4 &&
       Object.values(peerDependenciesMeta).every(
@@ -569,7 +570,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
           value.optional === true &&
           Object.keys(value).length === 1
       ),
-    "CSS Module processor peers must stay exact and optional"
+    "Node declarations must stay exact and required; processor peers stay exact and optional"
   );
   const repository = packageJson.repository;
   assert(
