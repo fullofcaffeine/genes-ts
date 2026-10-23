@@ -59,3 +59,17 @@ const revalidated = cache.policy.revalidatedPolicy(
 );
 assert.equal(revalidated.policy.toObject().sh, false, 'Revalidation must preserve private cache mode');
 console.log('Cache compatibility passed: exact package, private construction and private revalidation. No shared-cache safety claim.');
+
+// Keep the proxy consumer's IPv6 decoder compatible with the security update.
+const fromSocks = createRequire(require.resolve('socks'));
+assert.equal(fromSocks('ip-address/package.json').version, '10.7.4');
+const {SocksClient} = require('socks');
+const packet = Buffer.from('0000000420010db800000000000000000000000101bb6869', 'hex');
+assert.deepEqual(SocksClient.parseUDPFrame(packet), {
+  frameNumber: 0,
+  remoteHost: {host: '2001:0db8:0000:0000:0000:0000:0000:0001', port: 443},
+  data: Buffer.from('hi')
+});
+const fromHooks = createRequire(require.resolve('eslint-plugin-react-hooks'));
+assert.equal(fromHooks('zod/package.json').version, '4.6.6');
+console.log('Dependency compatibility passed: SOCKS IPv6 decoding and the hooks consumer selects patched Zod. Hooks behavior is checked by test:react-hooks.');
