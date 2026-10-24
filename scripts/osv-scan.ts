@@ -1,5 +1,6 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import https from "node:https";
@@ -7,7 +8,26 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 
-const OSV_SCANNER_VERSION = "2.3.2";
+// 2.7 identifies Git dependencies by repository and commit rather than the
+// Yarn alias's npm version. Keep the native fork checks in test:vulns too.
+const OSV_SCANNER_VERSION = "2.7.0";
+// Official v2.7.0 release asset SHA-256 values.
+const OSV_SCANNER_SHA256: Readonly<Record<string, string>> = {
+  "osv-scanner_darwin_amd64": "e82c5df7ab0a42dff29a1cd0660711447b56b4c0483ff66ad8634df10fd81a45",
+  "osv-scanner_darwin_arm64": "d4926ef8da134332543be276dff157e4c170f99ad91fc48e89448a8816bdf70b",
+  "osv-scanner_linux_amd64": "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b",
+  "osv-scanner_linux_arm64": "4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7",
+  "osv-scanner_windows_amd64.exe": "9964ed64ec9a387391eb4cc006ad5c531154821aef29b793e02c448de4686438",
+  "osv-scanner_windows_arm64.exe": "3e630381c1f1fd3c9c4d447e6ff2ef6c737083371722773db8337eead0f97962",
+};
+
+function verifyScanner(file: string, assetName: string): void {
+  const expected = OSV_SCANNER_SHA256[assetName];
+  const actual = createHash("sha256").update(readFileSync(file)).digest("hex");
+  if (!expected || actual !== expected) {
+    throw new Error(`OSV scanner checksum mismatch for ${assetName}; remove the invalid cache entry and retry`);
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,6 +106,7 @@ async function ensureOsvScanner(): Promise<string> {
 
   const binPath = path.join(cacheDir, info.binName);
   if (existsSync(binPath)) {
+    verifyScanner(binPath, info.assetName);
     return binPath;
   }
 
@@ -96,6 +117,7 @@ async function ensureOsvScanner(): Promise<string> {
   if (!existsSync(binPath)) {
     throw new Error(`osv-scanner binary not found after download: ${binPath}`);
   }
+  verifyScanner(binPath, info.assetName);
 
   try {
     chmodSync(binPath, 0o755);

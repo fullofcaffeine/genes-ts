@@ -922,7 +922,11 @@ async function exerciseWarmCssModuleSession() {
             event.event.event.kind === "started",
         ).length,
         1,
-        "all CSS edits reuse one owned Haxe compiler server",
+        `all CSS edits reuse one owned Haxe compiler server; lifecycle: ${JSON.stringify(
+          events
+            .filter((event) => event.event.kind === "compiler-lifecycle")
+            .map((event) => event.event.event),
+        )}`,
       );
     } finally {
       await session.close();

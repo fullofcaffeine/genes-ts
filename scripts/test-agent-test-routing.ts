@@ -688,6 +688,18 @@ function main(): void {
     "genes-ts-acceptance-shards",
     "genes-ts"
   );
+  // Playwright 1.60 has Chromium packages and dependencies for Ubuntu 24.04.
+  // A moving runner alias can select an unsupported OS before tests even run.
+  // SKIP_PLAYWRIGHT controls the optional todoapp observer only. Both lanes
+  // still run the module-function fixture's required Chromium observer.
+  const nextNodeJob = jobBlock(ci, "genes-ts-smoke-next-lts", "haxe-preview");
+  for (const [name, browserJob] of [
+    ["acceptance shards", shardJob],
+    ["Node current / next LTS", nextNodeJob]
+  ]) {
+    assert(/^    runs-on: ubuntu-24\.04$/m.test(browserJob),
+      `${name} browser acceptance must use the supported Ubuntu 24.04 runner`);
+  }
   const requiredGenesJob = jobBlock(ci, "genes-ts", "genes-ts-smoke-next-lts");
   const releaseStart = ci.indexOf("\n  release:");
   assert(releaseStart >= 0, "CI workflow is missing the release job");

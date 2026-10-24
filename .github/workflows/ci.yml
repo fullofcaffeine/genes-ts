@@ -396,7 +396,8 @@ jobs:
     name: genes-ts acceptance (${{ matrix.shard }})
     needs: genes-test-plan-and-smoke
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    # Playwright 1.60 does not support Ubuntu 26.04 from ubuntu-latest.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -515,7 +516,8 @@ jobs:
 
   genes-ts-smoke-next-lts:
     name: genes-ts smoke (Node current / next LTS)
-    runs-on: ubuntu-latest
+    # Module-function checks still use Chromium when SKIP_PLAYWRIGHT is set.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
