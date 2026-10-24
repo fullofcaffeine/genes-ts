@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {spawnSync} from 'node:child_process';
+import {createServer} from 'node:http';
 import {dirname, join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {analyzeCommits} from '@semantic-release/commit-analyzer';
@@ -73,3 +74,64 @@ assert.deepEqual(SocksClient.parseUDPFrame(packet), {
 const fromHooks = createRequire(require.resolve('eslint-plugin-react-hooks'));
 assert.equal(fromHooks('zod/package.json').version, '4.6.6');
 console.log('Dependency compatibility passed: SOCKS IPv6 decoding and the hooks consumer selects patched Zod. Hooks behavior is checked by test:react-hooks.');
+
+// Exercise the versions reached by consumers, including both Undici majors.
+const fromAjv = createRequire(require.resolve('ajv'));
+assert.equal(fromAjv('fast-uri/package.json').version, '3.1.9');
+assert.equal(fromAjv('fast-uri').resolve('https://example.invalid/schema/', '../value'),
+  'https://example.invalid/value');
+for (const [consumer, version] of [
+  ['@actions/http-client', '6.29.1'], ['node-gyp', '6.29.1'],
+  ['@semantic-release/github', '7.30.1']
+]) {
+  const fromConsumer = createRequire(import.meta.resolve(consumer));
+  assert.equal(fromConsumer('undici/package.json').version, version, consumer);
+  const {MockAgent, request: send} = fromConsumer('undici');
+  const dispatcher = new MockAgent();
+  dispatcher.disableNetConnect();
+  try {
+    dispatcher.get('https://example.invalid').intercept({path:'/probe',method:'GET'})
+      .reply(200, {ok:true}, {headers:{'content-type':'application/json'}});
+    const result = await send('https://example.invalid/probe', {dispatcher});
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(await result.body.json(), {ok:true});
+    dispatcher.assertNoPendingInterceptors();
+  } finally {
+    await dispatcher.close();
+  }
+}
+
+// Keep JSON parsing and rejection behavior at the actual Express boundary.
+const fromExpress = createRequire(require.resolve('express'));
+assert.equal(fromExpress('body-parser/package.json').version, '1.20.9');
+const parseJson = fromExpress('body-parser').json({limit:'64b'});
+const server = createServer((request, response) => {
+  parseJson(request, response, error => {
+    response.setHeader('content-type', 'application/json');
+    response.statusCode = error ? error.status : 200;
+    response.end(JSON.stringify(error ? {error:error.type} : request.body));
+  });
+});
+try {
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  assert(address !== null && typeof address === 'object');
+  for (const [body, status, expected] of [
+    ['{"ok":true}', 200, {ok:true}],
+    ['{', 400, {error:'entity.parse.failed'}],
+    [JSON.stringify({value:'x'.repeat(100)}), 413, {error:'entity.too.large'}]
+  ]) {
+    const response = await fetch(`http://127.0.0.1:${address.port}/`, {
+      method:'POST', headers:{'content-type':'application/json'}, body
+    });
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), expected);
+  }
+} finally {
+  server.closeAllConnections();
+  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+}
+console.log('Dependency compatibility passed: installed URI resolution, both HTTP client majors, and JSON parsing with malformed/oversized input rejection.');
