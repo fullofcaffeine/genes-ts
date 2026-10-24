@@ -516,7 +516,8 @@ jobs:
 
   genes-ts-smoke-next-lts:
     name: genes-ts smoke (Node current / next LTS)
-    runs-on: ubuntu-latest
+    # Module-function checks still use Chromium when SKIP_PLAYWRIGHT is set.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
