@@ -21,11 +21,11 @@ import {
   HAXE_ENVIRONMENT_TEXT_LIMIT,
 } from "./session/haxe-exec-contract.js";
 import {
-  createRawExecControl,
   inspectNativeExecutableFile,
   launchHaxe,
   runHaxeSync,
-} from "./session/haxe-launch.js";
+} from "./haxe/index.js";
+import { createRawExecControl } from "./session/haxe-launch.js";
 import { HaxeSessionCompiler } from "./session/haxe-driver.js";
 import {
   HAXE_4_3_7_DEVELOPMENT_JS_POLICY,
