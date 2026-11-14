@@ -64,6 +64,10 @@ agents and human contributors should read the scoped guide directly.
   boundaries, todoapp E2E, and “one command” gates
 - `HAXE_C_PERFORMANCE_PRACTICES.md` — which measured haxe.c performance
   practices transfer to Genes, which already exist, and which do not fit
+- [`INCREMENTAL_GENERATION_DESIGN.md`](INCREMENTAL_GENERATION_DESIGN.md) — design
+  proposal (not implemented): keep per-module results on a warm compiler
+  server for development sessions only, with the measured Haxe floor, the
+  checks that make a module reusable, and the proof plan
 - [`../tests/testing-strategy/agent-test-routing.json`](../tests/testing-strategy/agent-test-routing.json)
   — validated change-area routing to focused, acceptance, and full/release gates
 - [`../tooling/README.md`](../tooling/README.md) — what the optional
