@@ -3,6 +3,7 @@ package genes.util;
 import haxe.macro.Expr;
 import haxe.macro.Type;
 import haxe.macro.Context;
+import genes.TypedModuleInventory;
 
 using haxe.macro.TypeTools;
 using haxe.macro.TypedExprTools;
@@ -644,7 +645,7 @@ class TypeUtil {
       return candidate.module == base.module && candidate.name == base.name;
     }
 
-    for (candidate in Context.getModule(base.module)) {
+    for (candidate in TypedModuleInventory.moduleTypes(base.module)) {
       switch candidate {
         case TInst(ref, _):
           final cl = ref.get();
@@ -678,7 +679,7 @@ class TypeUtil {
    * class. This preserves the old output without reflection or a cast.
    */
   public static function baseTypeName(base: BaseType) {
-    final moduleTypes = Context.getModule(base.module);
+    final moduleTypes = TypedModuleInventory.moduleTypes(base.module);
 
     for (candidate in moduleTypes) {
       switch candidate {

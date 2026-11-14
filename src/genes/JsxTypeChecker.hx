@@ -600,7 +600,7 @@ class JsxTypeChecker {
         parameters[index];
       case [{params: [{expr: EConst(CString(path, _))}]}]
         if (StringTools.trim(path).length > 0):
-        Context.getType(path);
+        TypedModuleInventory.typeByPath(path);
       default:
         fail('GTS-HXX-SCHEMA-006',
           '@:genes.jsxComponentProps expects one generic-parameter index ' +
@@ -996,7 +996,7 @@ class JsxTypeChecker {
   }
 
   function loadIntrinsicProvider(path: String): Void {
-    final type = resolveAliases(Context.getType(path));
+    final type = resolveAliases(TypedModuleInventory.typeByPath(path));
     final classType = switch type {
       case TInst(classRef, _): classRef.get();
       default:

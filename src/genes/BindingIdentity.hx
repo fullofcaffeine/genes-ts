@@ -1,6 +1,5 @@
 package genes;
 
-import haxe.macro.Context;
 import haxe.macro.Type;
 import haxe.ds.ReadOnlyArray;
 import genes.Dependencies.DependencySpec;
@@ -85,8 +84,7 @@ class LocalBindingIntent {
   public final exportBinding: ExportBindingKey;
   public final requestedLocal: String;
 
-  public function new(exportBinding: ExportBindingKey,
-      requestedLocal: String) {
+  public function new(exportBinding: ExportBindingKey, requestedLocal: String) {
     this.exportBinding = exportBinding;
     this.requestedLocal = requestedLocal;
   }
@@ -117,8 +115,7 @@ class HaxeDeclarationKey {
   public final module: String;
   public final name: String;
 
-  public function new(kind: HaxeDeclarationKind, module: String,
-      name: String) {
+  public function new(kind: HaxeDeclarationKind, module: String, name: String) {
     this.kind = kind;
     this.module = module;
     this.name = name;
@@ -155,14 +152,14 @@ class HaxeDeclarationKey {
     if (result != null)
       return result;
     final fullName = TypeUtil.baseTypeFullName(base);
-    return CompilerDiagnostic.fail(
-      'GENES-IMPORT-ORIGIN-MISSING-001: could not recover the typed declaration for $fullName',
+    return
+      CompilerDiagnostic.fail('GENES-IMPORT-ORIGIN-MISSING-001: could not recover the typed declaration for $fullName',
       base.pos);
   }
 
   /** Returns null for compiler-created local aliases with no ModuleType owner. */
   public static function tryFromBaseType(base: BaseType): Null<HaxeDeclarationKey> {
-    for (candidate in Context.getModule(base.module)) {
+    for (candidate in TypedModuleInventory.moduleTypes(base.module)) {
       final candidateKey = switch candidate {
         case TInst(ref, _): fromBase(ClassDecl, ref.get());
         case TEnum(ref, _): fromBase(EnumDecl, ref.get());

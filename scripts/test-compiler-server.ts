@@ -7,6 +7,8 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -399,6 +401,145 @@ async function compilePair(
 }
 
 /** Returns only this fixture module's stable indexed-plan descriptions. */
+/**
+ * Proves that generation does not make Haxe type unrelated modules again.
+ *
+ * Why: when a macro looks up a module by name, Haxe records that its current
+ * module depends on that module, and keeps the record in the server. Genes
+ * used to look up almost every emitted module by name during generation. The
+ * next edit of any file then made Haxe type many unrelated modules again, on
+ * every edit of a development session.
+ *
+ * What: after one complete generation, the test edits a module that nothing
+ * imports and compiles again, twice, with two different modules. Each time,
+ * Haxe must type again exactly the modules that it types again when
+ * generation is off (`--no-output`), and that list must be the edited module
+ * alone. The typing-only run is the independent oracle: it shows what the
+ * source itself requires.
+ *
+ * How: `RetypedModulesProbe` reports the modules that Haxe typed again. The
+ * two runs use different values of the private fixture define, so each has
+ * its own typed-module cache in the one server and the typing-only run cannot
+ * inherit dependencies from a generation. Two modules are edited because Haxe
+ * hangs the unwanted dependencies on one module of its own choice; an edit of
+ * that module alone would not show them. Each edit moves the file time to a
+ * later whole second, because Haxe 4.3.7 compares file times at one-second
+ * precision. Before the first edit, each run repeats the request until Haxe
+ * types nothing again, so the lists contain only what an edit caused.
+ */
+async function assertGenerationAddsNoModuleDependencies(
+  server: OwnedHaxeCompilerServer,
+  profile: Profile,
+  profileId: string,
+  timeoutMs: number
+): Promise<void> {
+  const targets = [
+    { module: "servercase.UnimportedLeaf", text: "leaf" },
+    { module: "servercase.UnimportedNeighbor", text: "neighbor" }
+  ] as const;
+  const sourcePath = (module: string): string =>
+    path.join(workspace("project-a"), "src", `${module.replaceAll(".", "/")}.hx`);
+  const touch = (file: string): void => {
+    const next = Math.max(
+      Math.floor(Date.now() / 1000),
+      Math.floor(statSync(file).mtimeMs / 1000)
+    ) + 2;
+    utimesSync(file, next, next);
+  };
+  const rewrite = (
+    target: typeof targets[number],
+    before: "v1" | "v2",
+    after: "v1" | "v2"
+  ): void => {
+    const file = sourcePath(target.module);
+    replaceInFile(
+      file,
+      `"${target.text}-${before}"`,
+      `"${target.text}-${after}"`
+    );
+    touch(file);
+  };
+  const retypedAfterEdits = async (
+    mode: "typing" | "generation"
+  ): Promise<ReadonlyArray<ReadonlyArray<string>>> => {
+    const scenario: Scenario = {
+      id: `a-retyped-${profileId}-${mode}`,
+      project: "project-a",
+      profile
+    };
+    const report = path.join(tempRoot, `${scenario.id}.retyped.txt`);
+    const args = [
+      ...buildArguments("warm", scenario),
+      "-D",
+      `genes_server_fixture_project=project-a-retyped-${profileId}-${mode}`,
+      "-cp",
+      path.join(fixtureRoot, "probes"),
+      "--macro",
+      `RetypedModulesProbe.install(${JSON.stringify(report)})`,
+      ...targets.map((target) => target.module),
+      ...(mode === "typing" ? ["--no-output"] : [])
+    ];
+    const request = async (label: string): Promise<ReadonlyArray<string>> => {
+      rmSync(report, { force: true });
+      installRuntime("warm", scenario);
+      const result = await server.compile(
+        args,
+        `Warm ${scenario.id} ${label}`,
+        timeoutMs,
+        workspace(scenario.project)
+      );
+      assertSuccess(result, `Warm ${scenario.id} ${label}`, server.logs);
+      ok(existsSync(report), `${scenario.id} ${label} wrote no retype report`);
+      return readFileSync(report, "utf8").split("\n").filter(Boolean);
+    };
+    const first = await request("first request");
+    ok(
+      first.length > targets.length
+      && targets.every((target) => first.includes(target.module)),
+      `${scenario.id} did not type the whole project on its first request`
+    );
+    // Wait until a request with no edit types nothing again. A JSX profile
+    // needs this: when the program itself does not load the intrinsic
+    // element provider, the JSX checker loads it during the first
+    // generation, and Haxe then meets those library modules for the first
+    // time in the next request. That is one late load of library modules,
+    // not a module that an edit made stale.
+    let settled = false;
+    for (let attempt = 1; attempt <= 4 && !settled; attempt += 1) {
+      settled = (await request(`with no edit, ${attempt}`)).length === 0;
+    }
+    ok(settled, `${scenario.id} kept typing modules again with no edit`);
+    const retyped: Array<ReadonlyArray<string>> = [];
+    for (const target of targets) {
+      rewrite(target, "v1", "v2");
+      retyped.push(await request(`after an edit of ${target.module}`));
+      // Put the text back, so the next edit and the next mode start equal.
+      rewrite(target, "v2", "v1");
+      await request(`after ${target.module} was restored`);
+    }
+    return retyped;
+  };
+  try {
+    const typing = await retypedAfterEdits("typing");
+    deepStrictEqual(
+      typing,
+      targets.map((target) => [target.module]),
+      "Haxe alone typed more than the edited module again"
+    );
+    const generation = await retypedAfterEdits("generation");
+    deepStrictEqual(
+      generation,
+      typing,
+      `After a full ${profileId} generation, a one-file edit made Haxe type `
+      + "more modules again than it does without generation. Generation "
+      + "recorded module dependencies in Haxe; see "
+      + "src/genes/TypedModuleInventory.hx"
+    );
+  } finally {
+    restoreProject("project-a");
+  }
+}
+
 function indexedInventory(result: ProcessResult): ReadonlyArray<string> {
   return [...resultText(result).matchAll(
     /\[GTS-INDEX-INVENTORY\] servercase\.Main:\d+:([^\r\n]+)/g
@@ -1347,6 +1488,19 @@ async function main(): Promise<void> {
       await compilePair(compiler, server, baseline, timeoutMs),
       baselineTree,
       "Identical warm TypeScript request changed generated bytes"
+    );
+
+    await assertGenerationAddsNoModuleDependencies(
+      server,
+      tsxProfile,
+      "tsx",
+      timeoutMs
+    );
+    await assertGenerationAddsNoModuleDependencies(
+      server,
+      classicJsxProfile,
+      "classic-jsx",
+      timeoutMs
     );
 
     const overriddenProfiles = [

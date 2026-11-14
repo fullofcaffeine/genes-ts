@@ -1,6 +1,7 @@
 package genes.dts;
 
 import genes.SourceMapGenerator;
+import genes.TypedModuleInventory;
 import genes.ExternTypeContract;
 import genes.IdentifierPolicy;
 import genes.NullishContract;
@@ -181,10 +182,10 @@ class TypeEmitter {
     if (out.length == 0) {
       final fullName = fullNameOf(ab);
       try {
-        Context.getType(fullName);
+        TypedModuleInventory.typeByPath(fullName);
       } catch (_:Dynamic) {}
       try {
-        switch Context.getType(fullName) {
+        switch TypedModuleInventory.typeByPath(fullName) {
           case TAbstract(_.get() => reloaded, _):
             out = collectFrom(reloaded);
           default:

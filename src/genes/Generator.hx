@@ -672,6 +672,7 @@ class Generator {
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
+      TypedModuleInventory.install();
       ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.
