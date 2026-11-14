@@ -192,10 +192,12 @@ class Generator {
         default:
       }
     }
-    final context = {
+    final context: genes.Module.ModuleContext = {
       concrete: concrete,
       modules: modules,
-      hasFeature: api.hasFeature
+      hasFeature: api.hasFeature,
+      // One catalog for this request only; see JsxProviderSchemaCatalog.
+      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog()
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)

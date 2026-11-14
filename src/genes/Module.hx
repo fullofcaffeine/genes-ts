@@ -83,7 +83,16 @@ typedef MemberProjection = {
 typedef ModuleContext = {
   modules: Map<String, Module>,
   concrete: Array<String>,
-  hasFeature: (feature: String) -> Bool
+  hasFeature: (feature: String) -> Bool,
+
+  /**
+   * HXX provider schemas that this generation has already validated.
+   *
+   * `Generator` supplies one catalog for each `generate` call. A context
+   * without it is valid: each module then validates every provider schema
+   * itself.
+   */
+  ?jsxProviderSchemas: genes.JsxTypeChecker.JsxProviderSchemaCatalog
 }
 
 typedef ModuleExport = {
@@ -224,6 +233,17 @@ class Module {
       }
     }
     return null;
+  }
+
+  /**
+   * Returns the HXX provider schemas shared by this module's generation.
+   *
+   * The result is `null` when the module was built outside `Generator`
+   * without a catalog. `JsxPlan` passes it to each `JsxTypeChecker` it
+   * creates, so the catalog lives exactly as long as the module context.
+   */
+  public function jsxProviderSchemas(): Null<genes.JsxTypeChecker.JsxProviderSchemaCatalog> {
+    return context.jsxProviderSchemas;
   }
 
   function get_jsxPlan(): JsxPlan {

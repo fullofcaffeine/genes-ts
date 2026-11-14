@@ -45,7 +45,57 @@ private typedef JsxIntrinsicContract = {
 private typedef JsxDeclaredSchema = {
   final module: String;
   final name: String;
+  final optionalValuesAllowUndefined: Bool;
   final schema: JsxPropSchema;
+}
+
+/**
+ * Keeps validated provider property schemas for one output generation.
+ *
+ * Why: every module that contains HXX creates its own `JsxTypeChecker`, and
+ * each checker loads every intrinsic provider. The default provider declares
+ * 20 distinct property typedefs. An application with 88 HXX modules built and
+ * safety-checked those same 20 typedefs 88 times, which was 9% of a measured
+ * web compile.
+ *
+ * What: this catalog remembers the schema of a provider typedef, so the next
+ * checker in the same generation can take it instead of building it again.
+ * It holds no tag name, no attribute prefix, and no provider policy. Each
+ * checker still reads those from the provider class, so a provider edit that
+ * a later plan build can see is still seen.
+ *
+ * How: `Generator` creates one catalog for one `generate` call and gives it
+ * to its modules through `ModuleContext`. Nothing is static, so a warm
+ * compiler server starts every request with an empty catalog. A caller that
+ * builds a `Module` without a catalog gets a checker that shares nothing
+ * across modules. `JsxTypeChecker.intrinsicSchema` states which typedefs may
+ * enter the catalog and why their schema cannot become stale.
+ */
+class JsxProviderSchemaCatalog {
+  final declared: Array<JsxDeclaredSchema> = [];
+
+  public function new() {}
+
+  @:allow(genes.JsxTypeChecker)
+  function find(owner: DefType,
+      optionalValuesAllowUndefined: Bool): Null<JsxPropSchema> {
+    for (known in declared)
+      if (known.module == owner.module && known.name == owner.name
+        && known.optionalValuesAllowUndefined == optionalValuesAllowUndefined)
+        return known.schema;
+    return null;
+  }
+
+  @:allow(genes.JsxTypeChecker)
+  function remember(owner: DefType, optionalValuesAllowUndefined: Bool,
+      schema: JsxPropSchema): Void {
+    declared.push({
+      module: owner.module,
+      name: owner.name,
+      optionalValuesAllowUndefined: optionalValuesAllowUndefined,
+      schema: schema
+    });
+  }
 }
 
 private typedef JsxComponentContract = {
@@ -149,7 +199,22 @@ class JsxTypeChecker {
 
   final intrinsics: Map<String, JsxIntrinsicContract> = [];
 
-  public function new() {
+  /**
+   * Schemas that earlier checkers of this generation already validated, or
+   * `null` when the caller did not supply a catalog.
+   */
+  final generationSchemas: Null<JsxProviderSchemaCatalog>;
+
+  /**
+   * Loads and validates every intrinsic provider for one plan build.
+   *
+   * `generationSchemas` is optional. With it, a provider typedef that an
+   * earlier checker of the same generation validated is not built again; see
+   * `intrinsicSchema`. Without it, this checker builds every schema itself,
+   * which is the behavior before the catalog existed.
+   */
+  public function new(?generationSchemas: JsxProviderSchemaCatalog) {
+    this.generationSchemas = generationSchemas;
     #if genes.compile_stage_profile
     final endProvidersTimer = genes.util.Timer.timer('genes.jsx.providers');
     #end
@@ -1012,21 +1077,49 @@ class JsxTypeChecker {
    * for every tag was the largest measured cost of a module that contains
    * HXX, and every such module pays it again.
    *
-   * What: tags of one provider whose static field has the same typedef with
-   * no type arguments share one validated `JsxPropSchema`. Every other
-   * declared type, such as an inline structure, a class, or a typedef with
-   * type arguments, takes the unshared path.
+   * What: tags whose static field has the same typedef with no type
+   * arguments share one validated `JsxPropSchema`. Every other declared
+   * type, such as an inline structure, a class, or a typedef with type
+   * arguments, takes the unshared path. The share has two lifetimes:
    *
-   * How: `declared` lives only for one `loadIntrinsicProvider` call. That
-   * loop reads compiler types and never unifies, so a second build of the
-   * same typedef inside it could only repeat the first result or the first
-   * diagnostic. The first tag that names a typedef still validates all of
-   * it, so an unused weak declaration is rejected as before. The typedef's
-   * Haxe module and declared name are its identity here; Haxe permits one
-   * such declaration per compilation and keeps a typedef's name under
-   * `@:native`, unlike a class. A schema is not mutated after `propSchema`
-   * returns, and the checker itself is still created for each plan build,
-   * so nothing outlives the request or crosses a module rebuild.
+   * - `declared` lives for one `loadIntrinsicProvider` call and serves the
+   *   tags of that provider.
+   * - `generationSchemas` lives for one output generation and serves later
+   *   checkers, which belong to other modules or to a rebuilt plan.
+   *
+   * How, within one load: that loop reads compiler types and never unifies,
+   * so a second build of the same typedef inside it could only repeat the
+   * first result or the first diagnostic. The first tag that names a typedef
+   * still validates all of it, so an unused weak declaration is rejected as
+   * before. The typedef's Haxe module and declared name are its identity
+   * here; Haxe permits one such declaration per compilation and keeps a
+   * typedef's name under `@:native`, unlike a class.
+   *
+   * How, across checkers: between two plan builds, HXX validation can unify
+   * types, and a rebuilt plan must see the provider as it is then. Three
+   * rules keep a schema from the catalog equal to a new build:
+   *
+   * 1. Only the schema crosses. The provider class, its tag names, its
+   *    prefixes, and its `@:genes.jsxOptionalValuesAllowUndefined` policy
+   *    are read again by every checker. A renamed or removed tag is
+   *    therefore seen by the next plan build.
+   * 2. Only a closed schema crosses. A schema is closed when no field type
+   *    contains an unresolved inference variable, which is the one part of
+   *    a Haxe type that later unification can change. `isClosedSchema`
+   *    makes that check with the strict safety walk. A typedef that fails
+   *    it is built and safety-checked again by every checker, so a type
+   *    that turns weak between two builds is still rejected.
+   * 3. The policy that rewrites optional field types is part of the
+   *    identity, because two providers may name one typedef under different
+   *    policies.
+   *
+   * Limit: the catalog assumes that the fields and field metadata of a
+   * typedef do not change inside one `generate` call. Haxe has finished
+   * typing by then, and Genes adds only `:keep` and `:genes.generate`
+   * during generation, which a schema does not read.
+   *
+   * A schema is not mutated after `propSchema` returns, and the catalog
+   * dies with the generation, so nothing reaches a later compiler request.
    */
   function intrinsicSchema(name: String, type: Type, pos: Position,
       optionalValuesAllowUndefined: Bool,
@@ -1041,9 +1134,43 @@ class JsxTypeChecker {
     for (known in declared)
       if (known.module == owner.module && known.name == owner.name)
         return known.schema;
-    final schema = propSchema(type, pos, label, optionalValuesAllowUndefined);
-    declared.push({module: owner.module, name: owner.name, schema: schema});
+    final catalog = generationSchemas;
+    var schema = catalog == null ? null : catalog.find(owner,
+      optionalValuesAllowUndefined);
+    if (schema == null) {
+      schema = propSchema(type, pos, label, optionalValuesAllowUndefined);
+      if (catalog != null && isClosedSchema(schema))
+        catalog.remember(owner, optionalValuesAllowUndefined, schema);
+    }
+    declared.push({
+      module: owner.module,
+      name: owner.name,
+      optionalValuesAllowUndefined: optionalValuesAllowUndefined,
+      schema: schema
+    });
     return schema;
+  }
+
+  /**
+   * Reports whether later type inference can no longer change a schema.
+   *
+   * Why: `propSchema` accepts a field whose type still holds an unresolved
+   * inference variable, because HXX validation binds it at the first use.
+   * That binding happens after the schema was built. A schema with such a
+   * field is a snapshot that a later build could contradict, so it must not
+   * be given to another checker.
+   *
+   * How: `isUnsafe` in its strict form differs from the schema form in one
+   * way only: it also reports an unresolved inference variable. The schema
+   * form has already accepted every field, so a strict report here means
+   * exactly "this field can still change". Both stored types are checked
+   * because an optional field keeps its declared and its present type.
+   */
+  static function isClosedSchema(schema: JsxPropSchema): Bool {
+    for (field in schema.fields)
+      if (isUnsafe(field.type) || isUnsafe(field.presentType))
+        return false;
+    return true;
   }
 
   static function childExpression(child: JsxChildIntent): TypedExpr {
