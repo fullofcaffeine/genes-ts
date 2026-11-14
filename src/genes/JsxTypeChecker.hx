@@ -150,7 +150,13 @@ class JsxTypeChecker {
   final intrinsics: Map<String, JsxIntrinsicContract> = [];
 
   public function new() {
+    #if genes.compile_stage_profile
+    final endProvidersTimer = genes.util.Timer.timer('genes.jsx.providers');
+    #end
     loadIntrinsicProviders();
+    #if genes.compile_stage_profile
+    endProvidersTimer();
+    #end
   }
 
   public function validate(intent: JsxIntent): JsxValidationResult {

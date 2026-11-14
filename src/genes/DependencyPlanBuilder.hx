@@ -133,7 +133,13 @@ class DependencyPlanBuilder {
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
+    #if genes.compile_stage_profile
+    final endJsxPlanTimer = timer('genes.plan.reachability.jsxPlan');
+    #end
     final jsxPlan = module.jsxPlan;
+    #if genes.compile_stage_profile
+    endJsxPlanTimer();
+    #end
     final jsxCapability = JsxCapabilityPolicy.current();
     jsxCapability.validate(jsxPlan);
     if (jsxCapability.requiresRuntimeNamespace(jsxPlan)) {
