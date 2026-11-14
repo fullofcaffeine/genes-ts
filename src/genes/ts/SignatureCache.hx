@@ -77,7 +77,12 @@ class SignatureCache {
    * `ENUM_ABSTRACT`, `BODY_WITHOUT_ENUM_ABSTRACT`, or the number of levels
    * between the declaration and the enum abstract that its body reaches.
    *
-   * How it stays exact:
+   * How it stays exact, except near the depth limit of 64. There, a cached
+   * "yes" can answer a lookup that the old walk cut off. The old walk could
+   * mark a declaration as seen and then stop at the limit, so a later use of
+   * that declaration answered "no". The reproducer is a chain of 31 typedefs
+   * that puts a generic typedef at depth 63. The emitted TypeScript was
+   * byte-identical for it.
    * - Type arguments are never part of an answer. The walk checks the
    *   arguments of each use first, as it always did.
    * - "No" is stored only after an outermost walk ended with "no" and did not
@@ -88,8 +93,9 @@ class SignatureCache {
    * - "Yes" is stored only for a declaration without type parameters. The body
    *   of a generic declaration is walked with the arguments of one use, and
    *   that use must not answer for another. The stored distance keeps the
-   *   depth limit of the walk exact: an answer is not used where the walk
-   *   itself could not have reached that enum abstract.
+   *   depth limit: an answer is not used where the walk itself could not
+   *   have reached that enum abstract. It does not restore a cut that the old
+   *   walk made below a seen mark, as described above.
    *
    * Lifetime: `install()` replaces the map, so no answer and no typed value
    * passes to the next request. It holds only strings and integers.
