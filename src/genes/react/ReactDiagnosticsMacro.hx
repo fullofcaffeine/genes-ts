@@ -1,6 +1,7 @@
 package genes.react;
 
 #if macro
+import genes.AfterTypingPasses.AfterTypingClass;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -581,10 +582,11 @@ private function validateMetadata(type: ClassType, field: ClassField,
   }
 }
 
-private function auditField(type: ClassType, field: ClassField,
+private function auditField(current: AfterTypingClass, field: ClassField,
     isStatic: Bool): Void {
-  validateMetadata(type, field, isStatic);
-  final expression = field.expr();
+  validateMetadata(current.type, field, isStatic);
+  // The pre-DCE capture passes read the same body; share one copy.
+  final expression = current.body(field, isStatic);
   if (expression == null) {
     return;
   }
@@ -604,28 +606,20 @@ private function auditField(type: ClassType, field: ClassField,
   }
 }
 
-private function auditClass(type: ClassType): Void {
-  for (field in type.statics.get()) {
-    auditField(type, field, true);
+private function auditClass(current: AfterTypingClass): Void {
+  final type = current.type;
+  for (field in current.statics()) {
+    auditField(current, field, true);
   }
-  for (field in type.fields.get()) {
-    auditField(type, field, false);
+  for (field in current.fields()) {
+    auditField(current, field, false);
   }
-  if (type.constructor != null) {
-    auditField(type, type.constructor.get(), false);
+  final constructor = current.constructor();
+  if (constructor != null) {
+    auditField(current, constructor, false);
   }
   if (type.init != null) {
     analyze(type.init, placement(OrdinaryFunction));
-  }
-}
-
-private function audit(types: Array<ModuleType>): Void {
-  for (type in types) {
-    switch type {
-      case TClassDecl(reference):
-        auditClass(reference.get());
-      case _:
-    }
   }
 }
 
@@ -636,6 +630,6 @@ function install(): Void {
   }
   installed = true;
   ReactAnalyzerFunctionMacro.install();
-  Context.onAfterTyping(audit);
+  genes.AfterTypingPasses.add(auditClass);
 }
 #end

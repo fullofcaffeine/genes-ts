@@ -1,5 +1,6 @@
 package genes.ts;
 
+import genes.AfterTypingPasses.AfterTypingClass;
 import genes.NullishContract;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
@@ -41,11 +42,13 @@ typedef CachedSig = {
  * `genes.PublicSurface`; this cache only recovers types erased before target
  * emission.
  *
- * How: `install()` registers an `onAfterTyping` hook. At that point the compiler
- * has resolved declarations and positions, but later JS/codegen phases have not
- * erased enum abstracts from every expression. Emitters then consult this cache
- * by declaration key or source position when Haxe's JavaScript-oriented view
- * has become too broad for accurate strict TypeScript.
+ * How: `install()` adds its capture to the `onAfterTyping` walk that
+ * `genes.AfterTypingPasses` shares between the pre-DCE passes. At that point
+ * the compiler has resolved declarations and positions, but later JS/codegen
+ * phases have not erased enum abstracts from every expression. Emitters then
+ * consult this cache by declaration key or source position when Haxe's
+ * JavaScript-oriented view has become too broad for accurate strict
+ * TypeScript.
  */
 class SignatureCache {
   @:persistent static var sigs: Map<String, CachedSig> = new Map();
@@ -294,11 +297,12 @@ class SignatureCache {
       || out == 'true' || out == 'false' || ~/^-?[0-9]+(\.[0-9]+)?$/.match(out);
   }
 
-  static function storeSig(cl: ClassType, isStatic: Bool, fieldName: String,
+  /** `owner` is `classFullName` of the declaring class, computed once per class. */
+  static function storeSig(owner: String, isStatic: Bool, fieldName: String,
       fnType: Type): Void {
     switch unlazy(fnType) {
       case TFun(args, ret):
-        sigs.set(keyFor(classFullName(cl), isStatic, fieldName), {
+        sigs.set(keyFor(owner, isStatic, fieldName), {
           args: [
             for (a in args) {
               final nullish = NullishContract.forType(a.t);
@@ -318,17 +322,16 @@ class SignatureCache {
     }
   }
 
-  static function storeFieldType(cl: ClassType, isStatic: Bool,
+  /** `owner` is `classFullName` of the declaring class, computed once per class. */
+  static function storeFieldType(owner: String, isStatic: Bool,
       field: ClassField): Void {
-    final tsType = enumAbstractLiteralUnionTsType(NullishContract.forField(field)
-      .emittedType);
+    final emittedType = NullishContract.forField(field).emittedType;
+    final tsType = enumAbstractLiteralUnionTsType(emittedType);
     if (tsType != null)
-      fieldTsTypes.set(keyFor(classFullName(cl), isStatic, field.name), tsType);
-    final sourceType = sourceTypeWithEnumAbstract(NullishContract.forField(field)
-      .emittedType);
+      fieldTsTypes.set(keyFor(owner, isStatic, field.name), tsType);
+    final sourceType = sourceTypeWithEnumAbstract(emittedType);
     if (sourceType != null)
-      fieldSourceTypes.set(keyFor(classFullName(cl), isStatic, field.name),
-        sourceType);
+      fieldSourceTypes.set(keyFor(owner, isStatic, field.name), sourceType);
   }
 
   /**
@@ -405,36 +408,38 @@ class SignatureCache {
     haxe.macro.TypedExprTools.iter(expression, captureExpression);
   }
 
-  static function captureClass(cl: ClassType): Void {
-    switch cl.constructor {
+  /** Captures one class. The other after-typing passes read the same copy. */
+  static function captureClass(current: AfterTypingClass): Void {
+    final owner = current.ownerKey;
+    switch current.constructor() {
       case null:
       case ctor:
-        final e = ctor.get().expr();
+        final e = current.body(ctor, false);
         if (e != null) {
-          storeSig(cl, false, 'new', e.t);
+          storeSig(owner, false, 'new', e.t);
           captureExpression(e);
         }
     }
 
-    for (f in cl.fields.get()) {
+    for (f in current.fields()) {
       switch f.kind {
         case FMethod(_):
-          storeSig(cl, false, f.name, f.type);
+          storeSig(owner, false, f.name, f.type);
         case FVar(_, _):
-          storeFieldType(cl, false, f);
+          storeFieldType(owner, false, f);
       }
-      final expression = f.expr();
+      final expression = current.body(f, false);
       if (expression != null)
         captureExpression(expression);
     }
-    for (f in cl.statics.get()) {
+    for (f in current.statics()) {
       switch f.kind {
         case FMethod(_):
-          storeSig(cl, true, f.name, f.type);
+          storeSig(owner, true, f.name, f.type);
         case FVar(_, _):
-          storeFieldType(cl, true, f);
+          storeFieldType(owner, true, f);
       }
-      final expression = f.expr();
+      final expression = current.body(f, true);
       if (expression != null)
         captureExpression(expression);
     }
@@ -465,11 +470,11 @@ class SignatureCache {
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
-    Context.onAfterTyping(types -> {
+    // Classes come from the shared walk; the second function reads the other
+    // declaration kinds after it.
+    AfterTypingPasses.add(captureClass, types -> {
       for (t in types) {
         switch t {
-          case TClassDecl(ref):
-            captureClass(ref.get());
           case TEnumDecl(ref):
             final owner = ref.get();
             for (constructor in owner.constructs) {

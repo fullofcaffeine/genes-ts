@@ -1,6 +1,7 @@
 package genes;
 
 #if macro
+import genes.AfterTypingPasses.AfterTypingClass;
 import haxe.ds.ReadOnlyArray;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
@@ -161,34 +162,40 @@ class PublicMember {
     this.overloadValues = overloads.copy();
   }
 
+  /**
+   * Copies the declared facts of one field.
+   *
+   * `afterTyping` is set only by the `onAfterTyping` capture. It is the
+   * shared view of the declaring class, and it makes this capture read the
+   * field body that the other after-typing passes read, instead of a new copy
+   * of the typed expression tree. A later capture omits it and reads the body
+   * that the field has at that time. Overload signatures share the name of
+   * their field, so they always read their own body.
+   */
   public static function capture(field: ClassField, isStatic: Bool,
       isConstructor = false, captureOverloads = true,
-      ?ownership: PublicMemberOwnership): PublicMember {
-    final resolvedOwnership = ownership == null
-      ? (isStatic ? Static : Instance)
-      : ownership;
-    final capturedOverloads = captureOverloads
-      ? [
-          for (signature in field.overloads.get())
-            capture(signature, isStatic, isConstructor, false,
-              resolvedOwnership)
-        ]
-      : [];
+      ?ownership: PublicMemberOwnership,
+      ?afterTyping: AfterTypingClass): PublicMember {
+    final resolvedOwnership = ownership == null ? (isStatic ? Static : Instance) : ownership;
+    final capturedOverloads = captureOverloads ? [
+      for (signature in field.overloads.get())
+        capture(signature, isStatic, isConstructor, false, resolvedOwnership)
+    ] : [];
+    final body = afterTyping == null ? field.expr() : afterTyping.body(field,
+      isStatic);
     return new PublicMember(field.name, field.type, field.kind, field.meta,
-      field.expr(), field.pos, field.doc, isStatic, isConstructor,
-      field.isFinal, field.meta.has(':compilerGenerated'), resolvedOwnership,
-      #if (haxe_ver >= 4.2) field.isAbstract, #end
-      field.params, capturedOverloads);
+      body, field.pos, field.doc, isStatic, isConstructor, field.isFinal,
+      field.meta.has(':compilerGenerated'), resolvedOwnership,
+      #if (haxe_ver >= 4.2) field.isAbstract, #end field.params,
+      capturedOverloads);
   }
 
   public function substitute(ownerParameters: Array<TypeParameter>,
       concreteTypes: Array<Type>): PublicMember {
     return new PublicMember(name,
       type.applyTypeParameters(ownerParameters, concreteTypes), kind, meta,
-      expr, pos, doc, isStatic, isConstructor, isFinal,
-      isCompilerGenerated, ownership,
-      #if (haxe_ver >= 4.2) isAbstract, #end
-      parameterValues, [
+      expr, pos, doc, isStatic, isConstructor, isFinal, isCompilerGenerated,
+      ownership, #if (haxe_ver >= 4.2) isAbstract, #end parameterValues, [
         for (signature in overloadValues)
           signature.substitute(ownerParameters, concreteTypes)
       ]);
@@ -221,7 +228,8 @@ class PublicMember {
  * Compiler-generated support members remain classified facts so each emission
  * profile can include or suppress them without maintaining another collector.
  *
- * How: `install` registers one deterministic `onAfterTyping` pass. Captured
+ * How: `install` adds one deterministic capture to the `onAfterTyping` walk
+ * that `AfterTypingPasses` shares between the pre-DCE passes. Captured
  * arrays stay private and every concrete instantiation returns new values with
  * owner parameters substituted through `TypeTools.applyTypeParameters`.
  * TypeScript mode separately retains interface implementations for runtime.
@@ -282,9 +290,10 @@ class PublicSurface {
   }
 
   function new(kind: PublicSurfaceKind, base: BaseType,
-      instanceMembers: Array<PublicMember>, staticMembers: Array<PublicMember>,
-      constructor: Null<PublicMember>, superClass: Null<PublicTypeUse>,
-      interfaces: Array<PublicTypeUse>, aliasType: Null<Type>) {
+      instanceMembers: Array<PublicMember>,
+      staticMembers: Array<PublicMember>, constructor: Null<PublicMember>,
+      superClass: Null<PublicTypeUse>, interfaces: Array<PublicTypeUse>,
+      aliasType: Null<Type>) {
     this.kind = kind;
     this.module = base.module;
     this.name = base.name;
@@ -301,30 +310,40 @@ class PublicSurface {
 
   static inline function fullName(base: BaseType): String {
     final declaredPath = base.pack.concat([base.name]).join('.');
-    return (declaredPath == base.module)
-      ? declaredPath
-      : (base.module + '.' + base.name);
+    return (declaredPath == base.module) ? declaredPath : (base.module
+      + '.'
+      + base.name);
   }
 
-  static function captureClass(cl: ClassType): PublicSurface {
-    final constructor = switch cl.constructor {
-      case null:
-        null;
-      case ctor if (ctor.get().isPublic):
-        PublicMember.capture(ctor.get(), false, true, true, Instance);
-      case _:
-        null;
+  /**
+   * Captures the declared public members of one class.
+   *
+   * `afterTyping` is non-null only for the `onAfterTyping` capture. The field
+   * lists and bodies then come from the view that the other after-typing
+   * passes share. A later capture reads the class as it is at that time.
+   */
+  static function captureClass(cl: ClassType,
+      ?afterTyping: AfterTypingClass): PublicSurface {
+    final constructorField = afterTyping != null ? afterTyping.constructor() : switch cl.constructor {
+      case null: null;
+      case ctor: ctor.get();
     };
+    final constructor = constructorField != null
+      && constructorField.isPublic ? PublicMember.capture(constructorField,
+        false, true, true, Instance, afterTyping) : null;
+    final fields = afterTyping != null ? afterTyping.fields() : cl.fields.get();
+    final statics = afterTyping != null ? afterTyping.statics() : cl.statics.get();
     return new PublicSurface(cl.isInterface ? Interface : Class, cl, [
-      for (field in cl.fields.get())
+      for (field in fields)
         if (field.isPublic && !CompilerInternal.isField(field.meta))
-          PublicMember.capture(field, false, false, true,
-            ownershipFor(cl, field, false))
+          PublicMember.capture(field, false, false, true, ownershipFor(cl,
+            field, false),
+          afterTyping)
     ], [
-      for (field in cl.statics.get())
+      for (field in statics)
         if (field.isPublic && !CompilerInternal.isField(field.meta))
-          PublicMember.capture(field, true, false, true,
-            ownershipFor(cl, field, true))
+          PublicMember.capture(field, true, false, true, ownershipFor(cl,
+            field, true), afterTyping)
     ], constructor, switch cl.superClass {
       case null: null;
       case parent: new PublicTypeUse(parent.t, parent.params);
@@ -392,19 +411,20 @@ class PublicSurface {
     };
   }
 
-  static function captureTypes(types: Array<ModuleType>): Void {
+  /** Captures one class for the `onAfterTyping` walk. */
+  static function captureAfterTyping(current: AfterTypingClass): Void {
+    surfaces.set(current.ownerKey, captureClass(current.type, current));
+  }
+
+  /** Captures the typedefs of the `onAfterTyping` declaration list. */
+  static function captureTypedefs(types: Array<ModuleType>): Void {
     for (type in types) {
-      final surface = switch type {
-        case TClassDecl(ref): captureClass(ref.get());
-        case TTypeDecl(ref): captureTypedef(ref.get());
-        default: null;
-      };
-      if (surface != null)
-        surfaces.set(fullName(switch type {
-          case TClassDecl(ref): ref.get();
-          case TTypeDecl(ref): ref.get();
-          default: throw 'unreachable';
-        }), surface);
+      switch type {
+        case TTypeDecl(ref):
+          final def = ref.get();
+          surfaces.set(fullName(def), captureTypedef(def));
+        default:
+      }
     }
   }
 
@@ -515,8 +535,10 @@ class PublicSurface {
   /** Installs pre-DCE capture for one compiler invocation. */
   public static function install(): Void {
     surfaces = new Map();
-    Context.onAfterTyping(types -> {
-      captureTypes(types);
+    // The class walk is shared with the other after-typing passes. The
+    // second function runs after every class has a surface.
+    AfterTypingPasses.add(captureAfterTyping, types -> {
+      captureTypedefs(types);
       LibraryProfile.retain(types);
       if (Context.defined('genes.ts')) {
         for (type in types) {
@@ -554,7 +576,8 @@ class PublicSurface {
   function validateConcreteTypes(concreteTypes: Array<Type>): Void {
     if (parameterValues.length != concreteTypes.length) {
       CompilerDiagnostic.fail('PublicSurface generic arity mismatch for $module.$name: '
-        + 'expected ${parameterValues.length}, received ${concreteTypes.length}',
+        +
+        'expected ${parameterValues.length}, received ${concreteTypes.length}',
         pos);
     }
   }
@@ -580,17 +603,17 @@ class PublicSurface {
   /** Returns the public constructor with owner generics substituted. */
   public function constructorFor(concreteTypes: Array<Type>): Null<PublicMember> {
     validateConcreteTypes(concreteTypes);
-    return constructorValue == null
-      ? null
-      : constructorValue.substitute(parameterValues, concreteTypes);
+    return
+      constructorValue == null ? null : constructorValue.substitute(parameterValues,
+        concreteTypes);
   }
 
   /** Returns the applied superclass with owner generics substituted. */
   public function superClassFor(concreteTypes: Array<Type>): Null<PublicTypeUse> {
     validateConcreteTypes(concreteTypes);
-    return superClassValue == null
-      ? null
-      : superClassValue.substitute(parameterValues, concreteTypes);
+    return
+      superClassValue == null ? null : superClassValue.substitute(parameterValues,
+        concreteTypes);
   }
 
   /** Returns applied interfaces with owner generics substituted. */
@@ -606,8 +629,9 @@ class PublicSurface {
   public function aliasTypeFor(concreteTypes: Array<Type>): Type {
     validateConcreteTypes(concreteTypes);
     if (aliasTypeValue == null) {
-      return CompilerDiagnostic.fail(
-        'PublicSurface $module.$name is not a typedef', pos);
+      return
+        CompilerDiagnostic.fail('PublicSurface $module.$name is not a typedef',
+          pos);
     }
     return aliasTypeValue.applyTypeParameters(parameterValues, concreteTypes);
   }
