@@ -113,10 +113,22 @@ class AfterTypingClass {
  * after all classes; it reads the other declaration kinds there, and it can
  * rely on its class function having seen every class.
  *
- * Order: for one class, the passes run in the order of their `add` calls. No
- * pass reads a fact of another pass during the walk, so the order changes no
- * result. A diagnostic of a class function stops the compilation at the first
- * class that has one, as before.
+ * Order: for one class, the passes run in the order of their `add` calls.
+ * Haxe 4.3.7 runs `onAfterTyping` callbacks in reverse order of registration.
+ * Before this walk, the order was: the React audit over the whole program,
+ * then `SignatureCache`, then `PublicSurface`, then `ModuleDirectivePlan`.
+ * Now it is: this walk for each class (`PublicSurface`, `SignatureCache`, the
+ * React audit), then the declaration functions, then `ModuleDirectivePlan`.
+ * This changes no result. No pass reads a fact of another pass during the
+ * walk. The class functions of `PublicSurface` and `SignatureCache` raise no
+ * errors, and the audit adds no metadata.
+ *
+ * Errors: the React audit is not the only pass that can report an error. The
+ * declaration function of `PublicSurface` calls `LibraryProfile.retain`,
+ * which can call `Context.error`. The audit runs before it in the old order
+ * and in the new order, so the first reported error is the same. A diagnostic
+ * of a class function stops the compilation at the first class that has one,
+ * as before.
  *
  * Lifetime: the lists are ordinary statics, not `@:persistent`. Haxe replaces
  * them at the start of each compilation on a compiler server, and each
