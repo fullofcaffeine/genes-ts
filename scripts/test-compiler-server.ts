@@ -410,12 +410,14 @@ async function compilePair(
  * next edit of any file then made Haxe type many unrelated modules again, on
  * every edit of a development session.
  *
- * What: after one complete generation, the test edits a module that nothing
- * imports and compiles again, twice, with two different modules. Each time,
+ * What: after one complete generation, the test edits one module and
+ * compiles again, three times with three different modules. Two of them are
+ * modules that nothing imports; the third, `servercase.Extra`, is imported
+ * and emitted, so the generator reads its import identity too. Each time,
  * Haxe must type again exactly the modules that it types again when
- * generation is off (`--no-output`), and that list must be the edited module
- * alone. The typing-only run is the independent oracle: it shows what the
- * source itself requires.
+ * generation is off (`--no-output`). For a module that nothing imports, that
+ * list must be the edited module alone. The typing-only run is the
+ * independent oracle: it shows what the source itself requires.
  *
  * How: `RetypedModulesProbe` reports the modules that Haxe typed again. The
  * two runs use different values of the private fixture define, so each has
@@ -434,9 +436,15 @@ async function assertGenerationAddsNoModuleDependencies(
   timeoutMs: number
 ): Promise<void> {
   const targets = [
-    { module: "servercase.UnimportedLeaf", text: "leaf" },
-    { module: "servercase.UnimportedNeighbor", text: "neighbor" }
+    { module: "servercase.UnimportedLeaf", text: "leaf", imported: false },
+    {
+      module: "servercase.UnimportedNeighbor",
+      text: "neighbor",
+      imported: false
+    },
+    { module: "servercase.Extra", text: "extra-a", imported: true }
   ] as const;
+  const namedOnCommandLine = targets.filter((target) => !target.imported);
   const sourcePath = (module: string): string =>
     path.join(workspace("project-a"), "src", `${module.replaceAll(".", "/")}.hx`);
   const touch = (file: string): void => {
@@ -476,7 +484,7 @@ async function assertGenerationAddsNoModuleDependencies(
       path.join(fixtureRoot, "probes"),
       "--macro",
       `RetypedModulesProbe.install(${JSON.stringify(report)})`,
-      ...targets.map((target) => target.module),
+      ...namedOnCommandLine.map((target) => target.module),
       ...(mode === "typing" ? ["--no-output"] : [])
     ];
     const request = async (label: string): Promise<ReadonlyArray<string>> => {
@@ -521,11 +529,21 @@ async function assertGenerationAddsNoModuleDependencies(
   };
   try {
     const typing = await retypedAfterEdits("typing");
-    deepStrictEqual(
-      typing,
-      targets.map((target) => [target.module]),
-      "Haxe alone typed more than the edited module again"
-    );
+    targets.forEach((target, index) => {
+      const retyped = typing[index] ?? [];
+      if (target.imported) {
+        ok(
+          retyped.includes(target.module) && retyped.length > 1,
+          `Haxe alone did not type ${target.module} and its importer again`
+        );
+      } else {
+        deepStrictEqual(
+          retyped,
+          [target.module],
+          "Haxe alone typed more than the edited module again"
+        );
+      }
+    });
     const generation = await retypedAfterEdits("generation");
     deepStrictEqual(
       generation,
@@ -538,6 +556,66 @@ async function assertGenerationAddsNoModuleDependencies(
   } finally {
     restoreProject("project-a");
   }
+}
+
+/**
+ * Proves that the module inventory lists each declaration once when
+ * `Generator.use()` runs twice in one request.
+ *
+ * Why: `genes.TypedModuleInventory` replaces `Context.getModule` during
+ * generation. Each `install()` registers one capture of the typed
+ * declarations. If the second `Generator.use()` installed it again, two
+ * captures would fill the same lists and every declaration would appear
+ * twice. Generated files would not show that, because callers stop at the
+ * first match, so this case compares the lists directly.
+ *
+ * How: one cold build with two `--macro genes.Generator.use()` and
+ * `ModuleInventoryProbe`, which writes the inventory's list for
+ * `servercase.Main` and Haxe's own list. Haxe's list is the oracle.
+ */
+async function assertRepeatedUseKeepsOneInventory(
+  compiler: ReturnType<typeof selectedHaxeCompiler>,
+  timeoutMs: number
+): Promise<void> {
+  const scenario: Scenario = {
+    id: "a-repeated-use-inventory",
+    project: "project-a",
+    profile: tsProfile,
+    repeatGeneratorUse: true
+  };
+  const report = path.join(tempRoot, `${scenario.id}.inventory.txt`);
+  rmSync(report, { force: true });
+  installRuntime("cold", scenario);
+  const result = await runBoundedProcess(
+    compiler.binary,
+    [
+      ...buildArguments("cold", scenario),
+      "-cp",
+      path.join(fixtureRoot, "probes"),
+      "--macro",
+      `ModuleInventoryProbe.install("servercase.Main", ${
+        JSON.stringify(report)
+      })`
+    ],
+    {
+      cwd: workspace(scenario.project),
+      timeoutMs,
+      label: `Cold ${scenario.id}`,
+      reportProgress: true
+    }
+  );
+  assertSuccess(result, `Cold ${scenario.id}`);
+  const [inventory, haxe] = readFileSync(report, "utf8").split("\n");
+  ok(
+    haxe !== undefined && haxe.split(",").includes("servercase.Main"),
+    `${scenario.id} did not report the declarations of servercase.Main`
+  );
+  strictEqual(
+    inventory,
+    haxe,
+    "After two Generator.use() calls the module inventory differs from "
+    + "Context.getModule"
+  );
 }
 
 function indexedInventory(result: ProcessResult): ReadonlyArray<string> {
@@ -1490,6 +1568,7 @@ async function main(): Promise<void> {
       "Identical warm TypeScript request changed generated bytes"
     );
 
+    await assertRepeatedUseKeepsOneInventory(compiler, timeoutMs);
     await assertGenerationAddsNoModuleDependencies(
       server,
       tsxProfile,

@@ -672,7 +672,10 @@ class Generator {
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
-      TypedModuleInventory.install();
+      // A second `Generator.use()` in one request must not register a second
+      // capture: each module list would then hold every declaration twice.
+      if (!alreadyInstalled)
+        TypedModuleInventory.install();
       ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.

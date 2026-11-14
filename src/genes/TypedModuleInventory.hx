@@ -20,11 +20,12 @@ import haxe.macro.Type;
  * instead of 1.
  *
  * What: `moduleTypes(module)` returns the same declarations, in the same
- * order, as `Context.getModule(module)`. `typeByPath(path)` returns the same
- * declaration as `Context.getType(path)`. Both include declarations that
- * dead-code elimination later removes, such as the implementation class of an
- * abstract. The generator's own type list does not include those, so it
- * cannot replace this owner.
+ * order, as `Context.getModule(module)`. `typeByPath(path)` finds the
+ * declaration that a full dotted path names; it is close to
+ * `Context.getType(path)` but not equal to it, see `typeByPath`. Both include
+ * declarations that dead-code elimination later removes, such as the
+ * implementation class of an abstract. The generator's own type list does
+ * not include those, so it cannot replace this owner.
  *
  * How: Haxe gives every typed declaration to `onAfterTyping` callbacks, before
  * dead-code elimination, and in module order. `install()` keeps those arrays
@@ -46,8 +47,10 @@ import haxe.macro.Type;
  *
  * Lifetime: the arrays hold compiler-owned declarations, so they belong to
  * one request only. `install()` replaces them before it registers the
- * callback. A request that does not install Genes gets no answer from the
- * inventory and looks up by name. Nothing is used in a later request.
+ * callback, and `Generator.use()` calls it once in a request, also when the
+ * macro runs twice. A request that does not install Genes gets no answer
+ * from the inventory and looks up by name. Nothing is used in a later
+ * request.
  *
  * See also: `docs/ARCHITECTURE.md`, "State-owner ledger".
  */
@@ -77,12 +80,29 @@ class TypedModuleInventory {
   }
 
   /**
-   * Returns the declaration that a dotted path names, like `Context.getType`.
+   * Returns the declaration that a full dotted path names.
    *
-   * The path follows Haxe's rule: `pack.Name` is the declaration `Name` of
-   * module `pack.Name`, and `pack.Module.Name` is the declaration `Name` of
-   * module `pack.Module`. A path that the inventory cannot answer, for example
-   * a wrong path or a type that needs no import such as `String`, goes to
+   * Use this instead of `Context.getType` in code that can run during
+   * generation, when the caller needs to know which declaration the path
+   * names. The path follows Haxe's rule: `pack.Name` is the declaration
+   * `Name` of module `pack.Name`, and `pack.Module.Name` is the declaration
+   * `Name` of module `pack.Module`.
+   *
+   * The result is not always equal to `Context.getType(path)`:
+   *
+   * - A generic declaration keeps its own type parameters, not applied to
+   *   anything. For `js.lib.Promise` the result is `Promise<T>`, where
+   *   `Context.getType` returns `Promise<Unknown>`. A caller that reads the
+   *   type arguments of the result must not use this function.
+   * - A bare name is read as a top-level module and is not resolved through
+   *   imports. `Math` names the top-level `Math`, where `Context.getType`
+   *   in a JavaScript build resolves it to `js.lib.Math`. Pass a full path.
+   *
+   * Today's callers read only which declaration the result refers to, and
+   * they pass full paths, so they get the same declaration as before.
+   *
+   * A path that the inventory cannot answer, for example a wrong path or a
+   * type of a module that this request did not type, goes to
    * `Context.getType`, which also reports the error for a wrong path.
    */
   public static function typeByPath(path: String): Type {
@@ -96,7 +116,9 @@ class TypedModuleInventory {
     if (indexed != null) {
       for (candidate in indexed) {
         final base = baseOf(candidate);
-        if (base != null && base.name == name && !base.isPrivate)
+        // A private declaration answers too: `Context.getType` also returns
+        // one for the path `pack.Module.Name`.
+        if (base != null && base.name == name)
           return candidate;
       }
     }
