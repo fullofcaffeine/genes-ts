@@ -25,7 +25,7 @@ export class Boot {
 					const n: string = con._hx_name;
 					if (con.__params__) {
 						s = s + "\t";
-						return n + "(" + ((function($this) {var $r0
+						return n + "(" + ((() => {
 							const _g: string[] = [];
 							{
 								let _g1: number = 0;
@@ -39,8 +39,8 @@ export class Boot {
 									_g.push(Boot.__string_rec((o[p] ?? null), s));
 								};
 							};
-							$r0 = _g
-							return $r0})(this)).join(",") + ")";
+							return _g
+						})()).join(",") + ")";
 					} else {
 						return n;
 					};

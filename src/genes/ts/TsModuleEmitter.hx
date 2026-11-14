@@ -2969,6 +2969,32 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Lower statement-shaped values with a lexical, typed-by-inference closure.
+   *
+   * Why: the classic wrapper passes an untyped `$this` and accumulates an
+   * untyped result. TypeScript needs neither: an arrow keeps the current
+   * receiver, and returning each value leaf preserves its inferred type.
+   * Throws remain statements and do not invent a successful result. The
+   * shared assigner still owns order, branch selection, and single evaluation.
+   */
+  override function asValue(expression: TypedExpr,
+      assigner: (assign: TypedExpr->Void)->Void) {
+    final wasInLoop = inLoop;
+    inLoop = false;
+    write("(() => {");
+    increaseIndent();
+    writeNewline();
+    assigner(value -> {
+      write("return ");
+      emitValue(value);
+    });
+    decreaseIndent();
+    writeNewline();
+    write("})()");
+    inLoop = wasInLoop;
+  }
+
   override public function emitValue(e: TypedExpr) {
     if (lexicalBindingUsePlan != null && activeBindingExpression != e) {
       final previous = activeBindingExpression;

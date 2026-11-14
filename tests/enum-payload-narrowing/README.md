@@ -102,4 +102,23 @@ Run the focused task with:
 yarn test:enum-payload-narrowing
 ```
 
+## Static selections and throwing branches
+
+`StaticSelection` also checks an enum match used to initialize a static field.
+A valid branch produces a string. A rejected branch throws. Previously, the
+value emitter tried to turn that throw into a value by calling itself with the
+same expression, until compilation failed with a stack overflow.
+
+The shared emitter now emits the throw as a statement inside the value wrapper.
+TypeScript uses an arrow function and returns each selected value directly.
+This keeps the lexical receiver and lets TypeScript infer the result without
+an untyped receiver parameter or result variable. Classic JavaScript retains
+its existing wrapper, with the recursive throw path corrected.
+
+The independent expected result includes `selected1:rejected2:2`: both branches
+are exercised and each initializer runs once. A second build selects the
+throwing branch. Each runtime must exit with the original rejection before
+`main` runs. Strict TypeScript checks cover both builds on all three compiler
+lanes. These cases do not claim new support for unrelated statement forms.
+
 Prepared by the GameCarry agent.

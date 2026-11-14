@@ -1465,7 +1465,11 @@ class ExprEmitter extends Emitter {
         spr(ctx, " , ");
         spr(ctx, (ctx.type_accessor(t)));
         spr(ctx, ")"); */
-      case TVar(_), TFor(_, _, _), TWhile(_, _, _), TThrow(_):
+      case TThrow(_):
+        // A throw has no result to assign. Emit its statement once inside the
+        // value wrapper; feeding it back into emitValue recurses forever.
+        asValue(e, _ -> emitExpr(e));
+      case TVar(_), TFor(_, _, _), TWhile(_, _, _):
         asValue(e, assign -> assign(e));
       case TBlock([]): // Todo: hm?
         write('null');

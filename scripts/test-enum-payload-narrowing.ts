@@ -1,5 +1,5 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,7 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/enum-payload-narrowing");
-const expectedTranscript = "elided|visible|planned";
+const expectedTranscript = "elided|visible|planned|selected1:rejected2:2";
 
 function run(command: string, args: ReadonlyArray<string>): void {
   execFileSync(command, [...args], { cwd: repoRoot, stdio: "inherit" });
@@ -48,11 +48,41 @@ run("haxe", ["tests/enum-payload-narrowing/build-standard.hxml"]);
 deepStrictEqual(
   [
     transcript("tests/enum-payload-narrowing/out/ts/dist/index.js"),
+    transcript("tests/enum-payload-narrowing/out/classic/index.js"),
     transcript("tests/enum-payload-narrowing/out/standard/index.cjs")
   ],
-  [expectedTranscript, expectedTranscript],
+  [expectedTranscript, expectedTranscript, expectedTranscript],
   "TypeScript-readable and standard JavaScript preserve enum behavior"
 );
+
+const staticSelection = read("out/ts/src-gen/enumpayload/StaticSelection.ts");
+ok(!staticSelection.includes("function($this)"),
+  "static expression wrappers do not introduce an untyped receiver parameter");
+ok(!staticSelection.includes("unsafeCast"),
+  "static switch branches retain inferred payload types without an escape");
+
+// A real throwing initializer must stop startup; an unused throw branch alone
+// cannot establish that the value wrapper propagates exceptions.
+for (const [hxml, output, typed] of [
+  ["build-ts.hxml", "out/ts/dist/index.js", true],
+  ["build-classic.hxml", "out/classic/index.js", false],
+  ["build-standard.hxml", "out/standard/index.cjs", false]
+] as const) {
+  run("haxe", [`tests/enum-payload-narrowing/${hxml}`, "-D", "static_selection_failure"]);
+  if (typed) runGeneratedTypeScriptMatrix("tests/enum-payload-narrowing/tsconfig.generated.json");
+  const failed = spawnSync(process.execPath, [path.join(fixtureRoot, output)], {
+    cwd: repoRoot, encoding: "utf8"
+  });
+  strictEqual(failed.status, 1, `${hxml}: throwing initializer stops startup`);
+  ok(failed.stderr.includes("rejected"), `${hxml}: original rejection is preserved`);
+  strictEqual(failed.stdout.trim(), "", `${hxml}: main does not run after failed initialization`);
+}
+
+// Restore a consistent successful tree for inspection after this gate.
+run("haxe", ["tests/enum-payload-narrowing/build-ts.hxml"]);
+runGeneratedTypeScriptMatrix("tests/enum-payload-narrowing/tsconfig.generated.json");
+run("haxe", ["tests/enum-payload-narrowing/build-classic.hxml"]);
+run("haxe", ["tests/enum-payload-narrowing/build-standard.hxml"]);
 
 const implementation = read("out/ts/src-gen/enumpayload/Main.ts");
 const planned =
