@@ -692,6 +692,94 @@ function assertHaxeHxxNegatives(rangeDiagnostics: ReadonlyMap<string, string>): 
     `@:ts.optional spread fields should keep their present-value type:\n${tsOptionalSpread.stdout}${tsOptionalSpread.stderr}`
   );
 
+  // One provider typedef gives one schema to every tag that names it. These
+  // cases prove that the second tag keeps the full contract, and that a
+  // same-named typedef from another module or another type argument does not
+  // receive it.
+  const sharedSchemaPositive = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_shared_schema",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=SharedSchemaElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    sharedSchemaPositive.status,
+    0,
+    `tags that share or nearly share a typedef should accept their own properties:\n${sharedSchemaPositive.stdout}${sharedSchemaPositive.stderr}`
+  );
+  for (const [define, diagnostic, valueSource] of [
+    [
+      "hxx_negative_shared_schema_second_tag",
+      "GTS-HXX-PROP-002",
+      "final value = <x-second tone={1} />;"
+    ],
+    [
+      "hxx_negative_shared_schema_same_name",
+      "GTS-HXX-PROP-001",
+      'final value = <x-other tone="warm" />;'
+    ],
+    [
+      "hxx_negative_shared_schema_type_argument",
+      "GTS-HXX-PROP-002",
+      'final value = <x-count value="label" />;'
+    ]
+  ] as const) {
+    const valueLine = negativeSource.findIndex((line) =>
+      line.includes(valueSource)
+    ) + 1;
+    ok(valueLine > 0, `${define} has no HXX value`);
+    const result = spawnSync(
+      "haxe",
+      [
+        "tests/genes-ts/snapshot/react/build-negative.hxml",
+        "-D",
+        define,
+        "-D",
+        "genes.react.jsx_intrinsic_providers=SharedSchemaElements"
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    strictEqual(result.status === 0, false,
+      `${define} unexpectedly compiled`);
+    const output = `${result.stdout}${result.stderr}`;
+    ok(output.includes(`[${diagnostic}]`), `${define}:\n${output}`);
+    ok(output.includes(`Negative.hx:${valueLine}:`), `${define}:\n${output}`);
+  }
+
+  const sharedWeakProvider = readFileSync(
+    path.join(
+      repoRoot,
+      "tests/genes-ts/snapshot/react/negative/SharedWeakElements.hx"
+    ),
+    "utf8"
+  ).split(/\r?\n/);
+  const sharedWeakLine = sharedWeakProvider.findIndex((line) =>
+    line.includes("final value: Dynamic;")
+  ) + 1;
+  ok(sharedWeakLine > 0, "shared-weak fixture has no weak field");
+  const sharedWeakResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_negative_unknown_custom_intrinsic",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=SharedWeakElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(sharedWeakResult.status === 0, false);
+  const sharedWeakOutput =
+    `${sharedWeakResult.stdout}${sharedWeakResult.stderr}`;
+  ok(sharedWeakOutput.includes("[GTS-HXX-SCHEMA-008]"));
+  ok(sharedWeakOutput.includes("intrinsic `x-weak-first` properties"));
+  ok(sharedWeakOutput.includes(`SharedWeakElements.hx:${sharedWeakLine}:`));
+
   const ignoredCallbackResult = spawnSync(
     "haxe",
     [

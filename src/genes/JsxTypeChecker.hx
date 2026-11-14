@@ -41,6 +41,13 @@ private typedef JsxIntrinsicContract = {
   var pos: Position;
 }
 
+/** One provider typedef and the schema already validated for it. */
+private typedef JsxDeclaredSchema = {
+  final module: String;
+  final name: String;
+  final schema: JsxPropSchema;
+}
+
 private typedef JsxComponentContract = {
   var schema: JsxPropSchema;
   var bindings: Map<String, Type>;
@@ -973,6 +980,7 @@ class JsxTypeChecker {
         localPrefixes.push(contract);
       }
     }
+    final declaredSchemas: Array<JsxDeclaredSchema> = [];
     for (entry in pending) {
       if (intrinsics.exists(entry.name))
         fail('GTS-HXX-SCHEMA-004',
@@ -981,12 +989,55 @@ class JsxTypeChecker {
           entry.pos);
       intrinsics.set(entry.name, {
         name: entry.name,
-        schema: propSchema(entry.type, entry.pos,
-          'intrinsic `${entry.name}` properties', optionalValuesAllowUndefined),
+        schema: intrinsicSchema(entry.name, entry.type, entry.pos,
+          optionalValuesAllowUndefined, declaredSchemas),
         prefixes: localPrefixes,
         pos: entry.pos
       });
     }
+  }
+
+  /**
+   * Returns one tag's property schema, built once per declared typedef.
+   *
+   * Why: a provider normally gives many tags the same property typedef. The
+   * default provider declares 129 tags with 20 distinct types; 90 tags are
+   * plain `HtmlProps`. Building and safety-checking that same typedef once
+   * for every tag was the largest measured cost of a module that contains
+   * HXX, and every such module pays it again.
+   *
+   * What: tags of one provider whose static field has the same typedef with
+   * no type arguments share one validated `JsxPropSchema`. Every other
+   * declared type, such as an inline structure, a class, or a typedef with
+   * type arguments, takes the unshared path.
+   *
+   * How: `declared` lives only for one `loadIntrinsicProvider` call. That
+   * loop reads compiler types and never unifies, so a second build of the
+   * same typedef inside it could only repeat the first result or the first
+   * diagnostic. The first tag that names a typedef still validates all of
+   * it, so an unused weak declaration is rejected as before. The typedef's
+   * Haxe module and declared name are its identity here; Haxe permits one
+   * such declaration per compilation and keeps a typedef's name under
+   * `@:native`, unlike a class. A schema is not mutated after `propSchema`
+   * returns, and the checker itself is still created for each plan build,
+   * so nothing outlives the request or crosses a module rebuild.
+   */
+  function intrinsicSchema(name: String, type: Type, pos: Position,
+      optionalValuesAllowUndefined: Bool,
+      declared: Array<JsxDeclaredSchema>): JsxPropSchema {
+    final label = 'intrinsic `$name` properties';
+    final owner = switch type {
+      case TType(typeRef, []): typeRef.get();
+      default: null;
+    };
+    if (owner == null)
+      return propSchema(type, pos, label, optionalValuesAllowUndefined);
+    for (known in declared)
+      if (known.module == owner.module && known.name == owner.name)
+        return known.schema;
+    final schema = propSchema(type, pos, label, optionalValuesAllowUndefined);
+    declared.push({module: owner.module, name: owner.name, schema: schema});
+    return schema;
   }
 
   static function childExpression(child: JsxChildIntent): TypedExpr {
