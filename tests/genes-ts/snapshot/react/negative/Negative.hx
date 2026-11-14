@@ -536,12 +536,15 @@ class Negative {
     final first = <x-first tone="warm" />;
     final second = <x-second tone="cool" />;
     final other = <x-other count={1} />;
+    final sibling = <x-sibling count={3} />;
     final text = <x-text value="label" />;
     final count = <x-count value={2} />;
     #elseif hxx_negative_shared_schema_second_tag
     final value = <x-second tone={1} />;
     #elseif hxx_negative_shared_schema_same_name
     final value = <x-other tone="warm" />;
+    #elseif hxx_negative_shared_schema_same_module
+    final value = <x-sibling tone="warm" />;
     #elseif hxx_negative_shared_schema_type_argument
     final value = <x-count value="label" />;
     #elseif hxx_negative_dynamic_marker_unsafe_prop

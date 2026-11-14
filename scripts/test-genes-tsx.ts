@@ -694,8 +694,8 @@ function assertHaxeHxxNegatives(rangeDiagnostics: ReadonlyMap<string, string>): 
 
   // One provider typedef gives one schema to every tag that names it. These
   // cases prove that the second tag keeps the full contract, and that a
-  // same-named typedef from another module or another type argument does not
-  // receive it.
+  // same-named typedef from another module, a different typedef from the same
+  // module, or another type argument does not receive it.
   const sharedSchemaPositive = spawnSync(
     "haxe",
     [
@@ -722,6 +722,11 @@ function assertHaxeHxxNegatives(rangeDiagnostics: ReadonlyMap<string, string>): 
       "hxx_negative_shared_schema_same_name",
       "GTS-HXX-PROP-001",
       'final value = <x-other tone="warm" />;'
+    ],
+    [
+      "hxx_negative_shared_schema_same_module",
+      "GTS-HXX-PROP-001",
+      'final value = <x-sibling tone="warm" />;'
     ],
     [
       "hxx_negative_shared_schema_type_argument",

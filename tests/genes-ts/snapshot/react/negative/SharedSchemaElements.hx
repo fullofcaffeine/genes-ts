@@ -2,6 +2,10 @@ typedef SharedProps = {
   final tone: String;
 }
 
+typedef SharedOther = {
+  final count: Int;
+}
+
 typedef SharedBox<T> = {
   final value: T;
 }
@@ -15,8 +19,9 @@ typedef SharedBox<T> = {
  *
  * How: `x-first` and `x-second` name one typedef and must enforce the same
  * properties. `x-other` names a typedef with the same name from another
- * module. `x-text` and `x-count` name one generic typedef with different type
- * arguments. Each of those three must keep its own schema.
+ * module. `x-sibling` names a different typedef from this module. `x-text`
+ * and `x-count` name one generic typedef with different type arguments. Each
+ * of those four must keep its own schema.
  */
 extern class SharedSchemaElements {
   @:genes.jsxIntrinsic("x-first")
@@ -27,6 +32,9 @@ extern class SharedSchemaElements {
 
   @:genes.jsxIntrinsic("x-other")
   public static var other: sharedschema.SharedProps;
+
+  @:genes.jsxIntrinsic("x-sibling")
+  public static var sibling: SharedOther;
 
   @:genes.jsxIntrinsic("x-text")
   public static var text: SharedBox<String>;
