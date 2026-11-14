@@ -785,6 +785,66 @@ function assertHaxeHxxNegatives(rangeDiagnostics: ReadonlyMap<string, string>): 
   ok(sharedWeakOutput.includes("intrinsic `x-weak-first` properties"));
   ok(sharedWeakOutput.includes(`SharedWeakElements.hx:${sharedWeakLine}:`));
 
+  // One output generation validates a closed provider typedef once and gives
+  // the schema to the HXX checker of every later module. The probe builds two
+  // real module plans and changes the provider between them. A renamed tag
+  // and a typedef that turns weak must both still be seen by the second plan.
+  const providerSchemaProbe = (defines: readonly string[]) =>
+    spawnSync(
+      "haxe",
+      [
+        "-cp",
+        "src",
+        "-cp",
+        "tests/genes-ts/snapshot/react/provider-schemas",
+        "-lib",
+        "helder.set",
+        "--macro",
+        "ProviderSchemaProbe.install()",
+        "-D",
+        "genes.react.jsx_intrinsic_providers=ProviderSchemaElements,"
+          + "ProviderSchemaElements.ProviderSchemaPolicyElements",
+        ...defines.flatMap((define) => ["-D", define]),
+        "-js",
+        "tests/genes-ts/snapshot/react/out/provider-schemas/index.js",
+        "--no-output",
+        "ProviderSchemaFirst",
+        "ProviderSchemaSecond"
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+  const providerSchemaShared = providerSchemaProbe([]);
+  const providerSchemaSharedOutput =
+    `${providerSchemaShared.stdout}${providerSchemaShared.stderr}`;
+  strictEqual(providerSchemaShared.status, 0, providerSchemaSharedOutput);
+  for (const line of [
+    "closed typedef shared",
+    "open typedef rebuilt",
+    "no catalog, nothing shared",
+    "policy schema kept separate",
+    "first module plan passed",
+    "second module plan passed"
+  ])
+    ok(
+      providerSchemaSharedOutput.includes(`Provider schema probe: ${line}`),
+      providerSchemaSharedOutput
+    );
+  for (const [define, mutation, diagnostic, subject] of [
+    ["probe_rename", "closed tag renamed", "GTS-HXX-TAG-001", "<x-closed>"],
+    ["probe_poison", "unused tag made weak", "GTS-HXX-SCHEMA-008", "`x-unused`"]
+  ] as const) {
+    const result = providerSchemaProbe([define]);
+    const output = `${result.stdout}${result.stderr}`;
+    strictEqual(result.status === 0, false,
+      `${define} unexpectedly compiled:\n${output}`);
+    ok(output.includes("Provider schema probe: first module plan passed"),
+      output);
+    ok(output.includes(`Provider schema probe: ${mutation}`), output);
+    ok(output.includes(`[${diagnostic}]`), output);
+    ok(output.includes(subject), output);
+    ok(!output.includes("second module plan passed"), output);
+  }
+
   const ignoredCallbackResult = spawnSync(
     "haxe",
     [

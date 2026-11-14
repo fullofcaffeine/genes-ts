@@ -722,12 +722,20 @@ depend on provider field order. A schema-changing annotation may appear only
 once on a field (`GTS-HXX-SCHEMA-010`).
 
 Give tags with the same properties the same typedef. Each module that contains
-HXX loads and checks every provider. Within one load, HXX checks a typedef
-once and gives the result to every tag that names it, so the 90 bundled tags
-typed `HtmlProps` cost one check. A tag declared with an inline structure, a
-class, or a typedef with type arguments is checked by itself. The result is
-the same in both cases: every declaration is checked, used or not, and the
-first tag that names a weak typedef reports it.
+HXX loads every provider. Within one load, HXX checks a typedef once and gives
+the result to every tag that names it, so the 90 bundled tags typed
+`HtmlProps` cost one check. One compilation also keeps that result for the
+modules that load the provider later, so an application with many HXX modules
+checks each such typedef once. A tag declared with an inline structure, a
+class, or a typedef with type arguments is checked by itself, in every module.
+The result is the same in all cases: every declaration is checked, used or
+not, and the first tag that names a weak typedef reports it.
+
+Only the checked properties of a typedef are kept between modules. Tag names,
+attribute prefixes, and the provider policy are read again for each module. A
+typedef whose property type still waits for inference is also checked again
+for each module, because a later use can still change it. Nothing is kept
+between two compilations, including two requests to one compiler server.
 
 The bundled provider is deliberately a reviewed common subset, not a loose
 copy of every version of `@types/react`. If an application needs another valid

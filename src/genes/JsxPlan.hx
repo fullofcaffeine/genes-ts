@@ -722,7 +722,7 @@ class JsxPlan {
       if (intent == null)
         return;
       if (checker == null)
-        checker = new JsxTypeChecker();
+        checker = new JsxTypeChecker(module.jsxProviderSchemas());
       final validation = checker.validate(intent);
       if (validation.componentPropsType != null)
         switch intent {
