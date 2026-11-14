@@ -721,6 +721,14 @@ overlap (`GTS-HXX-SCHEMA-009`), because the chosen contract would otherwise
 depend on provider field order. A schema-changing annotation may appear only
 once on a field (`GTS-HXX-SCHEMA-010`).
 
+Give tags with the same properties the same typedef. Each module that contains
+HXX loads and checks every provider. Within one load, HXX checks a typedef
+once and gives the result to every tag that names it, so the 90 bundled tags
+typed `HtmlProps` cost one check. A tag declared with an inline structure, a
+class, or a typedef with type arguments is checked by itself. The result is
+the same in both cases: every declaration is checked, used or not, and the
+first tag that names a weak typedef reports it.
+
 The bundled provider is deliberately a reviewed common subset, not a loose
 copy of every version of `@types/react`. If an application needs another valid
 attribute, extend a typed provider or contribute the missing generic contract.
