@@ -88,6 +88,32 @@ unreviewed gap.
 
 ### Exceptions / ignores
 
+The `genes-mlv9` dependency repair selects the maintained braces source at
+`bca44d5cf49c64d9f31fdc06ef9b09a13f9ac89d` and upstream
+`http-cache-semantics` 4.3.0. Native package resolutions and the lockfile own
+these selections. The two expired advisory exceptions are removed.
+
+The fork uses an exact Git URL and commit. OSV-Scanner 2.7.0 identifies this
+source as a Git dependency; 2.3.2 incorrectly queried its Yarn alias as an
+upstream npm release. The scanner checks both existing lockfiles, with no
+advisory suppression. Its downloaded and cached executable must match the
+pinned official release SHA-256. Git-source advisory coverage can be incomplete,
+so the fork's native checks remain a required part of `yarn test:vulns`.
+
+The braces fork limits nesting depth. Its changed package name does not prove
+that it is safe. The release-dependency check resolves braces through the
+installed semantic-release and commit-analyzer consumers. It runs the fork's
+independent depth checks and checks release classification and notes. The existing
+[CML repair explanation](https://github.com/fullofcaffeine/reflaxe.elixir/blob/main/caf/ReleaseDependencyRepair.hx)
+records the fork rationale and exit criteria for its first compiler consumer.
+That declaration does not install dependencies or prove Genes adoption.
+
+The cache upgrade does not change the disputed `max-stale` implementation.
+The dependency check instead verifies the actual make-fetch-happen consumer's
+private cache mode at construction and revalidation. A passing scanner does
+not establish safety for a shared-cache deployment. Changes to the consumer
+or cache mode require a new assessment.
+
 OSV configuration lives in `.osv-scanner.toml`. Upgrade the affected package
 whenever a fixed release is compatible with the repository. An exception is
 appropriate only when the reported vulnerable feature is provably outside the
