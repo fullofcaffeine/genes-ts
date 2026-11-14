@@ -4,6 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {createServer} from 'node:http';
 import {dirname, join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {analyzeCommits} from '@semantic-release/commit-analyzer';
 import {generateNotes} from '@semantic-release/release-notes-generator';
 
@@ -135,3 +136,36 @@ try {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 }
 console.log('Dependency compatibility passed: installed URI resolution, both HTTP client majors, and JSON parsing with malformed/oversized input rejection.');
+
+// Keep the major glob and minimatch updates compatible with their real tool consumers.
+// eslint and its config loaders call Minimatch; rimraf and the npm tooling call glob.
+for (const consumer of ['eslint', '@eslint/config-array', '@eslint/eslintrc', 'rimraf', 'cacache', '@npmcli/map-workspaces']) {
+  const fromConsumer = createRequire(require.resolve(consumer));
+  assert.equal(fromConsumer('minimatch/package.json').version, '11.0.1', consumer);
+  assert.equal(fromConsumer('glob/package.json').version, '14.0.2', consumer);
+}
+const {Minimatch} = createRequire(require.resolve('eslint'))('minimatch');
+assert.equal(new Minimatch('src/**/*.js', {dot:true}).match('src/a/.b.js'), true);
+assert.equal(new Minimatch('*.js', {matchBase:true}).match('src/a/b.js'), true);
+assert.equal(new Minimatch('src/**/*.js').match('test/a.js'), false);
+const fixtureRoot = mkdtempSync(join(tmpdir(), 'genes-glob-'));
+try {
+  mkdirSync(join(fixtureRoot, 'a/b'), {recursive:true});
+  for (const name of ['a/b/drop.txt', 'a/keep.md']) writeFileSync(join(fixtureRoot, name), '');
+  const {globSync} = createRequire(require.resolve('rimraf'))('glob');
+  assert.deepEqual(globSync('**/*.txt', {cwd:fixtureRoot, posix:true}), ['a/b/drop.txt']);
+  const {rimraf} = await import('rimraf');
+  await rimraf(join(fixtureRoot, '**/*.txt'), {glob:true});
+  assert.equal(existsSync(join(fixtureRoot, 'a/b/drop.txt')), false);
+  assert.equal(existsSync(join(fixtureRoot, 'a/keep.md')), true);
+} finally {
+  rmSync(fixtureRoot, {recursive:true, force:true});
+}
+
+// Keep Express query parsing working and the patched comma serializer from throwing.
+const qs = fromExpress('qs');
+assert.equal(fromExpress('qs/package.json').version, '6.16.1');
+assert.deepEqual(qs.parse('a[b]=1&c=2'), {a:{b:'1'}, c:'2'});
+assert.equal(qs.stringify({a:['b','c']}, {arrayFormat:'comma'}), 'a=b%2Cc');
+assert.doesNotThrow(() => qs.stringify({a:[{toString:'x'}]}, {arrayFormat:'comma'}));
+console.log('Dependency compatibility passed: eslint Minimatch, rimraf and glob traversal on the patched majors, and Express query parsing with the patched comma serializer.');
