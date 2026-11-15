@@ -43,6 +43,10 @@ using haxe.macro.TypedExprTools;
 class ExprEmitter extends Emitter {
   var indent: Int = 0;
   var valueIifeDepth: Int = 0;
+
+  /** Positions of `__js__` calls already reported; see `warnLegacyJs`. */
+  final legacyJsWarnings: Map<String, Bool> = new Map();
+
   var inLoop: Bool = false;
   var extendsExtern: Option<TypeAccessor> = None;
   var currentExpectedValueType: Null<Type> = null;
@@ -339,8 +343,8 @@ class ExprEmitter extends Emitter {
    * names, and target-specific expression rules. The TypeScript emitter
    * overrides only `emitRawSyntaxTemplateValue` for its explicit-undefined
    * boundary; parsing and accessor ownership remain shared by both profiles.
-   * Non-literal or argument-free forms return `false` so established special
-   * cases such as `js.Syntax.code("$global")` stay on the stock fallback path.
+   * Non-literal or argument-free forms return `false`. `emitSyntaxCode` then
+   * prints the argument-free form, or reports the non-literal one.
    */
   public function emitSyntaxCodeWithArgs(args: Array<TypedExpr>): Bool {
     if (args.length <= 1)
@@ -395,6 +399,301 @@ class ExprEmitter extends Emitter {
   }
 
   /**
+   * Emits one `js.Syntax.code` call without help from Haxe's own printer.
+   *
+   * Why: Genes used to print only a literal template that has value
+   * arguments. Every other call went to Haxe's stock JavaScript printer
+   * (`genes.Context.expr` and `value`). Incremental generation cannot prove
+   * that a module printed that way is unchanged, so one call such as
+   * `js.Syntax.code("globalThis")` made its whole module be printed again
+   * after every edit.
+   *
+   * What: three cases.
+   *
+   * - A literal template with values: `emitSyntaxCodeWithArgs`, unchanged.
+   * - A literal template without values, such as
+   *   `js.Syntax.code("[{{a: 1}}]")`: the text is printed with Haxe's rules
+   *   (`RawCodeTemplate`), here `[{a: 1}]`. The bytes are the ones that
+   *   Haxe's printer produced.
+   * - A template that is not a string constant: the same error text that
+   *   Haxe reports. It is raised as a `CompilerDiagnostic`, so the output
+   *   transaction is rolled back.
+   *
+   * The template `this` needs no special case. Haxe prints it through a
+   * fresh printer state, which always answers `this`; so does the plain text.
+   *
+   * See also: `tests/syntax-code-forms/README.md`.
+   */
+  function emitSyntaxCode(call: TypedExpr, args: Array<TypedExpr>): Void {
+    if (emitSyntaxCodeWithArgs(args))
+      return;
+    if (args.length == 0) {
+      CompilerDiagnostic.fail('Unknown js.Syntax method `code` with 0 arguments',
+        call.pos);
+    }
+    emitRawCodeTemplate(literalCodeTemplate(args[0]), args[0].pos, []);
+  }
+
+  /**
+   * Emits a legacy `__js__(template, values...)` call the way Haxe 4 prints it.
+   *
+   * Why: Haxe 4 treats `__js__` as an old name of `js.Syntax.code`. Genes
+   * printed only the single-identifier form itself (`emitLegacyJsIdentifier`)
+   * and gave every other call to Haxe's printer. Haxe 5 no longer knows the
+   * helper and prints a call to a function `__js__` that does not exist.
+   *
+   * What: the template follows Haxe's rules (`RawCodeTemplate`), also with
+   * values: `__js__("[{{a: {0}}}]", a)` prints `[{a: a}]`. Haxe puts
+   * parentheses around a value that is a binary operation, a unary operation,
+   * or a conditional, so `__js__("{0} * 2", a + b)` prints `(a + b) * 2`.
+   * Genes does the same. Each value is printed by this emitter's value path,
+   * as for `js.Syntax.code`, so an imported name uses the import that Genes
+   * planned.
+   *
+   * One exception: when a value is not a plain expression (a `throw`, a
+   * loop, a `switch`, a `try`, a block, a function), the whole call goes to
+   * Haxe's printer, as it did before Genes printed `__js__`.
+   * `isPlainRawCodeValue` explains why. `asStatement` tells which of Haxe's
+   * two printer entries the caller used before, so the text stays the same.
+   *
+   * The single-identifier form stays silent, because old externs such as
+   * hxnodejs use it and their user cannot change them. Every other form
+   * keeps Haxe's deprecation warning; see `warnLegacyJs`.
+   *
+   * Limits: a value has Genes' text, not Haxe's. Often only the layout
+   * differs, for example the array literal `[a, b]` (Haxe: `[a,b]`). In the
+   * TypeScript profile the result can differ too: a value follows the
+   * genes-ts rule for missing values, so an optional field `o.x` prints as
+   * `(o.x ?? null)` and `__js__("{0} === undefined", o.x)` is `false` for a
+   * missing field. `js.Syntax.code` with values does the same. The fixture
+   * README lists every difference.
+   */
+  function emitLegacyJsCode(call: TypedExpr, callee: TypedExpr,
+      args: Array<TypedExpr>, asStatement: Bool): Void {
+    if (emitLegacyJsIdentifier(args))
+      return;
+    for (value in args.slice(1))
+      if (!isPlainRawCodeValue(value)) {
+        // See `isPlainRawCodeValue`: Haxe prints this call, as it always did.
+        write(asStatement ? ctx.expr(call) : ctx.value(call));
+        return;
+      }
+    warnLegacyJs(callee.pos);
+    if (args.length == 0) {
+      CompilerDiagnostic.fail('Unknown js.Syntax method `code` with 0 arguments',
+        callee.pos);
+    }
+    emitRawCodeTemplate(literalCodeTemplate(args[0]), args[0].pos,
+      args.slice(1), true);
+  }
+
+  /** Returns the text of a literal template, or reports Haxe's own error. */
+  function literalCodeTemplate(template: TypedExpr): String {
+    return switch template.expr {
+      case TConst(TString(value)):
+        value;
+      default:
+        CompilerDiagnostic.fail('The `code` argument for js.Syntax.code must be a string constant',
+          template.pos);
+    }
+  }
+
+  /**
+   * Prints a template that follows Haxe's interpolation rules.
+   *
+   * `RawCodeTemplate.parts` owns the rules. This method prints the text
+   * parts unchanged and each placeholder as its value. A placeholder without
+   * a value gets Haxe's message and Haxe's position: the template literal,
+   * moved forward by the number of template bytes before the placeholder.
+   *
+   * `groupOperators` selects Haxe's parentheses for legacy `__js__` values.
+   */
+  function emitRawCodeTemplate(template: String, position: Position,
+      values: Array<TypedExpr>, groupOperators = false): Void {
+    for (part in genes.RawCodeTemplate.parts(template))
+      switch part {
+        case Text(text):
+          write(text);
+        case Placeholder(index, source, offset):
+          if (index < 0 || index >= values.length)
+            failRawCodePlaceholder(template, position, source, offset);
+          final value = values[index];
+          final group = groupOperators && rawCodeValueNeedsParens(value);
+          if (group)
+            write('(');
+          emitRawSyntaxTemplateValue(value);
+          if (group)
+            write(')');
+        case OversizedPlaceholder(source, offset):
+          failRawCodePlaceholder(template, position, source, offset);
+      }
+  }
+
+  function failRawCodePlaceholder(template: String, position: Position,
+      source: String, offset: Int): Void {
+    final info = Context.getPosInfos(position);
+    final bytesBefore = haxe.io.Bytes.ofString(template.substr(0, offset))
+      .length;
+    CompilerDiagnostic.fail('Out-of-bounds special parameter: $source',
+      Context.makePosition({
+        file: info.file,
+        min: info.min + bytesBefore,
+        max: info.max
+      }));
+  }
+
+  /**
+   * Reports whether Genes may print a legacy `__js__` value itself.
+   *
+   * Why: before Genes sees a program, Haxe rewrites every expression so that
+   * a statement never stands where a value is expected. `var x = try f()
+   * catch (e) 0` becomes a `try` statement that assigns `x`. Genes' value
+   * printer relies on that and is exercised only on such rewritten code.
+   * Haxe does NOT rewrite the arguments of `__js__`, because it treats a call
+   * of an unknown identifier as opaque. A `__js__` value can therefore hold a
+   * `throw`, a loop, a `switch`, a block, or a function whose body was never
+   * rewritten. Genes' value printer has no sound output for these: a `throw`
+   * value, for example, made it call itself without end.
+   *
+   * What: a value is "plain" when it is built only from the expression kinds
+   * that also reach Genes in ordinary code: constants, locals, field and
+   * array reads, calls, `new`, unary and binary operations, conditionals,
+   * array and object literals, parentheses, casts, metadata, and enum reads.
+   * Anything else is not plain: a block, `var`, `for`, `while`, `switch`,
+   * `try`, `throw`, `return`, `break`, `continue`, or a function expression.
+   *
+   * How: `emitLegacyJsCode` asks this for every value. If one value is not
+   * plain, the whole call goes to Haxe's own printer, exactly as it did
+   * before Genes printed `__js__`; `genes.HaxePrinterUse` then reports the
+   * module. The list below names what is allowed, so a kind that a later
+   * Haxe adds is declined until someone decides about it.
+   *
+   * See also: `tests/syntax-code-forms/src/syntaxcodeforms/LegacyJsStatements.hx`
+   * holds one call for each kind that is declined.
+   */
+  static function isPlainRawCodeValue(value: TypedExpr): Bool {
+    return switch value.expr {
+      case TConst(_) | TLocal(_) | TArray(_, _) | TBinop(_, _, _) |
+        TField(_, _) | TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_) |
+        TArrayDecl(_) | TCall(_, _) | TNew(_, _, _) | TUnop(_, _, _) |
+        TIf(_, _, _) | TCast(_, _) | TMeta(_, _) | TEnumParameter(_, _, _) |
+        TEnumIndex(_) | TIdent(_):
+        var plain = true;
+        value.iter(child -> if (plain && !isPlainRawCodeValue(child))
+          plain = false);
+        plain;
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Reports whether Haxe prints a legacy `__js__` value inside parentheses.
+   *
+   * Haxe looks through casts and metadata, then groups a conditional, a
+   * binary operation, and a unary operation (`gen_syntax` in `genjs.ml`).
+   */
+  static function rawCodeValueNeedsParens(value: TypedExpr): Bool {
+    return switch value.expr {
+      case TCast(inner, _) | TMeta(_, inner):
+        rawCodeValueNeedsParens(inner);
+      case TIf(_, _, _) | TBinop(_, _, _) | TUnop(_, _, _):
+        true;
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Repeats Haxe's deprecation warning for a `__js__` call.
+   *
+   * Why: Haxe's printer reported "__js__ is deprecated" when it printed the
+   * call. Genes prints the call now, so it must report the warning, or the
+   * author loses the hint that Haxe 5 has no `__js__`.
+   *
+   * How: `-D no-deprecation-warnings` turns it off, as it does in Haxe. One
+   * position is reported once for each module, also when an emitter prints an
+   * expression more than once.
+   *
+   * Limit: a macro cannot choose the class of a warning. Haxe therefore
+   * treats this one as a general warning, and `-w -WDeprecated` or
+   * `@:haxe.warning("-WDeprecated")` does not remove it. The text keeps the
+   * `(WDeprecated)` prefix so that it reads as it did before.
+   */
+  function warnLegacyJs(position: Position): Void {
+    if (Context.defined('no_deprecation_warnings'))
+      return;
+    final key = Std.string(position);
+    if (legacyJsWarnings.exists(key))
+      return;
+    legacyJsWarnings.set(key, true);
+    // Haxe prints the warning class before its own text; keep that spelling.
+    Context.warning('(WDeprecated) __js__ is deprecated, use js.Syntax.code instead',
+      position);
+  }
+
+  /**
+   * Emits the table that `haxe.Resource` reads: `__resources__()`.
+   *
+   * Why: only Haxe's printer could produce this table.
+   * Its bytes are simple, `[{ name : "n", data : "base64"}]`, but the ORDER
+   * of several entries is the iteration order of a hash table inside the
+   * Haxe compiler. A macro can read the resources (`Context.getResources`),
+   * but not that order.
+   *
+   * What: with no resource or one resource there is no order to choose, so
+   * Genes prints the table itself, byte-identical to Haxe. With two or more
+   * resources Genes still asks Haxe's printer. Only the module
+   * `haxe.Resource` contains this call, so at most that one module of a
+   * build stays on Haxe's printer, and only when the build embeds two or
+   * more resources. `genes.HaxePrinterUse` reports it.
+   *
+   * How: the data is unpadded standard base64, as `Codegen.bytes_serialize`
+   * in the Haxe compiler writes it. It needs no escape, so it is written in
+   * one piece; the name goes through the ordinary string printer. A name
+   * that is not valid UTF-8 also stays on Haxe's printer.
+   */
+  function emitResources(callee: TypedExpr): Void {
+    // Haxe has no cheaper question than this one: `getResources` copies every
+    // resource into the macro interpreter, also when only the count matters.
+    // It runs once in a build, for the module `haxe.Resource`.
+    final resources = Context.getResources();
+    final keys = [for (key in resources.keys()) key];
+    if (keys.length == 0) {
+      write('[]');
+      return;
+    }
+    if (keys.length > 1) {
+      emitResourcesWithHaxe(callee);
+      return;
+    }
+    final key = keys[0];
+    // Haxe 4.3.7 marks every key of this map as ASCII text, also when it
+    // holds UTF-8 bytes. Reading one character of such a key stops the
+    // compiler. Its bytes are correct, so decode them into a sound string.
+    final keyBytes = haxe.io.Bytes.ofString(key);
+    final name = keyBytes.toString();
+    final data = resources.get(key);
+    if (data == null || haxe.io.Bytes.ofString(name).compare(keyBytes) != 0) {
+      emitResourcesWithHaxe(callee);
+      return;
+    }
+    write('[{ name : ');
+    emitString(name);
+    write(', data : "');
+    write(haxe.crypto.Base64.encode(data, false));
+    write('"}]');
+  }
+
+  /**
+   * Asks Haxe's own printer for the resource table. Besides this, only a
+   * `__js__` call with a value that is not a plain expression still does so.
+   */
+  function emitResourcesWithHaxe(callee: TypedExpr): Void {
+    write(ctx.value({expr: TCall(callee, []), pos: callee.pos, t: callee.t}));
+  }
+
+  /**
    * Emits the narrow legacy `__js__("identifier")` form used by older externs.
    *
    * Why: hxnodejs 10 exposes Node globals such as `process` and `console`
@@ -402,13 +701,13 @@ class ExprEmitter extends Emitter {
    * in the typed tree, and delegating it prints a nonexistent `__js__` function
    * into generated TypeScript and JavaScript.
    *
-   * What: Genes accepts only one literal, ASCII JavaScript identifier. This is
-   * enough for the old global-access contract without treating an arbitrary
-   * source string as compiler-owned code.
+   * What: this method accepts only one literal, ASCII JavaScript identifier
+   * and returns `false` for every other call. It reports no deprecation
+   * warning, because the author of a program cannot change such an extern.
    *
    * How: the validated identifier is written as the value that Haxe 4 already
-   * produced. Calls with arguments, operators, or nonliteral text remain on the
-   * existing backend path; this compatibility rule does not broaden raw syntax.
+   * produced. `emitLegacyJsCode` prints the calls with values, operators, or
+   * other text, and reports nonliteral text.
    */
   function emitLegacyJsIdentifier(args: Array<TypedExpr>): Bool {
     if (args.length != 1)
@@ -721,11 +1020,9 @@ class ExprEmitter extends Emitter {
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, args):
-        if (!emitSyntaxCodeWithArgs(args))
-          write(ctx.expr(e));
-      case TCall({expr: TIdent('__js__')}, args):
-        if (!emitLegacyJsIdentifier(args))
-          write(ctx.expr(e));
+        emitSyntaxCode(e, args);
+      case TCall(callee = {expr: TIdent('__js__')}, args):
+        emitLegacyJsCode(e, callee, args, true);
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
@@ -929,8 +1226,8 @@ class ExprEmitter extends Emitter {
         args
       ]:
         emitSyntax(name, args);
-      case [TIdent("__resources__"), args]:
-        write(ctx.value({expr: TCall(e, params), pos: e.pos, t: e.t}));
+      case [TIdent("__resources__"), []]:
+        emitResources(e);
       case [TIdent("__new__"), args]:
         emitSyntax("new_", args);
       case [TIdent("__instanceof__"), args]:
@@ -1435,11 +1732,9 @@ class ExprEmitter extends Emitter {
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, args):
-        if (!emitSyntaxCodeWithArgs(args))
-          write(ctx.value(e));
-      case TCall({expr: TIdent('__js__')}, args):
-        if (!emitLegacyJsIdentifier(args))
-          write(ctx.value(e));
+        emitSyntaxCode(e, args);
+      case TCall(callee = {expr: TIdent('__js__')}, args):
+        emitLegacyJsCode(e, callee, args, false);
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
@@ -1456,7 +1751,7 @@ class ExprEmitter extends Emitter {
       case TCall(callee, params):
         emitCall(callee, params, true, e);
       case TReturn(_) | TBreak | TContinue:
-        throw 'Unsupported $e';
+        failStatementAsValue(e);
       case TCast(e1, null):
         emitValue(e1);
       /*case TCast(e1, t):
@@ -1466,7 +1761,7 @@ class ExprEmitter extends Emitter {
         spr(ctx, (ctx.type_accessor(t)));
         spr(ctx, ")"); */
       case TVar(_), TFor(_, _, _), TWhile(_, _, _), TThrow(_):
-        asValue(e, assign -> assign(e));
+        failStatementAsValue(e);
       case TBlock([]): // Todo: hm?
         write('null');
       case TBlock([e]):
@@ -1504,11 +1799,26 @@ class ExprEmitter extends Emitter {
           emitLocalVar(v);
           write(') {');
           assign(block(ecatch));
-          write(') {');
+          write('}');
         });
       default:
         emitExpr(e);
     }
+  }
+
+  /**
+   * Stops the build when a statement stands where a value is expected.
+   *
+   * Why: Haxe rewrites ordinary code so that this never happens, and
+   * `isPlainRawCodeValue` keeps the one known exception, `__js__` values,
+   * away from this printer. This arm used to print the same expression again
+   * without end, which ended the build with "Stack overflow" and no source
+   * position. If another path ever reaches it, the author now gets the
+   * position of the expression.
+   */
+  function failStatementAsValue(expression: TypedExpr): Void {
+    CompilerDiagnostic.fail('GENES-VALUE-STATEMENT-001: Genes cannot print this statement where a value is expected',
+      expression.pos);
   }
 
   /**
