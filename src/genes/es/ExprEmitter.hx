@@ -619,13 +619,13 @@ class ExprEmitter extends Emitter {
    * in the typed tree, and delegating it prints a nonexistent `__js__` function
    * into generated TypeScript and JavaScript.
    *
-   * What: Genes accepts only one literal, ASCII JavaScript identifier. This is
-   * enough for the old global-access contract without treating an arbitrary
-   * source string as compiler-owned code.
+   * What: this method accepts only one literal, ASCII JavaScript identifier
+   * and returns `false` for every other call. It reports no deprecation
+   * warning, because the author of a program cannot change such an extern.
    *
    * How: the validated identifier is written as the value that Haxe 4 already
-   * produced. Calls with arguments, operators, or nonliteral text remain on the
-   * existing backend path; this compatibility rule does not broaden raw syntax.
+   * produced. `emitLegacyJsCode` prints the calls with values, operators, or
+   * other text, and reports nonliteral text.
    */
   function emitLegacyJsIdentifier(args: Array<TypedExpr>): Bool {
     if (args.length != 1)
