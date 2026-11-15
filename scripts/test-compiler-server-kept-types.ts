@@ -38,6 +38,14 @@ import {
  * request that typed the module). `RetypedModulesProbe` runs beside it as
  * the independent list of the modules that Haxe typed again.
  *
+ * Three cases show what the stamp value alone cannot see (review of the
+ * design, evidence E1 to E3): the first use of a `@:generic` method adds a
+ * member to a class that Haxe did not type again; a macro defines a type
+ * with the metadata of another class, stamp included; and the `Retype`
+ * module check policy types a module again in place. The keep rule of the
+ * probe rejects the first two. The third cannot be seen by any stamp, so the
+ * test asserts the hazard and the reuse does not support that policy.
+ *
  * It runs two lanes. `haxe-js` uses Haxe's own JavaScript generator and no
  * Genes code, so it shows the behavior of Haxe alone. `genes-ts` adds the
  * Genes generator, its after-typing passes and the TypeScript profile, so
@@ -65,13 +73,31 @@ type Stage = "afterTyping" | "generate" | "afterGenerate";
 /** One fixture declaration of the report that the probe lists by name. */
 type Detail = {
   readonly module?: string;
-  readonly state?: "typedAgain" | "kept" | "stampMismatch";
+  readonly state?:
+    | "typedAgain"
+    | "kept"
+    | "stampMismatch"
+    | "foreignStamp"
+    | "membersChanged";
   readonly hadBucket?: boolean;
   readonly keptBucketIsSameObject?: boolean;
   readonly oldBucketIsSameObject?: boolean;
   readonly staleSlots?: ReadonlyArray<string>;
   readonly oldLocalIds?: number;
   readonly oldLocalIdsStillUsed?: number;
+};
+
+/**
+ * A declaration that the stamp value alone calls kept, but the complete keep
+ * rule rejects.
+ */
+type StampOnlyKept = {
+  readonly key: string;
+  readonly state: "stampMismatch" | "foreignStamp" | "membersChanged";
+  readonly stampNames: string;
+  readonly sameObject: boolean;
+  readonly membersBefore: string | null;
+  readonly membersNow: string | null;
 };
 
 /** The JSON that `KeptTypeValuesProbe` writes for one request. */
@@ -84,6 +110,11 @@ type Report = {
   readonly typedAgain: number;
   readonly kept: number;
   readonly stampMismatch: number;
+  readonly foreignStamp: number;
+  readonly membersChanged: number;
+  readonly stampOnlyKept: ReadonlyArray<StampOnlyKept>;
+  readonly sameObjectTests: number;
+  readonly sameObjectMs: number;
   readonly typedAgainModules: ReadonlyArray<string>;
   readonly stampMismatchModules: ReadonlyArray<string>;
   readonly keptButOtherObject: ReadonlyArray<string>;
@@ -106,6 +137,11 @@ type RequestOptions = {
   readonly initMacros?: ReadonlyArray<string>;
   readonly withoutCommandLineModules?: boolean;
   readonly withoutProbes?: boolean;
+  /**
+   * True for a request that shows a known hazard: its kept values are
+   * expected to be wrong, so the general check is not applied.
+   */
+  readonly expectHazard?: boolean;
 };
 
 type Outcome = {
@@ -279,6 +315,9 @@ class LaneRun {
       ...(options.withoutCommandLineModules === true
         ? []
         : [`${fixturePackage}.Lone`, `${fixturePackage}.MacroBuilt`]),
+      `${fixturePackage}.GenericUser`,
+      `${fixturePackage}.Cloner`,
+      `${fixturePackage}.RetypeUser`,
       "-D",
       "js-es=6",
       "-D",
@@ -316,7 +355,7 @@ class LaneRun {
     const parsed = existsSync(report)
       ? JSON.parse(readFileSync(report, "utf8")) as Report
       : null;
-    if (parsed !== null) {
+    if (parsed !== null && options.expectHazard !== true) {
       assertKeptValuesAreCorrect(this.lane, options.label, parsed);
     }
     return {
@@ -509,6 +548,72 @@ async function runLane(server: OwnedHaxeCompilerServer, lane: Lane): Promise<voi
     + `${numberOf(settled, "keptLocalIdsFound.generate")} of `
     + `${settled.keptLocalIds} kept local ids found in the bodies that `
     + "generation reads, the same ids as in the first request");
+
+  // 1b. E1: another module uses a `@:generic` method for the first time.
+  // Haxe adds a static field to the class that owns the method and does not
+  // type that class again.
+  run.edit(
+    "GenericUser.hx",
+    "return GenericOwner.plain(); // generic-user-body",
+    "return GenericOwner.plain() + GenericOwner.make(2)[0]; // generic-user-body"
+  );
+  const generic = await run.succeed({ label: "first use of a @:generic method" });
+  const ownerKey = keyOfClass("GenericOwner");
+  deepStrictEqual(fixtureModules(generic.typedAgainModules), ["GenericUser"],
+    `${lane}: the first use of GenericOwner.make typed other modules again`);
+  strictEqual(generic.details[ownerKey]?.state, "membersChanged",
+    `${lane}: the keep rule did not reject GenericOwner after it got a new `
+    + `member: ${JSON.stringify(generic.details[ownerKey])}`);
+  const grown = generic.stampOnlyKept.find((entry) => entry.key === ownerKey);
+  ok(grown !== undefined,
+    `${lane}: the stamp value alone did not keep GenericOwner, so the case `
+    + "does not show what the member list adds");
+  strictEqual(grown.sameObject, true,
+    `${lane}: GenericOwner is another object after the first use of make`);
+  ok(grown.membersBefore !== null && grown.membersNow !== null
+    && !grown.membersBefore.includes("make_Int")
+    && grown.membersNow.includes("make_Int"),
+    `${lane}: the member list of GenericOwner did not get make_Int: `
+    + JSON.stringify(grown));
+  run.row("E1: first use of a @:generic method (GenericOwner.make<Int>)",
+    "does not hold for the member list",
+    "Haxe typed only GenericUser again; GenericOwner has the same stamp and "
+    + `is the same object, but its members went from "${grown.membersBefore}" `
+    + `to "${grown.membersNow}". The stamp value alone says "kept"; the keep `
+    + "rule rejects it (member list)");
+  const afterGeneric = await run.succeed({ label: "no edit after the generic use" });
+  assertAllKept(lane, "after the generic use", afterGeneric);
+  assertKeptClasses(lane, "after the generic use", afterGeneric, ["GenericOwner"]);
+
+  // 1c. E2: a build macro defines a type again, with the metadata of another
+  // class. The new object carries the stamp of that class.
+  run.edit("Cloner.hx", "return 7; // cloner-body", "return 8; // cloner-body");
+  const cloned = await run.succeed({ label: "macro-defined type with a copied stamp" });
+  const cloneKey = `class ${fixturePackage}.Clone#Clone`;
+  deepStrictEqual(fixtureModules(cloned.typedAgainModules), ["Cloner"],
+    `${lane}: the edit of Cloner typed other marked modules again`);
+  strictEqual(cloned.details[cloneKey]?.state, "foreignStamp",
+    `${lane}: the keep rule did not reject Clone, which carries the stamp of `
+    + `GenericOwner: ${JSON.stringify(cloned.details[cloneKey])}`);
+  const copy = cloned.stampOnlyKept.find((entry) => entry.key === cloneKey);
+  ok(copy !== undefined,
+    `${lane}: the stamp value alone did not keep Clone, so the case does not `
+    + "show what the declaration key in the stamp adds");
+  strictEqual(copy.sameObject, false,
+    `${lane}: the new Clone is the object of the old bucket`);
+  strictEqual(copy.stampNames, ownerKey,
+    `${lane}: the stamp on Clone does not name GenericOwner`);
+  run.row("E2: a macro-defined type with a copied stamp (Clone)",
+    "does not hold",
+    "Haxe typed Cloner again and its macro defined Clone again with the "
+    + "metadata of GenericOwner. Clone is a new object with the stamp of "
+    + "GenericOwner, and RetypedModulesProbe does not list it. The stamp "
+    + "value alone says \"kept\"; the keep rule rejects it (the stamp names "
+    + `${copy.stampNames})`);
+  const afterClone = await run.succeed({ label: "no edit after the copied stamp" });
+  assertAllKept(lane, "after the copied stamp", afterClone);
+  strictEqual(afterClone.details[cloneKey]?.state, "kept",
+    `${lane}: Clone did not keep the stamp that replaced the copied one`);
 
   // 2. An edit of a module that nothing imports.
   run.edit("Lone.hx", '"lone-v1"', '"lone-v2"');
@@ -750,8 +855,63 @@ async function runLane(server: OwnedHaxeCompilerServer, lane: Lane): Promise<voi
   run.edit("Lone.hx", `"lone-v${version}"`, `"lone-v${version + 1}"`);
   assertTypedAgain(lane, "edit after the probes return",
     await run.succeed({ label: "edit of Lone with probes" }), ["Lone"], []);
-  assertAllKept(lane, "end",
-    await run.succeed({ label: "last request, no edit" }));
+  const last = await run.succeed({ label: "last request, no edit" });
+  assertAllKept(lane, "end", last);
+  run.row("cost of the same-object test", "measured",
+    `${last.sameObjectTests} tests in ${last.sameObjectMs} ms in the last `
+    + `request (${last.kept} kept declarations; diagnostic, the host can be `
+    + "loaded)");
+
+  // 11. E3: the `Retype` module check policy. Haxe types a module again in
+  // place, so the object and the stamp stay. This must stay the last case:
+  // the kept values of the lane are wrong after it.
+  const policy = [`KeptTypeValuesProbe.retype(${JSON.stringify(fixturePackage)})`];
+  // Haxe takes the policy of a module in the request that types it.
+  run.edit("RetypeUser.hx", "return local + 1; // retype-user-body",
+    "return local + 2; // retype-user-body");
+  const withPolicy = await run.request({
+    label: "Retype policy, RetypeUser typed with it",
+    initMacros: policy
+  });
+  ok(withPolicy.result.code === 0 && withPolicy.report !== null,
+    `${lane}: the request with the Retype policy failed\n`
+    + `${withPolicy.result.stdout}${withPolicy.result.stderr}`);
+  deepStrictEqual(fixtureModules(withPolicy.report.typedAgainModules),
+    ["RetypeUser"],
+    `${lane}: the edit of RetypeUser typed other modules again`);
+  run.edit("RetypeOwner.hx", "return 1; // retype-value", "return 5; // retype-value");
+  const retyped = await run.request({
+    label: "Retype policy, RetypeOwner edited",
+    initMacros: policy,
+    expectHazard: true
+  });
+  ok(retyped.result.code === 0 && retyped.report !== null
+    && retyped.retyped !== null,
+    `${lane}: the edit under the Retype policy failed\n`
+    + `${retyped.result.stdout}${retyped.result.stderr}`);
+  const hazard: Array<string> = [];
+  for (const name of ["RetypeOwner", "RetypeUser"]) {
+    const detail: Detail | undefined = retyped.report.details[keyOfClass(name)];
+    strictEqual(detail?.state, "kept",
+      `${lane}: under the Retype policy ${name} lost its stamp. If Haxe now `
+      + "gives a new object there, the policy may be supported: check and "
+      + "update the keep rule limits.");
+    strictEqual(detail?.keptBucketIsSameObject, true,
+      `${lane}: under the Retype policy ${name} is another object`);
+    hazard.push(name);
+  }
+  deepStrictEqual(fixtureModules(retyped.retyped), [],
+    `${lane}: RetypedModulesProbe saw a module under the Retype policy`);
+  const changedIds = (["afterTyping", "generate", "afterGenerate"] as const)
+    .map((stage) => `${stage} ${numberOf(retyped.report as Report,
+      `keptChanged.${stage}.freshLocalIds`)}`)
+    .join(", ");
+  run.row("E3: the Retype module check policy", "cannot be seen",
+    `RetypeOwner.hx was edited. ${hazard.join(" and ")} keep their stamps and `
+    + "are the same objects, and RetypedModulesProbe lists no module, so the "
+    + "keep rule says \"kept\" for an edited module. Kept bodies whose local "
+    + `ids changed, by stage: ${changedIds}. No stamp can show this; the `
+    + "reuse does not support this policy");
 }
 
 async function main(): Promise<void> {

@@ -50,6 +50,7 @@ private typedef Bucket = {
   final key: String;
   final module: String;
   final stamp: String;
+  final members: Null<String>;
   final capturedIn: Int;
   final declaration: ModuleType;
   final reading: Reading;
@@ -87,12 +88,26 @@ private typedef ProgramEntry = {
  * How it decides "typed again": like `RetypedModulesProbe`, with private
  * metadata, but with a value in it. A declaration without the mark is a new
  * object, so Haxe typed it again; the probe marks it with a stamp that names
- * this macro interpreter and this request, and makes a new bucket with that
- * stamp. A declaration with a mark is "kept" only when its stamp equals the
- * stamp of the bucket. A mark alone is not enough. When an init macro sets a
- * define, Haxe reads most modules from another cache but the macro state
- * stays. The next request without that define gets the marked declarations
- * of the first cache, and the buckets made in between are for other objects.
+ * this macro interpreter, this request and the declaration, and makes a new
+ * bucket with that stamp. A declaration with a mark is "kept" only when all
+ * of this holds:
+ * - The stamp names this declaration. A macro can define a type with the
+ *   metadata of another class; that type carries the stamp of that class
+ *   (state `foreignStamp`).
+ * - The stamp equals the stamp of the bucket. A mark alone is not enough.
+ *   When an init macro sets a define, Haxe reads most modules from another
+ *   cache but the macro state stays. The next request without that define
+ *   gets the marked declarations of the first cache, and the buckets made in
+ *   between are for other objects (state `stampMismatch`).
+ * - For a class, the member list equals the one of the bucket. The first use
+ *   of a `@:generic` method from another module adds a static field to the
+ *   class that owns the method, and Haxe does not type that class again
+ *   (state `membersChanged`).
+ * - The bucket addresses the declaration that Haxe gives now (the
+ *   same-object test below). The first three tests need only text; this one
+ *   needs the kept declaration value.
+ * The report also says what the rule before these additions answers: "the
+ * stamp value equals the stamp value of the bucket" (`stampOnlyKept`).
  *
  * What it checks, in three stages of each request (after typing; in
  * `onGenerate`, after Haxe changed the bodies; after generation, after
@@ -137,6 +152,9 @@ class KeptTypeValuesProbe {
   @:persistent static var highestLocalId = 0;
   @:persistent static var identityTokens = 0;
 
+  static var identitySeconds = 0.0;
+  static var identityTests = 0;
+
   static var installed = false;
   static var started = false;
   static var reportPath = '';
@@ -179,14 +197,45 @@ class KeptTypeValuesProbe {
     return kind + ' ' + base.module + '#' + base.name;
   }
 
-  static function stampOf(meta: MetaAccess): Null<String> {
+  /**
+   * Returns the stamp of a declaration: its value and the key of the
+   * declaration that it was made for. `null` when there is no stamp.
+   */
+  static function stampOf(meta: MetaAccess): Null<{value: String, key: String}> {
     for (entry in meta.extract(STAMP))
       switch entry.params {
-        case [{expr: EConst(CString(value))}]:
-          return value;
+        case [{expr: EConst(CString(value))}, {expr: EConst(CString(key))}]:
+          return {value: value, key: key};
         default:
       }
     return null;
+  }
+
+  /**
+   * Returns the member list of a class as one text: the names of its static
+   * and instance fields and whether it has a constructor. `null` for a
+   * declaration that is not a class.
+   */
+  static function membersOf(declaration: ModuleType): Null<String> {
+    return switch declaration {
+      case TClassDecl(reference):
+        final type = reference.get();
+        'static ' + [for (field in type.statics.get()) field.name].join(',') +
+          ' | instance ' +
+          [for (field in type.fields.get()) field.name].join(',') +
+          ' | constructor ' + (type.constructor == null ? 'no' : 'yes');
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Makes Haxe use the `Retype` module check policy for a package in this
+   * request. With it, Haxe types a module again in place when a module that
+   * it reads changed: the declaration object and its metadata stay.
+   */
+  public static function retype(pack: String): Void {
+    haxe.macro.CompilationServer.setModuleCheckPolicy([pack], [Retype]);
   }
 
   static function text(value: String): Expr {
@@ -204,6 +253,14 @@ class KeptTypeValuesProbe {
    * through an old copy would replace newer metadata with that copy.
    */
   static function addresses(kept: ModuleType, current: ModuleType): Bool {
+    final started = haxe.Timer.stamp();
+    final same = writesThrough(kept, current);
+    identitySeconds += haxe.Timer.stamp() - started;
+    identityTests++;
+    return same;
+  }
+
+  static function writesThrough(kept: ModuleType, current: ModuleType): Bool {
     final token = '$nonce/$requests/${identityTokens++}';
     baseOf(kept).meta.add(IDENTITY, [text(token)], Context.currentPos());
     var found = false;
@@ -564,7 +621,9 @@ class KeptTypeValuesProbe {
   static function observeReplaced(old: Bucket, entry: ProgramEntry,
       fresh: Reading): Void {
     final held = addresses(old.declaration, entry.declaration);
-    if (held)
+    // A class with a new member is the same object by design (state
+    // `membersChanged`); every other replaced bucket must hold another one.
+    if (held && entry.state != 'membersChanged')
       list('replacedButSameObject').push(entry.key);
     final recorded = old.recorded.get('afterTyping');
     final freshSlots = [for (slot in fresh.slots) slot.name => describe(slot.value)];
@@ -618,6 +677,8 @@ class KeptTypeValuesProbe {
         'typedAgain',
         'kept',
         'stampMismatch',
+        'foreignStamp',
+        'membersChanged',
         'replacedWithStaleSlots',
         'replacedLocalIds',
         'replacedLocalIdsStillUsed',
@@ -632,6 +693,7 @@ class KeptTypeValuesProbe {
         'stampMismatchModules',
         'replacedButSameObject',
         'keptButOtherObject',
+        'stampOnlyKept',
         'staleExamples'
       ])
         list(name);
@@ -652,8 +714,22 @@ class KeptTypeValuesProbe {
       seen.set(key, true);
       final found = stampOf(base.meta);
       final old = buckets.get(key);
-      final state = found == null ? 'typedAgain' : old != null
-        && old.stamp == found ? 'kept' : 'stampMismatch';
+      final members = membersOf(declaration);
+      final state = found == null ? 'typedAgain' : found.key != key ? 'foreignStamp' : old == null
+        || old.stamp != found.value ? 'stampMismatch' : old.members != members ? 'membersChanged' : 'kept';
+      // What the rule before the review answers: only the stamp value counts.
+      if (found != null
+        && old != null
+        && old.stamp == found.value
+        && state != 'kept')
+        list('stampOnlyKept').push({
+          key: key,
+          state: state,
+          stampNames: found.key,
+          sameObject: addresses(old.declaration, declaration),
+          membersBefore: old.members,
+          membersNow: members
+        });
       final entry: ProgramEntry = {
         key: key,
         module: base.module,
@@ -680,14 +756,19 @@ class KeptTypeValuesProbe {
       final fresh = read(declaration);
       if (old != null)
         observeReplaced(old, entry, fresh);
-      final stamp = found ?? '$ownNonce/$requests';
-      if (found == null)
-        baseOf(declaration).meta.add(STAMP, [text(stamp)],
+      final stamp = found != null
+        && found.key == key ? found.value : '$ownNonce/$requests';
+      if (found == null || found.key != key) {
+        if (found != null)
+          baseOf(declaration).meta.remove(STAMP);
+        baseOf(declaration).meta.add(STAMP, [text(stamp), text(key)],
           Context.currentPos());
+      }
       buckets.set(key, {
         key: key,
         module: base.module,
         stamp: stamp,
+        members: members,
         capturedIn: requests,
         declaration: declaration,
         reading: fresh,
@@ -833,6 +914,8 @@ class KeptTypeValuesProbe {
       }
     }
     report.set('keptLocalIdsFound.' + name, localHits);
+    report.set('sameObjectTests', identityTests);
+    report.set('sameObjectMs', Math.round(identitySeconds * 100000) / 100);
     for (modules in ['typedAgainModules', 'stampMismatchModules'])
       list(modules).sort(Reflect.compare);
     sys.io.File.saveContent(reportPath, haxe.Json.stringify(report, null, ' '));
