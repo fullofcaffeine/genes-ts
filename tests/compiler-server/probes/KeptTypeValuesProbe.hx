@@ -75,7 +75,8 @@ private typedef ProgramEntry = {
  * That is safe only when this holds (assumption H2 of the incremental
  * design): a value that was read from a declaration stays correct while Haxe
  * does not type that declaration again. The probe tests H2, and it tests the
- * rule that decides "typed again", without any Genes code.
+ * rule that decides "typed again". It uses no Genes code, so it also runs in
+ * a request without Genes.
  *
  * What it keeps: one bucket for each declaration. A bucket holds the same
  * kinds of values as `genes.ts.SignatureCache` and `genes.PublicSurface`:
@@ -88,9 +89,10 @@ private typedef ProgramEntry = {
  * object, so Haxe typed it again; the probe marks it with a stamp that names
  * this macro interpreter and this request, and makes a new bucket with that
  * stamp. A declaration with a mark is "kept" only when its stamp equals the
- * stamp of the bucket. A mark alone is not enough: after a change of the
- * `-D` values and back, Haxe gives the marked declarations of its other
- * cache, and a bucket made in between is for other objects.
+ * stamp of the bucket. A mark alone is not enough. When an init macro sets a
+ * define, Haxe reads most modules from another cache but the macro state
+ * stays. The next request without that define gets the marked declarations
+ * of the first cache, and the buckets made in between are for other objects.
  *
  * What it checks, in three stages of each request (after typing; in
  * `onGenerate`, after Haxe changed the bodies; after generation, after
@@ -112,9 +114,10 @@ private typedef ProgramEntry = {
  * The probe writes one JSON report for each request to `reportPath`, again
  * after each stage, so that a request that fails still leaves the stages it
  * reached. `detailPrefix` selects the declarations that the report lists one
- * by one. `failAt` names a stage after which the probe raises a compiler
- * error; that is how the test makes a request fail between typing and
- * generation, or after generation.
+ * by one. `definesDigest` names the `-D` values of the request, so that the
+ * test can show a kept bucket in a request with other values. `failAt` names
+ * a stage after which the probe raises a compiler error; that is how the test
+ * makes a request fail between typing and generation, or after generation.
  *
  * Limit: the probe proves these facts for this fixture on the Haxe version
  * that runs it. It keeps a bucket in the after-typing callback of a request
@@ -124,7 +127,6 @@ private typedef ProgramEntry = {
 class KeptTypeValuesProbe {
   static inline final STAMP = ':genes.test.keptStamp';
   static inline final IDENTITY = ':genes.test.keptIdentity';
-  static inline final RETYPED_MARK = ':genes.test.typedBefore';
   static inline final UNBOUND = '(open monomorph)';
   static inline final MAX_EXAMPLES = 6;
   static inline final MAX_TEXT = 400;
@@ -349,6 +351,40 @@ class KeptTypeValuesProbe {
     visit(expression);
   }
 
+  /**
+   * Counts the parts of a new bucket's types that Haxe has not decided when
+   * the bucket is made: lazy types and open monomorphs. A lazy type holds a
+   * function of the request that made it, so a kept one would be a risk.
+   */
+  static function countUndecided(type: Type, depth = 0): Void {
+    if (depth > 8)
+      return;
+    switch type {
+      case TMono(reference):
+        final bound = reference.get();
+        if (bound == null)
+          count('capturedOpenMonomorphs');
+        else
+          countUndecided(bound, depth + 1);
+      case TEnum(_, parameters) | TInst(_, parameters) |
+        TType(_, parameters) | TAbstract(_, parameters):
+        for (parameter in parameters)
+          countUndecided(parameter, depth + 1);
+      case TFun(arguments, result):
+        for (argument in arguments)
+          countUndecided(argument.t, depth + 1);
+        countUndecided(result, depth + 1);
+      case TAnonymous(reference):
+        for (field in reference.get().fields)
+          countUndecided(field.type, depth + 1);
+      case TDynamic(inner):
+        if (inner != null)
+          countUndecided(inner, depth + 1);
+      case TLazy(_):
+        count('capturedLazyTypes');
+    }
+  }
+
   /** Reads every value of one declaration that an after-typing pass keeps. */
   static function read(declaration: ModuleType): Reading {
     final slots: Array<KeptSlot> = [];
@@ -356,9 +392,10 @@ class KeptTypeValuesProbe {
     final locals: Array<KeptLocal> = [];
     function parameters(prefix: String, list: Array<TypeParameter>): Void {
       for (parameter in list)
-        slots.push({name: prefix
-          + 'parameter '
-          + parameter.name, value: parameter.t});
+        slots.push({
+          name: prefix + 'parameter ' + parameter.name,
+          value: parameter.t
+        });
     }
     switch declaration {
       case TClassDecl(reference):
@@ -584,7 +621,10 @@ class KeptTypeValuesProbe {
         'replacedWithStaleSlots',
         'replacedLocalIds',
         'replacedLocalIdsStillUsed',
-        'duplicateLocalIds'
+        'duplicateLocalIds',
+        'capturedTypes',
+        'capturedLazyTypes',
+        'capturedOpenMonomorphs'
       ])
         report.set(name, 0);
       for (name in [
@@ -596,6 +636,12 @@ class KeptTypeValuesProbe {
       ])
         list(name);
       report.set('highestLocalIdBefore', highestLocalId);
+      final defines = [
+        for (name => value in Context.getDefines())
+          name + '=' + value
+      ];
+      defines.sort(Reflect.compare);
+      report.set('definesDigest', haxe.crypto.Md5.encode(defines.join('\n')));
     }
     var lowestNew: Null<Int> = report.get('lowestNewLocalId');
     for (declaration in types) {
@@ -647,9 +693,14 @@ class KeptTypeValuesProbe {
         reading: fresh,
         recorded: new Map()
       });
-      for (local in fresh.locals)
+      count('capturedTypes', fresh.slots.length + fresh.locals.length);
+      for (slot in fresh.slots)
+        countUndecided(slot.value);
+      for (local in fresh.locals) {
+        countUndecided(local.type);
         if (lowestNew == null || local.id < lowestNew)
           lowestNew = local.id;
+      }
     }
     report.set('lowestNewLocalId', lowestNew);
 

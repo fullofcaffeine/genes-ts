@@ -54,6 +54,15 @@ compiles have a three-minute deadline under repository background scheduling
 the prior 60-second stable and 120-second preview limits, and the synthetic
 lifecycle timeout remains independently short.
 
+`yarn test:compiler-server:kept-types` is a separate proof, not part of the
+complete owner. It answers one question for the incremental work: when is a
+typed value that a macro keeps from an earlier request still correct? It uses
+the project `templates/kept-types`, `probes/KeptTypeValuesProbe.hx` and
+`RetypedModulesProbe`, in two lanes: Haxe alone, and Haxe with the Genes
+TypeScript generator. It compares no generated file. See
+[`docs/INCREMENTAL_AFTER_TYPING.md`](../../docs/INCREMENTAL_AFTER_TYPING.md)
+for the cases and the result.
+
 Run the complete stable owner with `yarn test:compiler-server`. Use
 `yarn test:compiler-server:rollback` when changing exception handling,
 transaction cleanup, or the Haxe preview lane: it executes only the TS/classic

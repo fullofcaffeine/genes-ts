@@ -94,6 +94,7 @@ type Report = {
   readonly keptLocalIds: number;
   readonly highestLocalIdBefore: number;
   readonly lowestNewLocalId: number | null;
+  readonly definesDigest: string;
   readonly details: Readonly<Record<string, Detail>>;
   readonly [finding: string]: unknown;
 };
@@ -102,6 +103,7 @@ type RequestOptions = {
   readonly label: string;
   readonly failAt?: Stage;
   readonly defines?: ReadonlyArray<string>;
+  readonly initMacros?: ReadonlyArray<string>;
   readonly withoutCommandLineModules?: boolean;
   readonly withoutProbes?: boolean;
 };
@@ -115,7 +117,7 @@ type Outcome = {
 type Row = {
   readonly lane: Lane;
   readonly scenario: string;
-  readonly expected: "holds" | "does not hold";
+  readonly expected: string;
   readonly evidence: string;
 };
 
@@ -284,6 +286,7 @@ class LaneRun {
       "-dce",
       "full",
       ...(options.defines ?? []).flatMap((define) => ["-D", define]),
+      ...(options.initMacros ?? []).flatMap((macro) => ["--macro", macro]),
       ...(options.withoutProbes === true
         ? []
         : [
@@ -481,6 +484,16 @@ async function runLane(server: OwnedHaxeCompilerServer, lane: Lane): Promise<voi
   strictEqual(first.kept, 0, `${lane}: the first request kept a bucket`);
   strictEqual(first.typedAgain, first.declarations,
     `${lane}: the first request did not type every declaration`);
+  strictEqual(
+    numberOf(first, "capturedLazyTypes"),
+    0,
+    `${lane}: a type read after typing holds a lazy type. A lazy type holds a `
+    + "function of the request that made it; a kept one is not proved safe."
+  );
+  run.row("types when the bucket is made", "holds",
+    `${numberOf(first, "capturedTypes")} types read after typing: no lazy `
+    + `type; ${numberOf(first, "capturedOpenMonomorphs")} open monomorph(s); `
+    + "a kept type reads what Haxe decides for them later in that request");
   let settled: Report | null = null;
   for (let attempt = 1; attempt <= 4 && settled === null; attempt += 1) {
     const repeat = await run.succeed({ label: `no edit, ${attempt}` });
@@ -602,9 +615,71 @@ async function runLane(server: OwnedHaxeCompilerServer, lane: Lane): Promise<voi
     "Haxe typed nothing again and every declaration still has its mark, but "
     + `no bucket exists; ${back.report.stampMismatch} of `
     + `${back.report.declarations} declarations get a new bucket. A mark `
-    + "alone would have said \"keep\"");
+    + "alone would have said \"keep\". The new buckets read the bodies that "
+    + `Haxe changed: ${back.report.keptLocalIds} local variables, where the `
+    + `first capture read ${settled.keptLocalIds}`);
+  ok(back.report.keptLocalIds < settled.keptLocalIds,
+    `${lane}: a capture of kept declarations read the bodies of a cold build`);
   assertAllKept(lane, "after the define changes",
     await run.succeed({ label: "no edit after the define changes" }));
+
+  // 7b. A define that an init macro sets. Haxe then reads the modules that
+  // it loads after that macro from another cache, but the macro state stays.
+  const beforeLate = await run.succeed({ label: "no edit before the late define" });
+  const lateDefine = ['haxe.macro.Compiler.define("kept_types_late", "1")'];
+  const late = await run.succeed({
+    label: "define set by an init macro",
+    initMacros: lateDefine
+  });
+  strictEqual(late.request, beforeLate.request + 1,
+    `${lane}: the macro state did not continue across the late define`);
+  ok(late.definesDigest !== beforeLate.definesDigest,
+    `${lane}: the late define is not visible in the defines`);
+  assertTypedAgain(lane, "define set by an init macro", late,
+    fixtureModules(late.typedAgainModules), ["Untouched", "Lone", "Main"]);
+  ok(late.kept > 50, `${lane}: the late define kept no bucket of the first cache`);
+  assertAllKept(lane, "late define again", await run.succeed({
+    label: "define set by an init macro, again",
+    initMacros: lateDefine
+  }));
+  const afterLate = await run.request({ label: "without the late define" });
+  ok(
+    afterLate.result.code === 0 && afterLate.report !== null
+    && afterLate.retyped !== null,
+    `${lane}: the request after the late define failed`
+  );
+  deepStrictEqual(afterLate.retyped, [],
+    `${lane}: Haxe typed modules again after the late define was removed`);
+  strictEqual(afterLate.report.typedAgain, 0);
+  deepStrictEqual(
+    fixtureModules(afterLate.report.stampMismatchModules),
+    fixtureModules(late.typedAgainModules),
+    `${lane}: the stamp test did not reject exactly the buckets of the other cache`
+  );
+  deepStrictEqual(afterLate.report.replacedButSameObject, [],
+    `${lane}: a rejected bucket holds the declaration that Haxe gives now`);
+  for (const name of ["Untouched", "Lone", "Main"]) {
+    const detail: Detail | undefined = afterLate.report.details[keyOfClass(name)];
+    strictEqual(detail?.state, "stampMismatch",
+      `${lane}: ${name} was not rejected by its stamp`);
+    strictEqual(detail?.oldBucketIsSameObject, false,
+      `${lane}: the bucket of ${name} from the other cache holds the current object`);
+  }
+  run.row("a define set by an init macro (modules of the other cache)",
+    "does not hold",
+    `the macro state continues; Haxe gives ${late.typedAgain} new declaration `
+    + "objects, and their old buckets hold other objects");
+  run.row("a define set by an init macro (modules of the first cache)",
+    "holds for the object, not for values that read a define",
+    `${late.kept} buckets are kept and hold the same objects, in a request `
+    + "with other defines; a kept value that depends on a define needs the "
+    + "session key, not the stamp");
+  run.row("the late define removed", "does not hold",
+    "RetypedModulesProbe: no module typed again, every mark is present; the "
+    + `stamp comparison rejects ${afterLate.report.stampMismatch} buckets, `
+    + "each holds an object of the other cache. A mark alone would keep them");
+  assertAllKept(lane, "after the late define",
+    await run.succeed({ label: "no edit after the late define" }));
 
   // 8. A request that fails in typing.
   run.edit("Lone.hx", '"lone-v2"', "(1 : Int)");
