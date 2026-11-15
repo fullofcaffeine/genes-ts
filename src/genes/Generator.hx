@@ -199,7 +199,9 @@ class Generator {
       modules: modules,
       hasFeature: api.hasFeature,
       // One catalog for this request only; see JsxProviderSchemaCatalog.
-      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog()
+      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog(),
+      // One catalog for this request only; see the class comment.
+      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations()
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)

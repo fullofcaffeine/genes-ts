@@ -92,7 +92,16 @@ typedef ModuleContext = {
    * without it is valid: each module then validates every provider schema
    * itself.
    */
-  ?jsxProviderSchemas: genes.JsxTypeChecker.JsxProviderSchemaCatalog
+  ?jsxProviderSchemas: genes.JsxTypeChecker.JsxProviderSchemaCatalog,
+
+  /**
+   * Annotated generic fields that this generation has already found.
+   *
+   * `Generator` supplies one catalog for each `generate` call. A context
+   * without it is valid: `ExplicitTypeArguments.forCall` then reads the
+   * field list of the owner class on every call.
+   */
+  ?explicitTypeArgumentDeclarations: genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations
 }
 
 typedef ModuleExport = {
@@ -244,6 +253,17 @@ class Module {
    */
   public function jsxProviderSchemas(): Null<genes.JsxTypeChecker.JsxProviderSchemaCatalog> {
     return context.jsxProviderSchemas;
+  }
+
+  /**
+   * Returns the annotated generic fields shared by this module's generation.
+   *
+   * The result is `null` when the module was built outside `Generator`
+   * without a catalog. The TypeScript emitter passes it to
+   * `ExplicitTypeArguments.forCall`.
+   */
+  public function explicitTypeArgumentDeclarations(): Null<genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations> {
+    return context.explicitTypeArgumentDeclarations;
   }
 
   function get_jsxPlan(): JsxPlan {

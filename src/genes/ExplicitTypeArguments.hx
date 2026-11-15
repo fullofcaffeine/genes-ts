@@ -24,6 +24,51 @@ typedef ExplicitTypeArgument = {
   final tsType: Null<String>;
 }
 
+/**
+ * Keeps, for one output generation, the fields of a class that carry
+ * `@:ts.explicitTypeArguments` and declare type parameters.
+ *
+ * Why: the TypeScript emitter asks `ExplicitTypeArguments.forCall` about
+ * every direct call. When the called field has no annotation of its own, it
+ * can still be an overload of an annotated field, so `forCall` looked through
+ * every field of the owner class. Reading that field list copies each field
+ * into a new macro value: about 120 microseconds for one call on a measured
+ * application, 15,000 calls and 1.8 seconds in each generation. Most classes
+ * have no annotated field at all.
+ *
+ * What: for one class and one side (static or instance), this catalog keeps
+ * the annotated generic fields in declaration order. That is the only part
+ * of the field list that the search uses.
+ *
+ * How: `Generator` creates one catalog for one `generate` call and gives it
+ * to its modules through `ModuleContext`, like `JsxProviderSchemaCatalog`.
+ * Nothing is static, so a warm compiler server starts every request with an
+ * empty catalog. The key is the Haxe module and the class name. During
+ * generation the fields of a class and their metadata do not change, so an
+ * answer cannot become stale. A caller without a catalog reads the field
+ * list on every call, as before.
+ */
+class ExplicitTypeArgumentDeclarations {
+  final annotated = new Map<String, Array<ClassField>>();
+
+  public function new() {}
+
+  @:allow(genes.ExplicitTypeArguments)
+  function fieldsOf(owner: ClassType, isStatic: Bool): Array<ClassField> {
+    final key = (isStatic ? 'static:' : 'instance:')
+      + owner.module
+      + ':'
+      + owner.name;
+    final known = annotated.get(key);
+    if (known != null)
+      return known;
+    final fields = ExplicitTypeArguments.annotatedGenericFields(owner,
+      isStatic);
+    annotated.set(key, fields);
+    return fields;
+  }
+}
+
 /** The original value and occurrence-local type facts carried through typing. */
 typedef ExplicitTypeArgumentCallSite = {
   final value: TypedExpr;
@@ -80,7 +125,8 @@ class ExplicitTypeArguments {
    * used; a cached or malformed carrier cannot authorize another callable.
    */
   public static function forCall(callee: TypedExpr,
-      carriedArguments: Null<Array<ExplicitTypeArgument>> = null): Null<Array<ExplicitTypeArgument>> {
+      carriedArguments: Null<Array<ExplicitTypeArgument>> = null,
+      ?declarations: ExplicitTypeArgumentDeclarations): Null<Array<ExplicitTypeArgument>> {
     final resolved = resolveField(callee);
     if (resolved == null) {
       if (carriedArguments != null) {
@@ -91,7 +137,7 @@ class ExplicitTypeArguments {
     }
 
     final declaration = metadataDeclaration(resolved.owner, resolved.field,
-      resolved.isStatic);
+      resolved.isStatic, declarations);
     if (declaration == null) {
       if (carriedArguments != null) {
         fail('TypeArguments.call(...) requires a generic callable '
@@ -386,15 +432,34 @@ class ExplicitTypeArguments {
    * and avoids asking every overload declaration to duplicate the annotation.
    */
   static function metadataDeclaration(owner: ClassType, selected: ClassField,
-      isStatic: Bool): Null<ClassField> {
+      isStatic: Bool,
+      declarations: Null<ExplicitTypeArgumentDeclarations>): Null<ClassField> {
     if (selected.meta.has(METADATA) && selected.params.length > 0)
       return selected;
-    final fields = isStatic ? owner.statics.get() : owner.fields.get();
+    // Two type parameters of different methods can have the same module and
+    // name, so the catalog, which uses these as its key, never answers for
+    // one.
+    final fields = declarations == null
+      || owner.kind.match(KTypeParameter(_)) ? annotatedGenericFields(owner,
+        isStatic) : declarations.fieldsOf(owner, isStatic);
     for (field in fields)
-      if (field.name == selected.name && field.meta.has(METADATA)
-        && field.params.length > 0)
+      if (field.name == selected.name)
         return field;
     return selected.meta.has(METADATA) ? selected : null;
+  }
+
+  /**
+   * Returns the fields of one side of a class that carry the annotation and
+   * declare type parameters, in declaration order.
+   */
+  @:allow(genes.ExplicitTypeArgumentDeclarations)
+  static function annotatedGenericFields(owner: ClassType,
+      isStatic: Bool): Array<ClassField> {
+    final fields = isStatic ? owner.statics.get() : owner.fields.get();
+    return [
+      for (field in fields)
+        if (field.meta.has(METADATA) && field.params.length > 0) field
+    ];
   }
 
   /**
