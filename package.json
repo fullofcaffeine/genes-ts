@@ -72,6 +72,7 @@
     "test:dynamic-import-policy": "yarn build:scripts && node scripts/dist/test-dynamic-import-policy.js",
     "test:compiler-server": "yarn build:scripts && node scripts/dist/test-compiler-server.js",
     "test:compiler-server:rollback": "yarn build:scripts && node scripts/dist/test-compiler-server.js --rollback-only",
+    "test:compiler-server:kept-types": "yarn build:scripts && node scripts/dist/test-compiler-server-kept-types.js",
     "test:acceptance-process-owner": "yarn build:scripts && node scripts/dist/test-acceptance-process-owner.js",
     "test:acceptance-manifest": "yarn build:scripts && node scripts/dist/test-acceptance-gate-manifest.js",
     "test:acceptance-shard-aggregate": "yarn build:scripts && node scripts/dist/test-acceptance-shard-aggregate.js",
