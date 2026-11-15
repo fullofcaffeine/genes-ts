@@ -771,6 +771,65 @@
       ]
     },
     {
+      "id": "syntax-code-forms",
+      "packageScript": "test:syntax-code-forms",
+      "runnerToken": "scripts/dist/test-syntax-code-forms.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-syntax-code-forms.ts",
+        "src/genes/HaxePrinterUse.hx",
+        "src/genes/RawCodeTemplate.hx",
+        "tests/syntax-code-forms"
+      ],
+      "proves": "Genes prints js.Syntax.code templates without values, legacy __js__ calls whose values are plain expressions, and the haxe.Resource table for zero or one resource itself in both profiles, with the bytes that Haxe's own printer produced; a __js__ call with a statement, block, or function value keeps Haxe's printer and its exact text; invalid calls fail with Haxe's message and publish nothing; the printer-use report names only the module of declined __js__ values, cold and on a warm compilation server.",
+      "doesNotProve": "The fixture does not change js.Syntax.code with value arguments, does not order two or more resources (that table stays on Haxe's printer), does not make Genes print statement values of __js__, and does not measure incremental generation.",
+      "owners": [
+        "scripts/test-syntax-code-forms.ts",
+        "src/genes/HaxePrinterUse.hx",
+        "src/genes/RawCodeTemplate.hx",
+        "tests/syntax-code-forms"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:syntax-code-forms",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/syntax-code-forms.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "abstract-implementation-properties",
       "packageScript": "test:abstract-implementation-properties",
       "runnerToken": "scripts/dist/test-abstract-implementation-properties.js",
@@ -3544,6 +3603,10 @@
           "when": "Map iterator methods cross a Dynamic boundary or their feature-gated runtime retention changes"
         },
         {
+          "gate": "syntax-code-forms",
+          "when": "raw code printing changes: js.Syntax.code templates, legacy __js__ calls, the haxe.Resource table, or the printer-use report"
+        },
+        {
           "gate": "abstract-implementation-properties",
           "when": "abstract implementation read/write/static property lowering changes"
         },
@@ -4215,6 +4278,7 @@
       "selects": [
         "stdlib-overrides",
         "map-dynamic-iterators",
+        "syntax-code-forms",
         "portable-haxe-smoke",
         "package-imports",
         "dual-output-semantics",
@@ -4233,6 +4297,7 @@
         "src/genes/es/**"
       ],
       "selects": [
+        "syntax-code-forms",
         "portable-haxe-smoke",
         "typescript-full",
         "classic-core",
