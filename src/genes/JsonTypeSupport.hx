@@ -129,8 +129,35 @@ class JsonTypeSupport {
  * result. A cycle edge returns false, but a nested false result is not cached
  * because an active ancestor can still find JSON in another branch. A true
  * result and an outermost completed false result are both safe to reuse.
+ *
+ * Cost: the search runs for the type of every typed expression, more than a
+ * million times in a large application. A type holds a reference to its
+ * declaration. `ref.get()` makes Haxe copy the complete declaration into a
+ * new macro value, which takes about 10 microseconds. `ref.toString()` only
+ * returns the dotted path of the declaration. The search therefore reads the
+ * path first and calls `ref.get()` only in two cases: the path is in the
+ * package of the JSON helpers, or the underlying type of an abstract or
+ * typedef has no completed result yet. On an application with 1,100 modules,
+ * this removed about 7 seconds from each generation.
  */
 private class JsonTypeQuery {
+  /**
+   * The package of the five JSON helper modules, with its final dot.
+   *
+   * Every declaration of a module starts its dotted path with the package of
+   * that module. This is also true for a module-private declaration
+   * (`genes.ts._JsonValue.JsonValue_Impl_`) and for a type parameter. A path
+   * outside this package therefore cannot name a declaration of a JSON
+   * helper module.
+   *
+   * Limit: Haxe renames a class or an enum that has `@:native` before
+   * generation, so such a path can leave its package. Haxe does not rename
+   * abstracts and typedefs. Each JSON helper module declares one abstract and
+   * no class or enum. If a helper module gets a class or an enum with
+   * `@:native`, this check must also accept the native path.
+   */
+  static inline final JSON_HELPER_PACKAGE = 'genes.ts.';
+
   final completedDefinitions = new Map<String, Bool>();
   final activeDefinitions = new Map<String, Bool>();
   var activeDefinitionCount = 0;
@@ -145,12 +172,22 @@ private class JsonTypeQuery {
     if (type == null)
       return false;
     return switch type {
-      case TAbstract(_.get() => abstractType, params): JsonTypeSupport.isJsonTypeModule(abstractType.module) || searchTypes(params) || searchDefinition('abstract:${abstractType.module}:${abstractType.name}',
-          abstractType.type);
-      case TInst(_.get() => cl, params): JsonTypeSupport.isJsonTypeModule(cl.module) || searchTypes(params);
-      case TEnum(_.get() => enumType, params): JsonTypeSupport.isJsonTypeModule(enumType.module) || searchTypes(params);
-      case TType(_.get() => definition, params): JsonTypeSupport.isJsonTypeModule(definition.module) || searchTypes(params) || searchDefinition('typedef:${definition.module}:${definition.name}',
-          definition.type);
+      case TAbstract(ref, params): final path = ref.toString(); (path.startsWith(JSON_HELPER_PACKAGE)
+          && JsonTypeSupport.isJsonTypeModule(ref.get()
+            .module)) || searchTypes(params) || searchDefinition('abstract:$path',
+          () -> ref.get()
+          .type);
+      case TInst(ref, params): (ref.toString().startsWith(JSON_HELPER_PACKAGE)
+          && JsonTypeSupport.isJsonTypeModule(ref.get()
+            .module)) || searchTypes(params);
+      case TEnum(ref, params): (ref.toString().startsWith(JSON_HELPER_PACKAGE)
+          && JsonTypeSupport.isJsonTypeModule(ref.get()
+            .module)) || searchTypes(params);
+      case TType(ref, params): final path = ref.toString(); (path.startsWith(JSON_HELPER_PACKAGE)
+          && JsonTypeSupport.isJsonTypeModule(ref.get()
+            .module)) || searchTypes(params) || searchDefinition('typedef:$path',
+          () -> ref.get()
+          .type);
       case TAnonymous(_.get() => anonymous):
         searchFields(anonymous.fields);
       case TFun(arguments, resultType): search(resultType) || searchFunctionArguments(arguments);
@@ -186,7 +223,17 @@ private class JsonTypeQuery {
     return false;
   }
 
-  function searchDefinition(key: String, type: Type): Bool {
+  /**
+   * Returns whether the underlying type of one abstract or typedef uses a
+   * JSON helper, and keeps each safe result.
+   *
+   * `key` is the kind and the dotted path of the declaration. Haxe allows one
+   * abstract and one typedef for each path, so two declarations never share a
+   * key. `underlyingType` reads the type from the declaration. It is called
+   * only when no result is kept and the declaration is not already on the
+   * search path, because that read is the expensive step.
+   */
+  function searchDefinition(key: String, underlyingType: () -> Type): Bool {
     final cached = completedDefinitions.get(key);
     if (cached != null)
       return cached;
@@ -196,7 +243,7 @@ private class JsonTypeQuery {
     final root = activeDefinitionCount == 0;
     activeDefinitionCount++;
     activeDefinitions.set(key, true);
-    final found = search(type);
+    final found = search(underlyingType());
     activeDefinitions.remove(key);
     activeDefinitionCount--;
     if (found || root)
