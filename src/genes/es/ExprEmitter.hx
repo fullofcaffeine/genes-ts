@@ -462,9 +462,16 @@ class ExprEmitter extends Emitter {
    * missing field. `js.Syntax.code` with values does the same. The fixture
    * README lists every difference.
    */
-  function emitLegacyJsCode(callee: TypedExpr, args: Array<TypedExpr>): Void {
+  function emitLegacyJsCode(call: TypedExpr, callee: TypedExpr,
+      args: Array<TypedExpr>, asStatement: Bool): Void {
     if (emitLegacyJsIdentifier(args))
       return;
+    for (value in args.slice(1))
+      if (!isPlainRawCodeValue(value)) {
+        // See `isPlainRawCodeValue`: Haxe prints this call, as it always did.
+        write(asStatement ? ctx.expr(call) : ctx.value(call));
+        return;
+      }
     warnLegacyJs(callee.pos);
     if (args.length == 0) {
       CompilerDiagnostic.fail('Unknown js.Syntax method `code` with 0 arguments',
@@ -527,6 +534,51 @@ class ExprEmitter extends Emitter {
         min: info.min + bytesBefore,
         max: info.max
       }));
+  }
+
+  /**
+   * Reports whether Genes may print a legacy `__js__` value itself.
+   *
+   * Why: before Genes sees a program, Haxe rewrites every expression so that
+   * a statement never stands where a value is expected. `var x = try f()
+   * catch (e) 0` becomes a `try` statement that assigns `x`. Genes' value
+   * printer relies on that and is exercised only on such rewritten code.
+   * Haxe does NOT rewrite the arguments of `__js__`, because it treats a call
+   * of an unknown identifier as opaque. A `__js__` value can therefore hold a
+   * `throw`, a loop, a `switch`, a block, or a function whose body was never
+   * rewritten. Genes' value printer has no sound output for these: a `throw`
+   * value, for example, made it call itself without end.
+   *
+   * What: a value is "plain" when it is built only from the expression kinds
+   * that also reach Genes in ordinary code: constants, locals, field and
+   * array reads, calls, `new`, unary and binary operations, conditionals,
+   * array and object literals, parentheses, casts, metadata, and enum reads.
+   * Anything else is not plain: a block, `var`, `for`, `while`, `switch`,
+   * `try`, `throw`, `return`, `break`, `continue`, or a function expression.
+   *
+   * How: `emitLegacyJsCode` asks this for every value. If one value is not
+   * plain, the whole call goes to Haxe's own printer, exactly as it did
+   * before Genes printed `__js__`; `genes.HaxePrinterUse` then reports the
+   * module. The list below names what is allowed, so a kind that a later
+   * Haxe adds is declined until someone decides about it.
+   *
+   * See also: `tests/syntax-code-forms/src/syntaxcodeforms/LegacyJsStatements.hx`
+   * holds one call for each kind that is declined.
+   */
+  static function isPlainRawCodeValue(value: TypedExpr): Bool {
+    return switch value.expr {
+      case TConst(_) | TLocal(_) | TArray(_, _) | TBinop(_, _, _) |
+        TField(_, _) | TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_) |
+        TArrayDecl(_) | TCall(_, _) | TNew(_, _, _) | TUnop(_, _, _) |
+        TIf(_, _, _) | TCast(_, _) | TMeta(_, _) | TEnumParameter(_, _, _) |
+        TEnumIndex(_) | TIdent(_):
+        var plain = true;
+        value.iter(child -> if (plain && !isPlainRawCodeValue(child))
+          plain = false);
+        plain;
+      default:
+        false;
+    }
   }
 
   /**
@@ -961,7 +1013,7 @@ class ExprEmitter extends Emitter {
       }, args):
         emitSyntaxCode(e, args);
       case TCall(callee = {expr: TIdent('__js__')}, args):
-        emitLegacyJsCode(callee, args);
+        emitLegacyJsCode(e, callee, args, true);
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
@@ -1673,7 +1725,7 @@ class ExprEmitter extends Emitter {
       }, args):
         emitSyntaxCode(e, args);
       case TCall(callee = {expr: TIdent('__js__')}, args):
-        emitLegacyJsCode(callee, args);
+        emitLegacyJsCode(e, callee, args, false);
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
@@ -1690,7 +1742,7 @@ class ExprEmitter extends Emitter {
       case TCall(callee, params):
         emitCall(callee, params, true, e);
       case TReturn(_) | TBreak | TContinue:
-        throw 'Unsupported $e';
+        failStatementAsValue(e);
       case TCast(e1, null):
         emitValue(e1);
       /*case TCast(e1, t):
@@ -1700,7 +1752,7 @@ class ExprEmitter extends Emitter {
         spr(ctx, (ctx.type_accessor(t)));
         spr(ctx, ")"); */
       case TVar(_), TFor(_, _, _), TWhile(_, _, _), TThrow(_):
-        asValue(e, assign -> assign(e));
+        failStatementAsValue(e);
       case TBlock([]): // Todo: hm?
         write('null');
       case TBlock([e]):
@@ -1743,6 +1795,21 @@ class ExprEmitter extends Emitter {
       default:
         emitExpr(e);
     }
+  }
+
+  /**
+   * Stops the build when a statement stands where a value is expected.
+   *
+   * Why: Haxe rewrites ordinary code so that this never happens, and
+   * `isPlainRawCodeValue` keeps the one known exception, `__js__` values,
+   * away from this printer. This arm used to print the same expression again
+   * without end, which ended the build with "Stack overflow" and no source
+   * position. If another path ever reaches it, the author now gets the
+   * position of the expression.
+   */
+  function failStatementAsValue(expression: TypedExpr): Void {
+    CompilerDiagnostic.fail('GENES-VALUE-STATEMENT-001: Genes cannot print this statement where a value is expected',
+      expression.pos);
   }
 
   /**

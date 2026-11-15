@@ -7,6 +7,7 @@ class Main {
       "zero:" + ZeroArgument.run().join("|"),
       "legacy:" + LegacyJs.run().join("|"),
       "legacy-values:" + LegacyJsValues.run().join("|"),
+      "legacy-statements:" + LegacyJsStatements.run().join("|"),
       "resources:" + Resources.run().join("|")
     ];
     js.Syntax.code("console.log({0})", lines.join("\n"));

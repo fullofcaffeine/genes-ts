@@ -20,16 +20,21 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
  * by incremental generation, so it was printed again after every edit.
  *
  * What this gate checks, in both output profiles:
- * - the emitted `ZeroArgument` and `LegacyJs` modules equal the files in
- *   `tests/syntax-code-forms/expected`, which Haxe's printer produced on the
- *   commit before Genes printed these forms (see the fixture README);
+ * - the emitted `ZeroArgument`, `LegacyJs` and `LegacyJsStatements` modules
+ *   equal the files in `tests/syntax-code-forms/expected`, which Haxe's
+ *   printer produced before Genes printed these forms (see the fixture
+ *   README);
+ * - `LegacyJsStatements` holds the `__js__` values that are not plain
+ *   expressions (`throw`, loops, `switch`, `try`, blocks, functions). Genes
+ *   leaves those calls to Haxe's printer, so that module, and only that
+ *   module, is in the printer-use report;
  * - the `haxe.Resource` table for zero and for one resource equals text that
  *   was written by hand from the Haxe compiler's source;
  * - the `__js__` values that Genes prints differently have the reviewed text,
  *   among them a `try` value and, in the TypeScript profile, an optional field
  *   that is read as `null`;
- * - `genes.HaxePrinterUse` reports no module, except `haxe.Resource` when the
- *   build embeds three resources;
+ * - `genes.HaxePrinterUse` reports no other module, except `haxe.Resource`
+ *   when the build embeds three resources;
  * - the programs run and print the same transcript;
  * - every invalid call fails with Haxe's message and position and publishes
  *   no output;
@@ -96,21 +101,48 @@ const legacyTranscript = "legacy:" + [
 // optional field as `null`, so `=== undefined` is false there. See the
 // "Reviewed differences" in the fixture README.
 const legacyValuesTranscripts: Record<Profile, string> = {
-  classic: "legacy-values:11|21|2|5|41|false|true",
-  ts: "legacy-values:11|21|2|5|41|false|false"
+  classic: "legacy-values:11|21|2|3|false|true",
+  ts: "legacy-values:11|21|2|3|false|false"
 };
+// One entry for each call of `LegacyJsStatements.run`: a plain `throw`, a
+// throwing branch (twice), a `switch` with a throwing default (twice), `??`
+// with a throwing right side (twice), `try` with a catch of everything
+// (twice), `try` with a typed catch (no exception, caught, rethrown), `while`,
+// `do`/`while`, `for`, a block, `var`, and two function expressions.
+const legacyStatementsTranscript = "legacy-statements:" + [
+  "thrown",
+  "5",
+  "thrown",
+  "21",
+  "thrown",
+  "6",
+  "thrown",
+  "5",
+  "41",
+  "8",
+  "5",
+  "thrown",
+  "3",
+  "3",
+  "6",
+  "9",
+  "5",
+  "23"
+].join("|");
+// The module whose `__js__` calls Genes leaves to Haxe's printer on purpose.
+const declinedModule = "syntaxcodeforms.LegacyJsStatements";
 // Text of `LegacyJsValues` that a reviewer accepted, for each profile.
 const reviewedValueText: Record<Profile, ReadonlyArray<string>> = {
   classic: [
     "return ((flag) ? 10 : 20) + 1;",
     "= [a, b].length;",
-    "try {$r0 = LegacyJsValues.measure(text)} catch (_g) {$r0 = 40}",
+    '= {"size": a}.size;',
     "return options.limit === undefined;"
   ],
   ts: [
     "return ((flag) ? 10 : 20) + 1;",
     "= [a, b].length;",
-    "try {$r0 = LegacyJsValues.measure(text)} catch (_g) {$r0 = 40}",
+    '= {"size": a}.size;',
     "return (options.limit ?? null) === undefined;"
   ]
 };
@@ -226,6 +258,7 @@ function expectedTranscript(
     zeroTranscript,
     legacyTranscript,
     legacyValuesTranscripts[profile],
+    legacyStatementsTranscript,
     resourceTranscripts[variant]
   ].join("\n");
 }
@@ -245,7 +278,7 @@ for (const profile of ["classic", "ts"] as const) {
       `${profile} ${variant.name} build failed\n${build.output}`
     );
 
-    for (const module of ["ZeroArgument", "LegacyJs"]) {
+    for (const module of ["ZeroArgument", "LegacyJs", "LegacyJsStatements"]) {
       strictEqual(
         read(path.join(output, `syntaxcodeforms/${module}.${extension}`)),
         read(path.join(
@@ -261,8 +294,11 @@ for (const profile of ["classic", "ts"] as const) {
     if (variant.name === "three") {
       // Haxe alone knows the order of several resources, so this one module
       // stays on Haxe's printer. Every entry must still be present.
-      deepStrictEqual(use.haxePrinterModuleNames, ["haxe.Resource"]);
-      strictEqual(use.haxePrinterModules, 1);
+      deepStrictEqual(
+        use.haxePrinterModuleNames,
+        ["haxe.Resource", declinedModule]
+      );
+      strictEqual(use.haxePrinterModules, 2);
       const table = resourceTable(profile, "three");
       for (const [name, data] of [
         ["first", "Zmlyc3QgcmVzb3VyY2UK"],
@@ -277,10 +313,10 @@ for (const profile of ["classic", "ts"] as const) {
     } else {
       deepStrictEqual(
         use.haxePrinterModuleNames,
-        [],
-        `${profile} ${variant.name}: a module still uses Haxe's printer`
+        [declinedModule],
+        `${profile} ${variant.name}: wrong modules on Haxe's printer`
       );
-      strictEqual(use.haxePrinterModules, 0);
+      strictEqual(use.haxePrinterModules, 1);
       strictEqual(
         resourceTable(profile, variant.name),
         resourceTables[variant.name]
@@ -320,60 +356,87 @@ const invalidCases: ReadonlyArray<{
   readonly line: number;
   readonly characters: string;
   readonly message: string;
+  /**
+   * True when Haxe's printer raises the error. Haxe then ends the build at
+   * once, as it always did for these calls, and Genes cannot remove its
+   * private staging folder. Public output must still be absent.
+   */
+  readonly raisedByHaxe?: true;
 }> = [
   {
     name: "template",
-    line: 20,
+    line: 24,
     characters: "20-28",
     message: "The `code` argument for js.Syntax.code must be a string constant"
   },
   {
     name: "template_with_value",
-    line: 22,
+    line: 26,
     characters: "20-28",
     message: "The `code` argument for js.Syntax.code must be a string constant"
   },
   {
     name: "placeholder",
-    line: 24,
+    line: 28,
     characters: "35-40",
     message: "Out-of-bounds special parameter: 0"
   },
   {
     name: "hexadecimal_placeholder",
-    line: 26,
+    line: 30,
     characters: "35-42",
     message: "Out-of-bounds special parameter: 0x1"
   },
   {
     name: "negative_placeholder",
-    line: 28,
+    line: 32,
     characters: "35-41",
     message: "Out-of-bounds special parameter: -1"
   },
   {
     name: "oversized_placeholder",
-    line: 30,
+    line: 34,
     characters: "35-62",
     message: "Out-of-bounds special parameter: 12345678901234567890123"
   },
   {
     name: "legacy_template",
-    line: 32,
+    line: 36,
     characters: "20-28",
     message: "The `code` argument for js.Syntax.code must be a string constant"
   },
   {
     name: "legacy_empty",
-    line: 34,
+    line: 38,
     characters: "13-19",
     message: "Unknown js.Syntax method `code` with 0 arguments"
   },
   {
     name: "legacy_placeholder",
-    line: 36,
+    line: 40,
     characters: "35-40",
     message: "Out-of-bounds special parameter: 1"
+  },
+  {
+    name: "legacy_return_value",
+    line: 42,
+    characters: "32-38",
+    message: "This expression cannot be compiled to Javascript",
+    raisedByHaxe: true
+  },
+  {
+    name: "legacy_break_value",
+    line: 45,
+    characters: "34-39",
+    message: "This expression cannot be compiled to Javascript",
+    raisedByHaxe: true
+  },
+  {
+    name: "legacy_continue_value",
+    line: 48,
+    characters: "34-42",
+    message: "This expression cannot be compiled to Javascript",
+    raisedByHaxe: true
   }
 ];
 for (const profile of ["classic", "ts"] as const) {
@@ -402,8 +465,11 @@ for (const profile of ["classic", "ts"] as const) {
       `${profile} ${invalid.name}: expected\n${diagnostic}\ngot\n`
       + build.output
     );
+    const published = invalid.raisedByHaxe === true
+      ? path.join(output, profile === "ts" ? "index.ts" : "index.js")
+      : output;
     ok(
-      !existsSync(output),
+      !existsSync(published),
       `${profile} ${invalid.name} published output after its diagnostic`
     );
   }
@@ -411,9 +477,10 @@ for (const profile of ["classic", "ts"] as const) {
 
 // 4. The deprecation warning: once for each `__js__` call that is not a
 // single identifier, with Haxe's text.
-const legacySource = read(
-  path.join(fixtureRoot, "src/syntaxcodeforms/LegacyJs.hx")
-) + read(path.join(fixtureRoot, "src/syntaxcodeforms/LegacyJsValues.hx"));
+const legacySource = ["LegacyJs", "LegacyJsValues", "LegacyJsStatements"]
+  .map((module) =>
+    read(path.join(fixtureRoot, `src/syntaxcodeforms/${module}.hx`)))
+  .join("");
 const legacyCalls = legacySource.split("untyped __js__(").length - 1;
 const identifierCalls = legacySource.split('untyped __js__("Infinity")').length
   - 1;
@@ -473,8 +540,8 @@ try {
       );
       deepStrictEqual(
         printerReport(report).haxePrinterModuleNames,
-        [],
-        `warm ${profile} (${request} request) used Haxe's printer`
+        [declinedModule],
+        `warm ${profile} (${request} request): wrong modules on Haxe's printer`
       );
     }
   }

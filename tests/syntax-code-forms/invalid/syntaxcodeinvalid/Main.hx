@@ -7,6 +7,10 @@ package syntaxcodeinvalid;
  * itself now, so it must report the same message at the same position, and
  * it must publish no output. `yarn test:syntax-code-forms` builds each case.
  *
+ * The last three cases put `return`, `break`, and `continue` where a `__js__`
+ * value is expected. Genes leaves such a call to Haxe's printer, and Haxe
+ * rejects it; the case pins that the build still stops with Haxe's message.
+ *
  * `untyped` is required for the `__js__` cases: Haxe exposes that helper only
  * to untyped code.
  */
@@ -34,6 +38,14 @@ class Main {
     untyped __js__();
     #elseif (syntax_code_invalid == "legacy_placeholder")
     untyped __js__("globalThis.x = {1}", 1);
+    #elseif (syntax_code_invalid == "legacy_return_value")
+    untyped __js__("void {0}", return);
+    #elseif (syntax_code_invalid == "legacy_break_value")
+    while (true)
+      untyped __js__("void {0}", break);
+    #elseif (syntax_code_invalid == "legacy_continue_value")
+    while (template == "")
+      untyped __js__("void {0}", continue);
     #end
   }
 }
