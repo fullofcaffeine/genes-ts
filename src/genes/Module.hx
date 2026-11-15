@@ -987,6 +987,8 @@ class Module {
       typeAccessor: typeAccessor
     }
     api.setTypeAccessor(type -> context.typeAccessor(type));
+    // Opt-in report of modules that still reach Haxe's own printer.
+    HaxePrinterUse.watch(context, module);
     return context;
   }
 }
