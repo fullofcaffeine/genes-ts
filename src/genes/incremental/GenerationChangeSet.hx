@@ -538,7 +538,9 @@ class GenerationChangeSet {
       final root = Path.directory(Path.directory(FileSystem.absolutePath(generator)));
       addSourceStatus(buffer, root, '');
     }
-    return Sha256.encode(buffer.toString());
+    // The text itself is the key. A digest would cost more than the
+    // comparison of two texts, because the macro interpreter computes it.
+    return buffer.toString();
   }
 
   static function addSourceStatus(buffer: StringBuf, root: String,

@@ -173,6 +173,8 @@ type Measurement = {
   readonly lane: string;
   readonly mode: WarmMode;
   readonly step: string;
+  /** True for an edit that made Haxe type exactly one fixture module again. */
+  readonly oneModuleEdit: boolean;
   readonly report: AfterTypingReport;
 };
 
@@ -497,7 +499,13 @@ async function runLane(
             || (report.typedAgain === 0 && report.foreignStamps === 0);
           if (settledNow || attempt === attempts) {
             assertReport(lane, mode, step, report, step.settled === true);
-            measurements.push({ lane: config.name, mode, step: step.id, report });
+            measurements.push({
+              lane: config.name,
+              mode,
+              step: step.id,
+              oneModuleEdit: step.typesAgain?.length === 1,
+              report
+            });
           }
         }
       }
@@ -733,6 +741,19 @@ function printSummary(): void {
         + `audited ${sum(audits.map((audit) => audit.worked))} | `
         + `compare failures ${sum(audits.map((audit) =>
           audit.compareFailures.length))}\n`
+      );
+    }
+    // The share that stays kept after an edit of one module.
+    for (const row of measurements) {
+      if (row.lane !== lane || row.mode !== "reuse" || !row.oneModuleEdit) continue;
+      const audit = auditOf(row.report, `${lane} reuse`);
+      process.stdout.write(
+        `after-typing | ${lane} | reuse | one-module edit "${row.step}" | `
+        + `${row.report.arrivedStamped} of ${row.report.declarations} `
+        + `declarations arrived with their stamp | kept ${audit.kept} of `
+        + `${row.report.classes} class records `
+        + `(${round(100 * audit.kept / row.report.classes)}%) | audited `
+        + `${audit.worked}\n`
       );
     }
     // The cost of the keep decision beside the cost of the passes, for the
