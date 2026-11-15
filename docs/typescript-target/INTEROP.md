@@ -166,7 +166,9 @@ the way Haxe 4 does: `__js__("process")` writes `process`, and
 `__js__("{0} + 1", value)` writes the value into the template. Only the form
 with one literal identifier is silent. Every other form reports Haxe's
 warning "__js__ is deprecated, use js.Syntax.code instead"; new interop code
-should use typed externs or `js.Syntax`.
+should use typed externs or `js.Syntax`. Genes reports this warning itself,
+and a macro cannot choose a warning class: `-D no-deprecation-warnings`
+removes it, `-w -WDeprecated` does not.
 
 ### Raw code that Genes prints itself
 
@@ -183,6 +185,13 @@ The template rules are Haxe's, and they depend on the form:
 | `js.Syntax.code(template)` | `{{` prints `{`, `}}` prints `}`; `{text}` stays when `text` is not an integer | `js.Syntax.code("[{{a: 1}}]")` prints `[{a: 1}]` |
 | `js.Syntax.code(template, values...)` | only `{digits}` is a placeholder; braces are never joined | `js.Syntax.code("({a: {0}})", x)` prints `({a: x})` |
 | `__js__(template, values...)` | the first rule, plus placeholders; a binary, unary or conditional value gets parentheses | `__js__("{0} * 2", a + b)` prints `(a + b) * 2` |
+
+Each value is printed by Genes' ordinary value printer. In the TypeScript
+profile a value therefore follows the genes-ts rule for missing values: an
+optional field `options.limit` prints as `(options.limit ?? null)`, so
+`{0} === undefined` is `false` for a missing field. Raw code that must see
+`undefined` can read the field inside the template:
+`js.Syntax.code("{0}.limit === undefined", options)`.
 
 A template must be a string constant, and a placeholder must name an
 existing value. Genes reports both errors with Haxe's text and publishes no

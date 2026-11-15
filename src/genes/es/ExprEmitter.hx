@@ -454,8 +454,13 @@ class ExprEmitter extends Emitter {
    * hxnodejs use it and their user cannot change them. Every other form
    * keeps Haxe's deprecation warning; see `warnLegacyJs`.
    *
-   * Limit: a value that Genes prints with a different layout than Haxe, for
-   * example the array literal `[a, b]` (Haxe: `[a,b]`), now has Genes' layout.
+   * Limits: a value has Genes' text, not Haxe's. Often only the layout
+   * differs, for example the array literal `[a, b]` (Haxe: `[a,b]`). In the
+   * TypeScript profile the result can differ too: a value follows the
+   * genes-ts rule for missing values, so an optional field `o.x` prints as
+   * `(o.x ?? null)` and `__js__("{0} === undefined", o.x)` is `false` for a
+   * missing field. `js.Syntax.code` with values does the same. The fixture
+   * README lists every difference.
    */
   function emitLegacyJsCode(callee: TypedExpr, args: Array<TypedExpr>): Void {
     if (emitLegacyJsIdentifier(args))
@@ -551,6 +556,11 @@ class ExprEmitter extends Emitter {
    * How: `-D no-deprecation-warnings` turns it off, as it does in Haxe. One
    * position is reported once for each module, also when an emitter prints an
    * expression more than once.
+   *
+   * Limit: a macro cannot choose the class of a warning. Haxe therefore
+   * treats this one as a general warning, and `-w -WDeprecated` or
+   * `@:haxe.warning("-WDeprecated")` does not remove it. The text keeps the
+   * `(WDeprecated)` prefix so that it reads as it did before.
    */
   function warnLegacyJs(position: Position): Void {
     if (Context.defined('no_deprecation_warnings'))

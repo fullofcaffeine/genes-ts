@@ -40,7 +40,7 @@ bytes did not change.
 | `js.Syntax.code`, literal template, no value | `js.Syntax.code("[{{a: 1}}]")` | `[{a: 1}]` | Haxe | Genes, same bytes | `ZeroArgument.hx`, `expected/` |
 | `__js__`, one literal identifier | `__js__("Infinity")` | `Infinity` | Genes | Genes, unchanged | `LegacyJs.hx`, `expected/` |
 | `__js__`, other literal template, no value | `__js__("Math.max(1, 2)")` | `Math.max(1, 2)` | Haxe | Genes, same bytes | `LegacyJs.hx`, `expected/` |
-| `__js__`, literal template, values | `__js__("{0} * 2", a + b)` | `(a + b) * 2` | Haxe | Genes; same bytes except two value layouts | `LegacyJs.hx`, `LegacyJsValues.hx` |
+| `__js__`, literal template, values | `__js__("{0} * 2", a + b)` | `(a + b) * 2` | Haxe | Genes; the template is the same, each value is printed by Genes (see "Reviewed differences") | `LegacyJs.hx`, `LegacyJsValues.hx` |
 | `__resources__()`, no resource | `haxe.Resource` | `[]` | Haxe | Genes, same bytes | `Resources.hx` |
 | `__resources__()`, one resource | `-resource first.txt@name` | `[{ name : "name", data : "Zmly..."}]` | Haxe | Genes, same bytes | `Resources.hx` |
 | `__resources__()`, two or more resources | three `-resource` flags | Haxe's order | Haxe | **Haxe** (see below) | `Resources.hx` |
@@ -86,28 +86,88 @@ part of this fixture.
 
 ## Reviewed differences
 
-1. **Two `__js__` value layouts.** Genes prints a `__js__` value with its
-   ordinary value printer, as it does for `js.Syntax.code`. Names, constants,
-   calls, static fields, and binary and unary operations give Haxe's bytes.
-   `LegacyJsValues.hx` holds the two layouts that differ, in spaces and
-   parentheses only:
+### 1. A `__js__` value is printed by Genes
 
-   | value | Haxe's printer | Genes |
-   | --- | --- | --- |
-   | `flag ? 10 : 20` | `(flag ? 10 : 20)` | `((flag) ? 10 : 20)` |
-   | `[a, b]` | `[a,b]` | `[a, b]` |
+Genes prints each value of a `__js__` call with its ordinary value printer,
+as it does for `js.Syntax.code`. Haxe's printer printed the value before.
 
-   Source maps also gain mappings for `__js__` values.
-2. **Errors stop the build.** Haxe reported "Out-of-bounds special parameter"
-   without stopping, so Genes still published the output tree. Genes now
-   raises the error itself and rolls the output back.
-3. **A very large placeholder number is always an error.** Haxe printed
-   `{12345678901234567890123}` as text, because the number does not fit its
-   integer type. Genes reports it as out of bounds. Write `{{...}}` to print
-   such braces.
-4. **Haxe 5 preview.** Haxe 5 no longer knows `__js__` and printed a call to a
-   function that does not exist. Genes now gives it the Haxe 4 output. This
-   fixture runs on the stable Haxe lane only.
+**Same bytes:** local names, constants (numbers, strings, `null`), calls,
+static fields, binary and unary operations, and the parentheses that Haxe
+puts around a binary, unary, or conditional value.
+
+**One change of behavior, TypeScript profile only.** A value follows the
+genes-ts rule for missing values: an optional field is read as `null`, where
+JavaScript gives `undefined`.
+
+| Haxe | Haxe's printer | Genes, classic | Genes, TypeScript |
+| --- | --- | --- | --- |
+| `__js__("{0} === undefined", options.limit)` | `options.limit === undefined` | `options.limit === undefined` | `(options.limit ?? null) === undefined` |
+
+For a missing field the TypeScript output now answers `false`, and
+`__js__("{0} + 1", options.limit)` gives `1` instead of `NaN`.
+`js.Syntax.code` with values has always done this, so both helpers now agree.
+Raw code that must see `undefined` can read the field inside the template:
+`__js__("{0}.limit === undefined", options)`. `LegacyJsValues.isMissing` pins
+the text and the result of both profiles.
+
+**Other layout, same result.** `LegacyJsValues.hx` holds the first three; the
+others were compared by hand against Haxe's printer during review.
+
+| Value | Haxe's printer | Genes |
+| --- | --- | --- |
+| conditional `flag ? 10 : 20` | `(flag ? 10 : 20)` | `((flag) ? 10 : 20)` |
+| array literal `[a, b]` | `[a,b]` | `[a, b]` |
+| `try f() catch (e) 40` | a function, one statement on each line | `(function($this) {var $r0` … `return $r0})(this)` |
+| function expression | `function() {`, body at column 1 | `function () {`, body indented |
+| object literal `{x: 1}` | `{ x : 1}` | `{"x": 1}` |
+| `js.Syntax.strictEq(a, b)` | `((a) === b)` | `((a) === (b))` |
+| a value that needs statements: a block, a `switch`, `a++`, `n ?? 3`, `Std.downcast`, an inlined loop such as `arr.map` | `(function($this) { var $r; … return $r; }(this))`, locals as `let` | `(function($this) {var $r0 … return $r0})(this)`, locals as `const` where never assigned again |
+
+In the TypeScript profile such a value also gets the profile's usual type
+text: an indexed read is `arr[0]!`, a local inside the function has its type
+(`const value: any = d`), and a `null` of a class type is
+`Register.unsafeCast<T>(null)`.
+
+**Two values that were wrong before and are right now.**
+
+- A method used as a value, `__js__("{0}.call(null)", method)`: Haxe's
+  printer wrote `$bind(this,this.method)`, a name that Genes output does not
+  define. Genes writes `Register.bind(this, this.method)`.
+- A checked cast as a value, `__js__("{0}.foo", cast(d, String))`: the build
+  stopped with "Type not found". It now compiles.
+
+Source maps also gain mappings for `__js__` values.
+
+### 2. Errors stop the build
+
+Haxe reported "Out-of-bounds special parameter" without stopping, so Genes
+still published the output tree. Genes now raises the error itself and rolls
+the output back.
+
+### 3. A very large placeholder number is always an error
+
+Haxe printed `{12345678901234567890123}` as text, because the number does not
+fit its integer type. Genes reports it as out of bounds. Write `{{...}}` to
+print such braces.
+
+### 4. Haxe 5 preview
+
+Haxe 5 no longer knows `__js__` and printed a call to a function that does
+not exist. Genes now gives it the Haxe 4 output. This fixture runs on the
+stable Haxe lane only.
+
+### 5. The `__js__` deprecation warning cannot be turned off by class
+
+Genes reports "(WDeprecated) __js__ is deprecated, use js.Syntax.code
+instead" at the same calls as Haxe did. A macro can report a warning but
+cannot choose its warning class, so Haxe treats it as a general warning:
+
+- `-D no-deprecation-warnings` still removes it (Genes checks the define);
+- `-w -WDeprecated` **no longer** removes it, and
+  `@:haxe.warning("-WDeprecated")` on the field does not remove it either.
+
+The form with one literal identifier, such as `__js__("process")`, stays
+silent as before.
 
 ## Where the expected files come from
 
@@ -131,8 +191,11 @@ resources:
   resource) or holds all three entries (three resources);
 - `genes.HaxePrinterUse` reports no module, or only `haxe.Resource` for three
   resources;
+- `LegacyJsValues` holds the reviewed text of each value that Genes prints
+  differently, among them the `try` value and the optional field;
 - the classic program and the compiled TypeScript program print the expected
-  transcript;
+  transcript; the two transcripts differ in one entry, the missing optional
+  field of `LegacyJsValues.isMissing`;
 - each case in `invalid/` fails with Haxe's message and position and leaves
   no output directory;
 - without `-D no-deprecation-warnings`, each `__js__` call except the
