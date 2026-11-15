@@ -116,8 +116,12 @@ class TypedModuleInventory {
     if (indexed != null) {
       for (candidate in indexed) {
         final base = baseOf(candidate);
-        // A private declaration answers too: `Context.getType` also returns
-        // one for the path `pack.Module.Name`.
+        // A private declaration answers too. `Context.getType` returns one
+        // for `pack.Module.Name` only when the current module owns it.
+        // Otherwise it fails with "Cannot access private type Name in module
+        // pack.Module". During generation the current module is the last
+        // module that Haxe typed, so that answer depended on typing order.
+        // The inventory answers in both cases.
         if (base != null && base.name == name)
           return candidate;
       }

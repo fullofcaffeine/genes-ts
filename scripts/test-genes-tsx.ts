@@ -1041,6 +1041,26 @@ runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.context-first-dom.json"
 );
 
+// Two modules each declare a private `HiddenProps` and name it as the props of
+// an extern component. `pk.Widgets` is typed last, so it is the current module
+// during generation. Haxe refuses `pk.Other.HiddenProps` from that module, so
+// the build must get the declaration from the module inventory.
+run("haxe", ["tests/genes-ts/snapshot/react/build-private-props.hxml"]);
+for (const [moduleName, expected] of [
+  ["Other", "<OtherStatus other={props.count} />"],
+  ["Widgets", "<WidgetStatus label={props.value} />"]
+] as const) {
+  const privatePropsSource = readFileSync(
+    path.join(
+      repoRoot,
+      `tests/genes-ts/snapshot/react/out/private-props/src-gen/pk/${moduleName}.tsx`
+    ),
+    "utf8"
+  );
+  ok(privatePropsSource.includes(expected),
+    `pk.${moduleName} checks its own private props typedef`);
+}
+
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx.hxml"]);
 assertNoGeneratedDomSupportGraph(
   "tests/genes-ts/snapshot/react/out/tsx/src-gen"
