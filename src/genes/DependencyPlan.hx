@@ -52,12 +52,10 @@ class DependencyImport {
       bindingFact: ImportBindingFact) {
     final expectedIntent = BindingIdentity.localIntentFor(dependency);
     if (!expectedIntent.equals(bindingFact.localIntent)
-      || !bindingFact.originMapping.localIntent.equals(
-        bindingFact.localIntent)
+      || !bindingFact.originMapping.localIntent.equals(bindingFact.localIntent)
       || !BindingIdentity.memberPathsEqual(dependency.memberPath,
         bindingFact.originMapping.memberPath)) {
-      CompilerDiagnostic.fail(
-        'GENES-IMPORT-IDENTITY-MISMATCH-001: normalized import syntax and canonical binding identity disagree',
+      CompilerDiagnostic.fail('GENES-IMPORT-IDENTITY-MISMATCH-001: normalized import syntax and canonical binding identity disagree',
         Context.currentPos());
     }
     type = dependency.type;
@@ -183,7 +181,8 @@ class DependencyEdge {
   public final provenance: DependencyProvenance;
 
   public function new(kind: DependencyEdgeKind,
-      referencedType: Null<ModuleType>, importSpec: Null<DependencyImportSpec>,
+      referencedType: Null<ModuleType>,
+      importSpec: Null<DependencyImportSpec>,
       provenance: DependencyProvenance) {
     this.kind = kind;
     this.referencedType = referencedType;
@@ -283,7 +282,8 @@ class DependencyPlan {
   public var edges(get, never): ReadOnlyArray<DependencyEdge>;
   public final usesJsxNamespaceType: Bool;
 
-  public function new(edges: Array<DependencyEdge>, usesJsxNamespaceType: Bool) {
+  public function new(edges: Array<DependencyEdge>,
+      usesJsxNamespaceType: Bool) {
     edgeValues = edges.copy();
     this.usesJsxNamespaceType = usesJsxNamespaceType;
   }
@@ -349,12 +349,10 @@ class DependencyPlan {
     }
 
     function sameBinding(left: Dependency, right: Dependency): Bool {
-      return left.bindingFact.localIntent.equals(
-        right.bindingFact.localIntent);
+      return left.bindingFact.localIntent.equals(right.bindingFact.localIntent);
     }
 
-    function attach(plan: MutableModuleRequestPlan,
-        binding: Dependency): Void {
+    function attach(plan: MutableModuleRequestPlan, binding: Dependency): Void {
       for (existing in plan.bindings)
         if (sameBinding(existing, binding))
           return;
@@ -462,26 +460,35 @@ class DependencyPlan {
 
   /** Stable declaration identity used by de-duplicated reachability queries. */
   public static function moduleTypeKey(type: ModuleType): String {
-    return switch type {
-      case TClassDecl(ref):
-        final base = ref.get();
-        'class:${TypeUtil.baseTypeFullName(base)}';
-      case TEnumDecl(ref):
-        final base = ref.get();
-        'enum:${TypeUtil.baseTypeFullName(base)}';
-      case TTypeDecl(ref):
-        final base = ref.get();
-        'typedef:${TypeUtil.baseTypeFullName(base)}';
-      case TAbstract(ref):
-        final base = ref.get();
-        'abstract:${TypeUtil.baseTypeFullName(base)}';
+    return moduleTypeKeyOf(type, moduleTypeBase(type));
+  }
+
+  /**
+   * Returns the same key as `moduleTypeKey`, for a caller that already read
+   * the declaration record. `base` must be the record of `type`.
+   *
+   * Why: each read of a declaration record makes the macro interpreter copy
+   * it. A caller that reads every declaration of the program, such as
+   * `genes.incremental.GenerationChangeSet`, passes its copy here and avoids
+   * a second one. Example: a class `User` in module `app.Models` gives
+   * `class:app.Models.User`.
+   */
+  public static function moduleTypeKeyOf(type: ModuleType,
+      base: BaseType): String {
+    final kind = switch type {
+      case TClassDecl(_): 'class';
+      case TEnumDecl(_): 'enum';
+      case TTypeDecl(_): 'typedef';
+      case TAbstract(_): 'abstract';
     }
+    return '$kind:${TypeUtil.baseTypeFullName(base)}';
   }
 
   /** Converts a declaration ref back to the applied `Type` Module consumes. */
   public static function moduleTypeToType(type: ModuleType): Type {
     return switch type {
-      case TClassDecl(ref): TInst(ref, ref.get().params.map(param -> param.t));
+      case TClassDecl(ref): TInst(ref, ref.get()
+          .params.map(param -> param.t));
       case TEnumDecl(ref): TEnum(ref, ref.get().params.map(param -> param.t));
       case TTypeDecl(ref): TType(ref, ref.get().params.map(param -> param.t));
       case TAbstract(ref):

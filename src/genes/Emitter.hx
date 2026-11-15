@@ -22,19 +22,21 @@ class Emitter {
 
   public function emitPos(pos: SourcePosition) {
     #if (debug || js_source_map)
-    switch pos {
-      case null | {file: '?'}:
-      case {column: column, line: line, file: file}:
-        if (lastPos.column != column || lastPos.line != line
-          || lastWriterLine != writer.line)
-          sourceMap.addMapping(pos, {
-            line: writer.line,
-            column: writer.column,
-            file: null
-          });
-        lastPos = pos;
-        lastWriterLine = writer.line;
-    }
+    // Only a build with source maps reads the position; see
+    // `SourcePositionData` for the cost of the read.
+    if (pos == null || pos.file == '?')
+      return;
+    final column = pos.column;
+    final line = pos.line;
+    if (lastPos.column != column || lastPos.line != line
+      || lastWriterLine != writer.line)
+      sourceMap.addMapping(pos, {
+        line: writer.line,
+        column: writer.column,
+        file: null
+      });
+    lastPos = pos;
+    lastWriterLine = writer.line;
     #end
   }
 

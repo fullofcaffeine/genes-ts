@@ -110,3 +110,24 @@ genes-ts also emits Haxe → TS maps when using `-debug`, but composing maps int
 JS → Haxe is not guaranteed in v1.
 
 See `docs/typescript-target/DEBUGGING.md`.
+
+## “`--times` shows a few seconds, but the build takes minutes” (macOS)
+
+On macOS, the numbers that Haxe 4.3.7 prints for `--times` are not seconds.
+Haxe reads the Mach clock, calculates the conversion to nanoseconds, and then
+returns the raw clock value. On Apple Silicon one raw unit is 125/3
+nanoseconds, so every row is 41.67 times too small. On a Mac whose raw unit
+is one nanosecond, the rows are seconds.
+
+Example from one Apple Silicon host: Haxe printed a total of 1.976, and the
+client measured 82.4 s. 1.976 x 125 / 3 = 82.3 s. No time was missing.
+
+What to do:
+
+- Use the wall time of the Haxe client as the absolute time.
+- Use the `--times` rows as shares of that wall time. All rows of one run use
+  the same clock.
+- Do not look for "untimed" work until you have multiplied the total.
+
+`tests/compile-stage-report/README.md` describes the same defect for the stage
+report, which records it as `known-unscaled-macos-monotonic-clock`.

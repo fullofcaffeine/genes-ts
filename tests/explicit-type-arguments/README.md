@@ -49,6 +49,19 @@ non-generic declarations, unmarked or aliased call-site targets, wrong witness
 arity, unresolved witnesses, and non-call input to one source-positioned
 diagnostic family.
 
+The `native-twins` program declares two extern classes with the same
+`@:native("Lib")` name in one Haxe module, and two more whose native names
+differ only in the package (`a.Factory`, `b.Factory`). Haxe renames such a
+class to its native name before generation, so each pair then has one Haxe
+module and one class name. Only one class of each pair has the annotation.
+The test builds the program in two orders (`build-native-twins.hxml`, and
+`build-native-twins-a-first.hxml` with `-D a_first`) and requires that the
+annotated class prints `Lib.make<number | null>(null)`, that the other class
+prints `Lib.make(null)`, and that an unannotated overload of the annotated
+class still finds its primary field. The compiler keeps the annotated fields
+of a class for one generation; this fixture fails when that kept answer of
+one class reaches its twin.
+
 Both genes-ts and classic Genes compile the same Haxe program. Only TypeScript
 source contains the explicit `<...>` syntax; classic JavaScript retains the
 ordinary calls and runtime evaluation order. No `TypeArguments` value or helper

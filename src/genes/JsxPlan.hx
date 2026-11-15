@@ -592,7 +592,7 @@ class JsxPlan {
   final localUseInventory: Map<Int, JsxLocalUseInventory> = [];
   final sourcePropsCandidates: Array<JsxSourcePropsCandidate> = [];
   final sourcePropsFacts: Array<JsxSourcePropsFact> = [];
-  final implementationExpressions = new ObjectMap<TypedExpr, Bool>();
+  final implementationExpressions = new TypedExprMap<Bool>();
   final sourceInlineFacts: Array<JsxSourceInlineFact> = [];
   final sourceInlineByChildId: Map<Int, JsxSourceInlineFact> = [];
   final sourceInlineByDeclaration = new ObjectMap<TypedExpr,
@@ -862,13 +862,19 @@ class JsxPlan {
     }
   }
 
-  /** Classifies one exact field from the internal marker extern. */
+  /**
+   * Classifies one exact field from the internal marker extern.
+   *
+   * This runs for every call of a module, so it reads the text of the two
+   * references and not the declarations (`ref.get()` copies a complete
+   * declaration, about 10 microseconds). The text of a class reference is
+   * its package and name; the text of a field reference is the field name.
+   */
   static function markerKind(callee: TypedExpr): Null<JsxMarkerKind> {
     return switch unwrap(callee).expr {
-      case TField(_, FStatic(_.get() => owner, _.get() => field))
-        if (owner.pack.join('.') == 'genes.react.internal'
-          && owner.name == 'Jsx'):
-        switch field.name {
+      case TField(_, FStatic(owner, field))
+        if (owner.toString() == 'genes.react.internal.Jsx'):
+        switch field.toString() {
           case '__jsx': ElementMarker;
           case '__frag': FragmentMarker;
           case '__hxxJsx': HxxElementMarker;

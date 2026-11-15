@@ -152,8 +152,8 @@ final class NullishContract {
   public var needsUndefinedTypeProjection(get, never): Bool;
 
   inline function get_needsUndefinedTypeProjection(): Bool {
-    return normalizeNullWriteToUndefined
-      && !explicitUndefined && !unknownBoundary;
+    return normalizeNullWriteToUndefined && !explicitUndefined
+      && !unknownBoundary;
   }
 
   /**
@@ -167,12 +167,11 @@ final class NullishContract {
     return haxeAllowsNull && !preservesUndefined;
   }
 
-  function new(site: NullishSite, declaredType: Type,
-      emittedType: Type, haxeAllowsNull: Bool, emittedAllowsNull: Bool,
-      explicitUndefined: Bool, unknownBoundary: Bool, dynamicBoundary: Bool,
-      mayBeOmitted: Bool, missingValue: NullishMissingValue,
-      emitOptionalSyntax: Bool, normalizeUndefinedReadToNull: Bool,
-      normalizeNullWriteToUndefined: Bool) {
+  function new(site: NullishSite, declaredType: Type, emittedType: Type,
+      haxeAllowsNull: Bool, emittedAllowsNull: Bool, explicitUndefined: Bool,
+      unknownBoundary: Bool, dynamicBoundary: Bool, mayBeOmitted: Bool,
+      missingValue: NullishMissingValue, emitOptionalSyntax: Bool,
+      normalizeUndefinedReadToNull: Bool, normalizeNullWriteToUndefined: Bool) {
     this.site = site;
     this.declaredType = declaredType;
     this.emittedType = emittedType;
@@ -222,16 +221,14 @@ final class NullishContract {
       return forType(type);
 
     final tsOptional = meta.has(':ts.optional');
-    final emittedType = (tsOptional || source.explicitUndefined)
-      ? stripHaxeNull(type)
-      : type;
+    final emittedType = (tsOptional || source.explicitUndefined) ? stripHaxeNull(type) : type;
     final emitted = classify(emittedType);
     final preservesUndefined = source.explicitUndefined
       || source.unknownBoundary;
     return new NullishContract(OptionalProperty, type, emittedType,
-      source.haxeAllowsNull, emitted.haxeAllowsNull,
-      source.explicitUndefined, source.unknownBoundary, source.dynamicBoundary,
-      true, MissingAsUndefined, true, !preservesUndefined, tsOptional);
+      source.haxeAllowsNull, emitted.haxeAllowsNull, source.explicitUndefined,
+      source.unknownBoundary, source.dynamicBoundary, true,
+      MissingAsUndefined, true, !preservesUndefined, tsOptional);
   }
 
   /**
@@ -248,20 +245,13 @@ final class NullishContract {
   public static function forParameter(type: Type,
       effectiveOptional: Bool): NullishContract {
     final facts = classify(type);
-    final preservesUndefined = facts.explicitUndefined
-      || facts.unknownBoundary;
-    final emittedType = effectiveOptional && preservesUndefined
-      ? stripHaxeNull(type)
-      : type;
+    final preservesUndefined = facts.explicitUndefined || facts.unknownBoundary;
+    final emittedType = effectiveOptional
+      && preservesUndefined ? stripHaxeNull(type) : type;
     final emitted = classify(emittedType);
-    final missing = if (!effectiveOptional)
-      NoMissingValue
-    else if (preservesUndefined)
-      MissingAsUndefined
-    else if (facts.haxeAllowsNull)
-      MissingAsNull
-    else
-      MissingAsUndefined;
+    final missing = if (!effectiveOptional) NoMissingValue else
+      if (preservesUndefined) MissingAsUndefined else if (facts.haxeAllowsNull)
+        MissingAsNull else MissingAsUndefined;
     return new NullishContract(effectiveOptional ? OptionalParameter : Value,
       type, emittedType, facts.haxeAllowsNull, emitted.haxeAllowsNull,
       facts.explicitUndefined, facts.unknownBoundary, facts.dynamicBoundary,
@@ -286,13 +276,11 @@ final class NullishContract {
    * Marks iterator completion, whose JavaScript payload absence is
    * `undefined` rather than Haxe `null`.
    */
-  public static function forIteratorCompletion(
-      elementType: Type): NullishContract {
+  public static function forIteratorCompletion(elementType: Type): NullishContract {
     final facts = classify(elementType);
     return new NullishContract(IteratorCompletion, elementType, elementType,
-      facts.haxeAllowsNull, facts.haxeAllowsNull, true,
-      facts.unknownBoundary, facts.dynamicBoundary, false,
-      MissingAsUndefined, false, false, false);
+      facts.haxeAllowsNull, facts.haxeAllowsNull, true, facts.unknownBoundary,
+      facts.dynamicBoundary, false, MissingAsUndefined, false, false, false);
   }
 
   /**
@@ -337,36 +325,20 @@ final class NullishContract {
       };
 
     return switch type {
-      case TAbstract(_.get() => {
-        module: 'genes.ts.Undefinable',
-        name: 'Undefinable'
-      }, params):
-        final inner = params.length == 1 ? classify(params[0], depth + 1) : emptyFacts();
-        {
-          haxeAllowsNull: inner.haxeAllowsNull,
-          explicitUndefined: true,
-          unknownBoundary: inner.unknownBoundary,
-          dynamicBoundary: inner.dynamicBoundary
-        };
-      case TAbstract(_.get() => {
-        module: 'genes.ts.Unknown',
-        name: 'Unknown'
-      }, _):
-        {
-          haxeAllowsNull: false,
-          explicitUndefined: false,
-          unknownBoundary: true,
-          dynamicBoundary: false
-        };
-      case TAbstract(_.get() => {pack: [], name: 'Null'}, [inner]) |
-        TType(_.get() => {pack: [], name: 'Null'}, [inner]):
-        final nested = classify(inner, depth + 1);
-        {
-          haxeAllowsNull: true,
-          explicitUndefined: nested.explicitUndefined,
-          unknownBoundary: nested.unknownBoundary,
-          dynamicBoundary: nested.dynamicBoundary
-        };
+      case TAbstract(ref, params):
+        // This runs for almost every type that an emitter prints. The text
+        // of the reference (package and name) answers for nearly all of
+        // them, so the declaration is read (`ref.get()`, about 10
+        // microseconds) only for a name that can be a Genes boundary type.
+        final path = ref.toString();
+        if (path == 'Null') {
+          params.length == 1 ? nullableFacts(params[0], depth) : emptyFacts();
+        } else {
+          final name = path.substr(path.lastIndexOf('.') + 1);
+          name == 'Undefinable'
+          || name == 'Unknown' ? classifyBoundaryAbstract(ref.get(), params,
+            depth) : emptyFacts();
+        }
       case TDynamic(_):
         {
           haxeAllowsNull: true,
@@ -382,13 +354,60 @@ final class NullishContract {
           unknownBoundary: false,
           dynamicBoundary: false
         } : classify(inner, depth + 1);
-      case TType(_, _):
-        classify(Context.follow(type), depth + 1);
+      case TType(ref, params):
+        // The old `Null<T>` typedef has no package, so its text is `Null`.
+        if (params.length == 1 && ref.toString() == 'Null') {
+          nullableFacts(params[0], depth);
+        } else {
+          classify(Context.follow(type), depth + 1);
+        }
       case TLazy(f):
         classify(f(), depth + 1);
       default:
         emptyFacts();
     }
+  }
+
+  /** Facts of `Null<inner>`: Haxe allows `null`, the rest comes from `inner`. */
+  static function nullableFacts(inner: Type, depth: Int): NullishTypeFacts {
+    final nested = classify(inner, depth + 1);
+    return {
+      haxeAllowsNull: true,
+      explicitUndefined: nested.explicitUndefined,
+      unknownBoundary: nested.unknownBoundary,
+      dynamicBoundary: nested.dynamicBoundary
+    };
+  }
+
+  /**
+   * Classifies an abstract whose name is `Undefinable` or `Unknown`.
+   *
+   * Only the two declarations of `genes.ts` have a meaning here; the module
+   * of the declaration decides, as before. Any other abstract with one of
+   * these names is an ordinary type.
+   */
+  static function classifyBoundaryAbstract(declaration: AbstractType,
+      params: Array<Type>, depth: Int): NullishTypeFacts {
+    if (declaration.module == 'genes.ts.Undefinable'
+      && declaration.name == 'Undefinable') {
+      final inner = params.length == 1 ? classify(params[0],
+        depth + 1) : emptyFacts();
+      return {
+        haxeAllowsNull: inner.haxeAllowsNull,
+        explicitUndefined: true,
+        unknownBoundary: inner.unknownBoundary,
+        dynamicBoundary: inner.dynamicBoundary
+      };
+    }
+    if (declaration.module == 'genes.ts.Unknown'
+      && declaration.name == 'Unknown')
+      return {
+        haxeAllowsNull: false,
+        explicitUndefined: false,
+        unknownBoundary: true,
+        dynamicBoundary: false
+      };
+    return emptyFacts();
   }
 
   static inline function emptyFacts(): NullishTypeFacts {

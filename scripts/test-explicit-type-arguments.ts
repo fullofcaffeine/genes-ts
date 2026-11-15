@@ -279,6 +279,55 @@ rejectText(
   "occurrence-local type facts must remain compiler-only"
 );
 
+// Haxe renames a class with `@:native("Lib")` to `Lib` before generation, so
+// two such classes of one module then share a module and a name. Each class
+// must keep its own annotations, whichever class the emitter sees first.
+const nativeTwinCases = [
+  { hxml: "build-native-twins.hxml", output: "native-twins", unannotatedFirst: false },
+  { hxml: "build-native-twins-a-first.hxml", output: "native-twins-a-first", unannotatedFirst: true }
+] as const;
+
+for (const twinCase of nativeTwinCases) {
+  run("haxe", [`tests/explicit-type-arguments/${twinCase.hxml}`]);
+  const twinSource = readFileSync(
+    path.join(fixtureRoot, "out", twinCase.output, "NativeTwinsMain.ts"),
+    "utf8"
+  );
+  const order = twinCase.unannotatedFirst ? "unannotated class first" : "annotated class first";
+  requireText(
+    twinSource,
+    "const first: number | null = Lib.make(null)",
+    `an unannotated class must not take the annotation of its native twin (${order})`
+  );
+  requireText(
+    twinSource,
+    "const second: number | null = Lib.make<number | null>(null)",
+    `an annotated class must keep its annotation beside a native twin (${order})`
+  );
+  requireText(
+    twinSource,
+    "const third: number | null = Lib.make(null)",
+    `a later call of the unannotated class must stay inferred (${order})`
+  );
+  requireText(
+    twinSource,
+    "const inferred: number | null = a.Factory.build(null)",
+    `native names that differ only in the package are different classes (${order})`
+  );
+  requireText(
+    twinSource,
+    "const explicit: number | null = b.Factory.build<number | null>(null)",
+    `the annotated class of a package twin must keep its annotation (${order})`
+  );
+  if (twinCase.unannotatedFirst) {
+    requireText(
+      twinSource,
+      "const viaOverload: string[] = Lib.over<string>()",
+      "an unannotated overload must still find its annotated primary field after the twin was read"
+    );
+  }
+}
+
 for (const testCase of negativeCases) {
   rmSync(negativeOutputRoot, { recursive: true, force: true });
   const result = spawnSync("haxe", [testCase.hxml], {

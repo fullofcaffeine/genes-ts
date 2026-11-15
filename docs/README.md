@@ -64,6 +64,10 @@ agents and human contributors should read the scoped guide directly.
   boundaries, todoapp E2E, and “one command” gates
 - `HAXE_C_PERFORMANCE_PRACTICES.md` — which measured haxe.c performance
   practices transfer to Genes, which already exist, and which do not fit
+- `INCREMENTAL_AFTER_TYPING.md` — design and proof: when the passes after
+  typing may keep typed values between requests of a warm compiler server.
+  Implemented so far (section 10): the keep rule and the plain React audit
+  record, off by default; no typed value is kept
 - [`../tests/testing-strategy/agent-test-routing.json`](../tests/testing-strategy/agent-test-routing.json)
   — validated change-area routing to focused, acceptance, and full/release gates
 - [`../tooling/README.md`](../tooling/README.md) — what the optional

@@ -538,7 +538,12 @@ function writeDescriptor(): void {
     .digest("hex");
   writeFileSync(
     descriptorFile,
-    JSON.stringify({ format: 1, programDigest: digest, kind: "full" })
+    JSON.stringify({
+      format: 1,
+      programDigest: digest,
+      kind: "full",
+      generation: "shadow"
+    })
   );
 }
 

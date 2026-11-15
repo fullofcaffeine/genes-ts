@@ -103,6 +103,32 @@ maps fixture locations to compiler surfaces.
   or a typed value that you already hold. A macro that runs while Haxe types
   a module may still look up by name: that dependency is a real one. The
   retyped-module case of `yarn test:compiler-server` protects this rule.
+- A map with typed expressions as keys must be a `genes.TypedExprMap`, not
+  a `haxe.ds.ObjectMap`, when it can get more than about 500 keys. Example:
+  one entry for each expression of a module. The Haxe 4.3.7 macro interpreter
+  gives every `ObjectMap` key the same hash, so each `set`, `get`, or `exists`
+  compares the key with every stored key; 20,000 keys need about 200 million
+  comparisons. Below about 500 keys an `ObjectMap` is correct and faster,
+  because `TypedExprMap` reads one source position (about one microsecond) for
+  each operation.
+- `ref.get()` on a declaration reference is not a field read. Haxe copies the
+  complete declaration into a new macro value, which takes about 10
+  microseconds. In code that runs for every typed expression, read
+  `ref.toString()` first when that text can answer the question, as
+  `JsonTypeQuery.search` does. The text is the dotted path of the
+  declaration, and it does not always contain the package of its module: a
+  class or enum with `@:native` has its native path, a type parameter of a
+  method is `method.T`, and the typedef for a class used as a value is
+  `Class<path>`. Use the text only to skip `ref.get()` when it proves the
+  answer; read the declaration for the exact fact. Two cases are exact: the
+  text of a class, enum, typedef, or abstract reference is always its `pack`
+  and `name` joined with dots, so it can replace a comparison of these two
+  fields (`NullishContract.classify`, `JsxPlan.markerKind`); and the text of
+  a field reference is the field name. The text cannot replace a comparison
+  of `module`. `tests.referencetext.ReferenceTextProbe` (in `yarn test`)
+  pins both cases. A cache key built from `module` and `name` is not exact
+  either: Haxe renames a `@:native("Lib")` class to `Lib` before generation,
+  so two classes of one module can then share both.
 - `extraParams.hxml` enables recursive Haxe Loose null safety for the owned
   `genes.*` implementation before `Generator.use()` can load compiler types.
   Keep any `@:nullSafety(Off)` statement local, documented at the mismatch, and

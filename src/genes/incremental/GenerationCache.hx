@@ -89,7 +89,8 @@ typedef CacheRequestFacts = {
  *
  * Clean rules, all must hold:
  *
- * 1. the session key equals the stored key;
+ * 1. the session key equals the stored key (the one key of
+ *    `GenerationChangeSet`, which the passes after typing also read);
  * 2. the module has an entry from the last successful generation;
  * 3. its epoch list is equal (Haxe did not type it again, and no declaration
  *    was added or removed);

@@ -85,8 +85,10 @@ class TypedModuleInventory {
 
   /**
    * Starts an empty inventory for the current request and fills it after
-   * typing. The same callback gives each array to the incremental change set,
-   * so that one owner sees every declaration once.
+   * typing. The callback only collects: the stamps of the incremental path
+   * are added by `GenerationChangeSet.observe`, which `AfterTypingPasses.run`
+   * calls, so this callback keeps its own place in Haxe's callback order and
+   * an error of a pass cannot stop it.
    */
   public static function install(): Void {
     pending = [];
@@ -95,10 +97,7 @@ class TypedModuleInventory {
     asker = null;
     witnessed = new Map();
     fallbacks = new Map();
-    Context.onAfterTyping(types -> {
-      pending.push(types);
-      genes.incremental.GenerationChangeSet.observe(types);
-    });
+    Context.onAfterTyping(types -> pending.push(types));
   }
 
   /**

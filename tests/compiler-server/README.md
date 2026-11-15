@@ -54,6 +54,52 @@ compiles have a three-minute deadline under repository background scheduling
 the prior 60-second stable and 120-second preview limits, and the synthetic
 lifecycle timeout remains independently short.
 
+`yarn test:compiler-server:kept-types` is a separate proof, not part of the
+complete owner. It answers one question for the incremental work: when is a
+typed value that a macro keeps from an earlier request still correct? It uses
+the project `templates/kept-types`, `probes/KeptTypeValuesProbe.hx` and
+`RetypedModulesProbe`, in two lanes: Haxe alone, and Haxe with the Genes
+TypeScript generator. It compares no generated file. See
+[`docs/INCREMENTAL_AFTER_TYPING.md`](../../docs/INCREMENTAL_AFTER_TYPING.md)
+for the cases and the result.
+
+`yarn test:compiler-server:after-typing` is the gate for the keep rule of the
+passes after typing (`-D genes.dev_incremental`, off by default). It runs the
+edit lists of project A and of `templates/kept-types`, plus one React audit
+error, in a new Haxe process without the define (the cold oracle) and on four
+warm servers: `plain` (no define), `measure` (stamps and records, no skipped
+work), `reuse` (the React audit skips each class whose record the keep rule
+keeps) and `compare` (every audit runs; a class with a kept record that fails
+is an error). Each warm tree and each diagnostic must equal cold. In each
+request with no edit the kept records must be above 0, and in `reuse` the
+skipped audits too, so the gate cannot pass empty. `--modes=reuse,compare`
+runs only the named warm modes. The request report is the file
+`<descriptor>.after-typing.json` beside the request descriptor; it is never
+in the output tree.
+
+The same gate has a lane `diagnostic-order`, also for builds without the
+define. Haxe ends an after-typing callback at its first `Context.error` and
+still runs the next callback. The lane requires the errors of both callbacks
+in Haxe's order: "@:genes.library does not accept arguments" and then
+`GENES-MODULE-DIRECTIVE-ARITY-001` in the usual macro order; the directive
+error and then the audit error when `Generator.use()` runs twice or after
+the React install. Three single checks follow: `probes/KeepRuleProbe.hx`
+(each condition of the keep rule on its own), a program with an `@:rtti`
+class (the request leaves the incremental path and equals cold), and a
+report file that cannot be written (one warning, never a failed build).
+
+Mutation check, by hand, when the keep rule changes. The gate has no
+automatic step for it, because it needs a broken copy of the compiler source.
+In `GenerationChangeSet.keep`, remove the rejects for `TypedAgain`,
+`StampNamesOtherDeclaration` and `StampDiffers`, then run
+`yarn test:compiler-server:after-typing --modes=reuse` and
+`--modes=compare`. Expected: `reuse` stops at the step "a Hook call inside a
+condition (audit error)" with "did not fail", because the skipped audit hid
+the diagnostic; `compare` stops there with `GENES-INCREMENTAL-AUDIT-001`.
+Restore the file afterwards. Removing only one of the two stamp rejects
+shows nothing in a lane: the other one rejects the same records. That is
+why `KeepRuleProbe` exists.
+
 Run the complete stable owner with `yarn test:compiler-server`. Use
 `yarn test:compiler-server:rollback` when changing exception handling,
 transaction cleanup, or the Haxe preview lane: it executes only the TS/classic
@@ -127,9 +173,17 @@ After each edit the same TSX request (with source maps) runs three times:
 - on a warm server without `-D genes.dev_incremental`: **G0**, the warm tree
   equals the cold tree with no cache, and **G2**, `probes/EpochStampProbe.hx`
   finds no epoch stamp;
-- on a second warm server with the define: **G1**, the published tree equals
-  the cold tree, and the shadow report beside the request descriptor lists 0
-  mismatches for the modules that the clean rules call clean.
+- on a second warm server with the define and a request descriptor that
+  selects the shadow (`"generation": "shadow"`): **G1**, the published tree
+  equals the cold tree, and the shadow report beside the request descriptor
+  (`<descriptor>.report.json`) lists 0 mismatches for the modules that the
+  clean rules call clean.
+
+The shadow and the passes after typing (previous section) use one request
+owner. `IncrementalRequest` decides the mode, and `GenerationChangeSet` adds
+the stamps and builds the session key once after typing; the shadow only
+reads them. A descriptor without `generation`, or with `"full"`, runs no
+shadow and writes no shadow report.
 
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic

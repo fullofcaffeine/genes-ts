@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp tests/explicit-type-arguments/native-twins
+--main NativeTwinsMain
+
+-js tests/explicit-type-arguments/out/native-twins-a-first/index.ts
+-D genes.ts
+-D js-es=6
+-dce full
+-D a_first

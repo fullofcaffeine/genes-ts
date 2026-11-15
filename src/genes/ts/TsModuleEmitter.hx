@@ -550,7 +550,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     // structural type-parameter binding contract.
     final explicitCallSite = currentExplicitTypeArguments;
     final declarationTypeArguments = ExplicitTypeArguments.forCall(e,
-      explicitCallSite);
+      explicitCallSite,
+      currentModule == null ? null : currentModule.explicitTypeArgumentDeclarations());
     if (explicitCallSite != null && declarationTypeArguments != null) {
       // A carrier belongs to one direct call occurrence. Clear it as soon as
       // that call claims the witness so a nested call to the same extern field

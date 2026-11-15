@@ -89,8 +89,9 @@ class Generator {
     final outputIdentity = Path.withoutDirectory(Path.normalize(outputFile));
     final outputTransaction = new OutputTransaction(outputDir, outputIdentity);
     endTransactionSetupTimer();
-    // Without `-D genes.dev_incremental` this returns at once and every hook
-    // below does nothing, so the request runs exactly as before.
+    // Without `-D genes.dev_incremental`, or when the request descriptor does
+    // not select the shadow, this returns at once and every hook below does
+    // nothing, so the request runs exactly as before.
     IncrementalShadow.start(outputFile, outputTransaction);
 
     try {
@@ -125,6 +126,8 @@ class Generator {
   static function generateTransactional(api: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction): Void {
     final endInventoryTimer = timer('genes.plan.inventory');
+    // Typing and Haxe's filters are complete: declaration names are final.
+    TypeUtil.startGenerationNames();
     ModuleDirectivePlan.validate();
     final toGenerate = typesPerModule(api.types);
     final extension = Path.extension(outputFile);
@@ -202,7 +205,9 @@ class Generator {
       modules: modules,
       hasFeature: api.hasFeature,
       // One catalog for this request only; see JsxProviderSchemaCatalog.
-      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog()
+      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog(),
+      // One catalog for this request only; see the class comment.
+      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations()
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)
@@ -738,13 +743,8 @@ class Generator {
       LibraryProfile.validate();
       // A second `Generator.use()` in one request must not register a second
       // capture: each module list would then hold every declaration twice.
-      if (!alreadyInstalled) {
-        // The incremental request and its change set belong to one request;
-        // the change set is filled by the inventory's after-typing callback.
-        genes.incremental.IncrementalRequest.reset();
-        genes.incremental.GenerationChangeSet.reset();
+      if (!alreadyInstalled)
         TypedModuleInventory.install();
-      }
       ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.

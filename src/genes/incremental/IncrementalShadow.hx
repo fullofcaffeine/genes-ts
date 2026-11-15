@@ -2,12 +2,9 @@ package genes.incremental;
 
 #if macro
 import haxe.Json;
-import haxe.crypto.Sha256;
 import haxe.io.Path;
-import haxe.macro.Compiler;
 import haxe.macro.Context;
 import haxe.macro.Type;
-import sys.FileSystem;
 import sys.io.File;
 import genes.incremental.GenerationCache;
 import genes.incremental.IncrementalRequest;
@@ -44,8 +41,9 @@ typedef ShadowModuleReport = {
 
 /** Time spent by the shadow itself, in milliseconds. */
 typedef ShadowOverhead = {
+  /** Stamps and session key of `GenerationChangeSet`, shared with the passes. */
   final changeSetMs: Float;
-  final sessionKeyMs: Float;
+
   final fingerprintMs: Float;
   final decideMs: Float;
   final recordMs: Float;
@@ -99,8 +97,9 @@ typedef ShadowReport = {
  * commit does it compare the stored files of the clean modules with the files
  * that it just staged.
  *
- * What: `start` returns at once without `-D genes.dev_incremental`. With the
- * define, the generator calls the hooks below. They record:
+ * What: `start` returns at once unless the request descriptor selects the
+ * shadow (`"generation": "shadow"`, see `IncrementalRequest`). Then the
+ * generator calls the hooks below. They record:
  *
  * - the staged text of each module's files (through
  *   `OutputTransaction.onRegister`);
@@ -115,21 +114,34 @@ typedef ShadowReport = {
  * After the commit, `committed` compares, stores the new plain-data cache and
  * writes the report. A failed request writes a report and keeps the cache.
  *
+ * One owner for the request facts: the shadow decides no eligibility, adds
+ * no stamp and builds no key. It reads the mode from `IncrementalRequest`,
+ * and the epochs, the modules typed again and the session key from
+ * `GenerationChangeSet`, which computed them once after typing. The passes
+ * after typing read the same values.
+ *
  * Results in the report: `off` (outside the supported scope), `full` (no
  * usable cache, a fallback, or a lookup by name during generation),
  * `restart-required` (only a new compiler process gives cold output), and
  * `incremental` (the clean rules applied; slice 1 still generated in full).
  *
- * Lifetime: one instance for one request, kept in an ordinary static. It
- * holds compiler-owned values only until the request ends; the cache that
- * outlives it is plain data.
+ * The report is evidence, not output. It is written only for a request
+ * whose descriptor selects the shadow. A request that left the incremental
+ * path before its descriptor was read writes only the after-typing report,
+ * which names the reason. When the file cannot be written, the request gets
+ * one warning and goes on.
+ *
+ * Lifetime: one instance for one request, kept in an ordinary static that
+ * Haxe replaces at the start of each compilation. It holds compiler-owned
+ * values only until the request ends; the cache that outlives it is plain
+ * data.
  */
 class IncrementalShadow {
   static inline final REPORT_FORMAT = 1;
   static inline final LINE_LIMIT = 240;
   static inline final MISMATCH_LIMIT = 200;
 
-  @:persistent static var current: Null<IncrementalShadow> = null;
+  static var current: Null<IncrementalShadow> = null;
 
   final reportFile: String;
   final started: Float;
@@ -146,7 +158,6 @@ class IncrementalShadow {
   var clockModule: Null<String> = null;
   var clockPhase: IncrementalPhase = Plan;
   var clockStart = 0.0;
-  var sessionKeySeconds = 0.0;
   var fingerprintSeconds = 0.0;
   var decideSeconds = 0.0;
   var recordSeconds = 0.0;
@@ -159,40 +170,46 @@ class IncrementalShadow {
   }
 
   /**
-   * Starts the shadow for one generation. Without the define this sets
-   * nothing and returns, so the request runs exactly as before.
+   * Starts the shadow for one generation. Without the define, or when the
+   * descriptor does not select the shadow, this sets nothing and returns, so
+   * the request runs exactly as before.
+   *
+   * A request that selected the shadow and then left the incremental path
+   * (an `@:rtti` class), or that the shadow cannot serve, still gets a report
+   * with the result `off` and the reason. The second case does not turn the
+   * request mode off: the passes after typing have already used it.
    */
   public static function start(outputFile: String,
       transaction: OutputTransaction): Void {
     current = null;
-    switch IncrementalRequest.mode() {
+    final descriptor = IncrementalRequest.requestedDescriptor();
+    if (descriptor == null || descriptor.generation != Shadow)
+      return;
+    final reportFile = IncrementalRequest.generationReportPath(descriptor.path);
+    final unsupported = switch IncrementalRequest.mode() {
       case Absent:
         return;
-      case Off(path, why):
-        if (path.length > 0)
-          current = new IncrementalShadow(IncrementalRequest.reportPath(path),
-            false, why);
-        return;
-      case Shadow(descriptor):
+      case Off(_, why):
+        why;
+      case On(_):
         final extension = Path.extension(outputFile);
-        if (extension != 'ts' && extension != 'tsx') {
-          IncrementalRequest.turnOff('only .ts and .tsx output is supported');
-          current = new IncrementalShadow(IncrementalRequest.reportPath(descriptor.path),
-            false,
-            'only .ts and .tsx output is supported');
-          return;
-        }
-        final shadow = new IncrementalShadow(IncrementalRequest.reportPath(descriptor.path),
-          true, null);
-        current = shadow;
-        final keyStart = haxe.Timer.stamp();
-        shadow.sessionKey = sessionKeyOf(descriptor, outputFile);
-        shadow.sessionKeySeconds = haxe.Timer.stamp() - keyStart;
-        TypedModuleInventory.startRecording();
-        HaxePrinterUse.record();
-        transaction.onRegister = (relative,
-          content) -> shadow.record(relative, content);
+        if (extension != 'ts' && extension != 'tsx')
+          'only .ts and .tsx output is supported'; else
+          if (GenerationChangeSet.sessionKey() == null)
+            'no declaration was stamped after typing'; else null;
     }
+    if (unsupported != null) {
+      current = new IncrementalShadow(reportFile, false, unsupported);
+      return;
+    }
+    final shadow = new IncrementalShadow(reportFile, true, null);
+    current = shadow;
+    final key = GenerationChangeSet.sessionKey();
+    shadow.sessionKey = key == null ? '' : key;
+    TypedModuleInventory.startRecording();
+    HaxePrinterUse.record();
+    transaction.onRegister = (relative,
+      content) -> shadow.record(relative, content);
   }
 
   /**
@@ -390,7 +407,6 @@ class IncrementalShadow {
       });
     }
     final overheadSeconds = changeSetSeconds
-      + sessionKeySeconds
       + fingerprintSeconds
       + decideSeconds
       + recordSeconds
@@ -431,7 +447,6 @@ class IncrementalShadow {
       cacheStored: stored,
       overhead: {
         changeSetMs: milliseconds(changeSetSeconds),
-        sessionKeyMs: milliseconds(sessionKeySeconds),
         fingerprintMs: milliseconds(fingerprintSeconds),
         decideMs: milliseconds(decideSeconds),
         recordMs: milliseconds(recordSeconds),
@@ -441,7 +456,14 @@ class IncrementalShadow {
       },
       modules: moduleReports
     };
-    File.saveContent(reportFile, Json.stringify(report, null, '  ') + '\n');
+    try {
+      File.saveContent(reportFile, Json.stringify(report, null, '  ') + '\n');
+    } catch (error:haxe.Exception) {
+      Context.warning('[GENES-INCREMENTAL-REPORT-002] Genes cannot write the '
+        + 'generation report $reportFile (${error.message}). The build '
+        + 'continues without it.',
+        Context.currentPos());
+    }
   }
 
   /**
@@ -554,53 +576,6 @@ class IncrementalShadow {
     final sortedNames = names == null ? [] : names.copy();
     sortedNames.sort(compareStrings);
     return ModuleFingerprint.of(types, directives, sortedNames);
-  }
-
-  /**
-   * Builds the session key: every input of a module's output that is the same
-   * for all modules. A different key drops the cache.
-   */
-  static function sessionKeyOf(descriptor: IncrementalDescriptor,
-      outputFile: String): String {
-    final buffer = new StringBuf();
-    buffer.add('format ${GenerationCache.FORMAT}\n');
-    buffer.add('program ${descriptor.programDigest}\n');
-    buffer.add('output ${Path.normalize(FileSystem.absolutePath(outputFile))}\n');
-    buffer.add('cwd ${Path.normalize(Sys.getCwd())}\n');
-    final defines = Context.getDefines();
-    final names = [for (name in defines.keys()) name];
-    names.sort(compareStrings);
-    for (name in names)
-      buffer.add('define $name=${defines.get(name)}\n');
-    for (classPath in Context.getClassPath())
-      buffer.add('classpath $classPath\n');
-    // Haxe may keep the macro interpreter, and the persistent cache, when a
-    // Genes source file changes in place. The status of each file under the
-    // Genes class path makes such an edit change the key.
-    final generator = try Context.resolvePath('genes/Generator.hx')
-    catch (_:haxe.Exception) null;
-    if (generator != null) {
-      final root = Path.directory(Path.directory(FileSystem.absolutePath(generator)));
-      addSourceStatus(buffer, root, '');
-    }
-    return Sha256.encode(buffer.toString());
-  }
-
-  static function addSourceStatus(buffer: StringBuf, root: String,
-      relative: String): Void {
-    final directory = relative.length == 0 ? root : Path.join([root, relative]);
-    final entries = FileSystem.readDirectory(directory);
-    entries.sort(compareStrings);
-    for (entry in entries) {
-      final child = relative.length == 0 ? entry : relative + '/' + entry;
-      final path = Path.join([root, child]);
-      if (FileSystem.isDirectory(path)) {
-        addSourceStatus(buffer, root, child);
-      } else if (entry.length > 3 && entry.substr(entry.length - 3) == '.hx') {
-        final status = FileSystem.stat(path);
-        buffer.add('source $child ${status.size} ${status.mtime.getTime()}\n');
-      }
-    }
   }
 
   static function isExternClass(type: Type): Bool {

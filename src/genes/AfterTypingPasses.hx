@@ -1,6 +1,8 @@
 package genes;
 
 #if macro
+import genes.incremental.GenerationChangeSet;
+import genes.incremental.GenerationChangeSet.StampedDeclaration;
 import haxe.macro.Context;
 import haxe.macro.Type;
 
@@ -33,14 +35,24 @@ class AfterTypingClass {
    */
   public final ownerKey: String;
 
+  /**
+   * How this class arrived in the request, with the stamp that it carries
+   * now. It is `null` unless the request uses the incremental path
+   * (`-D genes.dev_incremental`, see `GenerationChangeSet`). A pass that
+   * keeps a record between requests gives this value to the keep rule.
+   */
+  public final stamp: Null<StampedDeclaration>;
+
   var instanceFields: Null<Array<ClassField>> = null;
   var staticFields: Null<Array<ClassField>> = null;
   var constructorField: Null<ClassField> = null;
   var constructorRead = false;
   var bodies: Null<Map<String, Null<TypedExpr>>> = null;
+  var members: Null<String> = null;
 
-  public function new(type: ClassType) {
+  public function new(type: ClassType, ?stamp: StampedDeclaration) {
     this.type = type;
+    this.stamp = stamp;
     final declaredPath = type.pack.concat([type.name]).join('.');
     this.ownerKey = declaredPath == type.module ? declaredPath : type.module
       + '.'
@@ -71,6 +83,32 @@ class AfterTypingClass {
       constructorField = reference == null ? null : reference.get();
     }
     return constructorField;
+  }
+
+  /**
+   * Returns the member list of the class as one text: the names of the static
+   * fields, of the instance fields, and whether the class has a constructor
+   * and an `__init__` body. Example: `S:make,plain|I:value|C:1|N:0`.
+   *
+   * Why: Haxe can add a member to a class that it did not type again. The
+   * first use of a `@:generic` method from another module adds one static
+   * field for that use, for example `make_Int`. The stamp of the class does
+   * not change then. A record of an earlier request is valid only for the
+   * same member list (condition 6 of the keep rule).
+   */
+  public function memberList(): String {
+    final known = members;
+    if (known != null)
+      return known;
+    final text = 'S:'
+      + [for (field in statics()) field.name].join(',') + '|I:' +
+        [for (field in fields()) field.name].join(',')
+        + '|C:'
+        + (constructor() == null ? '0' : '1')
+        + '|N:'
+        + (type.init == null ? '0' : '1');
+    members = text;
+    return text;
   }
 
   /**
@@ -113,22 +151,39 @@ class AfterTypingClass {
  * after all classes; it reads the other declaration kinds there, and it can
  * rely on its class function having seen every class.
  *
+ * Stamps before passes: a pass that keeps a record between requests must
+ * know, before it reads a class, whether Haxe typed that class again. One
+ * owner, `genes.incremental.GenerationChangeSet`, answers that with a stamp
+ * on each declaration. `run` calls it first, so the answer exists before the
+ * first pass of this callback, in every order of the `install()` calls.
+ * Nothing else adds stamps. Without `-D genes.dev_incremental` that call
+ * returns at once and reads nothing.
+ *
  * Order: for one class, the passes run in the order of their `add` calls.
  * Haxe 4.3.7 runs `onAfterTyping` callbacks in reverse order of registration.
- * Before this walk, the order was: the React audit over the whole program,
- * then `SignatureCache`, then `PublicSurface`, then `ModuleDirectivePlan`.
- * Now it is: this walk for each class (`PublicSurface`, `SignatureCache`, the
- * React audit), then the declaration functions, then `ModuleDirectivePlan`.
- * This changes no result. No pass reads a fact of another pass during the
+ * In the usual order of the init macros (`Generator.use()` first), the order
+ * is: this walk for each class (`PublicSurface`, `SignatureCache`, the React
+ * audit), then the declaration functions, then `ModuleDirectivePlan`, then
+ * `TypedModuleInventory`. No pass reads a fact of another pass during the
  * walk. The class functions of `PublicSurface` and `SignatureCache` raise no
  * errors, and the audit adds no metadata.
  *
+ * Why `ModuleDirectivePlan` and `TypedModuleInventory` keep callbacks of
+ * their own: Haxe isolates callbacks, not statements. `Context.error`
+ * reports the error and then ends the callback that called it; macro code
+ * cannot catch that. The next callback still runs. Example: with
+ * `-D genes.library`, `LibraryProfile.retain` reports
+ * "@:genes.library does not accept arguments" from this walk, and the
+ * module-directive callback still reports a wrong `@:genes.moduleDirective`
+ * in the same build. If those captures ran at the end of this walk, the
+ * second error would be lost. Their own callbacks also keep their place in
+ * Haxe's order when `Generator.use()` runs twice or after the React install.
+ *
  * Errors: the React audit is not the only pass that can report an error. The
  * declaration function of `PublicSurface` calls `LibraryProfile.retain`,
- * which can call `Context.error`. The audit runs before it in the old order
- * and in the new order, so the first reported error is the same. A diagnostic
- * of a class function stops the compilation at the first class that has one,
- * as before.
+ * which can call `Context.error`. The audit runs before it in this walk, so
+ * its error comes first. A diagnostic of the audit is fatal: it stops the
+ * compilation at the first class that has one.
  *
  * Lifetime: the lists are ordinary statics, not `@:persistent`. Haxe replaces
  * them at the start of each compilation on a compiler server, and each
@@ -157,10 +212,19 @@ class AfterTypingPasses {
   }
 
   static function run(types: Array<ModuleType>): Void {
-    for (type in types) {
+    // `observed` is `null` unless this request uses the incremental path.
+    // Then it holds, for each class, the copy of the class record that the
+    // change set already read, so that the walk does not copy it again.
+    final observed = GenerationChangeSet.observe(types);
+    final walkStart = observed == null ? 0.0 : haxe.Timer.stamp();
+    for (index => type in types) {
       switch type {
         case TClassDecl(reference):
-          final current = new AfterTypingClass(reference.get());
+          final seen = observed == null ? null : observed[index];
+          final current = seen == null ? new AfterTypingClass(reference.get()) : new AfterTypingClass(seen.type,
+            seen.stamp);
+          if (current.stamp != null)
+            GenerationChangeSet.readMembers(current.memberList);
           for (visit in classPasses)
             visit(current);
         default:
@@ -168,6 +232,8 @@ class AfterTypingPasses {
     }
     for (visit in declarationPasses)
       visit(types);
+    if (observed != null)
+      GenerationChangeSet.finish(haxe.Timer.stamp() - walkStart);
   }
 }
 #end
