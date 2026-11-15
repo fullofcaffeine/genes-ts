@@ -158,7 +158,7 @@ final class LexicalBindingRequest {
 final class LexicalBindingUsePlan {
   final module: Module;
   final scopes: Array<MutableLexicalScope>;
-  final expressionScopes: ObjectMap<TypedExpr, Int>;
+  final expressionScopes: TypedExprMap<Int>;
   final functionScopes: ObjectMap<TFunc, Int>;
   final scopeFunctions: Map<Int, TFunc>;
   final occurrences: Array<RuntimeAuthorityOccurrence>;
@@ -177,7 +177,7 @@ final class LexicalBindingUsePlan {
   }
 
   public function new(module: Module, scopes: Array<MutableLexicalScope>,
-      expressionScopes: ObjectMap<TypedExpr, Int>,
+      expressionScopes: TypedExprMap<Int>,
       functionScopes: ObjectMap<TFunc, Int>, scopeFunctions: Map<Int, TFunc>,
       occurrences: Array<RuntimeAuthorityOccurrence>,
       moduleOccurrences: Array<RuntimeAuthorityOccurrence>,
@@ -583,7 +583,7 @@ final class LexicalBindingUsePlan {
 private final class LexicalBindingUsePlanBuilder {
   final module: Module;
   final scopes: Array<MutableLexicalScope> = [];
-  final expressionScopes = new ObjectMap<TypedExpr, Int>();
+  final expressionScopes = new TypedExprMap<Int>();
   final functionScopes = new ObjectMap<TFunc, Int>();
   final scopeFunctions: Map<Int, TFunc> = [];
   final occurrences: Array<RuntimeAuthorityOccurrence> = [];
