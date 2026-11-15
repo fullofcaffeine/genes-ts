@@ -16,5 +16,6 @@
 -D genes.enum_discriminator=$kind
 
 --macro tests.staticcallable.CallableSignaturePlanProbe.validate()
+--macro tests.jsonhelpers.JsonHelperModuleProbe.validate()
 --macro tests.signaturecache.EnumAbstractAnswersProbe.install()
 tests.signaturecache.EnumAbstractAnswers

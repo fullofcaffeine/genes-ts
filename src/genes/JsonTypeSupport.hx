@@ -107,7 +107,12 @@ class JsonTypeSupport {
     return new JsonTypeQuery().uses(type);
   }
 
-  /** Returns whether a Haxe module owns one erased recursive JSON helper. */
+  /**
+   * Returns whether a Haxe module owns one erased recursive JSON helper.
+   *
+   * `tests/jsonhelpers/JsonHelperModuleProbe.hx` lists the same five modules
+   * and checks what each one declares. Add a new helper module there too.
+   */
   public static function isJsonTypeModule(module: String): Bool {
     return module == 'genes.ts.JsonValue'
       || module == 'genes.ts.JsonObject' || module == 'genes.ts.JsonArray'
@@ -135,8 +140,8 @@ class JsonTypeSupport {
  * declaration. `ref.get()` makes Haxe copy the complete declaration into a
  * new macro value, which takes about 10 microseconds. `ref.toString()` only
  * returns the dotted path of the declaration. The search therefore reads the
- * path first and calls `ref.get()` only in two cases: the path is in the
- * package of the JSON helpers, or the underlying type of an abstract or
+ * path first and calls `ref.get()` only in two cases: the path contains
+ * the package of the JSON helpers, or the underlying type of an abstract or
  * typedef has no completed result yet. On an application with 1,100 modules,
  * this removed about 7 seconds from each generation.
  */
@@ -144,17 +149,8 @@ private class JsonTypeQuery {
   /**
    * The package of the five JSON helper modules, with its final dot.
    *
-   * Every declaration of a module starts its dotted path with the package of
-   * that module. This is also true for a module-private declaration
-   * (`genes.ts._JsonValue.JsonValue_Impl_`) and for a type parameter. A path
-   * outside this package therefore cannot name a declaration of a JSON
-   * helper module.
-   *
-   * Limit: Haxe renames a class or an enum that has `@:native` before
-   * generation, so such a path can leave its package. Haxe does not rename
-   * abstracts and typedefs. Each JSON helper module declares one abstract and
-   * no class or enum. If a helper module gets a class or an enum with
-   * `@:native`, this check must also accept the native path.
+   * `mayBeInJsonHelperModule` looks for this text in the dotted path of a
+   * declaration, before the search pays for `ref.get()`.
    */
   static inline final JSON_HELPER_PACKAGE = 'genes.ts.';
 
@@ -172,18 +168,18 @@ private class JsonTypeQuery {
     if (type == null)
       return false;
     return switch type {
-      case TAbstract(ref, params): final path = ref.toString(); (path.startsWith(JSON_HELPER_PACKAGE)
+      case TAbstract(ref, params): final path = ref.toString(); (mayBeInJsonHelperModule(path)
           && JsonTypeSupport.isJsonTypeModule(ref.get()
             .module)) || searchTypes(params) || searchDefinition('abstract:$path',
           () -> ref.get()
           .type);
-      case TInst(ref, params): (ref.toString().startsWith(JSON_HELPER_PACKAGE)
+      case TInst(ref, params): (mayBeInJsonHelperModule(ref.toString())
           && JsonTypeSupport.isJsonTypeModule(ref.get()
             .module)) || searchTypes(params);
-      case TEnum(ref, params): (ref.toString().startsWith(JSON_HELPER_PACKAGE)
+      case TEnum(ref, params): (mayBeInJsonHelperModule(ref.toString())
           && JsonTypeSupport.isJsonTypeModule(ref.get()
             .module)) || searchTypes(params);
-      case TType(ref, params): final path = ref.toString(); (path.startsWith(JSON_HELPER_PACKAGE)
+      case TType(ref, params): final path = ref.toString(); (mayBeInJsonHelperModule(path)
           && JsonTypeSupport.isJsonTypeModule(ref.get()
             .module)) || searchTypes(params) || searchDefinition('typedef:$path',
           () -> ref.get()
@@ -196,6 +192,42 @@ private class JsonTypeQuery {
       case TLazy(resolve):
         search(resolve());
     }
+  }
+
+  /**
+   * Returns `false` only when the dotted path proves that a declaration is
+   * not in a JSON helper module. On `true`, the caller reads the module of
+   * the declaration with `ref.get()` for the exact answer.
+   *
+   * Why the path can prove it: these declarations of a module in the package
+   * `genes.ts` have that package in their path.
+   *
+   * - A public declaration: `genes.ts.JsonValue`.
+   * - A module-private declaration, such as the implementation class of an
+   *   abstract: `genes.ts._JsonValue.JsonValue_Impl_`.
+   * - A type parameter of a class or abstract: `genes.ts.JsonValue.T`.
+   * - The typedef that Haxe makes for a class, enum, or abstract used as a
+   *   value. Its path is `Class<...>`, `Enum<...>`, or `Abstract<...>` around
+   *   the path of that declaration, with no package of its own. This is why
+   *   the check looks for the package anywhere in the path, not at its start.
+   *
+   * Limit: two kinds of declaration have a path without the package of their
+   * module, and this check answers `false` for them.
+   *
+   * - A type parameter of a method. Its path starts with the method name:
+   *   `pass.T` for `pkg.Generic.pass<T>`.
+   * - A class or enum with `@:native`. Haxe replaces its path with the
+   *   native path before generation. Haxe does not rename abstracts and
+   *   typedefs.
+   *
+   * Neither can be in a JSON helper module today: each of the five modules
+   * declares one abstract with an empty body, so it has no method, class, or
+   * enum. `tests/jsonhelpers/JsonHelperModuleProbe.hx` fails the test build
+   * when a helper module gets one. If a helper needs a method or a native
+   * class, change this check first.
+   */
+  static inline function mayBeInJsonHelperModule(path: String): Bool {
+    return path.indexOf(JSON_HELPER_PACKAGE) != -1;
   }
 
   function searchTypes(types: Array<Type>): Bool {
