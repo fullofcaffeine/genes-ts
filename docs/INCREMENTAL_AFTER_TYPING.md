@@ -46,7 +46,8 @@ recommendation is **go**, under the rules of section 4.
   the declaration had when the pass made the bucket.
 - **Kept**: a bucket whose stamp equals the stamp on the declaration now.
 - **Session key**: the digest of the inputs that change what a pass computes
-  but not what Haxe types, such as `-D` values. The incremental-generation
+  but not always what Haxe types, such as `-D` values and `--macro`
+  arguments. The incremental-generation
   design defines it (`docs/INCREMENTAL_GENERATION_DESIGN.md` section 10,
   branch `loop/stage3-design`).
 - **H1**: when the result for module `A` reads a typed fact of module `B`,
@@ -260,6 +261,15 @@ text and flags. Every typed value is captured again on each request.
   be proved again there before the reuse is on for it.
 - The probe does not run inside the full `yarn test:compiler-server` matrix
   and has no CI job or routing-manifest entry yet.
+- Not in the fixture: a type that a macro defines (`Context.defineType`), a
+  `@:genericBuild` type, an edit of a macro source file during the session,
+  and a module that Haxe first types during generation. Rule 2 decides for
+  each declaration object, so no case-specific rule is expected, but none of
+  these was run.
+- A request of another client on the same server (an editor's display
+  request, a build without Genes) can type a class without a stamp. That
+  class then counts as typed again on every request (table, last row). The
+  design assumes a private server for one session.
 - H1 is assumed, not proved here. The dependency and macro rows are examples
   of it. The incremental-generation proof owns the full edit list.
 - A non-default module check policy is not covered. With `Retype`, Haxe types
