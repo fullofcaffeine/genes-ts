@@ -396,26 +396,58 @@ class SignatureCache {
       || out == 'true' || out == 'false' || ~/^-?[0-9]+(\.[0-9]+)?$/.match(out);
   }
 
+  /**
+   * Returns `enumAbstractLiteralUnionTsType(t)` for a capture. Call it
+   * directly after `sourceTypeWithEnumAbstract(t)`, and give it that result.
+   *
+   * Why: the capture asked two questions about the type of every field and
+   * argument: "does it contain an enum abstract?" and "is it an enum abstract,
+   * so that it has a literal spelling such as `"a" | "b"`?". The first
+   * question remembers its answers for one request. The second one did not:
+   * it followed the typedefs and read the abstract record of every type
+   * again, mostly for `Int`, `String` and `Null<T>`. On the 145-module scale
+   * fixture it was the largest part of the signature capture.
+   *
+   * What: a type has a literal spelling only when it is an enum abstract
+   * below `Null` and typedefs. The walk of the first question enters exactly
+   * those shapes, so a type that contains no enum abstract has no literal
+   * spelling, and this function answers `null` without a second look.
+   *
+   * The one exception is a walk that stopped at its depth limit of 64
+   * levels. It answers "no" for a type that it did not read completely, for
+   * example an enum abstract below 65 levels of `Null`. `walkWasCut` reports
+   * that, and the old question is then asked as before, so the result is the
+   * same string in every case. `tests.signaturecache.EnumAbstractAnswersProbe`
+   * checks both sides of the limit.
+   */
+  static inline function literalUnionAfterWalk(t: Type,
+      sourceType: Null<Type>): Null<String>
+    return sourceType == null
+      && !walkWasCut ? null : enumAbstractLiteralUnionTsType(t);
+
   /** `owner` is `classFullName` of the declaring class, computed once per class. */
   static function storeSig(owner: String, isStatic: Bool, fieldName: String,
       fnType: Type): Void {
     switch unlazy(fnType) {
       case TFun(args, ret):
-        sigs.set(keyFor(owner, isStatic, fieldName), {
-          args: [
-            for (a in args) {
-              final nullish = NullishContract.forType(a.t);
-              {
-                opt: a.opt,
-                allowsNull: nullish.haxeAllowsNull,
-                preservesUndefined: nullish.preservesUndefined,
-                tsType: enumAbstractLiteralUnionTsType(a.t),
-                sourceType: sourceTypeWithEnumAbstract(a.t)
-              }
+        final capturedArgs: Array<CachedArg> = [
+          for (a in args) {
+            final nullish = NullishContract.forType(a.t);
+            final sourceType = sourceTypeWithEnumAbstract(a.t);
+            {
+              opt: a.opt,
+              allowsNull: nullish.haxeAllowsNull,
+              preservesUndefined: nullish.preservesUndefined,
+              tsType: literalUnionAfterWalk(a.t, sourceType),
+              sourceType: sourceType
             }
-          ],
-          retTsType: enumAbstractLiteralUnionTsType(ret),
-          retSourceType: sourceTypeWithEnumAbstract(ret)
+          }
+        ];
+        final retSourceType = sourceTypeWithEnumAbstract(ret);
+        sigs.set(keyFor(owner, isStatic, fieldName), {
+          args: capturedArgs,
+          retTsType: literalUnionAfterWalk(ret, retSourceType),
+          retSourceType: retSourceType
         });
       default:
     }
@@ -425,10 +457,10 @@ class SignatureCache {
   static function storeFieldType(owner: String, isStatic: Bool,
       field: ClassField): Void {
     final emittedType = NullishContract.forField(field).emittedType;
-    final tsType = enumAbstractLiteralUnionTsType(emittedType);
+    final sourceType = sourceTypeWithEnumAbstract(emittedType);
+    final tsType = literalUnionAfterWalk(emittedType, sourceType);
     if (tsType != null)
       fieldTsTypes.set(keyFor(owner, isStatic, field.name), tsType);
-    final sourceType = sourceTypeWithEnumAbstract(emittedType);
     if (sourceType != null)
       fieldSourceTypes.set(keyFor(owner, isStatic, field.name), sourceType);
   }
@@ -453,10 +485,10 @@ class SignatureCache {
           // Capture literal unions from that emitted contract so the later
           // TypeEmitter cache does not reintroduce Haxe's optional-field Null.
           final fieldType = NullishContract.forField(field).emittedType;
-          final tsType = enumAbstractLiteralUnionTsType(fieldType);
+          final sourceType = sourceTypeWithEnumAbstract(fieldType);
+          final tsType = literalUnionAfterWalk(fieldType, sourceType);
           if (tsType != null)
             anonFieldTsTypes.set(posKey(field.pos), tsType);
-          final sourceType = sourceTypeWithEnumAbstract(fieldType);
           if (sourceType != null)
             anonFieldSourceTypes.set(posKey(field.pos), sourceType);
           captureAnonFieldTypes(field.type, depth + 1);
