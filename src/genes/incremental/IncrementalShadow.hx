@@ -107,7 +107,8 @@ typedef ShadowReport = {
  * - the modules that each module read by name (witnesses of
  *   `TypedModuleInventory`) and the lookups that the inventory could not
  *   answer;
- * - whether a module used Haxe's own printer;
+ * - whether a module used Haxe's own printer (the record of
+ *   `genes.HaxePrinterUse`, which the opt-in printer report also reads);
  * - plan and emit time of each module, so that the saving of a later replay
  *   is a sum, not a guess.
  *
@@ -141,7 +142,6 @@ class IncrementalShadow {
   final files = new Map<String, Array<CachedFile>>();
   final planSeconds = new Map<String, Float>();
   final emitSeconds = new Map<String, Float>();
-  final printerUsers = new Map<String, Bool>();
   var owner: Null<String> = null;
   var clockModule: Null<String> = null;
   var clockPhase: IncrementalPhase = Plan;
@@ -189,6 +189,7 @@ class IncrementalShadow {
         shadow.sessionKey = sessionKeyOf(descriptor, outputFile);
         shadow.sessionKeySeconds = haxe.Timer.stamp() - keyStart;
         TypedModuleInventory.startRecording();
+        HaxePrinterUse.record();
         transaction.onRegister = (relative,
           content) -> shadow.record(relative, content);
     }
@@ -257,27 +258,6 @@ class IncrementalShadow {
       shadow.clockStart = haxe.Timer.stamp();
     }
     shadow.owner = phase == Emit ? module : null;
-  }
-
-  /**
-   * Wraps the two functions of an emitter context that hand an expression to
-   * Haxe's own printer, so that the module is marked when it uses them.
-   */
-  public static function watchPrinter(context: genes.Context,
-      module: String): Void {
-    final shadow = current;
-    if (shadow == null || !shadow.active)
-      return;
-    final statement = context.expr;
-    final value = context.value;
-    context.expr = expr -> {
-      shadow.printerUsers.set(module, true);
-      statement(expr);
-    };
-    context.value = expr -> {
-      shadow.printerUsers.set(module, true);
-      value(expr);
-    };
   }
 
   /**
@@ -406,7 +386,7 @@ class IncrementalShadow {
         state: isClean ? 'clean' : 'dirty',
         planMs: milliseconds(plan == null ? 0.0 : plan),
         emitMs: milliseconds(emit == null ? 0.0 : emit),
-        usedHaxePrinter: printerUsers.exists(module)
+        usedHaxePrinter: HaxePrinterUse.used(module)
       });
     }
     final overheadSeconds = changeSetSeconds
@@ -416,7 +396,7 @@ class IncrementalShadow {
       + recordSeconds
       + compareSeconds
       + cacheWriteSeconds;
-    final printerNames = sortedKeys(printerUsers);
+    final printerNames = HaxePrinterUse.usedModules();
     final retyped = GenerationChangeSet.retypedModules();
     final report: ShadowReport = {
       format: REPORT_FORMAT,
@@ -540,7 +520,7 @@ class IncrementalShadow {
         fingerprint: fingerprints.exists(module) ? fingerprints.get(module) : fingerprintOf(module,
           [], new Map()),
         witnesses: witnessesOf(module),
-        usedHaxePrinter: printerUsers.exists(module),
+        usedHaxePrinter: HaxePrinterUse.used(module),
         files: sortedFiles
       });
     }

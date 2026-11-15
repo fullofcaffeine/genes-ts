@@ -687,7 +687,6 @@ class Generator {
     module.moduleFunctionPlan;
     final path = Path.join([outputDir, module.path]) + Genes.outExtension;
     final ctx = module.createContext(api);
-    IncrementalShadow.watchPrinter(ctx, module.module);
     final moduleEmitter = switch haxe.macro.Context.defined('genes.ts') {
       case true:
         final importExtension = if (haxe.macro.Context.defined('genes.ts.no_extension')
