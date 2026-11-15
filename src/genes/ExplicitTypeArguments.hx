@@ -43,22 +43,38 @@ typedef ExplicitTypeArgument = {
  * How: `Generator` creates one catalog for one `generate` call and gives it
  * to its modules through `ModuleContext`, like `JsxProviderSchemaCatalog`.
  * Nothing is static, so a warm compiler server starts every request with an
- * empty catalog. The key is the Haxe module and the class name. During
- * generation the fields of a class and their metadata do not change, so an
- * answer cannot become stale. A caller without a catalog reads the field
- * list on every call, as before.
+ * empty catalog. During generation the fields of a class and their metadata
+ * do not change, so an answer cannot become stale. A caller without a
+ * catalog reads the field list on every call, as before.
+ *
+ * Key: the side and a text that names exactly one class; see
+ * `declarationIdentity`. The Haxe module and the class name alone are not
+ * such a text. Haxe renames a class with `@:native("Lib")` to `Lib` before
+ * generation, so two extern classes of one module can then have the same
+ * module and the same name, and one would get the field list of the other.
+ * `tests/explicit-type-arguments/native-twins` builds that case in both
+ * orders.
  */
 class ExplicitTypeArgumentDeclarations {
   final annotated = new Map<String, Array<ClassField>>();
 
   public function new() {}
 
+  /**
+   * Returns the annotated generic fields of one side of a class, in
+   * declaration order, and reads the field list of that class at most once
+   * in this generation.
+   *
+   * Returns `null` when the catalog has no text that names exactly this
+   * class. The caller then reads the field list itself, so the answer is the
+   * same and only the cost differs.
+   */
   @:allow(genes.ExplicitTypeArguments)
-  function fieldsOf(owner: ClassType, isStatic: Bool): Array<ClassField> {
-    final key = (isStatic ? 'static:' : 'instance:')
-      + owner.module
-      + ':'
-      + owner.name;
+  function fieldsOf(owner: ClassType, isStatic: Bool): Null<Array<ClassField>> {
+    final identity = declarationIdentity(owner);
+    if (identity == null)
+      return null;
+    final key = (isStatic ? 'static ' : 'instance ') + identity;
     final known = annotated.get(key);
     if (known != null)
       return known;
@@ -66,6 +82,33 @@ class ExplicitTypeArgumentDeclarations {
       isStatic);
     annotated.set(key, fields);
     return fields;
+  }
+
+  /**
+   * Returns a text that names exactly one class during generation, or `null`
+   * when this function knows no such text.
+   *
+   * - A class without `@:native` keeps the name it was declared with, and a
+   *   Haxe module cannot declare two classes with one name. Its text is the
+   *   module and the name.
+   * - A class with `@:native` was renamed by Haxe. Haxe records the path it
+   *   was declared with in `@:realPath`, and no two declarations of a
+   *   program have the same path. Its text is that path. The two kinds of
+   *   text start with different words, so a renamed class can never share a
+   *   text with a class that kept its name.
+   * - A class with `@:native` and no readable `@:realPath` has no text.
+   * - A type parameter has no text: two type parameters of different
+   *   methods can have the same module and name.
+   */
+  static function declarationIdentity(owner: ClassType): Null<String> {
+    if (owner.kind.match(KTypeParameter(_)))
+      return null;
+    if (!owner.meta.has(':native'))
+      return 'declared ' + owner.module + ':' + owner.name;
+    return switch owner.meta.extract(':realPath') {
+      case [{params: [{expr: EConst(CString(path))}]}]: 'renamed ' + path;
+      default: null;
+    }
   }
 }
 
@@ -436,12 +479,10 @@ class ExplicitTypeArguments {
       declarations: Null<ExplicitTypeArgumentDeclarations>): Null<ClassField> {
     if (selected.meta.has(METADATA) && selected.params.length > 0)
       return selected;
-    // Two type parameters of different methods can have the same module and
-    // name, so the catalog, which uses these as its key, never answers for
-    // one.
-    final fields = declarations == null
-      || owner.kind.match(KTypeParameter(_)) ? annotatedGenericFields(owner,
-        isStatic) : declarations.fieldsOf(owner, isStatic);
+    final known = declarations == null ? null : declarations.fieldsOf(owner,
+      isStatic);
+    final fields = known == null ? annotatedGenericFields(owner,
+      isStatic) : known;
     for (field in fields)
       if (field.name == selected.name)
         return field;
