@@ -173,8 +173,8 @@ removes it, `-w -WDeprecated` does not.
 ### Raw code that Genes prints itself
 
 `js.Syntax.code` and `__js__` put target text into the output unchanged.
-Genes prints every such call itself and never asks Haxe's own JavaScript
-printer for it. This matters for build speed: a module that Haxe's printer
+Genes prints these calls itself and, with the two exceptions below, never
+asks Haxe's own JavaScript printer for them. This matters for build speed: a module that Haxe's printer
 helped to print can never be proved unchanged, so incremental generation
 would print it again after every edit.
 
@@ -184,7 +184,7 @@ The template rules are Haxe's, and they depend on the form:
 | --- | --- | --- |
 | `js.Syntax.code(template)` | `{{` prints `{`, `}}` prints `}`; `{text}` stays when `text` is not an integer | `js.Syntax.code("[{{a: 1}}]")` prints `[{a: 1}]` |
 | `js.Syntax.code(template, values...)` | only `{digits}` is a placeholder; braces are never joined | `js.Syntax.code("({a: {0}})", x)` prints `({a: x})` |
-| `__js__(template, values...)` | the first rule, plus placeholders; a binary, unary or conditional value gets parentheses | `__js__("{0} * 2", a + b)` prints `(a + b) * 2` |
+| `__js__(template, values...)`, plain-expression values | the first rule, plus placeholders; a binary, unary or conditional value gets parentheses | `__js__("{0} * 2", a + b)` prints `(a + b) * 2` |
 
 Each value is printed by Genes' ordinary value printer. In the TypeScript
 profile a value therefore follows the genes-ts rule for missing values: an
@@ -197,11 +197,19 @@ A template must be a string constant, and a placeholder must name an
 existing value. Genes reports both errors with Haxe's text and publishes no
 output.
 
-One form still needs Haxe's printer: the resource table of `haxe.Resource`
-when a build embeds two or more resources (`-resource file@name`). Haxe
-prints the entries in the order of an internal table that a macro cannot
-read. Only the module `haxe.Resource` is affected. To see which modules of a
-build used Haxe's printer, add this to the build:
+Two forms still need Haxe's printer:
+
+- The resource table of `haxe.Resource` when a build embeds two or more
+  resources (`-resource file@name`). Haxe prints the entries in the order of
+  an internal table that a macro cannot read. Only the module
+  `haxe.Resource` is affected.
+- A `__js__` call with a value that is not a plain expression: a `throw`, a
+  loop, a `switch`, a `try`, a block, or a function expression. Haxe does not
+  rewrite the arguments of `__js__` into statements as it does for ordinary
+  code, and Genes' value printer needs that rewrite. The whole call keeps the
+  text that Haxe's printer always gave it. `js.Syntax.code` is not affected.
+
+To see which modules of a build used Haxe's printer, add this to the build:
 
 ```hxml
 --macro genes.HaxePrinterUse.report('build/haxe-printer-use.json')

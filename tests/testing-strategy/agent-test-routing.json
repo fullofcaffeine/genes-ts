@@ -795,8 +795,8 @@
         "src/genes/RawCodeTemplate.hx",
         "tests/syntax-code-forms"
       ],
-      "proves": "Genes prints js.Syntax.code templates without values, legacy __js__ calls, and the haxe.Resource table for zero or one resource itself in both profiles, with the bytes that Haxe's own printer produced; invalid calls fail with Haxe's message and publish nothing; the printer-use report names no module, cold and on a warm compilation server.",
-      "doesNotProve": "The fixture does not change js.Syntax.code with value arguments, does not order two or more resources (that table stays on Haxe's printer), and does not measure incremental generation.",
+      "proves": "Genes prints js.Syntax.code templates without values, legacy __js__ calls whose values are plain expressions, and the haxe.Resource table for zero or one resource itself in both profiles, with the bytes that Haxe's own printer produced; a __js__ call with a statement, block, or function value keeps Haxe's printer and its exact text; invalid calls fail with Haxe's message and publish nothing; the printer-use report names only the module of declined __js__ values, cold and on a warm compilation server.",
+      "doesNotProve": "The fixture does not change js.Syntax.code with value arguments, does not order two or more resources (that table stays on Haxe's printer), does not make Genes print statement values of __js__, and does not measure incremental generation.",
       "owners": [
         "scripts/test-syntax-code-forms.ts",
         "src/genes/HaxePrinterUse.hx",

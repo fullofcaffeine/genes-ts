@@ -450,6 +450,12 @@ class ExprEmitter extends Emitter {
    * as for `js.Syntax.code`, so an imported name uses the import that Genes
    * planned.
    *
+   * One exception: when a value is not a plain expression (a `throw`, a
+   * loop, a `switch`, a `try`, a block, a function), the whole call goes to
+   * Haxe's printer, as it did before Genes printed `__js__`.
+   * `isPlainRawCodeValue` explains why. `asStatement` tells which of Haxe's
+   * two printer entries the caller used before, so the text stays the same.
+   *
    * The single-identifier form stays silent, because old externs such as
    * hxnodejs use it and their user cannot change them. Every other form
    * keeps Haxe's deprecation warning; see `warnLegacyJs`.
@@ -629,7 +635,7 @@ class ExprEmitter extends Emitter {
   /**
    * Emits the table that `haxe.Resource` reads: `__resources__()`.
    *
-   * Why: the table was the last text that only Haxe's printer could produce.
+   * Why: only Haxe's printer could produce this table.
    * Its bytes are simple, `[{ name : "n", data : "base64"}]`, but the ORDER
    * of several entries is the iteration order of a hash table inside the
    * Haxe compiler. A macro can read the resources (`Context.getResources`),
@@ -679,7 +685,10 @@ class ExprEmitter extends Emitter {
     write('"}]');
   }
 
-  /** The one place where Genes still asks Haxe's own printer for text. */
+  /**
+   * Asks Haxe's own printer for the resource table. Besides this, only a
+   * `__js__` call with a value that is not a plain expression still does so.
+   */
   function emitResourcesWithHaxe(callee: TypedExpr): Void {
     write(ctx.value({expr: TCall(callee, []), pos: callee.pos, t: callee.t}));
   }

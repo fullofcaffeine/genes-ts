@@ -45,7 +45,7 @@ import sys.io.File;
  * The path is relative to the working directory of the Haxe process.
  *
  * See also: `tests/syntax-code-forms/README.md`, which lists the raw-code
- * forms and names the one form that still uses Haxe's printer.
+ * forms and names the two forms that still use Haxe's printer.
  */
 @:noCompletion
 class HaxePrinterUse {
