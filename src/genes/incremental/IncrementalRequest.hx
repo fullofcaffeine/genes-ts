@@ -16,8 +16,9 @@ enum IncrementalRequestKind {
  * What the passes after typing do with the results of earlier requests.
  *
  * The descriptor field `afterTyping` selects it for one request. All three
- * values stamp declarations and keep the plain records; they differ only in
- * what a pass does when the keep rule holds for a class.
+ * values stamp declarations and keep the records and buckets of the passes;
+ * they differ only in what a pass does when the keep rule holds for a
+ * declaration.
  */
 enum AfterTypingReuse {
   /**
@@ -26,12 +27,19 @@ enum AfterTypingReuse {
    */
   Measure;
 
-  /** A pass skips its work for a class when the keep rule holds. */
+  /**
+   * A pass skips its work for a declaration when the keep rule holds. The
+   * React audit skips the class. `SignatureCache` puts the kept facts of
+   * the declaration back and does not read it.
+   */
   Reuse;
 
   /**
-   * Every pass does its full work, as in `Measure`. When a class with a valid
-   * record fails that work, Genes reports it as an error of the keep rule.
+   * Every pass does its full work, as in `Measure`, and the output uses
+   * that work. Genes reports each case in which the kept result would have
+   * been wrong: a class with a valid record that fails the React audit, and
+   * an answer of a kept `SignatureCache` bucket that differs from the new
+   * capture.
    */
   Compare;
 }

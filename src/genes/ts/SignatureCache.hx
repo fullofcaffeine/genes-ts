@@ -150,6 +150,14 @@ class SignatureCache {
    *
    * Lifetime: `install()` replaces the map, so no answer and no typed value
    * passes to the next request. It holds only strings and integers.
+   *
+   * Order: the answers are filled in the order of the captures. With reuse
+   * between requests (`visit`) only some declarations are captured, so a
+   * capture can find fewer answers here than in a request that captures
+   * everything. That changes no result while every walk stays inside the
+   * depth limit: each stored answer is then a fact of its declaration.
+   * `limitEvents` counts the walks that reached the limit; `visit` and
+   * `endList` say what happens then.
    */
   @:persistent static var declarationAnswers: Map<String, Int> = new Map();
 

@@ -21,9 +21,6 @@ private typedef KeptBucket<T> = {
   /** True when the declaration arrived without a stamp in that request. */
   final firstRead: Bool;
 
-  /** The request that made the bucket. */
-  final madeIn: Int;
-
   /** The last request in which the declaration was in the program. */
   var seenIn: Int;
 }
@@ -40,9 +37,6 @@ typedef KeptValue<T> = {
    * already saved, for example after a changed session key.
    */
   final firstRead: Bool;
-
-  /** The request that made the bucket. */
-  final madeIn: Int;
 }
 
 /**
@@ -146,8 +140,7 @@ class KeptBuckets<T> {
       () -> GenerationChangeSet.sameObject(bucket.declaration, current)) {
       case Keep:
         bucket.seenIn = GenerationChangeSet.request();
-        {value: bucket.value, firstRead: bucket.firstRead,
-          madeIn: bucket.madeIn};
+        {value: bucket.value, firstRead: bucket.firstRead};
       case Reject(_):
         null;
     }
@@ -166,7 +159,6 @@ class KeptBuckets<T> {
       declaration: current,
       value: value,
       firstRead: declaration.arrival == TypedAgain,
-      madeIn: request,
       seenIn: request
     });
     records.write(declaration, members);

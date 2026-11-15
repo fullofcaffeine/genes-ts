@@ -56,6 +56,14 @@ class KeepRuleProbe {
     expect('stamp of another interpreter in the record', Reject(StampDiffers),
       GenerationChangeSet.keep(declaration(Kept, STAMP), 'cd34:3', MEMBERS,
         () -> MEMBERS));
+    // Condition 5 alone: a bucket with typed values, whose reference
+    // addresses another declaration object. Everything else is equal.
+    expect('other object, all else equal', Reject(OtherObject),
+      GenerationChangeSet.keep(declaration(Kept, STAMP), STAMP, MEMBERS,
+        () -> MEMBERS, () -> false));
+    expect('same object, all else equal', Keep,
+      GenerationChangeSet.keep(declaration(Kept, STAMP), STAMP, MEMBERS,
+        () -> MEMBERS, () -> true));
     // Condition 6 alone: only the member list differs.
     expect('other member list, all else equal', Reject(MembersChanged),
       GenerationChangeSet.keep(declaration(Kept, STAMP), STAMP, MEMBERS,
@@ -74,6 +82,24 @@ class KeepRuleProbe {
     if (reads != 0)
       Context.fatalError('KeepRuleProbe: the member list was read for a record '
         + 'with another stamp',
+        Context.currentPos());
+    cases++;
+    // The same-object test writes metadata, so it must run only when the
+    // stamps agree, and never for a declaration that Haxe typed again.
+    var tests = 0;
+    final counted = () -> {
+      tests++;
+      true;
+    };
+    GenerationChangeSet.keep(declaration(Kept, STAMP), 'ab12:2', MEMBERS,
+      () -> MEMBERS, counted);
+    GenerationChangeSet.keep(declaration(TypedAgain, STAMP), STAMP, MEMBERS,
+      () -> MEMBERS, counted);
+    GenerationChangeSet.keep(declaration(ForeignStamp, STAMP), STAMP, MEMBERS,
+      () -> MEMBERS, counted);
+    if (tests != 0)
+      Context.fatalError('KeepRuleProbe: the same-object test ran for a '
+        + 'bucket that the stamps already reject',
         Context.currentPos());
     cases++;
     Sys.println('keep-rule-probe:ok ($cases cases)');

@@ -189,6 +189,12 @@ type Step = {
    */
   readonly rejects?: ReadonlyArray<readonly [string, string]>;
   /**
+   * Rejects that only the report of `SignatureCache` must list. A bucket
+   * holds typed values and gets the same-object test; a plain record of the
+   * React audit does not.
+   */
+  readonly bucketRejects?: ReadonlyArray<readonly [string, string]>;
+  /**
    * True when a type of the program is nested deeper than the walk limit of
    * `SignatureCache`. Its declaration then gets no bucket, and a request
    * with reuse on that puts buckets back must capture every declaration
@@ -448,8 +454,13 @@ function assertSignatureBuckets(
       + pass.rejectedByReason.membersChanged,
     `${where}: a bucket with an equal stamp had no same-object test`
   );
-  strictEqual(pass.rejectedByReason.otherObject, 0,
-    `${where}: a bucket with an equal stamp addresses another object`);
+  strictEqual(
+    pass.rejectedByReason.otherObject,
+    (step.bucketRejects ?? []).filter(([, reason]) =>
+      reason === "otherObject").length,
+    `${where}: the same-object test rejected other buckets than expected: `
+    + JSON.stringify(pass.rejectExamples)
+  );
   deepStrictEqual(pass.compareFailures, [],
     `${where}: a kept SignatureCache bucket answers differently from a new capture`);
   strictEqual(pass.compareFailureCount, 0, `${where}: compare failures`);
@@ -500,7 +511,10 @@ function assertSignatureBuckets(
   if (step.typesAgain !== undefined) {
     ok(pass.kept > 0, `${where}: an edit of some modules kept no bucket`);
   }
-  for (const [key, reason] of step.rejects ?? []) {
+  for (const [key, reason] of [
+    ...(step.rejects ?? []),
+    ...(step.bucketRejects ?? [])
+  ]) {
     ok(
       pass.rejectExamples.some((entry) =>
         entry.key === key && entry.reason === reason),
@@ -800,6 +814,12 @@ const projectA: LaneConfig = {
 
 const genericOwner = "class:kepttypes.GenericOwner.GenericOwner";
 const clone = "class:kepttypes.Clone.Clone";
+const twin = "class:kepttypes.Twin.Twin";
+
+/** A type with 66 levels: two more than the walk of `SignatureCache` reads. */
+const deepType = `${"Array<".repeat(66)}Int${">".repeat(66)}`;
+const loneLabel = '  public static var label: String = "lone-v3";\n';
+const loneDeep = `${loneLabel}  public static var deep: ${deepType} = [];\n`;
 
 /**
  * The fixture of `yarn test:compiler-server:kept-types`, with its edit list:
@@ -816,7 +836,8 @@ const keptTypes: LaneConfig = {
     "kepttypes.MacroBuilt",
     "kepttypes.GenericUser",
     "kepttypes.Cloner",
-    "kepttypes.RetypeUser"
+    "kepttypes.RetypeUser",
+    "kepttypes.Twinner"
   ],
   steps: [
     { id: "first request" },
@@ -843,6 +864,21 @@ const keptTypes: LaneConfig = {
       rejects: [[clone, "stampNamesOtherDeclaration"]]
     },
     { id: "no edit after E2", settled: true },
+    // The new `Twin` carries the stamp of the earlier `Twin`: it names the
+    // declaration, it equals the stamp of the bucket, and the member list is
+    // equal. Only the same-object test rejects the bucket. Its field type
+    // changed, so a kept bucket would give stale TypeScript.
+    {
+      id: "a macro-defined type with its own earlier stamp (Twin)",
+      apply: (lane) => lane.edit(
+        "kepttypes/Twinner.hx",
+        '@:twin("phase") // twin-kind',
+        '@:twin("text") // twin-kind'
+      ),
+      typesAgain: ["Twinner"],
+      bucketRejects: [[twin, "otherObject"]]
+    },
+    { id: "no edit after the Twin edit", settled: true },
     {
       id: "edit of a module that nothing imports (Lone)",
       apply: (lane) => lane.edit("kepttypes/Lone.hx", '"lone-v1"', '"lone-v2"'),
@@ -899,6 +935,23 @@ const keptTypes: LaneConfig = {
     {
       id: "Lone repaired",
       apply: (lane) => lane.edit("kepttypes/Lone.hx", "(1 : Int)", '"lone-v3"'),
+      typesAgain: ["Lone"]
+    },
+    { id: "no edit after the repair of Lone", settled: true },
+    // A capture that reaches the depth limit of the enum-abstract walk can
+    // depend on the declarations that were captured before it. Its
+    // declaration gets no bucket, and a request with reuse on captures every
+    // declaration again.
+    {
+      id: "a type nested deeper than the walk limit (Lone.deep)",
+      apply: (lane) => lane.edit("kepttypes/Lone.hx", loneLabel, loneDeep),
+      typesAgain: ["Lone"],
+      deepType: true
+    },
+    { id: "no edit with the deep type", settled: true, deepType: true },
+    {
+      id: "the deep type removed",
+      apply: (lane) => lane.edit("kepttypes/Lone.hx", loneDeep, loneLabel),
       typesAgain: ["Lone"]
     },
     { id: "last request, no edit", settled: true }
@@ -1153,12 +1206,29 @@ function printSummary(): void {
 async function main(): Promise<void> {
   rmSync(tempRoot, { recursive: true, force: true });
   const compiler = selectedHaxeCompiler(repoRoot);
-  for (const config of [projectA, keptTypes, diagnosticOrder]) {
+  const allLanes = [projectA, keptTypes, diagnosticOrder];
+  // `--lanes=kept-types` repeats one edit list, for example for a mutation
+  // check. The result line then says that the run was not the whole gate.
+  const laneOption = process.argv.find((value) => value.startsWith("--lanes="));
+  const laneNames = laneOption?.slice("--lanes=".length).split(",");
+  const lanes = allLanes.filter((config) =>
+    laneNames === undefined || laneNames.includes(config.name));
+  ok(laneNames === undefined || lanes.length === laneNames.length,
+    `--lanes accepts ${allLanes.map((config) => config.name).join(", ")}`);
+  for (const config of lanes) {
     await runLane(config, compiler);
   }
   const keepRule = await assertKeepRuleProbe(compiler);
   await assertReportNeverFailsBuild(compiler);
   printSummary();
+  if (lanes.length < allLanes.length) {
+    process.stdout.write(
+      "compiler-server-after-typing:partial (only the lanes "
+      + `${lanes.map((config) => config.name).join(", ")}; this is not the `
+      + "gate)\n"
+    );
+    return;
+  }
   process.stdout.write(
     `after-typing | ${diagnosticOrder.name} | `
     + `${diagnosticOrder.steps.filter((step) => step.fails !== undefined).length} `
