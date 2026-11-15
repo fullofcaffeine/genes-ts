@@ -74,7 +74,10 @@ enum KeepReject {
 
 /** The answer of the keep rule for one record. */
 enum KeepDecision {
+  /** Every condition holds: the pass may use the record. */
   Keep;
+
+  /** One condition does not hold: the pass must do its full work. */
   Reject(reason: KeepReject);
 }
 
@@ -83,6 +86,7 @@ enum SessionState {
   /** No earlier request of this macro interpreter had a session key. */
   First;
 
+  /** The key equals the key of the earlier request. */
   Same;
 
   /** The key differs. Every kept record was dropped. */
@@ -166,7 +170,7 @@ typedef AfterTypingReport = {
  *    Haxe version is proved, it is no display request, and the program has no
  *    `@:rtti` class.
  * 2. The session key is the one of the earlier request. The key is the
- *    digest of the inputs that change what a pass computes but not always
+ *    text of the inputs that change what a pass computes but not always
  *    what Haxe types: the format, the Haxe version, every define at the first
  *    after-typing callback, the session's digest of the argument list, the
  *    class paths in order, the working folder, and the status of each `.hx`
