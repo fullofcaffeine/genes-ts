@@ -271,10 +271,15 @@ class OutputTransaction {
       throw new haxe.Exception('Cannot register output after commit: $relative');
     if (staged.exists(relative))
       throw new haxe.Exception('Two emitters own the same output path: $relative');
+    // Staging writes the complete file. Its own timer in `haxe --times`
+    // (`genes.publish.stage`, beside `genes.publish.transaction`) shows what
+    // a request pays to stage files, also files whose text did not change.
+    final endStageTimer = genes.util.Timer.timer('genes.publish.stage');
     prepareStageRoot();
     final path = stagePath(relative);
     ensureDirectory(Path.directory(path));
     File.saveContent(path, content);
+    endStageTimer();
     staged.set(relative, true);
     final observer = onRegister;
     if (observer != null)
