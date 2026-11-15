@@ -1088,6 +1088,43 @@ async function assertSourcePropsServerIsolation(
  * A classic profile request consumes the same safe plan, then the original TS
  * request must reproduce its first cold and warm bytes.
  */
+/**
+ * Proves that an `@:rtti` class gets the same bytes on a warm server as in a
+ * cold build.
+ *
+ * Why: Haxe prints the metadata of an `@:rtti` class into its `__rtti`
+ * string after the `onGenerate` callbacks. Genes used to add
+ * `:genes.generate(N)` there, where `N` is the request number of the macro
+ * interpreter: 1 in a cold process, a larger number on a warm server.
+ *
+ * How: the warm server answers the same request once first, so that its
+ * request number differs from the cold process; then the cold and warm trees
+ * must be equal, and `__rtti` must not hold the stamp.
+ */
+async function assertRttiServerIsolation(
+  compiler: ReturnType<typeof selectedHaxeCompiler>,
+  server: OwnedHaxeCompilerServer,
+  timeoutMs: number
+): Promise<void> {
+  const scenario: Scenario = {
+    id: "a-rtti-server",
+    project: "project-a",
+    profile: tsProfile,
+    defines: ["server_rtti"]
+  };
+  rmSync(scenarioRoot("warm", scenario), { recursive: true, force: true });
+  seedConfiguredOutput("warm", scenario);
+  assertSuccess(await compileWarm(server, scenario, timeoutMs),
+    `Warm ${scenario.id} priming request`, server.logs);
+  await compilePair(compiler, server, scenario, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    const file = path.join(scenarioRoot(mode, scenario), "servercase",
+      "ServerRtti.ts");
+    assertContains(file, "ServerRtti.__rtti = ");
+    assertNotContains(file, ":genes.generate");
+  }
+}
+
 async function assertReactStateProjectionServerIsolation(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,
@@ -1665,6 +1702,7 @@ async function main(): Promise<void> {
     await compilePair(compiler, server, tsx, timeoutMs);
     ok(existsSync(moduleFile("cold", tsx)), "TSX request emitted no .tsx module");
     await assertSourcePropsServerIsolation(compiler, server, timeoutMs);
+    await assertRttiServerIsolation(compiler, server, timeoutMs);
     await assertReactStateProjectionServerIsolation(compiler, server,
       timeoutMs);
     await assertIndexedAccessServerIsolation(compiler, server, timeoutMs);

@@ -296,6 +296,9 @@ class Main {
       + Extra.value()
       + ":"
       + moduleLabel.value;
+    #if server_rtti
+    transcript += ":" + ServerRtti.value();
+    #end
     #if server_removed
     transcript += ":" + Removed.value();
     #end
