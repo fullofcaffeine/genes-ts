@@ -1081,14 +1081,6 @@ async function assertSourcePropsServerIsolation(
 }
 
 /**
- * Proves one warm request cannot reuse an earlier React State use inventory.
- *
- * The safe request uses only value/update and emits native bindings. The next
- * request observes the whole State and must restore the indexed representation.
- * A classic profile request consumes the same safe plan, then the original TS
- * request must reproduce its first cold and warm bytes.
- */
-/**
  * Proves that an `@:rtti` class gets the same bytes on a warm server as in a
  * cold build.
  *
@@ -1099,7 +1091,9 @@ async function assertSourcePropsServerIsolation(
  *
  * How: the warm server answers the same request once first, so that its
  * request number differs from the cold process; then the cold and warm trees
- * must be equal, and `__rtti` must not hold the stamp.
+ * must be equal, and `__rtti` must not hold the stamp. `ServerRttiChild`
+ * covers a subclass in another module, which inherits `__rtti` without its
+ * own `@:rtti`.
  */
 async function assertRttiServerIsolation(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
@@ -1118,13 +1112,23 @@ async function assertRttiServerIsolation(
     `Warm ${scenario.id} priming request`, server.logs);
   await compilePair(compiler, server, scenario, timeoutMs);
   for (const mode of ["cold", "warm"] as const) {
-    const file = path.join(scenarioRoot(mode, scenario), "servercase",
-      "ServerRtti.ts");
-    assertContains(file, "ServerRtti.__rtti = ");
-    assertNotContains(file, ":genes.generate");
+    for (const name of ["ServerRtti", "ServerRttiChild"]) {
+      const file = path.join(scenarioRoot(mode, scenario), "servercase",
+        `${name}.ts`);
+      assertContains(file, `${name}.__rtti = `);
+      assertNotContains(file, ":genes.generate");
+    }
   }
 }
 
+/**
+ * Proves one warm request cannot reuse an earlier React State use inventory.
+ *
+ * The safe request uses only value/update and emits native bindings. The next
+ * request observes the whole State and must restore the indexed representation.
+ * A classic profile request consumes the same safe plan, then the original TS
+ * request must reproduce its first cold and warm bytes.
+ */
 async function assertReactStateProjectionServerIsolation(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,

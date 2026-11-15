@@ -298,6 +298,7 @@ class Main {
       + moduleLabel.value;
     #if server_rtti
     transcript += ":" + ServerRtti.value();
+    transcript += ":" + new ServerRttiChild().label();
     #end
     #if server_removed
     transcript += ":" + Removed.value();
