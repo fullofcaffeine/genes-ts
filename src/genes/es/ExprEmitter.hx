@@ -586,10 +586,17 @@ class ExprEmitter extends Emitter {
    * that is not valid UTF-8 also stays on Haxe's printer.
    */
   function emitResources(callee: TypedExpr): Void {
+    // Haxe has no cheaper question than this one: `getResources` copies every
+    // resource into the macro interpreter, also when only the count matters.
+    // It runs once in a build, for the module `haxe.Resource`.
     final resources = Context.getResources();
     final keys = [for (key in resources.keys()) key];
     if (keys.length == 0) {
       write('[]');
+      return;
+    }
+    if (keys.length > 1) {
+      emitResourcesWithHaxe(callee);
       return;
     }
     final key = keys[0];
@@ -599,9 +606,8 @@ class ExprEmitter extends Emitter {
     final keyBytes = haxe.io.Bytes.ofString(key);
     final name = keyBytes.toString();
     final data = resources.get(key);
-    final soundName = haxe.io.Bytes.ofString(name).compare(keyBytes) == 0;
-    if (keys.length > 1 || data == null || !soundName) {
-      write(ctx.value({expr: TCall(callee, []), pos: callee.pos, t: callee.t}));
+    if (data == null || haxe.io.Bytes.ofString(name).compare(keyBytes) != 0) {
+      emitResourcesWithHaxe(callee);
       return;
     }
     write('[{ name : ');
@@ -609,6 +615,11 @@ class ExprEmitter extends Emitter {
     write(', data : "');
     write(haxe.crypto.Base64.encode(data, false));
     write('"}]');
+  }
+
+  /** The one place where Genes still asks Haxe's own printer for text. */
+  function emitResourcesWithHaxe(callee: TypedExpr): Void {
+    write(ctx.value({expr: TCall(callee, []), pos: callee.pos, t: callee.t}));
   }
 
   /**
@@ -1717,7 +1728,7 @@ class ExprEmitter extends Emitter {
           emitLocalVar(v);
           write(') {');
           assign(block(ecatch));
-          write(') {');
+          write('}');
         });
       default:
         emitExpr(e);

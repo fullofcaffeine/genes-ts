@@ -25,8 +25,9 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
  *   commit before Genes printed these forms (see the fixture README);
  * - the `haxe.Resource` table for zero and for one resource equals text that
  *   was written by hand from the Haxe compiler's source;
- * - the two `__js__` values that Genes lays out differently have the reviewed
- *   text;
+ * - the `__js__` values that Genes prints differently have the reviewed text,
+ *   among them a `try` value and, in the TypeScript profile, an optional field
+ *   that is read as `null`;
  * - `genes.HaxePrinterUse` reports no module, except `haxe.Resource` when the
  *   build embeds three resources;
  * - the programs run and print the same transcript;
@@ -91,7 +92,28 @@ const legacyTranscript = "legacy:" + [
   '[{"a":3},{}]',
   "4"
 ].join("|");
-const legacyValuesTranscript = "legacy-values:11|21|2";
+// The last entry is `isMissing({})`. The TypeScript profile reads a missing
+// optional field as `null`, so `=== undefined` is false there. See the
+// "Reviewed differences" in the fixture README.
+const legacyValuesTranscripts: Record<Profile, string> = {
+  classic: "legacy-values:11|21|2|5|41|false|true",
+  ts: "legacy-values:11|21|2|5|41|false|false"
+};
+// Text of `LegacyJsValues` that a reviewer accepted, for each profile.
+const reviewedValueText: Record<Profile, ReadonlyArray<string>> = {
+  classic: [
+    "return ((flag) ? 10 : 20) + 1;",
+    "= [a, b].length;",
+    "try {$r0 = LegacyJsValues.measure(text)} catch (_g) {$r0 = 40}",
+    "return options.limit === undefined;"
+  ],
+  ts: [
+    "return ((flag) ? 10 : 20) + 1;",
+    "= [a, b].length;",
+    "try {$r0 = LegacyJsValues.measure(text)} catch (_g) {$r0 = 40}",
+    "return (options.limit ?? null) === undefined;"
+  ]
+};
 const resourceTranscripts: Record<Variant["name"], string> = {
   none: "resources:",
   one: `resources:${oddResourceName}=first resource`,
@@ -196,11 +218,14 @@ function transcript(file: string): string {
   }).replace(/\n$/, "");
 }
 
-function expectedTranscript(variant: Variant["name"]): string {
+function expectedTranscript(
+  profile: Profile,
+  variant: Variant["name"]
+): string {
   return [
     zeroTranscript,
     legacyTranscript,
-    legacyValuesTranscript,
+    legacyValuesTranscripts[profile],
     resourceTranscripts[variant]
   ].join("\n");
 }
@@ -265,10 +290,7 @@ for (const profile of ["classic", "ts"] as const) {
     const values = read(
       path.join(output, `syntaxcodeforms/LegacyJsValues.${extension}`)
     );
-    for (const reviewed of [
-      "return ((flag) ? 10 : 20) + 1;",
-      "= [a, b].length;"
-    ]) {
+    for (const reviewed of reviewedValueText[profile]) {
       ok(
         values.includes(reviewed),
         `${profile} ${variant.name}: LegacyJsValues lost ${reviewed}`
@@ -281,14 +303,14 @@ for (const profile of ["classic", "ts"] as const) {
 for (const variant of variants) {
   strictEqual(
     transcript(path.join(outputDirectory("classic", variant.name), "index.js")),
-    expectedTranscript(variant.name),
+    expectedTranscript("classic", variant.name),
     `classic ${variant.name} transcript`
   );
 }
 runGeneratedTypeScriptMatrix(`${fixture}/tsconfig.json`);
 strictEqual(
   transcript(path.join(outRoot, "ts-dist/index.js")),
-  expectedTranscript("none"),
+  expectedTranscript("ts", "none"),
   "TypeScript transcript"
 );
 
