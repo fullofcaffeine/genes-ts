@@ -77,7 +77,10 @@ class TemplateLiteralPlan {
 
   public static function isMarkerCallee(callee: TypedExpr): Bool {
     return switch unwrap(callee).expr {
-      case TField(_, FStatic(_.get() => owner, _.get() => field)): owner.module == MARKER_MODULE && field.name == MARKER_FIELD;
+      // The text of a field reference is the field name. Reading it first
+      // skips the copy of the owner declaration for almost every call.
+      case TField(_, FStatic(owner, field)): field.toString() == MARKER_FIELD && owner.get()
+          .module == MARKER_MODULE;
       default:
         false;
     }

@@ -377,10 +377,12 @@ class Module {
    */
   public function resolveModuleFunction(ownerRef: Ref<ClassType>,
       fieldRef: Ref<ClassField>): Null<ModuleFunctionEntry> {
-    final owner = ownerRef.get();
     final field = fieldRef.get();
     if (!field.meta.has(':genes.moduleFunction'))
       return null;
+    // Read the owner only for a marked field: almost no static field has the
+    // marker, and `ref.get()` copies the complete class.
+    final owner = ownerRef.get();
     final target = context.modules.get(owner.module);
     if (target == null || owner.isExtern || owner.isInterface) {
       return ModuleFunctionRequestPlan.fromTypedField(ownerRef, fieldRef);

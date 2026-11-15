@@ -241,7 +241,7 @@ class ExplicitTypeArguments {
   public static function callSiteMarker(expression: TypedExpr): Null<ExplicitTypeArgumentCallSite> {
     return switch expression.expr {
       case TCall(callee, carrierArguments) if (carrierArguments.length >= 1):
-        final resolved = resolveField(callee);
+        final resolved = namesCallSiteCarrier(callee) ? resolveField(callee) : null;
         if (resolved != null
           && resolved.owner.pack.join('.') == 'genes.ts'
           && resolved.owner.name == 'ExplicitTypeArgumentCallSite'
@@ -274,6 +274,32 @@ class ExplicitTypeArguments {
         callSiteMarker(inner);
       default:
         null;
+    }
+  }
+
+  /**
+   * Returns whether a callee can be the `preserve` field of the call-site
+   * carrier, without reading a declaration.
+   *
+   * Why: `callSiteMarker` runs for every call with an argument. `resolveField`
+   * copies the owner class and the field (`ref.get()`, about 10 microseconds
+   * each), and almost no call is a carrier.
+   *
+   * How: the text of a field reference is the field name, and the text of a
+   * class reference is its package and name. The function accepts the same
+   * callee forms as `resolveField`. `callSiteMarker` still makes its own
+   * check on the declarations when this function answers `true`.
+   */
+  static function namesCallSiteCarrier(callee: TypedExpr): Bool {
+    return switch callee.expr {
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
+        namesCallSiteCarrier(inner);
+      case TField(_, FStatic(owner, field)) |
+        TField(_, FInstance(owner, _, field)) | TField(_, FClosure({
+          c: owner
+        }, field)): field.toString() == 'preserve' && owner.toString() == 'genes.ts.ExplicitTypeArgumentCallSite';
+      default:
+        false;
     }
   }
 
