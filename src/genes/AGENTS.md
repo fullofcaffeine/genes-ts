@@ -37,6 +37,7 @@ boundaries.
 | Generator installation, module graph, output-profile selection | `Generator.hx`, `Module.hx` |
 | Complete-tree staging, stale cleanup, rollback | `OutputTransaction.hx`, `Writer.hx`, `SourceMapGenerator.hx` |
 | Runtime/type/declaration/side-effect dependencies | `DependencyPlan.hx`, `DependencyPlanBuilder.hx`, `Dependencies.hx`, `BindingIdentity.hx` |
+| Declarations of one Haxe module, read during generation without a lookup by name | `TypedModuleInventory.hx` |
 | Pre-DCE reusable/public contract | `PublicSurface.hx`, `LibraryProfile.hx`, `TypeReferenceCollector.hx` |
 | Static callable generic scope shared by implementation and declarations | `CallableSignaturePlan.hx`, `Module.fieldsOf` |
 | Deterministic emitted names, local mutability, and required temporaries | `NamePlan.hx`, `LocalBindingPlan.hx`, `TempPlan.hx`, `EmittedMemberName.hx` |
@@ -94,6 +95,14 @@ maps fixture locations to compiler surfaces.
 - Validation that can fail should run before public output is committed.
 - Compilation-server correctness requires request-local typed facts or an
   explicit reset/rebuild rule; never persist typed compiler objects casually.
+- Code that can run during generation must not look up a module or type by
+  name. `Context.getModule` and `Context.getType` make Haxe record a
+  dependency from an unrelated module, and the compilation server keeps it.
+  The next one-file edit then makes Haxe type many modules again. Use
+  `TypedModuleInventory.moduleTypes` or `TypedModuleInventory.typeByPath`,
+  or a typed value that you already hold. A macro that runs while Haxe types
+  a module may still look up by name: that dependency is a real one. The
+  retyped-module case of `yarn test:compiler-server` protects this rule.
 - `extraParams.hxml` enables recursive Haxe Loose null safety for the owned
   `genes.*` implementation before `Generator.use()` can load compiler types.
   Keep any `@:nullSafety(Off)` statement local, documented at the mismatch, and

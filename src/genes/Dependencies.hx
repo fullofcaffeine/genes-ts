@@ -435,7 +435,7 @@ class Dependencies {
             if (TypeUtil.nativeName(base.meta) != null)
               return null;
             final moduleName = base.module.split('.').pop();
-            for (moduleType in Context.getModule(base.module)) {
+            for (moduleType in TypedModuleInventory.moduleTypes(base.module)) {
               switch moduleType {
                 case TInst((_.get() : BaseType) => owner, _)
                   if (owner.name == moduleName && owner.meta.has(':jsRequire')):

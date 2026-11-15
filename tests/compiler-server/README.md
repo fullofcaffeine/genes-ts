@@ -26,6 +26,15 @@ The focused owner covers:
   state initialization types through a transparent alias, closed enum locals
   with lowered conditional initializers and inlined callbacks, enum constructor payload domains, and import
   attributes;
+- the modules that Haxe types again after a one-file edit: after a complete
+  TSX or classic JSX generation, the edit of a module that nothing imports
+  makes Haxe type that module only, the same as with `--no-output`
+  (`probes/RetypedModulesProbe.hx` reports the list; the case edits two such
+  modules in turn, because one of them can hide the defect, and then an
+  imported module, whose list must also equal the `--no-output` list);
+- two `Generator.use()` calls in one request: the module inventory that
+  replaces `Context.getModule` still lists each declaration once
+  (`probes/ModuleInventoryProbe.hx`);
 - a successful build followed by structured-diagnostic and raw-value
   post-staging failures in TS and classic declaration profiles, then recovery;
 - active-Genes then `genes.disable` capability isolation;
