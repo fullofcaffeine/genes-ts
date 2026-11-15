@@ -20,7 +20,58 @@ import haxe.io.Path;
  */
 class PathUtil {
   static function absolute(path: String): String
-    return Path.normalize(FileSystem.absolutePath(path));
+    return normalize(FileSystem.absolutePath(path));
+
+  /**
+   * Returns the same text as `haxe.io.Path.normalize(path)`, and skips its
+   * work when `path` is already in normal form.
+   *
+   * Why: `Path.normalize` copies the path one character at a time. In the
+   * Haxe 4.3.7 macro interpreter that takes about 25 microseconds for a
+   * path of a usual length. The output transaction checks every directory
+   * between a generated file and the output root, and it normalizes the same
+   * absolute paths again and again: about 100,000 calls and 3 seconds in
+   * the `test.hxml` build of this repository. Almost all of these paths are
+   * already normal.
+   *
+   * What: when `isNormalForm` proves that `Path.normalize` returns its input
+   * unchanged, this function returns the input. Otherwise it calls
+   * `Path.normalize`. Example: `/work/out/app/Main.ts` comes back as it is,
+   * while `/work/out/../out/app/` goes through `Path.normalize`. The result
+   * is always the text that `Path.normalize` gives;
+   * `tests/source-map-paths/src/source_map_paths/PathUtilProbe.hx` compares
+   * the two on paths of each kind.
+   */
+  public static function normalize(path: String): String
+    return isNormalForm(path) ? path : Path.normalize(path);
+
+  /**
+   * Returns true only when `Path.normalize(path)` equals `path`.
+   *
+   * `Path.normalize` changes a path only for one of these: a backslash, an
+   * empty segment (`//`, or a `/` at the end), a `.` or `..` segment, and a
+   * colon (it moves a `/` that comes just before a colon: `/a/:b` becomes
+   * `/a:/b`). A non-empty path with none of them comes back unchanged: the
+   * segment list stays the same, and each `/` is followed by another
+   * character, so the printing loop writes every character again. A path
+   * with one of them can still be normal (`../a` is); this check then
+   * returns false, and the caller does the full work.
+   */
+  static function isNormalForm(path: String): Bool {
+    return path.length > 0
+      && path.indexOf('\\') == -1
+      && path.indexOf(':') == -1
+      && path.indexOf('//') == -1
+      && !StringTools.endsWith(path, '/')
+      && path.indexOf('/./') == -1
+      && path.indexOf('/../') == -1
+      && !StringTools.endsWith(path, '/.')
+      && !StringTools.endsWith(path, '/..')
+      && !StringTools.startsWith(path, './')
+      && !StringTools.startsWith(path, '../')
+      && path != '.'
+      && path != '..';
+  }
 
   static function comparable(path: String): String
     return if (Sys.systemName() == 'Windows') path.toLowerCase() else path;
@@ -41,9 +92,9 @@ class PathUtil {
     final comparablePath = comparable(path);
     if (comparablePath == comparableRoot)
       return true;
-    final childPrefix = StringTools.endsWith(comparableRoot, '/')
-      ? comparableRoot
-      : comparableRoot + '/';
+    final childPrefix = StringTools.endsWith(comparableRoot,
+      '/') ? comparableRoot : comparableRoot
+      + '/';
     return StringTools.startsWith(comparablePath, childPrefix);
   }
 
@@ -74,9 +125,9 @@ class PathUtil {
       return null;
     if (comparable(normalizedRoot) == comparable(normalizedPath))
       return '';
-    final childOffset = StringTools.endsWith(normalizedRoot, '/')
-      ? normalizedRoot.length
-      : normalizedRoot.length + 1;
+    final childOffset = StringTools.endsWith(normalizedRoot,
+      '/') ? normalizedRoot.length : normalizedRoot.length
+      + 1;
     return normalizedPath.substr(childOffset);
   }
 
@@ -86,9 +137,7 @@ class PathUtil {
     final fromParts = from.split('/').filter(v -> v != '');
     final toParts = to.split('/').filter(v -> v != '');
     // Subtract one because `from` names a file, not a directory to compare.
-    final shortestLength = fromParts.length < toParts.length
-      ? fromParts.length
-      : toParts.length;
+    final shortestLength = fromParts.length < toParts.length ? fromParts.length : toParts.length;
     final length = shortestLength > 0 ? shortestLength - 1 : 0;
     var samePartsLength = length;
     for (i in 0...length)
