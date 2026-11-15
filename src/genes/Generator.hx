@@ -120,6 +120,8 @@ class Generator {
   static function generateTransactional(api: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction): Void {
     final endInventoryTimer = timer('genes.plan.inventory');
+    // Typing and Haxe's filters are complete: declaration names are final.
+    TypeUtil.startGenerationNames();
     ModuleDirectivePlan.validate();
     final toGenerate = typesPerModule(api.types);
     final extension = Path.extension(outputFile);
