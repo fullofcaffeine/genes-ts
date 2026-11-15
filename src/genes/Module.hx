@@ -101,7 +101,16 @@ typedef ModuleContext = {
    * without it is valid: `ExplicitTypeArguments.forCall` then reads the
    * field list of the owner class on every call.
    */
-  ?explicitTypeArgumentDeclarations: genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations
+  ?explicitTypeArgumentDeclarations: genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations,
+
+  /**
+   * Completed JSON-helper answers for abstracts and typedefs, for this
+   * generation.
+   *
+   * `Generator` supplies one for each `generate` call. A context without it
+   * is valid: each module then searches every declaration itself.
+   */
+  ?jsonTypeDefinitions: genes.JsonTypeSupport.JsonTypeDefinitionAnswers
 }
 
 typedef ModuleExport = {
@@ -188,10 +197,13 @@ class Module {
    * this yes/no fact the largest measured production compile cost. `addTypes`
    * clears the value whenever declaration reachability grows the inventory, so
    * no compiler-server or earlier module state can authorize this generation.
+   * Only the completed answers for single abstracts and typedefs are shared
+   * with the other modules of this generation (`JsonTypeDefinitionAnswers`).
    */
   function get_usesJsonTypes(): Bool {
     if (usesJsonTypesCache == null)
-      usesJsonTypesCache = JsonTypeSupport.moduleUsesJsonTypes(this);
+      usesJsonTypesCache = JsonTypeSupport.moduleUsesJsonTypes(this,
+        context.jsonTypeDefinitions);
     return usesJsonTypesCache;
   }
 
