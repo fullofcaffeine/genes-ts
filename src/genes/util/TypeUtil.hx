@@ -27,9 +27,11 @@ class TypeUtil {
   public static var bootType(default, null): ModuleType;
 
   /**
-   * The answers of `baseTypeName` in the current generation: Haxe module
-   * path, then declaration name, then the name that Genes prints. `null`
-   * outside generation. See `startGenerationNames`.
+   * The answers of `baseTypeName` in one generation: Haxe module path, then
+   * declaration name, then the name that Genes prints. `null` until the
+   * generation of a request starts. After that generation the map stays
+   * set, and nothing reads it for a later request: the next request that
+   * installs Genes sets it to `null` first. See `startGenerationNames`.
    */
   static var generationBaseTypeNames: Null<Map<String, Map<String,
     String>>> = null;
@@ -725,12 +727,17 @@ class TypeUtil {
    * are complete. Genes changes no declaration name, kind, or `@:native`
    * metadata during generation, and the declaration list of a module is
    * fixed. The answer is then a function of the module path and the name
-   * only, and these two texts are the key.
+   * only, and these two texts are the key. After the rename two classes of
+   * one module can have the same name (two `@:native("Lib")` classes). The
+   * search compares only the module and the name, so it already gives both
+   * the same answer, and the kept answer is that answer.
    *
    * Lifetime: `Generator.generateTransactional` calls this once, so a new
-   * empty map starts each generation. `refreshCompilerTypes` drops the map at
-   * the start of every request, also when an earlier generation failed. The
-   * map holds text only, no compiler-owned value.
+   * empty map starts each generation. The map then stays set until the next
+   * request that installs Genes: its first `Generator.use()` calls
+   * `refreshCompilerTypes`, which sets the map to `null`, also when the
+   * earlier generation failed. A request that does not install Genes does
+   * not run this code. The map holds text only, no compiler-owned value.
    */
   public static function startGenerationNames(): Void {
     generationBaseTypeNames = new Map();

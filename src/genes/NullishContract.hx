@@ -354,11 +354,13 @@ final class NullishContract {
           unknownBoundary: false,
           dynamicBoundary: false
         } : classify(inner, depth + 1);
-      case TType(ref,
-        params): // The old `Null<T>` typedef has no package, so its text is `Null`.
-        params.length == 1
-        && ref.toString() == 'Null' ? nullableFacts(params[0],
-          depth) : classify(Context.follow(type), depth + 1);
+      case TType(ref, params):
+        // The old `Null<T>` typedef has no package, so its text is `Null`.
+        if (params.length == 1 && ref.toString() == 'Null') {
+          nullableFacts(params[0], depth);
+        } else {
+          classify(Context.follow(type), depth + 1);
+        }
       case TLazy(f):
         classify(f(), depth + 1);
       default:

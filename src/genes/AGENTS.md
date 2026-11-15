@@ -125,7 +125,10 @@ maps fixture locations to compiler surfaces.
   and `name` joined with dots, so it can replace a comparison of these two
   fields (`NullishContract.classify`, `JsxPlan.markerKind`); and the text of
   a field reference is the field name. The text cannot replace a comparison
-  of `module`.
+  of `module`. `tests.referencetext.ReferenceTextProbe` (in `yarn test`)
+  pins both cases. A cache key built from `module` and `name` is not exact
+  either: Haxe renames a `@:native("Lib")` class to `Lib` before generation,
+  so two classes of one module can then share both.
 - `extraParams.hxml` enables recursive Haxe Loose null safety for the owned
   `genes.*` implementation before `Generator.use()` can load compiler types.
   Keep any `@:nullSafety(Off)` statement local, documented at the mismatch, and
