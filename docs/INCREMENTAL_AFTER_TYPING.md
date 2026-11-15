@@ -398,7 +398,9 @@ and the stamps and the session key of `GenerationChangeSet`. The change set
 also gives it the epoch list of each module (its sorted
 `declaration key@stamp` entries) and the modules typed again. The session
 key holds the output path too, because a source map names its sources
-relative to the output folder. `yarn test:compiler-server:shadow` is its
+relative to the output folder, and the name and a digest of the content of
+each embedded resource, because `haxe.Resource` prints them and a changed
+resource file makes Haxe type no module again. `yarn test:compiler-server:shadow` is its
 gate.
 
 Not in this slice: `SignatureCache` and `PublicSurface` still read every

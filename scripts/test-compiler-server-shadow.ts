@@ -94,6 +94,8 @@ type ShadowReport = {
   readonly projectedGenerationMs: number;
   readonly cacheBytes: number;
   readonly reservedNamesChanged: boolean;
+  /** Warnings that Genes reported while it printed the modules. */
+  readonly printWarnings: number;
   readonly overhead: { readonly totalMs: number };
 };
 
@@ -115,8 +117,13 @@ type Edit = {
 /** Program arguments that an edit can change, as a session would. */
 const program = {
   defines: [] as string[],
-  modules: ["inc.Leaf", "inc.Leaf2", "inc.Clock"] as string[]
+  modules: [
+    "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
+  ] as string[]
 };
+
+/** The file that every request embeds as the resource `note`. */
+const resourceFile = path.join(workspace, "res/note.txt");
 
 function sourceFile(relative: string): string {
   return path.join(workspace, "src", relative);
@@ -436,6 +443,19 @@ const edits: ReadonlyArray<Edit> = [
     results: ["incremental"]
   },
   {
+    // F5: the resource bytes are an input of `haxe.Resource`, but Haxe types
+    // no module again. Only the session key can show the change.
+    id: "resource content changed, no Haxe source edit",
+    apply: () => writeFileSync(resourceFile, "note-v2\n"),
+    results: ["full"]
+  },
+  {
+    id: "no edit after the resource change",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
     id: "@:rtti class added",
     apply: () => {
       create(
@@ -502,9 +522,9 @@ function buildArguments(mode: Mode): string[] {
     "-cp", path.join(workspace, "src"),
     "--main", "inc.Main",
     ...program.modules,
+    "-resource", `${resourceFile}@note`,
     "-js", path.join(outputRoot(mode), "index.tsx"),
     "-D", "js-es=6",
-    "-D", "no-deprecation-warnings",
     "-dce", "full",
     "-debug",
     ...[
@@ -566,6 +586,19 @@ function treeDifference(
       .filter((entry) => !leftPaths.has(entry.path))
       .map((entry) => entry.path)
   ].sort();
+}
+
+/**
+ * Returns the `__js__` deprecation warnings of one request, sorted. Genes
+ * reports them when it prints a module, so they are part of what a request
+ * with stored output must still give.
+ */
+function printWarnings(result: ProcessResult): ReadonlyArray<string> {
+  return `${result.stdout}\n${result.stderr}`
+    .split("\n")
+    .filter((line) => line.includes("__js__ is deprecated"))
+    .map((line) => line.trim())
+    .sort();
 }
 
 function readReport(): ShadowReport | null {
@@ -693,6 +726,23 @@ async function main(): Promise<void> {
         g1Failures.push(`${label}: ${mismatch.module} ${mismatch.path} `
           + `${mismatch.kind} at line ${mismatch.line}\n  stored: `
           + `${mismatch.stored}\n  staged: ${mismatch.staged}`);
+      }
+      // Diagnostics are output too: each request reports the warnings of the
+      // cold build, also for a module that Haxe did not type again, and the
+      // shadow recorded each of them for the module that it belongs to.
+      const coldWarnings = printWarnings(cold);
+      ok(coldWarnings.length > 0,
+        `${label}: the cold build reported no __js__ warning`);
+      deepStrictEqual(printWarnings(warm), coldWarnings,
+        `G0 failed at ${label}: the plain warm request reported other `
+        + "print warnings than the cold build");
+      deepStrictEqual(printWarnings(shadowed), coldWarnings,
+        `G1 failed at ${label}: the shadow request reported other print `
+        + "warnings than the cold build");
+      if (report.result !== "off") {
+        strictEqual(report.printWarnings, coldWarnings.length,
+          `${label}: the shadow recorded ${report.printWarnings} print `
+          + `warning(s); the request reported ${coldWarnings.length}`);
       }
       // An off request adds no stamp, but declarations that Haxe kept from
       // earlier requests still carry theirs; the tree comparison above shows

@@ -164,8 +164,9 @@ build macro and an expression macro load, import cycles, `@:expose`, module
 directives, HXX markup, a props type named by a string in metadata, a
 dynamic iterator, private types with one name, enum abstract values, new,
 edited, deleted and renamed declarations, type errors, a generation
-diagnostic, a define change, a failure after typing, an `@:rtti` class, a new
-top-level name, and an edit of a Genes source file.
+diagnostic, a define change, a failure after typing, a changed resource file
+with no Haxe source edit, an `@:rtti` class, a new top-level name, and an
+edit of a Genes source file.
 
 After each edit the same TSX request (with source maps) runs three times:
 
@@ -178,6 +179,16 @@ After each edit the same TSX request (with source maps) runs three times:
   equals the cold tree, and the shadow report beside the request descriptor
   (`<descriptor>.report.json`) lists 0 mismatches for the modules that the
   clean rules call clean.
+
+Two inputs of a module's output are not visible in Haxe's typing, and the
+gate covers both. The request embeds one resource (`-resource`), and the
+module `haxe.Resource` prints its bytes: after the resource edit the session
+key must differ, so the result is `full`, not `incremental` with stale
+bytes. The module `inc.Legacy` holds one `__js__` call, and Genes reports
+"__js__ is deprecated" when it prints the call: every request, cold and
+warm, must report the same warnings, and the shadow report must count them
+(`printWarnings`). A later version that does not print a clean module must
+report the stored warnings of that module.
 
 The shadow and the passes after typing (previous section) use one request
 owner. `IncrementalRequest` decides the mode, and `GenerationChangeSet` adds

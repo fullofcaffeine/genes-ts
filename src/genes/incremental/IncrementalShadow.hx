@@ -73,6 +73,10 @@ typedef ShadowReport = {
   final fallbackLookupModules: Array<String>;
   final unattributedReads: Array<String>;
   final reservedNamesChanged: Bool;
+
+  /** Warnings that Genes reported while it printed the modules of this request. */
+  final printWarnings: Int;
+
   final haxePrinterModules: Int;
   final haxePrinterModuleNames: Array<String>;
   final generationMs: Float;
@@ -108,6 +112,9 @@ typedef ShadowReport = {
  *   answer;
  * - whether a module used Haxe's own printer (the record of
  *   `genes.HaxePrinterUse`, which the opt-in printer report also reads);
+ * - the warnings that the printer reported for each module (today only
+ *   "__js__ is deprecated"), because a later replay must report them without
+ *   printing the module;
  * - plan and emit time of each module, so that the saving of a later replay
  *   is a sum, not a guess.
  *
@@ -152,6 +159,8 @@ class IncrementalShadow {
   var decision: CacheDecision = NoCache('not decided');
   final fingerprints = new Map<String, String>();
   final files = new Map<String, Array<CachedFile>>();
+  final warnings = new Map<String, Array<CachedWarning>>();
+  var warningCount = 0;
   final planSeconds = new Map<String, Float>();
   final emitSeconds = new Map<String, Float>();
   var owner: Null<String> = null;
@@ -177,7 +186,10 @@ class IncrementalShadow {
    * A request that selected the shadow and then left the incremental path
    * (an `@:rtti` class), or that the shadow cannot serve, still gets a report
    * with the result `off` and the reason. The second case does not turn the
-   * request mode off: the passes after typing have already used it.
+   * request mode off: the passes after typing have already used it. The
+   * shadow cannot serve an output file that is not `.ts` or `.tsx`, and a
+   * request in which a macro changed the embedded resources after typing:
+   * such a request neither reads nor writes the generation cache.
    */
   public static function start(outputFile: String,
       transaction: OutputTransaction): Void {
@@ -192,11 +204,7 @@ class IncrementalShadow {
       case Off(_, why):
         why;
       case On(_):
-        final extension = Path.extension(outputFile);
-        if (extension != 'ts' && extension != 'tsx')
-          'only .ts and .tsx output is supported'; else
-          if (GenerationChangeSet.sessionKey() == null)
-            'no declaration was stamped after typing'; else null;
+        unsupportedReason(outputFile);
     }
     if (unsupported != null) {
       current = new IncrementalShadow(reportFile, false, unsupported);
@@ -210,6 +218,25 @@ class IncrementalShadow {
     HaxePrinterUse.record();
     transaction.onRegister = (relative,
       content) -> shadow.record(relative, content);
+  }
+
+  /**
+   * Returns why the shadow cannot serve an eligible request, or `null` when
+   * it can. These reasons belong to the shadow only, so they do not turn the
+   * request mode off.
+   */
+  static function unsupportedReason(outputFile: String): Null<String> {
+    final extension = Path.extension(outputFile);
+    if (extension != 'ts' && extension != 'tsx')
+      return 'only .ts and .tsx output is supported';
+    if (GenerationChangeSet.sessionKey() == null)
+      return 'no declaration was stamped after typing';
+    // The session key holds the resources as they were after typing.
+    // `haxe.Resource` prints the resources of this moment.
+    if (GenerationChangeSet.resourceDigest() != GenerationChangeSet.sessionResources())
+      return 'a macro changed the embedded resources after typing, so the '
+        + 'session key does not describe them';
+    return null;
   }
 
   /**
@@ -275,6 +302,38 @@ class IncrementalShadow {
       shadow.clockStart = haxe.Timer.stamp();
     }
     shadow.owner = phase == Emit ? module : null;
+  }
+
+  /**
+   * Records one warning that the printer is about to report for the module
+   * that it prints now. The caller still reports the warning itself; without
+   * an active shadow this does nothing.
+   *
+   * Example: `ExprEmitter.warnLegacyJs` calls it for each `__js__` call. The
+   * record lets the shadow check that a clean module gets the same warnings,
+   * and lets a later replay report them for a module that it does not print.
+   */
+  public static function printWarning(message: String,
+      position: haxe.macro.Expr.Position): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    final module = shadow.owner;
+    if (module == null)
+      return;
+    final place = Context.getPosInfos(position);
+    final warning: CachedWarning = {
+      message: message,
+      file: place.file,
+      min: place.min,
+      max: place.max
+    };
+    final list = shadow.warnings.get(module);
+    if (list == null)
+      shadow.warnings.set(module, [warning]);
+    else
+      list.push(warning);
+    shadow.warningCount++;
   }
 
   /**
@@ -434,6 +493,7 @@ class IncrementalShadow {
       fallbackLookupModules: lookups,
       unattributedReads: TypedModuleInventory.witnessesOf(''),
       reservedNamesChanged: reservedNamesChanged,
+      printWarnings: warningCount,
       haxePrinterModules: printerNames.length,
       haxePrinterModuleNames: printerNames,
       generationMs: milliseconds(generationSeconds),
@@ -529,6 +589,27 @@ class IncrementalShadow {
           stored: '',
           staged: ''
         });
+    final storedWarnings = warningText(stored.warnings);
+    final newWarnings = warningText(warnings.get(module));
+    if (storedWarnings != newWarnings)
+      add(mismatches, {
+        module: module,
+        path: '',
+        kind: 'print warnings differ',
+        line: 0,
+        stored: clip(storedWarnings),
+        staged: clip(newWarnings)
+      });
+  }
+
+  /** Returns a warning list as one text, one warning with its position on each line. */
+  static function warningText(list: Null<Array<CachedWarning>>): String {
+    if (list == null)
+      return '';
+    return [
+      for (warning in list)
+        '${warning.file}:${warning.min}-${warning.max} ${warning.message}'
+    ].join('\n');
   }
 
   /** Stores this request's result as the new cache. */
@@ -543,7 +624,11 @@ class IncrementalShadow {
           [], new Map()),
         witnesses: witnessesOf(module),
         usedHaxePrinter: HaxePrinterUse.used(module),
-        files: sortedFiles
+        files: sortedFiles,
+        warnings: {
+          final list = warnings.get(module);
+          list == null ? [] : list;
+        }
       });
     }
     return GenerationCache.commit(sessionKey,

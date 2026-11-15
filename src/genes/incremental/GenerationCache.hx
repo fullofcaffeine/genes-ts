@@ -7,6 +7,23 @@ typedef CachedFile = {
   final text: String;
 }
 
+/**
+ * One warning that Genes reported while it printed a module: the text, and
+ * the source position as plain data (`Context.getPosInfos`).
+ *
+ * Why: a warning that the printer reports is output of the request, like
+ * the files. Example: "__js__ is deprecated" comes from `ExprEmitter`, not
+ * from Haxe's typing. A request that does not print a clean module must
+ * still report it; `Context.makePosition` turns the three values back into
+ * a position.
+ */
+typedef CachedWarning = {
+  final message: String;
+  final file: String;
+  final min: Int;
+  final max: Int;
+}
+
 /** One module that a module read by name during generation, with its epochs then. */
 typedef CachedWitness = {
   final module: String;
@@ -36,6 +53,9 @@ typedef CachedModule = {
 
   /** The staged files, sorted by path. */
   final files: Array<CachedFile>;
+
+  /** The warnings that the printer reported for the module, in report order. */
+  final warnings: Array<CachedWarning>;
 }
 
 /** What the clean rules decide for one request, before generation starts. */
@@ -90,7 +110,9 @@ typedef CacheRequestFacts = {
  * Clean rules, all must hold:
  *
  * 1. the session key equals the stored key (the one key of
- *    `GenerationChangeSet`, which the passes after typing also read);
+ *    `GenerationChangeSet`, which the passes after typing also read; it
+ *    holds a digest of the name and content of each embedded resource,
+ *    because `haxe.Resource` prints them and no stamp shows their change);
  * 2. the module has an entry from the last successful generation;
  * 3. its epoch list is equal (Haxe did not type it again, and no declaration
  *    was added or removed);
@@ -100,6 +122,14 @@ typedef CacheRequestFacts = {
  * 6. no stored module that was not typed again has a changed fingerprint;
  *    otherwise the whole request falls back;
  * 7. the epoch list of each module that it read by name is equal.
+ *
+ * Print warnings: an entry also holds the warnings that the printer
+ * reported for the module (`CachedWarning`). Rule for the version that
+ * replays stored files: when it does not print a clean module, it reports
+ * the stored warnings of that module, at the place in the module order where
+ * it would have printed the module. Then a warm request gives the warnings
+ * of a cold build. The shadow already compares the stored warnings of each
+ * clean module with the ones of the new print.
  *
  * Lifetime: one `@:persistent` value for one session key. `commit` replaces it
  * only after `OutputTransaction.commit` returned, so a failed request leaves
@@ -202,6 +232,8 @@ class GenerationCache {
         size += witness.module.length + witness.epochs.length;
       for (file in module.files)
         size += file.path.length + file.text.length;
+      for (warning in module.warnings)
+        size += warning.message.length + warning.file.length;
     }
     if (size > BYTE_BUDGET) {
       drop();

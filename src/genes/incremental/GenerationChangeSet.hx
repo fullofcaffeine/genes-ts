@@ -189,7 +189,8 @@ typedef AfterTypingReport = {
  *    but not always what Haxe types: the format, the Haxe version, every
  *    define at the first after-typing callback, the session's digest of the
  *    argument list, the output path, the class paths in order, the working
- *    folder, and the status of each `.hx` file under the Genes class path.
+ *    folder, the name and content of each embedded resource, and the status
+ *    of each `.hx` file under the Genes class path.
  *    When it differs, every record of every pass is dropped, and the
  *    generation cache does not use its stored output.
  * 3. The declaration arrived with one stamp, and the stamp names it.
@@ -290,6 +291,7 @@ class GenerationChangeSet {
   static var moduleEpochs: Map<String, Array<String>> = new Map();
   static var reservedNames: Map<String, Bool> = new Map();
   static var reservedDigest: Null<String> = null;
+  static var typingResources: Null<String> = null;
   static var stampSeconds = 0.0;
   static var sessionKeySeconds = 0.0;
   static var memberSeconds = 0.0;
@@ -427,6 +429,44 @@ class GenerationChangeSet {
    */
   public static function sessionKey(): Null<String> {
     return requestNumber == 0 ? null : lastSessionKey;
+  }
+
+  /**
+   * Returns one text for the resources that the build embeds at the time of
+   * the call: one line `resource <name as hexadecimal> <length> <SHA-1>` for
+   * each resource, sorted. Empty without a resource.
+   *
+   * Why: the module `haxe.Resource` prints the resource bytes into its
+   * output. A session can change a resource file and no Haxe source
+   * (`-resource note.txt@note` with the same argument list). Haxe then types
+   * no module again, so no stamp shows the change. The session key holds this
+   * text, so such an edit changes the key.
+   *
+   * How: `Context.getResources` copies every resource into the macro
+   * interpreter. SHA-1 is a native function of that interpreter, so the
+   * digest costs little. The name is written in hexadecimal because Haxe
+   * 4.3.7 marks each name as ASCII text, also when it holds UTF-8 bytes;
+   * reading one character of such a name stops the compiler.
+   */
+  public static function resourceDigest(): String {
+    final lines = [];
+    for (name => data in Context.getResources())
+      lines.push('resource ${haxe.io.Bytes.ofString(name).toHex()} '
+        + '${data.length} ${haxe.crypto.Sha1.make(data).toHex()}\n');
+    lines.sort(compareStrings);
+    return lines.join('');
+  }
+
+  /**
+   * Returns the resource text that is part of this request's session key
+   * (read at the first after-typing callback), or `null` when the request
+   * added no stamp.
+   *
+   * A reader that prints resources later in the request compares this text
+   * with `resourceDigest()` then: a macro can add a resource after typing.
+   */
+  public static function sessionResources(): Null<String> {
+    return requestNumber == 0 ? null : typingResources;
   }
 
   /**
@@ -668,6 +708,11 @@ class GenerationChangeSet {
       buffer.add('define $name=${defines.get(name)}\n');
     for (classPath in Context.getClassPath())
       buffer.add('classpath $classPath\n');
+    // The output of `haxe.Resource` holds the resource bytes, and a changed
+    // resource file makes Haxe type no module again.
+    final resources = resourceDigest();
+    typingResources = resources;
+    buffer.add(resources);
     // Haxe may keep the macro interpreter, and so the records, when a Genes
     // source file changes in place. The status of each file under the Genes
     // class path makes such an edit change the key.

@@ -619,6 +619,10 @@ class ExprEmitter extends Emitter {
    * treats this one as a general warning, and `-w -WDeprecated` or
    * `@:haxe.warning("-WDeprecated")` does not remove it. The text keeps the
    * `(WDeprecated)` prefix so that it reads as it did before.
+   *
+   * The incremental shadow records each reported warning for its module. A
+   * later request that does not print the module again must still report
+   * it; see `genes.incremental.GenerationCache`, "Print warnings".
    */
   function warnLegacyJs(position: Position): Void {
     if (Context.defined('no_deprecation_warnings'))
@@ -628,8 +632,9 @@ class ExprEmitter extends Emitter {
       return;
     legacyJsWarnings.set(key, true);
     // Haxe prints the warning class before its own text; keep that spelling.
-    Context.warning('(WDeprecated) __js__ is deprecated, use js.Syntax.code instead',
-      position);
+    final message = '(WDeprecated) __js__ is deprecated, use js.Syntax.code instead';
+    genes.incremental.IncrementalShadow.printWarning(message, position);
+    Context.warning(message, position);
   }
 
   /**
