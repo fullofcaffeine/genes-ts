@@ -506,6 +506,36 @@ class Generator {
   }
 
   /**
+   * Returns true when Haxe gives `cls` an `__rtti` string: the class or one of
+   * its parent classes has `@:rtti`.
+   *
+   * Why: Haxe 4.3.7 prints the class metadata into `__rtti`
+   * (`filters.ml`, `add_rtti`) after the `onGenerate` callbacks. The
+   * `:genes.generate(N)` stamp would then be printed too, and `N` is the
+   * request number of this macro interpreter: 1 in a cold build, another
+   * number on a warm compilation server. The same source then gave different
+   * output on a warm server.
+   *
+   * What/How: the TypeScript profile never reads the stamp (its roots come
+   * from `isTypedImplementationRoot`), so it does not stamp such a class.
+   * Removing the stamp later is not possible: Haxe prints `__rtti` after
+   * dead-code elimination and before the custom generator runs, and the
+   * classic profile reads the stamp in that generator (`needsGen`). The
+   * classic profile therefore keeps the stamp, and its `__rtti` still holds
+   * it; that remains a known warm/cold difference of classic `@:rtti` classes.
+   */
+  static function hasRuntimeTypeInfo(cls: ClassType): Bool {
+    var current: Null<ClassType> = cls;
+    while (current != null) {
+      if (current.meta.has(':rtti'))
+        return true;
+      final parent = current.superClass;
+      current = parent == null ? null : parent.t.get();
+    }
+    return false;
+  }
+
+  /**
    * Finds only the metadata pair needed to retain the compilation-root module.
    *
    * Why: an `@:expose` request must keep the root export alive even in a
@@ -685,11 +715,15 @@ class Generator {
         genes.ts.SignatureCache.install();
       }
       Compiler.include('genes.Register');
+      final typeScriptProfile = Context.defined('genes.ts');
       Context.onGenerate(types -> {
         generation++;
         final pos = Context.currentPos();
         for (type in types) {
           switch type {
+            case TInst(_.get() => cls, _)
+              if (typeScriptProfile && hasRuntimeTypeInfo(cls)):
+              // See `hasRuntimeTypeInfo`: the stamp would reach `__rtti`.
             case TEnum((_.get() : BaseType) => base, _) |
               TInst((_.get() : BaseType) => base, _) |
               TType((_.get() : BaseType) => base, _):
