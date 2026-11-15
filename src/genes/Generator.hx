@@ -129,7 +129,18 @@ class Generator {
     // Typing and Haxe's filters are complete: declaration names are final.
     TypeUtil.startGenerationNames();
     ModuleDirectivePlan.validate();
+    // With `-D genes.compile_stage_profile`, `haxe --times` splits the
+    // inventory stage into its whole-program loops (types, exports), the
+    // `Module` values (modules) and the incremental shadow (shadow). A request
+    // that replays stored output still runs the first two for every type.
+    #if genes.compile_stage_profile
+    final endInventoryTypesTimer = timer('genes.plan.inventory.types');
+    #end
     final toGenerate = typesPerModule(api.types);
+    #if genes.compile_stage_profile
+    endInventoryTypesTimer();
+    final endInventoryExportsTimer = timer('genes.plan.inventory.exports');
+    #end
     final extension = Path.extension(outputFile);
     final outputDir = Path.directory(outputFile);
     Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
@@ -200,6 +211,10 @@ class Generator {
         default:
       }
     }
+    #if genes.compile_stage_profile
+    endInventoryExportsTimer();
+    final endInventoryModulesTimer = timer('genes.plan.inventory.modules');
+    #end
     final context: genes.Module.ModuleContext = {
       concrete: concrete,
       modules: modules,
@@ -241,7 +256,14 @@ class Generator {
       else
         names.push(item.name);
     }
+    #if genes.compile_stage_profile
+    endInventoryModulesTimer();
+    final endInventoryShadowTimer = timer('genes.plan.inventory.shadow');
+    #end
     IncrementalShadow.inventory(api.types, exposedByModule, output);
+    #if genes.compile_stage_profile
+    endInventoryShadowTimer();
+    #end
     endInventoryTimer();
     if (tsMode && Genes.outExtension == '.jsx')
       CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-007] `.jsx` is the '
