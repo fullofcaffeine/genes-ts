@@ -2,6 +2,8 @@ package tests.generationcaches;
 
 #if macro
 import genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations;
+import genes.JsonTypeSupport;
+import genes.JsonTypeSupport.JsonTypeDefinitionAnswers;
 import genes.util.TypeUtil;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -28,6 +30,13 @@ import haxe.macro.Type;
  *   name. Each class must still get its own annotated fields, in both read
  *   orders, and from the catalog itself (not from the fallback that reads
  *   the field list again). A type parameter gets no catalog answer.
+ * - `JsonTypeDefinitionAnswers`: answers that one generation shares between
+ *   modules must equal new searches. The check uses the typedefs of
+ *   `JsonCycle`, which name each other, and asks for them in both orders
+ *   with one shared set of answers. In the order inner, then outer, a set
+ *   that also kept an incomplete "no" gives the wrong answer for the outer
+ *   typedef. It also asks for every declaration of the test program, in
+ *   both orders.
  *
  * `test.hxml` installs this probe, so `yarn test` fails when a case fails.
  */
@@ -36,6 +45,7 @@ import haxe.macro.Type;
 class GenerationCachesProbe {
   #if macro
   static inline final TWINS = 'tests.generationcaches.NativeTwins';
+  static inline final JSON_CYCLE = 'tests.generationcaches.JsonCycle';
 
   /** Installs the check. `test.hxml` calls it with `--macro`. */
   public static function install(): Void {
@@ -50,7 +60,32 @@ class GenerationCachesProbe {
     Context.onAfterGenerate(() -> {
       checkBaseTypeNames(generated);
       checkCatalog(generated);
+      checkJsonAnswers(generated);
     });
+  }
+
+  static function checkJsonAnswers(types: Array<Type>): Void {
+    // Typed here, after generation, so that the fixture emits nothing.
+    final outer = Context.getType('$JSON_CYCLE.JsonCycleOuter');
+    final inner = Context.getType('$JSON_CYCLE.JsonCycleInner');
+    require(JsonTypeSupport.typeUsesJsonTypes(outer)
+      && JsonTypeSupport.typeUsesJsonTypes(inner),
+      'Probe setup: both JsonCycle typedefs reach JsonValue in a new search');
+    for (order in [
+      [inner, outer],
+      [outer, inner],
+      types.concat([outer, inner]),
+      [outer, inner].concat(types)
+    ]) {
+      final shared = new JsonTypeDefinitionAnswers();
+      for (type in order) {
+        final kept = JsonTypeSupport.typeUsesJsonTypes(type, shared);
+        final searched = JsonTypeSupport.typeUsesJsonTypes(type);
+        require(kept == searched,
+          'JSON answer for ${haxe.macro.TypeTools.toString(type)}: shared ' +
+          'answers gave $kept, a new search gives $searched');
+      }
+    }
   }
 
   static function checkBaseTypeNames(types: Array<Type>): Void {

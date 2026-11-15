@@ -110,7 +110,15 @@ private typedef JsxStringMetadata = {
 }
 
 private typedef JsxUnsafeVisit = {
-  var owner: Ref<DefType>;
+  /** The typedef on the search path. */
+  var reference: Ref<DefType>;
+
+  /**
+   * The declaration of `reference`, read on the first comparison that needs
+   * its module and name (see `JsxTypeChecker.visitedTypedef`).
+   */
+  var declaration: Null<DefType>;
+
   var arguments: Array<String>;
 }
 
@@ -2021,9 +2029,18 @@ class JsxTypeChecker {
    * Recursive typedefs are legal closed contracts. While a typedef is already
    * being inspected, seeing that same typedef with the same type arguments
    * means the walk has returned to a shape it is currently checking; it does
-   * not mean the type is unresolved. The active stack uses Haxe's typed typedef
-   * reference plus readable argument spellings only as a recursion guard. It
-   * never decides assignability or generated names.
+   * not mean the type is unresolved. The active stack uses the module and
+   * name of each typedef plus readable argument spellings only as a recursion
+   * guard. It never decides assignability or generated names.
+   *
+   * Cost: this runs for every nested type of every checked HXX value, so it
+   * avoids `ref.get()`, which copies a complete declaration, where the answer
+   * does not need it. A typedef is read at most once, and only when an entry
+   * of the search path has the same argument spellings; before, it was read
+   * twice for each entry. A class type without type arguments is safe whether or
+   * not it is a type parameter, so it is not read. An abstract is unsafe by
+   * its path alone (`Any`, `genes.ts.Unknown`), which its reference text
+   * gives exactly.
    */
   static function isUnsafe(type: Type, depth = 0,
       visiting: Null<Array<JsxUnsafeVisit>> = null,
@@ -2038,15 +2055,21 @@ class JsxTypeChecker {
           for (parameter in parameters)
             TypeTools.toString(parameter)
         ];
+        final current: JsxUnsafeVisit = {
+          reference: typeRef,
+          declaration: null,
+          arguments: arguments
+        };
         var recursive = false;
         for (visit in active)
-          if (sameTypedefOwner(visit.owner, typeRef)
-            && sameStrings(visit.arguments, arguments)) {
+          if (sameStrings(visit.arguments, arguments)
+            && sameTypedefOwner(visitedTypedef(visit),
+              visitedTypedef(current))) {
             recursive = true;
             break;
           }
         if (recursive) false; else {
-          active.push({owner: typeRef, arguments: arguments});
+          active.push(current);
           final unsafe = isUnsafe(Context.follow(type), nextDepth, active,
             allowInferenceVariables);
           active.pop();
@@ -2057,13 +2080,17 @@ class JsxTypeChecker {
       case TMono(reference):
         isUnsafeMonomorph(reference, nextDepth, active,
           allowInferenceVariables);
+      case TInst(_, []):
+        // Safe in both cases below: a type parameter is checked, and any
+        // other class type has no child type without type arguments.
+        false;
       case TInst(classRef, _) if (classRef.get().kind.match(KTypeParameter(_))):
         // A named type parameter is a checked symbolic contract, not an
         // unresolved monomorph. Assignability binds or validates it later.
         false;
       case TDynamic(_): true;
       case TAbstract(abstractRef, _):
-        if (isUnsafeAbstract(abstractRef.get())) true; else
+        if (isUnsafeAbstract(abstractRef.toString())) true; else
           hasUnsafeChild(type, nextDepth, active, allowInferenceVariables);
       default:
         hasUnsafeChild(type, nextDepth, active, allowInferenceVariables);
@@ -2077,11 +2104,17 @@ class JsxTypeChecker {
     return isUnsafe(type, 0, null, true);
   }
 
-  static function isUnsafeAbstract(type: AbstractType): Bool {
-    final coreAny = type.pack.length == 0 && type.name == 'Any';
-    final genesUnknown = type.pack.join('.') == 'genes.ts'
-      && type.name == 'Unknown';
-    return coreAny || genesUnknown;
+  /**
+   * Returns whether an abstract is the core `Any` or `genes.ts.Unknown`.
+   *
+   * `path` is the text of the abstract reference: its `pack` and `name`
+   * joined with dots. That text is exact for an abstract
+   * (`tests.referencetext.ReferenceTextProbe`), and neither part contains a
+   * dot, so `Any` means an empty package and `genes.ts.Unknown` means the
+   * package `genes.ts`.
+   */
+  static function isUnsafeAbstract(path: String): Bool {
+    return path == 'Any' || path == 'genes.ts.Unknown';
   }
 
   static function hasUnsafeChild(type: Type, depth: Int,
@@ -2110,12 +2143,21 @@ class JsxTypeChecker {
     return true;
   }
 
-  static function sameTypedefOwner(left: Ref<DefType>,
-      right: Ref<DefType>): Bool {
-    final leftType = left.get();
-    final rightType = right.get();
-    return leftType.module == rightType.module
-      && leftType.name == rightType.name;
+  /**
+   * Returns the declaration of a typedef on the search path of `isUnsafe`,
+   * and keeps it in the entry, so each typedef is copied at most once.
+   */
+  static function visitedTypedef(visit: JsxUnsafeVisit): DefType {
+    final known = visit.declaration;
+    if (known != null)
+      return known;
+    final declaration = visit.reference.get();
+    visit.declaration = declaration;
+    return declaration;
+  }
+
+  static function sameTypedefOwner(left: DefType, right: DefType): Bool {
+    return left.module == right.module && left.name == right.name;
   }
 
   static function typeParameterKey(type: ClassType): String {
