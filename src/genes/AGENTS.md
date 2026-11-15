@@ -120,7 +120,12 @@ maps fixture locations to compiler surfaces.
   class or enum with `@:native` has its native path, a type parameter of a
   method is `method.T`, and the typedef for a class used as a value is
   `Class<path>`. Use the text only to skip `ref.get()` when it proves the
-  answer; read the declaration for the exact fact.
+  answer; read the declaration for the exact fact. Two cases are exact: the
+  text of a class, enum, typedef, or abstract reference is always its `pack`
+  and `name` joined with dots, so it can replace a comparison of these two
+  fields (`NullishContract.classify`, `JsxPlan.markerKind`); and the text of
+  a field reference is the field name. The text cannot replace a comparison
+  of `module`.
 - `extraParams.hxml` enables recursive Haxe Loose null safety for the owned
   `genes.*` implementation before `Generator.use()` can load compiler types.
   Keep any `@:nullSafety(Off)` statement local, documented at the mismatch, and
