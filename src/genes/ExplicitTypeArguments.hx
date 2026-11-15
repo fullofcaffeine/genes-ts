@@ -24,6 +24,94 @@ typedef ExplicitTypeArgument = {
   final tsType: Null<String>;
 }
 
+/**
+ * Keeps, for one output generation, the fields of a class that carry
+ * `@:ts.explicitTypeArguments` and declare type parameters.
+ *
+ * Why: the TypeScript emitter asks `ExplicitTypeArguments.forCall` about
+ * every direct call. When the called field has no annotation of its own, it
+ * can still be an overload of an annotated field, so `forCall` looked through
+ * every field of the owner class. Reading that field list copies each field
+ * into a new macro value: about 120 microseconds for one call on a measured
+ * application, 15,000 calls and 1.8 seconds in each generation. Most classes
+ * have no annotated field at all.
+ *
+ * What: for one class and one side (static or instance), this catalog keeps
+ * the annotated generic fields in declaration order. That is the only part
+ * of the field list that the search uses.
+ *
+ * How: `Generator` creates one catalog for one `generate` call and gives it
+ * to its modules through `ModuleContext`, like `JsxProviderSchemaCatalog`.
+ * Nothing is static, so a warm compiler server starts every request with an
+ * empty catalog. During generation the fields of a class and their metadata
+ * do not change, so an answer cannot become stale. A caller without a
+ * catalog reads the field list on every call, as before.
+ *
+ * Key: the side and a text that names exactly one class; see
+ * `declarationIdentity`. The Haxe module and the class name alone are not
+ * such a text. Haxe renames a class with `@:native("Lib")` to `Lib` before
+ * generation, so two extern classes of one module can then have the same
+ * module and the same name, and one would get the field list of the other.
+ * `tests/explicit-type-arguments/native-twins` builds that case in both
+ * orders.
+ */
+class ExplicitTypeArgumentDeclarations {
+  final annotated = new Map<String, Array<ClassField>>();
+
+  public function new() {}
+
+  /**
+   * Returns the annotated generic fields of one side of a class, in
+   * declaration order, and reads the field list of that class at most once
+   * in this generation.
+   *
+   * Returns `null` when the catalog has no text that names exactly this
+   * class. The caller then reads the field list itself, so the answer is the
+   * same and only the cost differs.
+   */
+  @:allow(genes.ExplicitTypeArguments)
+  function fieldsOf(owner: ClassType, isStatic: Bool): Null<Array<ClassField>> {
+    final identity = declarationIdentity(owner);
+    if (identity == null)
+      return null;
+    final key = (isStatic ? 'static ' : 'instance ') + identity;
+    final known = annotated.get(key);
+    if (known != null)
+      return known;
+    final fields = ExplicitTypeArguments.annotatedGenericFields(owner,
+      isStatic);
+    annotated.set(key, fields);
+    return fields;
+  }
+
+  /**
+   * Returns a text that names exactly one class during generation, or `null`
+   * when this function knows no such text.
+   *
+   * - A class without `@:native` keeps the name it was declared with, and a
+   *   Haxe module cannot declare two classes with one name. Its text is the
+   *   module and the name.
+   * - A class with `@:native` was renamed by Haxe. Haxe records the path it
+   *   was declared with in `@:realPath`, and no two declarations of a
+   *   program have the same path. Its text is that path. The two kinds of
+   *   text start with different words, so a renamed class can never share a
+   *   text with a class that kept its name.
+   * - A class with `@:native` and no readable `@:realPath` has no text.
+   * - A type parameter has no text: two type parameters of different
+   *   methods can have the same module and name.
+   */
+  static function declarationIdentity(owner: ClassType): Null<String> {
+    if (owner.kind.match(KTypeParameter(_)))
+      return null;
+    if (!owner.meta.has(':native'))
+      return 'declared ' + owner.module + ':' + owner.name;
+    return switch owner.meta.extract(':realPath') {
+      case [{params: [{expr: EConst(CString(path))}]}]: 'renamed ' + path;
+      default: null;
+    }
+  }
+}
+
 /** The original value and occurrence-local type facts carried through typing. */
 typedef ExplicitTypeArgumentCallSite = {
   final value: TypedExpr;
@@ -80,7 +168,8 @@ class ExplicitTypeArguments {
    * used; a cached or malformed carrier cannot authorize another callable.
    */
   public static function forCall(callee: TypedExpr,
-      carriedArguments: Null<Array<ExplicitTypeArgument>> = null): Null<Array<ExplicitTypeArgument>> {
+      carriedArguments: Null<Array<ExplicitTypeArgument>> = null,
+      ?declarations: ExplicitTypeArgumentDeclarations): Null<Array<ExplicitTypeArgument>> {
     final resolved = resolveField(callee);
     if (resolved == null) {
       if (carriedArguments != null) {
@@ -91,7 +180,7 @@ class ExplicitTypeArguments {
     }
 
     final declaration = metadataDeclaration(resolved.owner, resolved.field,
-      resolved.isStatic);
+      resolved.isStatic, declarations);
     if (declaration == null) {
       if (carriedArguments != null) {
         fail('TypeArguments.call(...) requires a generic callable '
@@ -241,7 +330,7 @@ class ExplicitTypeArguments {
   public static function callSiteMarker(expression: TypedExpr): Null<ExplicitTypeArgumentCallSite> {
     return switch expression.expr {
       case TCall(callee, carrierArguments) if (carrierArguments.length >= 1):
-        final resolved = resolveField(callee);
+        final resolved = namesCallSiteCarrier(callee) ? resolveField(callee) : null;
         if (resolved != null
           && resolved.owner.pack.join('.') == 'genes.ts'
           && resolved.owner.name == 'ExplicitTypeArgumentCallSite'
@@ -274,6 +363,32 @@ class ExplicitTypeArguments {
         callSiteMarker(inner);
       default:
         null;
+    }
+  }
+
+  /**
+   * Returns whether a callee can be the `preserve` field of the call-site
+   * carrier, without reading a declaration.
+   *
+   * Why: `callSiteMarker` runs for every call with an argument. `resolveField`
+   * copies the owner class and the field (`ref.get()`, about 10 microseconds
+   * each), and almost no call is a carrier.
+   *
+   * How: the text of a field reference is the field name, and the text of a
+   * class reference is its package and name. The function accepts the same
+   * callee forms as `resolveField`. `callSiteMarker` still makes its own
+   * check on the declarations when this function answers `true`.
+   */
+  static function namesCallSiteCarrier(callee: TypedExpr): Bool {
+    return switch callee.expr {
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
+        namesCallSiteCarrier(inner);
+      case TField(_, FStatic(owner, field)) |
+        TField(_, FInstance(owner, _, field)) | TField(_, FClosure({
+          c: owner
+        }, field)): field.toString() == 'preserve' && owner.toString() == 'genes.ts.ExplicitTypeArgumentCallSite';
+      default:
+        false;
     }
   }
 
@@ -360,15 +475,32 @@ class ExplicitTypeArguments {
    * and avoids asking every overload declaration to duplicate the annotation.
    */
   static function metadataDeclaration(owner: ClassType, selected: ClassField,
-      isStatic: Bool): Null<ClassField> {
+      isStatic: Bool,
+      declarations: Null<ExplicitTypeArgumentDeclarations>): Null<ClassField> {
     if (selected.meta.has(METADATA) && selected.params.length > 0)
       return selected;
-    final fields = isStatic ? owner.statics.get() : owner.fields.get();
+    final known = declarations == null ? null : declarations.fieldsOf(owner,
+      isStatic);
+    final fields = known == null ? annotatedGenericFields(owner,
+      isStatic) : known;
     for (field in fields)
-      if (field.name == selected.name && field.meta.has(METADATA)
-        && field.params.length > 0)
+      if (field.name == selected.name)
         return field;
     return selected.meta.has(METADATA) ? selected : null;
+  }
+
+  /**
+   * Returns the fields of one side of a class that carry the annotation and
+   * declare type parameters, in declaration order.
+   */
+  @:allow(genes.ExplicitTypeArgumentDeclarations)
+  static function annotatedGenericFields(owner: ClassType,
+      isStatic: Bool): Array<ClassField> {
+    final fields = isStatic ? owner.statics.get() : owner.fields.get();
+    return [
+      for (field in fields)
+        if (field.meta.has(METADATA) && field.params.length > 0) field
+    ];
   }
 
   /**

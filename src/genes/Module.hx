@@ -92,7 +92,16 @@ typedef ModuleContext = {
    * without it is valid: each module then validates every provider schema
    * itself.
    */
-  ?jsxProviderSchemas: genes.JsxTypeChecker.JsxProviderSchemaCatalog
+  ?jsxProviderSchemas: genes.JsxTypeChecker.JsxProviderSchemaCatalog,
+
+  /**
+   * Annotated generic fields that this generation has already found.
+   *
+   * `Generator` supplies one catalog for each `generate` call. A context
+   * without it is valid: `ExplicitTypeArguments.forCall` then reads the
+   * field list of the owner class on every call.
+   */
+  ?explicitTypeArgumentDeclarations: genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations
 }
 
 typedef ModuleExport = {
@@ -246,6 +255,17 @@ class Module {
     return context.jsxProviderSchemas;
   }
 
+  /**
+   * Returns the annotated generic fields shared by this module's generation.
+   *
+   * The result is `null` when the module was built outside `Generator`
+   * without a catalog. The TypeScript emitter passes it to
+   * `ExplicitTypeArguments.forCall`.
+   */
+  public function explicitTypeArgumentDeclarations(): Null<genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations> {
+    return context.explicitTypeArgumentDeclarations;
+  }
+
   function get_jsxPlan(): JsxPlan {
     if (jsxPlan == null)
       jsxPlan = JsxPlan.build(this);
@@ -377,10 +397,12 @@ class Module {
    */
   public function resolveModuleFunction(ownerRef: Ref<ClassType>,
       fieldRef: Ref<ClassField>): Null<ModuleFunctionEntry> {
-    final owner = ownerRef.get();
     final field = fieldRef.get();
     if (!field.meta.has(':genes.moduleFunction'))
       return null;
+    // Read the owner only for a marked field: almost no static field has the
+    // marker, and `ref.get()` copies the complete class.
+    final owner = ownerRef.get();
     final target = context.modules.get(owner.module);
     if (target == null || owner.isExtern || owner.isInterface) {
       return ModuleFunctionRequestPlan.fromTypedField(ownerRef, fieldRef);

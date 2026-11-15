@@ -120,6 +120,8 @@ class Generator {
   static function generateTransactional(api: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction): Void {
     final endInventoryTimer = timer('genes.plan.inventory');
+    // Typing and Haxe's filters are complete: declaration names are final.
+    TypeUtil.startGenerationNames();
     ModuleDirectivePlan.validate();
     final toGenerate = typesPerModule(api.types);
     final extension = Path.extension(outputFile);
@@ -197,7 +199,9 @@ class Generator {
       modules: modules,
       hasFeature: api.hasFeature,
       // One catalog for this request only; see JsxProviderSchemaCatalog.
-      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog()
+      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog(),
+      // One catalog for this request only; see the class comment.
+      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations()
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)

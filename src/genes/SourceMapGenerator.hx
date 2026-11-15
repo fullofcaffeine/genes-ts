@@ -11,11 +11,99 @@ import sys.FileSystem;
 import haxe.Json;
 import genes.util.PathUtil;
 
+/**
+ * One location in a source file: line, column, and file.
+ *
+ * Why: emitters give a location to `emitPos` for almost every expression,
+ * and each semantic plan can keep one for a diagnostic. Haxe gives a location
+ * as an opaque `Position`. To read its line and column, Haxe must convert it
+ * (`PositionTools.toLocation`), which takes about 2.5 microseconds. A build
+ * without source maps never reads these numbers. On one application with
+ * 1,100 modules, the conversion ran 1.3 million times and cost about
+ * 3 seconds in each generation.
+ *
+ * What: a value made from numbers (`{line: 1, column: 0, file: null}`) holds
+ * these numbers. A value made from a Haxe position (`ofPosition`) keeps the
+ * position and converts it when `line`, `column`, or `file` is read for the
+ * first time. The three fields then have the same values as before; only the
+ * moment of the conversion changes.
+ *
+ * Limit: the value keeps the Haxe position until the first read, so it
+ * belongs to one request, like every value that holds a typed expression.
+ */
 @:structInit
 class SourcePositionData {
-  public final line: Int;
-  public final column: Int;
-  public final file: Null<String>;
+  /** One-based line. */
+  public var line(get, never): Int;
+
+  /** Zero-based column. */
+  public var column(get, never): Int;
+
+  /** Source file path, or `null` for a location that the compiler made. */
+  public var file(get, never): Null<String>;
+
+  var knownLine: Int;
+  var knownColumn: Int;
+  var knownFile: Null<String>;
+
+  /** The Haxe position that still has to be converted, or `null`. */
+  var position: Null<Position> = null;
+
+  public function new(line: Int, column: Int, file: Null<String>) {
+    knownLine = line;
+    knownColumn = column;
+    knownFile = file;
+  }
+
+  /**
+   * Returns a location that converts `position` at its first read.
+   *
+   * A typed expression always has a position. If a caller still passes
+   * `null`, the conversion runs here, so Haxe reports it at the same place
+   * as before.
+   */
+  public static function ofPosition(position: Position): SourcePositionData {
+    if (position == null)
+      return ofLocation(toLocation(position));
+    final data = new SourcePositionData(0, 0, null);
+    data.position = position;
+    return data;
+  }
+
+  /** Returns the location that Haxe's own converted record describes. */
+  public static function ofLocation(location: Location): SourcePositionData {
+    return new SourcePositionData(location.range.start.line,
+      location.range.start.character - 1, location.file.toString());
+  }
+
+  function get_line(): Int {
+    if (position != null)
+      read();
+    return knownLine;
+  }
+
+  function get_column(): Int {
+    if (position != null)
+      read();
+    return knownColumn;
+  }
+
+  function get_file(): Null<String> {
+    if (position != null)
+      read();
+    return knownFile;
+  }
+
+  function read(): Void {
+    final unread = position;
+    if (unread == null)
+      return;
+    final location = toLocation(unread);
+    knownLine = location.range.start.line;
+    knownColumn = location.range.start.character - 1;
+    knownFile = location.file.toString();
+    position = null;
+  }
 }
 
 /**
@@ -49,15 +137,11 @@ abstract SourcePosition(SourcePositionData) from SourcePositionData {
   @:from static function fromTypedExpr(expr: TypedExpr)
     return fromPos(expr.pos);
 
-  @:from static function fromPos(pos: Position)
-    return fromLocation(toLocation(pos));
+  @:from static function fromPos(pos: Position): SourcePosition
+    return SourcePositionData.ofPosition(pos);
 
   @:from static function fromLocation(location: Location): SourcePosition
-    return ({
-      line: location.range.start.line,
-      column: location.range.start.character - 1,
-      file: location.file.toString()
-    } : SourcePositionData);
+    return SourcePositionData.ofLocation(location);
 
   public static final EMPTY: SourcePosition = ({
     line: 1,

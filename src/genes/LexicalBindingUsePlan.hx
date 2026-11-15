@@ -163,8 +163,7 @@ final class LexicalBindingUsePlan {
   final scopeFunctions: Map<Int, TFunc>;
   final occurrences: Array<RuntimeAuthorityOccurrence>;
   final moduleOccurrences: Array<RuntimeAuthorityOccurrence>;
-  final expressionOccurrences: ObjectMap<TypedExpr,
-    Array<RuntimeAuthorityOccurrence>>;
+  final expressionOccurrences: TypedExprMap<Array<RuntimeAuthorityOccurrence>>;
   final fixedBindings: Array<ScopedBinding>;
   final countsValue: LexicalBindingUseCounts;
   final rootIndexes: Map<String, Map<String, Array<Int>>> = [];
@@ -181,8 +180,7 @@ final class LexicalBindingUsePlan {
       functionScopes: ObjectMap<TFunc, Int>, scopeFunctions: Map<Int, TFunc>,
       occurrences: Array<RuntimeAuthorityOccurrence>,
       moduleOccurrences: Array<RuntimeAuthorityOccurrence>,
-      expressionOccurrences: ObjectMap<TypedExpr,
-      Array<RuntimeAuthorityOccurrence>>,
+      expressionOccurrences: TypedExprMap<Array<RuntimeAuthorityOccurrence>>,
       fixedBindings: Array<ScopedBinding>, counts: LexicalBindingUseCounts) {
     this.module = module;
     this.scopes = scopes;
@@ -588,8 +586,9 @@ private final class LexicalBindingUsePlanBuilder {
   final scopeFunctions: Map<Int, TFunc> = [];
   final occurrences: Array<RuntimeAuthorityOccurrence> = [];
   final moduleOccurrences: Array<RuntimeAuthorityOccurrence> = [];
-  final expressionOccurrences = new ObjectMap<TypedExpr,
-    Array<RuntimeAuthorityOccurrence>>();
+  // One entry for each expression that names a runtime binding: a large
+  // module has thousands, so this is a `TypedExprMap` (see its class comment).
+  final expressionOccurrences = new TypedExprMap<Array<RuntimeAuthorityOccurrence>>();
   final fixedBindings: Array<ScopedBinding> = [];
   var expressionCount = 0;
   var currentClass: Null<ClassType> = null;
@@ -925,8 +924,9 @@ private final class LexicalBindingUsePlanBuilder {
 
   function record(expression: Null<TypedExpr>, scopeId: Int,
       authority: LexicalRuntimeAuthority, profile: RuntimeProfileMask): Void {
+    var known: Null<Array<RuntimeAuthorityOccurrence>> = null;
     if (expression != null) {
-      final known = expressionOccurrences.get(expression);
+      known = expressionOccurrences.get(expression);
       if (known != null)
         for (occurrence in known)
           if (occurrence.profile == profile
@@ -943,9 +943,11 @@ private final class LexicalBindingUsePlanBuilder {
     if (expression == null) {
       moduleOccurrences.push(occurrence);
     } else {
-      if (!expressionOccurrences.exists(expression))
-        expressionOccurrences.set(expression, []);
-      expressionOccurrences.get(expression).push(occurrence);
+      if (known == null) {
+        known = [];
+        expressionOccurrences.set(expression, known);
+      }
+      known.push(occurrence);
     }
   }
 

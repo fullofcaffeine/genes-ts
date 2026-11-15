@@ -27,6 +27,16 @@ class TypeUtil {
   public static var bootType(default, null): ModuleType;
 
   /**
+   * The answers of `baseTypeName` in one generation: Haxe module path, then
+   * declaration name, then the name that Genes prints. `null` until the
+   * generation of a request starts. After that generation the map stays
+   * set, and nothing reads it for a later request: the next request that
+   * installs Genes sets it to `null` first. See `startGenerationNames`.
+   */
+  static var generationBaseTypeNames: Null<Map<String, Map<String,
+    String>>> = null;
+
+  /**
    * Refreshes helper declarations before the current request types user code.
    *
    * Why: Haxe's compiler server keeps macro statics alive. A helper
@@ -44,6 +54,7 @@ class TypeUtil {
    * never keyed by names, positions, or generated output.
    */
   public static function refreshCompilerTypes(): Void {
+    generationBaseTypeNames = null;
     #if (haxe_ver >= 5)
     Context.onAfterInitMacros(resolveCompilerTypes);
     #else
@@ -677,8 +688,63 @@ class TypeUtil {
    * shared `BaseType`. We check authored declarations first, then accept an
    * implementation-class name only when the supplied base actually names that
    * class. This preserves the old output without reflection or a cast.
+   *
+   * Cost: the search reads every declaration of the module with `ref.get()`,
+   * about 10 microseconds each, and dependency planning asks for the same few
+   * declarations again and again. On one application with 1,100 modules this
+   * was 110,000 calls and about 3 seconds in each generation. During
+   * generation the answer for one module and one name cannot change, so
+   * `startGenerationNames` lets this function keep each answer. Before
+   * generation the function searches on every call, as before.
    */
-  public static function baseTypeName(base: BaseType) {
+  public static function baseTypeName(base: BaseType): String {
+    final answers = generationBaseTypeNames;
+    if (answers == null)
+      return searchBaseTypeName(base);
+    final module = base.module;
+    var ofModule = answers.get(module);
+    if (ofModule == null) {
+      ofModule = new Map();
+      answers.set(module, ofModule);
+    }
+    final name = base.name;
+    final known = ofModule.get(name);
+    if (known != null)
+      return known;
+    final found = searchBaseTypeName(base);
+    ofModule.set(name, found);
+    return found;
+  }
+
+  /**
+   * Lets `baseTypeName` keep its answers until the end of this generation.
+   *
+   * Why it is safe only from here: before generation, Haxe still changes
+   * declarations. Example: its filter step renames a class that has
+   * `@:native("a.B")` to `B`, after the `onAfterTyping` callbacks and before
+   * generation. An answer kept across that step could name the old
+   * declaration. When the generator callback starts, typing and all filters
+   * are complete. Genes changes no declaration name, kind, or `@:native`
+   * metadata during generation, and the declaration list of a module is
+   * fixed. The answer is then a function of the module path and the name
+   * only, and these two texts are the key. After the rename two classes of
+   * one module can have the same name (two `@:native("Lib")` classes). The
+   * search compares only the module and the name, so it already gives both
+   * the same answer, and the kept answer is that answer.
+   *
+   * Lifetime: `Generator.generateTransactional` calls this once, so a new
+   * empty map starts each generation. The map then stays set until the next
+   * request that installs Genes: its first `Generator.use()` calls
+   * `refreshCompilerTypes`, which sets the map to `null`, also when the
+   * earlier generation failed. A request that does not install Genes does
+   * not run this code. The map holds text only, no compiler-owned value.
+   */
+  public static function startGenerationNames(): Void {
+    generationBaseTypeNames = new Map();
+  }
+
+  /** Does the search that `baseTypeName` documents; keeps nothing. */
+  static function searchBaseTypeName(base: BaseType): String {
     final moduleTypes = TypedModuleInventory.moduleTypes(base.module);
 
     for (candidate in moduleTypes) {
