@@ -615,7 +615,7 @@ class SignatureCache {
     // following abstracts). Capture declared signatures for TS emission.
     // Classes come from the shared walk; the second function reads the other
     // declaration kinds after it.
-    AfterTypingPasses.add(captureClass, types -> {
+    AfterTypingPasses.add('signatureCache', captureClass, types -> {
       for (t in types) {
         switch t {
           case TEnumDecl(ref):

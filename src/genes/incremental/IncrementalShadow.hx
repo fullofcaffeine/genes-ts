@@ -11,13 +11,44 @@ import genes.incremental.IncrementalRequest;
 
 using Lambda;
 
-/** The phase of one module that a clock measures. */
+/**
+ * The stage of the generator in which a clock measures one module. The first
+ * three are the "plan" time of the module in the report.
+ */
 enum IncrementalPhase {
-  /** Dependency plan, reachability visit and validation of the module. */
-  Plan;
+  /** The inventory stage: the `Module` value of the module is made. */
+  Inventory;
+
+  /** The reachability visit: the dependency plan of the module. */
+  Reachability;
+
+  /** JSX and direct-binding validation of the module. */
+  Validation;
 
   /** Printing of the module's files. */
   Emit;
+}
+
+/**
+ * The module clocks of one generator stage, by the state of the module.
+ *
+ * Why: the time of a stage that is outside these clocks is fixed cost, which
+ * a replay of clean modules does not remove. The stage timers of
+ * `haxe --times` (for example `genes.plan.reachability`) give the stage
+ * total; the total minus the three sums here is that fixed cost.
+ */
+typedef ShadowStageReport = {
+  /** `inventory`, `reachability`, `validation` or `emit`. */
+  final stage: String;
+
+  /** Modules that the clean rules call clean. */
+  final cleanMs: Float;
+
+  /** Emitted modules that are not clean. */
+  final dirtyMs: Float;
+
+  /** Modules that got no output file, for example a module of types only. */
+  final notEmittedMs: Float;
 }
 
 /** One difference between the stored and the staged files of a clean module. */
@@ -86,6 +117,7 @@ typedef ShadowReport = {
   final cacheBytes: Int;
   final cacheEntries: Int;
   final cacheStored: Bool;
+  final stages: Array<ShadowStageReport>;
   final overhead: ShadowOverhead;
   final modules: Array<ShadowModuleReport>;
 }
@@ -163,9 +195,13 @@ class IncrementalShadow {
   var warningCount = 0;
   final planSeconds = new Map<String, Float>();
   final emitSeconds = new Map<String, Float>();
+
+  /** Module clocks of each stage; the first key is `stageName`. */
+  final stageSeconds = new Map<String, Map<String, Float>>();
+
   var owner: Null<String> = null;
   var clockModule: Null<String> = null;
-  var clockPhase: IncrementalPhase = Plan;
+  var clockPhase: IncrementalPhase = Inventory;
   var clockStart = 0.0;
   var fingerprintSeconds = 0.0;
   var decideSeconds = 0.0;
@@ -381,6 +417,14 @@ class IncrementalShadow {
     final target = clockPhase == Emit ? emitSeconds : planSeconds;
     final before = target.get(module);
     target.set(module, (before == null ? 0.0 : before) + elapsed);
+    final stage = stageName(clockPhase);
+    var inStage = stageSeconds.get(stage);
+    if (inStage == null) {
+      inStage = new Map();
+      stageSeconds.set(stage, inStage);
+    }
+    final earlier = inStage.get(module);
+    inStage.set(module, (earlier == null ? 0.0 : earlier) + elapsed);
     clockModule = null;
   }
 
@@ -465,6 +509,29 @@ class IncrementalShadow {
         usedHaxePrinter: HaxePrinterUse.used(module)
       });
     }
+    final stageReports: Array<ShadowStageReport> = [];
+    for (stage in [Inventory, Reachability, Validation, Emit]) {
+      final name = stageName(stage);
+      final inStage = stageSeconds.get(name);
+      var clean = 0.0;
+      var dirty = 0.0;
+      var notEmitted = 0.0;
+      if (inStage != null)
+        for (module => seconds in inStage) {
+          if (cleanSet.exists(module))
+            clean += seconds;
+          else if (files.exists(module))
+            dirty += seconds;
+          else
+            notEmitted += seconds;
+        }
+      stageReports.push({
+        stage: name,
+        cleanMs: milliseconds(clean),
+        dirtyMs: milliseconds(dirty),
+        notEmittedMs: milliseconds(notEmitted)
+      });
+    }
     final overheadSeconds = changeSetSeconds
       + fingerprintSeconds
       + decideSeconds
@@ -505,6 +572,7 @@ class IncrementalShadow {
       cacheBytes: GenerationCache.bytes(),
       cacheEntries: GenerationCache.storedModules().length,
       cacheStored: stored,
+      stages: stageReports,
       overhead: {
         changeSetMs: milliseconds(changeSetSeconds),
         fingerprintMs: milliseconds(fingerprintSeconds),
@@ -600,6 +668,15 @@ class IncrementalShadow {
         stored: clip(storedWarnings),
         staged: clip(newWarnings)
       });
+  }
+
+  static function stageName(phase: IncrementalPhase): String {
+    return switch phase {
+      case Inventory: 'inventory';
+      case Reachability: 'reachability';
+      case Validation: 'validation';
+      case Emit: 'emit';
+    }
   }
 
   /** Returns a warning list as one text, one warning with its position on each line. */

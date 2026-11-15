@@ -95,6 +95,18 @@ enum SessionState {
   Changed;
 }
 
+/** The time of one pass after typing in one request. */
+typedef PassTime = {
+  /** The name that the pass gave to `AfterTypingPasses.add`. */
+  final pass: String;
+
+  /** Time of the class function of the pass, over all classes. */
+  final classMs: Float;
+
+  /** Time of the declaration function of the pass; 0 when it has none. */
+  final declarationsMs: Float;
+}
+
 /** The report that one request writes beside its descriptor. */
 typedef AfterTypingReport = {
   /** The report format; `GenerationChangeSet.FORMAT`. */
@@ -150,6 +162,12 @@ typedef AfterTypingReport = {
 
   /** Time of the class walk and the declaration functions of all passes. */
   final walkMs: Float;
+
+  /**
+   * The part of `walkMs` that each pass used, in the order of the passes.
+   * Empty in a report that was written before the passes ended.
+   */
+  final passTimes: Array<PassTime>;
 
   /** False in a report that was written before the passes ended. */
   final passesComplete: Bool;
@@ -292,6 +310,9 @@ class GenerationChangeSet {
   static var reservedNames: Map<String, Bool> = new Map();
   static var reservedDigest: Null<String> = null;
   static var typingResources: Null<String> = null;
+  static var passOrder: Array<String> = [];
+  static var passClassSeconds: Map<String, Float> = new Map();
+  static var passDeclarationSeconds: Map<String, Float> = new Map();
   static var stampSeconds = 0.0;
   static var sessionKeySeconds = 0.0;
   static var memberSeconds = 0.0;
@@ -544,6 +565,27 @@ class GenerationChangeSet {
     memberSeconds += haxe.Timer.stamp() - started;
   }
 
+  /**
+   * Adds the time that one pass used in the walk of one declaration list.
+   * `AfterTypingPasses.run` calls it after the walk, once for the class
+   * function and once for the declaration function of each pass.
+   */
+  public static function passTime(pass: String, classSeconds: Float,
+      declarationSeconds: Float): Void {
+    if (!passClassSeconds.exists(pass)) {
+      passOrder.push(pass);
+      passClassSeconds.set(pass, 0.0);
+      passDeclarationSeconds.set(pass, 0.0);
+    }
+    final classBefore = passClassSeconds.get(pass);
+    final declarationBefore = passDeclarationSeconds.get(pass);
+    passClassSeconds.set(pass,
+      (classBefore == null ? 0.0 : classBefore) + classSeconds);
+    passDeclarationSeconds.set(pass,
+      (declarationBefore == null ? 0.0 : declarationBefore) +
+      declarationSeconds);
+  }
+
   /** Ends the walk of one declaration list and writes the complete report. */
   public static function finish(seconds: Float): Void {
     walkSeconds += seconds;
@@ -600,6 +642,17 @@ class GenerationChangeSet {
       sessionKeyMs: milliseconds(sessionKeySeconds),
       memberListMs: milliseconds(memberSeconds),
       walkMs: milliseconds(walkSeconds),
+      passTimes: [
+        for (pass in passOrder) {
+          final classSeconds = passClassSeconds.get(pass);
+          final declarationSeconds = passDeclarationSeconds.get(pass);
+          {
+            pass: pass,
+            classMs: milliseconds(classSeconds == null ? 0.0 : classSeconds),
+            declarationsMs: milliseconds(declarationSeconds == null ? 0.0 : declarationSeconds)
+          }
+        }
+      ],
       passesComplete: complete,
       passes: off != null ? [] : KeptRecords.reports()
     };

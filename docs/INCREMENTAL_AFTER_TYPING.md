@@ -373,7 +373,9 @@ descriptor field `afterTyping` selects what a kept record does:
 Each request writes `<descriptor>.after-typing.json`: the declarations, the
 ones typed again, the records that passed the keep rule, the rejects by
 reason, and the time of the stamps, the session key, the member lists and
-the decisions.
+the decisions. `passTimes` gives the time of each pass (`publicSurface`,
+`signatureCache`, `reactAudit`), for its class function and its declaration
+function.
 
 Proof: `yarn test:compiler-server:after-typing` (see
 `tests/compiler-server/README.md`), and rows E1 to E3 of

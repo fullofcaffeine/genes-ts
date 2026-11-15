@@ -537,7 +537,7 @@ class PublicSurface {
     surfaces = new Map();
     // The class walk is shared with the other after-typing passes. The
     // second function runs after every class has a surface.
-    AfterTypingPasses.add(captureAfterTyping, types -> {
+    AfterTypingPasses.add('publicSurface', captureAfterTyping, types -> {
       captureTypedefs(types);
       LibraryProfile.retain(types);
       if (Context.defined('genes.ts')) {

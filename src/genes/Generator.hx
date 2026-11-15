@@ -216,9 +216,9 @@ class Generator {
     // witnesses (incremental shadow only; otherwise this does nothing).
     function addInventoryModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>) {
-      IncrementalShadow.enter(module, Plan);
+      IncrementalShadow.enter(module, Inventory);
       addModule(module, types, main, expose);
-      IncrementalShadow.enter(null, Plan);
+      IncrementalShadow.enter(null, Inventory);
     }
 
     addInventoryModule(output, switch toGenerate.get(output) {
@@ -278,7 +278,7 @@ class Generator {
       var index = 0;
       while (index < pending.length) {
         final moduleName = pending[index++];
-        IncrementalShadow.enter(moduleName, Plan);
+        IncrementalShadow.enter(moduleName, Reachability);
         final sourceModule = modules.get(moduleName);
         if (sourceModule == null)
           CompilerDiagnostic.fail('Genes DependencyPlan ($profile): missing source module '
@@ -349,7 +349,7 @@ class Generator {
             pending.push(base.module);
         }
       }
-      IncrementalShadow.enter(null, Plan);
+      IncrementalShadow.enter(null, Reachability);
       return reachable;
     }
 
@@ -399,7 +399,7 @@ class Generator {
     // writer. Capability failures therefore cannot leave a mixed output tree.
     final endJsxValidationTimer = timer('genes.validate.jsx');
     for (name in implementationNames) {
-      IncrementalShadow.enter(name, Plan);
+      IncrementalShadow.enter(name, Validation);
       final module = modules.get(name);
       jsxCapability.validate(module.jsxPlan);
       // Resolve the edge here as well as in emitters so alias/capability
@@ -407,7 +407,7 @@ class Generator {
       jsxCapability.resolveRuntimeBinding(module.codeDependencies,
         module.jsxPlan);
     }
-    IncrementalShadow.enter(null, Plan);
+    IncrementalShadow.enter(null, Validation);
     endJsxValidationTimer();
     // Public module functions must not force ModuleFunctionPlan ahead of other
     // semantic plans: a malformed template/JSX carrier owns the earlier source
@@ -416,7 +416,7 @@ class Generator {
     final endDirectBindingValidationTimer = timer('genes.validate.directBindings');
     final outputModule = modules.get(output);
     for (moduleName in implementationNames) {
-      IncrementalShadow.enter(moduleName, Plan);
+      IncrementalShadow.enter(moduleName, Validation);
       final module = modules.get(moduleName);
       for (entry in module.moduleFunctionPlan.rootPublicEntries()) {
         final publicName = entry.publicExportName;
@@ -432,7 +432,7 @@ class Generator {
         outputModule.expose.push(publicExport);
       }
     }
-    IncrementalShadow.enter(null, Plan);
+    IncrementalShadow.enter(null, Validation);
     endDirectBindingValidationTimer();
     endValidationTimer();
 
