@@ -592,7 +592,7 @@ class JsxPlan {
   final localUseInventory: Map<Int, JsxLocalUseInventory> = [];
   final sourcePropsCandidates: Array<JsxSourcePropsCandidate> = [];
   final sourcePropsFacts: Array<JsxSourcePropsFact> = [];
-  final implementationExpressions = new ObjectMap<TypedExpr, Bool>();
+  final implementationExpressions = new TypedExprMap<Bool>();
   final sourceInlineFacts: Array<JsxSourceInlineFact> = [];
   final sourceInlineByChildId: Map<Int, JsxSourceInlineFact> = [];
   final sourceInlineByDeclaration = new ObjectMap<TypedExpr,

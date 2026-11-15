@@ -5,8 +5,11 @@ import genes.CompilerDiagnostic;
 import genes.Module;
 import genes.NullishContract;
 import genes.SourceMapGenerator.SourcePosition;
+import genes.TypedExprMap;
 import genes.util.TypeUtil;
+#if genes.ts.narrowing_inventory
 import haxe.ds.ObjectMap;
+#end
 import haxe.macro.Expr.Binop;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -60,6 +63,7 @@ enum TsNarrowProofKind {
 enum TsNarrowInvalidationKind {
   ValueChanged(value: TsNarrowValueIdentity);
   MapEntryRemoved(map: TsNarrowValueIdentity, key: TsNarrowValueIdentity);
+
   /**
    * A removal ran on this map, but its computed key has no stable identity.
    * Any previously proved entry on this exact receiver may be the one that
@@ -67,6 +71,7 @@ enum TsNarrowInvalidationKind {
    * valid; this is not a whole-program alias or call-effect assumption.
    */
   MapEntryPossiblyRemoved(map: TsNarrowValueIdentity);
+
   MapCleared(map: TsNarrowValueIdentity);
 }
 
@@ -117,9 +122,16 @@ final class TsNarrowProgramPoint {
 
   public function describe(): String {
     final file = source.file == null ? "<generated>" : source.file;
-    return file + ":" + source.line + ":" + source.column
-      + " (function " + functionOrdinal + ", expression "
-      + expressionOrdinal + ")";
+    return file
+      + ":"
+      + source.line
+      + ":"
+      + source.column
+      + " (function "
+      + functionOrdinal
+      + ", expression "
+      + expressionOrdinal
+      + ")";
   }
 }
 
@@ -142,8 +154,7 @@ final class TsNarrowInvalidation {
   public final kind: TsNarrowInvalidationKind;
   public final source: SourcePosition;
 
-  public function new(kind: TsNarrowInvalidationKind,
-      source: SourcePosition) {
+  public function new(kind: TsNarrowInvalidationKind, source: SourcePosition) {
     this.kind = kind;
     this.source = source;
   }
@@ -173,8 +184,7 @@ final class TsNarrowDecision {
   public final facts: Array<TsNarrowFact>;
   public final invalidated: Array<TsNarrowedFactInvalidation>;
 
-  public function new(point: TsNarrowProgramPoint,
-      facts: Array<TsNarrowFact>,
+  public function new(point: TsNarrowProgramPoint, facts: Array<TsNarrowFact>,
       invalidated: Array<TsNarrowedFactInvalidation>) {
     this.point = point;
     this.facts = facts;
@@ -188,8 +198,7 @@ final class TsNarrowDecision {
     return null;
   }
 
-  public function invalidationFor(
-      value: TsNarrowValueIdentity): Null<TsNarrowedFactInvalidation> {
+  public function invalidationFor(value: TsNarrowValueIdentity): Null<TsNarrowedFactInvalidation> {
     var index = invalidated.length;
     while (index > 0) {
       index--;
@@ -212,10 +221,10 @@ final class TsNarrowValueIdentityTools {
       case [IntValue(a), IntValue(b)]: a == b;
       case [FloatValue(a), FloatValue(b)]: a == b;
       case [BoolValue(a), BoolValue(b)]: a == b;
-      case [FieldValue(aReceiver, aField), FieldValue(bReceiver, bField)]:
-        aField == bField && equals(aReceiver, bReceiver);
-      case [MapReadValue(aMap, aKey), MapReadValue(bMap, bKey)]:
-        equals(aMap, bMap) && equals(aKey, bKey);
+      case [FieldValue(aReceiver, aField), FieldValue(bReceiver, bField)]: aField == bField && equals(aReceiver,
+          bReceiver);
+      case [MapReadValue(aMap, aKey), MapReadValue(bMap, bKey)]: equals(aMap,
+          bMap) && equals(aKey, bKey);
       default: false;
     }
   }
@@ -227,8 +236,8 @@ final class TsNarrowValueIdentityTools {
       return true;
     return switch value {
       case FieldValue(receiver, _): dependsOn(receiver, changed);
-      case MapReadValue(map, key):
-        dependsOn(map, changed) || dependsOn(key, changed);
+      case MapReadValue(map, key): dependsOn(map,
+          changed) || dependsOn(key, changed);
       default: false;
     }
   }
@@ -278,7 +287,7 @@ final class TsNarrowValueIdentityTools {
  * `?? null`, layout, and source maps.
  */
 final class TsNarrowingPlan {
-  final decisions: ObjectMap<TypedExpr, TsNarrowDecision>;
+  final decisions: TypedExprMap<TsNarrowDecision>;
   #if genes.ts.narrowing_inventory
   final sourceExpressions: ObjectMap<TypedExpr, Bool>;
   #end
@@ -287,10 +296,9 @@ final class TsNarrowingPlan {
     return new TsNarrowingPlanBuilder().build(module);
   }
 
-  public function new(decisions: ObjectMap<TypedExpr, TsNarrowDecision>
-      #if genes.ts.narrowing_inventory
-      , sourceExpressions: ObjectMap<TypedExpr, Bool>
-      #end) {
+  public function new(decisions: TypedExprMap<TsNarrowDecision>
+      #if genes.ts.narrowing_inventory, sourceExpressions: ObjectMap<TypedExpr,
+      Bool> #end) {
     this.decisions = decisions;
     #if genes.ts.narrowing_inventory
     this.sourceExpressions = sourceExpressions;
@@ -310,40 +318,36 @@ final class TsNarrowingPlan {
    * points, so a missing original expression is distinguishable from a small
    * wrapper created later by the emitter.
    */
-  public function lookupProvenance(
-      expression: TypedExpr): TsNarrowLookupProvenance {
+  public function lookupProvenance(expression: TypedExpr): TsNarrowLookupProvenance {
     if (decisions.exists(expression))
       return PlannedSourceExpression;
-    return sourceExpressions.exists(expression)
-      ? MissingSourceProgramPoint
-      : EmitterSynthesizedExpression;
+    return
+      sourceExpressions.exists(expression) ? MissingSourceProgramPoint : EmitterSynthesizedExpression;
   }
   #end
 
-  public function identityForRead(
-      expression: TypedExpr): Null<TsNarrowValueIdentity> {
+  public function identityForRead(expression: TypedExpr): Null<TsNarrowValueIdentity> {
     return TsNarrowingPlanBuilder.narrowedReadIdentity(expression);
   }
 
   public function isKnownNonNull(expression: TypedExpr): Bool {
     final decision = decisionAt(expression);
     if (decision == null)
-      return CompilerDiagnostic.fail(
-        "[GTS-NARROW-PLAN-002] A TypeScript narrowing lookup reached an "
+      return
+        CompilerDiagnostic.fail("[GTS-NARROW-PLAN-002] A TypeScript narrowing lookup reached an "
         + "expression without a planned program point. Every current lookup "
-        + "must refer to the original typed Haxe expression.", expression.pos);
+        + "must refer to the original typed Haxe expression.",
+        expression.pos);
     final identity = identityForRead(expression);
     return identity != null && decision.factFor(identity) != null;
   }
 
   /** Returns the mutation that explains a reviewed legacy/plan mismatch. */
-  public function invalidationFor(
-      expression: TypedExpr): Null<TsNarrowedFactInvalidation> {
+  public function invalidationFor(expression: TypedExpr): Null<TsNarrowedFactInvalidation> {
     final decision = decisionAt(expression);
     final identity = identityForRead(expression);
-    return decision == null || identity == null
-      ? null
-      : decision.invalidationFor(identity);
+    return decision == null
+      || identity == null ? null : decision.invalidationFor(identity);
   }
 
   /** Shared map-shape lookup used by planning and final TS spelling. */
@@ -364,15 +368,19 @@ final class TsNarrowingPlan {
           seen.set(id, true);
           var found: Null<Type> = null;
           for (iface in classType.interfaces) {
-            final ifaceParams = [for (param in iface.params)
-              param.applyTypeParameters(classType.params, params)];
+            final ifaceParams = [
+              for (param in iface.params)
+                param.applyTypeParameters(classType.params, params)
+            ];
             found = mapValueType(TInst(iface.t, ifaceParams), seen);
             if (found != null)
               break;
           }
           if (found == null && classType.superClass != null) {
-            final superParams = [for (param in classType.superClass.params)
-              param.applyTypeParameters(classType.params, params)];
+            final superParams = [
+              for (param in classType.superClass.params)
+                param.applyTypeParameters(classType.params, params)
+            ];
             found = mapValueType(TInst(classType.superClass.t, superParams),
               seen);
           }
@@ -477,8 +485,7 @@ private final class TsNarrowingState {
     return next;
   }
 
-  public function applyAll(
-      causes: Array<TsNarrowInvalidation>): TsNarrowingState {
+  public function applyAll(causes: Array<TsNarrowInvalidation>): TsNarrowingState {
     var next = this;
     for (cause in causes)
       next = next.apply(cause);
@@ -528,9 +535,8 @@ private final class TsNarrowingState {
         TsNarrowValueIdentityTools.dependsOn(fact, value);
       case MapEntryRemoved(map, key):
         switch fact {
-          case MapReadValue(factMap, factKey):
-            TsNarrowValueIdentityTools.equals(map, factMap)
-              && TsNarrowValueIdentityTools.equals(key, factKey);
+          case MapReadValue(factMap, factKey): TsNarrowValueIdentityTools.equals(map,
+              factMap) && TsNarrowValueIdentityTools.equals(key, factKey);
           default: false;
         }
       case MapEntryPossiblyRemoved(map) | MapCleared(map):
@@ -584,9 +590,8 @@ private final class TsNarrowingState {
     return switch [left, right] {
       case [ValueChanged(a), ValueChanged(b)]:
         TsNarrowValueIdentityTools.equals(a, b);
-      case [MapEntryRemoved(aMap, aKey), MapEntryRemoved(bMap, bKey)]:
-        TsNarrowValueIdentityTools.equals(aMap, bMap)
-          && TsNarrowValueIdentityTools.equals(aKey, bKey);
+      case [MapEntryRemoved(aMap, aKey), MapEntryRemoved(bMap, bKey)]: TsNarrowValueIdentityTools.equals(aMap,
+          bMap) && TsNarrowValueIdentityTools.equals(aKey, bKey);
       case [MapEntryPossiblyRemoved(a), MapEntryPossiblyRemoved(b)]:
         TsNarrowValueIdentityTools.equals(a, b);
       case [MapCleared(a), MapCleared(b)]:
@@ -614,7 +619,7 @@ private typedef TsNarrowCondition = {
 
 /** Source-ordered builder for the bounded function-local plan. */
 private final class TsNarrowingPlanBuilder {
-  final decisions = new ObjectMap<TypedExpr, TsNarrowDecision>();
+  final decisions = new TypedExprMap<TsNarrowDecision>();
   #if genes.ts.narrowing_inventory
   final sourceExpressions = new ObjectMap<TypedExpr, Bool>();
   #end
@@ -651,9 +656,7 @@ private final class TsNarrowingPlanBuilder {
       }
     }
     return new TsNarrowingPlan(decisions
-      #if genes.ts.narrowing_inventory
-      , sourceExpressions
-      #end);
+      #if genes.ts.narrowing_inventory, sourceExpressions #end);
   }
 
   #if genes.ts.narrowing_inventory
@@ -676,8 +679,10 @@ private final class TsNarrowingPlanBuilder {
 
   function analyzeMemberRoot(expression: TypedExpr): Void {
     switch expression.expr {
-      case TFunction(func): analyzeFunctionScope(func.expr);
-      default: analyzeFunctionScope(expression);
+      case TFunction(func):
+        analyzeFunctionScope(func.expr);
+      default:
+        analyzeFunctionScope(expression);
     }
   }
 
@@ -694,15 +699,16 @@ private final class TsNarrowingPlanBuilder {
 
   function record(expression: TypedExpr, state: TsNarrowingState): Void {
     if (decisions.exists(expression))
-      CompilerDiagnostic.fail(
-        "[GTS-NARROW-PLAN-001] One typed expression appeared twice in the "
+      CompilerDiagnostic.fail("[GTS-NARROW-PLAN-001] One typed expression appeared twice in the "
         + "function-local narrowing walk. The plan requires one deterministic "
-        + "program point per source expression.", expression.pos);
-    final point = new TsNarrowProgramPoint(functionOrdinal,
-      expressionOrdinal, expression.pos);
+        + "program point per source expression.",
+        expression.pos);
+    final point = new TsNarrowProgramPoint(functionOrdinal, expressionOrdinal,
+      expression.pos);
     expressionOrdinal++;
-    decisions.set(expression, new TsNarrowDecision(point,
-      state.facts.copy(), state.invalidated.copy()));
+    decisions.set(expression,
+      new TsNarrowDecision(point, state.facts.copy(),
+        state.invalidated.copy()));
   }
 
   /**
@@ -732,9 +738,8 @@ private final class TsNarrowingPlanBuilder {
         analyzeFunctionScope(func.expr);
         new TsNarrowFlow(state.copy());
       case TReturn(value):
-        final valueFlow = value == null
-          ? new TsNarrowFlow(state.copy())
-          : analyze(value, state);
+        final valueFlow = value == null ? new TsNarrowFlow(state.copy()) : analyze(value,
+          state);
         new TsNarrowFlow(null, valueFlow.effects);
       case TThrow(value):
         final valueFlow = analyze(value, state);
@@ -754,11 +759,10 @@ private final class TsNarrowingPlanBuilder {
       case TSwitch(subject, cases, defaultExpression):
         analyzeSwitch(subject, cases, defaultExpression, state);
       case TTry(body, catches): analyzeTry(body, catches, state);
-      case TConst(_) | TLocal(_) | TArray(_, _) | TField(_, _)
-        | TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_)
-        | TArrayDecl(_) | TNew(_, _, _) | TBinop(_, _, _)
-        | TUnop(_, _, _) | TCast(_, _) | TMeta(_, _)
-        | TEnumParameter(_, _, _) | TEnumIndex(_) | TIdent(_):
+      case TConst(_) | TLocal(_) | TArray(_, _) | TField(_, _) |
+        TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_) | TArrayDecl(_) |
+        TNew(_, _, _) | TBinop(_, _, _) | TUnop(_, _, _) | TCast(_, _) |
+        TMeta(_, _) | TEnumParameter(_, _, _) | TEnumIndex(_) | TIdent(_):
         analyzeChildren(expression, state);
     }
   }
@@ -800,19 +804,15 @@ private final class TsNarrowingPlanBuilder {
   function analyzeShortCircuit(op: Binop, left: TypedExpr, right: TypedExpr,
       state: TsNarrowingState): TsNarrowFlow {
     final leftFlow = analyze(left, state);
-    final afterLeft = leftFlow.normal == null
-      ? new TsNarrowingState()
-      : leftFlow.normal;
+    final afterLeft = leftFlow.normal == null ? new TsNarrowingState() : leftFlow.normal;
     final leftFacts = conditionFactsAfterEvaluation(left, leftFlow.effects);
-    final rightFacts = op == OpBoolAnd
-      ? leftFacts.whenTrue
-      : leftFacts.whenFalse;
-    final introducedFacts = [for (fact in rightFacts)
-      if (afterLeft.factFor(fact.value) == null) fact];
+    final rightFacts = op == OpBoolAnd ? leftFacts.whenTrue : leftFacts.whenFalse;
+    final introducedFacts = [
+      for (fact in rightFacts)
+        if (afterLeft.factFor(fact.value) == null) fact
+    ];
     final rightFlow = analyze(right, afterLeft.addFacts(rightFacts));
-    final normal = rightFlow.normal == null
-      ? null
-      : rightFlow.normal.removeFacts(introducedFacts);
+    final normal = rightFlow.normal == null ? null : rightFlow.normal.removeFacts(introducedFacts);
     return new TsNarrowFlow(normal,
       appendEffects(leftFlow.effects, rightFlow.effects));
   }
@@ -820,24 +820,16 @@ private final class TsNarrowingPlanBuilder {
   function analyzeIf(condition: TypedExpr, thenExpression: TypedExpr,
       elseExpression: Null<TypedExpr>, state: TsNarrowingState): TsNarrowFlow {
     final conditionFlow = analyze(condition, state);
-    final afterCondition = conditionFlow.normal == null
-      ? new TsNarrowingState()
-      : conditionFlow.normal;
+    final afterCondition = conditionFlow.normal == null ? new TsNarrowingState() : conditionFlow.normal;
     final facts = conditionFactsAfterEvaluation(condition,
       conditionFlow.effects);
     final thenFlow = analyze(thenExpression,
       afterCondition.addFacts(facts.whenTrue));
-    final elseFlow = elseExpression == null
-      ? new TsNarrowFlow(afterCondition.addFacts(facts.whenFalse))
-      : analyze(elseExpression, afterCondition.addFacts(facts.whenFalse));
-    final thenNormal = thenFlow.normal == null
-      ? null
-      : thenFlow.normal.removeFacts(facts.whenTrue);
-    final elseNormal = elseFlow.normal == null
-      ? null
-      : elseFlow.normal.removeFacts(facts.whenFalse);
-    return new TsNarrowFlow(
-      TsNarrowingState.join(thenNormal, elseNormal),
+    final elseFlow = elseExpression == null ? new TsNarrowFlow(afterCondition.addFacts(facts.whenFalse)) : analyze(elseExpression,
+      afterCondition.addFacts(facts.whenFalse));
+    final thenNormal = thenFlow.normal == null ? null : thenFlow.normal.removeFacts(facts.whenTrue);
+    final elseNormal = elseFlow.normal == null ? null : elseFlow.normal.removeFacts(facts.whenFalse);
+    return new TsNarrowFlow(TsNarrowingState.join(thenNormal, elseNormal),
       appendEffects(conditionFlow.effects,
         appendEffects(thenFlow.effects, elseFlow.effects)));
   }
@@ -855,9 +847,7 @@ private final class TsNarrowingPlanBuilder {
       // fact learned after the first iteration cannot be used there: it was
       // not true when that same source expression ran the first time.
       final bodyFlow = analyze(body, stableEntry);
-      final afterBody = bodyFlow.normal == null
-        ? new TsNarrowingState()
-        : bodyFlow.normal;
+      final afterBody = bodyFlow.normal == null ? new TsNarrowingState() : bodyFlow.normal;
       final conditionFlow = analyze(condition, afterBody);
       /**
        * A `break` can leave this loop before a guard later in the body runs.
@@ -875,9 +865,7 @@ private final class TsNarrowingPlanBuilder {
           appendEffects(bodyFlow.effects, conditionFlow.effects)));
     }
     final conditionFlow = analyze(condition, stableEntry);
-    final afterCondition = conditionFlow.normal == null
-      ? new TsNarrowingState()
-      : conditionFlow.normal;
+    final afterCondition = conditionFlow.normal == null ? new TsNarrowingState() : conditionFlow.normal;
     final facts = conditionFactsAfterEvaluation(condition,
       conditionFlow.effects);
     final bodyFlow = analyze(body, afterCondition.addFacts(facts.whenTrue));
@@ -890,15 +878,13 @@ private final class TsNarrowingPlanBuilder {
   function analyzeFor(variable: TVar, iteratorExpression: TypedExpr,
       body: TypedExpr, state: TsNarrowingState): TsNarrowFlow {
     final iteratorFlow = analyze(iteratorExpression, state);
-    final afterIterator = iteratorFlow.normal == null
-      ? new TsNarrowingState()
-      : iteratorFlow.normal;
+    final afterIterator = iteratorFlow.normal == null ? new TsNarrowingState() : iteratorFlow.normal;
     final loopEffects = collectEffects(body);
     var bodyEntry = afterIterator.applyAll(loopEffects);
     final map = mapKeysOrigin(iteratorExpression, afterIterator);
     if (map != null) {
-      bodyEntry = bodyEntry.addFact(new TsNarrowFact(
-        MapReadValue(map, LocalValue(variable.id)), MapKeyIteration,
+      bodyEntry = bodyEntry.addFact(new TsNarrowFact(MapReadValue(map,
+        LocalValue(variable.id)), MapKeyIteration,
         iteratorExpression.pos));
     }
     final bodyFlow = analyze(body, bodyEntry);
@@ -915,19 +901,17 @@ private final class TsNarrowingPlanBuilder {
     final mapOrigin = mapKeysOrigin(initializer, state);
     final keyOrigin = mapIteratorNextOrigin(initializer, state);
     final initializerFlow = analyze(initializer, state);
-    var normal = initializerFlow.normal == null
-      ? new TsNarrowingState()
-      : initializerFlow.normal;
-    if (knownInitializer
-      && NullishContract.forType(variable.t).haxeAllowsNull) {
+    var normal = initializerFlow.normal == null ? new TsNarrowingState() : initializerFlow.normal;
+    if (knownInitializer && NullishContract.forType(variable.t)
+      .haxeAllowsNull) {
       normal = normal.addFact(new TsNarrowFact(LocalValue(variable.id),
         NarrowedInitializer, expression.pos));
     }
     if (mapOrigin != null)
       normal = normal.setIteratorOrigin(variable.id, mapOrigin);
     if (keyOrigin != null) {
-      normal = normal.addFact(new TsNarrowFact(
-        MapReadValue(keyOrigin, LocalValue(variable.id)), MapKeyIteration,
+      normal = normal.addFact(new TsNarrowFact(MapReadValue(keyOrigin,
+        LocalValue(variable.id)), MapKeyIteration,
         initializer.pos));
     }
     return new TsNarrowFlow(normal, initializerFlow.effects);
@@ -936,13 +920,9 @@ private final class TsNarrowingPlanBuilder {
   function analyzeAssignment(expression: TypedExpr, left: TypedExpr,
       right: TypedExpr, state: TsNarrowingState): TsNarrowFlow {
     final leftFlow = analyze(left, state);
-    final afterLeft = leftFlow.normal == null
-      ? new TsNarrowingState()
-      : leftFlow.normal;
+    final afterLeft = leftFlow.normal == null ? new TsNarrowingState() : leftFlow.normal;
     final rightFlow = analyze(right, afterLeft);
-    var normal = rightFlow.normal == null
-      ? new TsNarrowingState()
-      : rightFlow.normal;
+    var normal = rightFlow.normal == null ? new TsNarrowingState() : rightFlow.normal;
     final effect = changedValueEffect(left, expression);
     final effects = appendEffects(leftFlow.effects, rightFlow.effects);
     if (effect == null)
@@ -952,12 +932,10 @@ private final class TsNarrowingPlanBuilder {
     return new TsNarrowFlow(normal, effects);
   }
 
-  function analyzeMutationExpression(expression: TypedExpr,
-      target: TypedExpr, state: TsNarrowingState): TsNarrowFlow {
+  function analyzeMutationExpression(expression: TypedExpr, target: TypedExpr,
+      state: TsNarrowingState): TsNarrowFlow {
     final targetFlow = analyze(target, state);
-    var normal = targetFlow.normal == null
-      ? new TsNarrowingState()
-      : targetFlow.normal;
+    var normal = targetFlow.normal == null ? new TsNarrowingState() : targetFlow.normal;
     final effect = changedValueEffect(target, expression);
     final effects = targetFlow.effects.copy();
     if (effect != null) {
@@ -988,18 +966,14 @@ private final class TsNarrowingPlanBuilder {
       defaultExpression: Null<TypedExpr>,
       state: TsNarrowingState): TsNarrowFlow {
     final subjectFlow = analyze(subject, state);
-    final branchState = subjectFlow.normal == null
-      ? new TsNarrowingState()
-      : subjectFlow.normal;
+    final branchState = subjectFlow.normal == null ? new TsNarrowingState() : subjectFlow.normal;
     var normal: Null<TsNarrowingState> = null;
     var effects = subjectFlow.effects.copy();
     for (caseEntry in cases) {
       var caseState = branchState;
       for (value in caseEntry.values) {
         final valueFlow = analyze(value, caseState);
-        caseState = valueFlow.normal == null
-          ? new TsNarrowingState()
-          : valueFlow.normal;
+        caseState = valueFlow.normal == null ? new TsNarrowingState() : valueFlow.normal;
         effects = appendEffects(effects, valueFlow.effects);
       }
       final caseFlow = analyze(caseEntry.expr, caseState);
@@ -1055,16 +1029,15 @@ private final class TsNarrowingPlanBuilder {
           nullComparisonFacts(op, leftIdentity, source);
         } else {
           final rightIdentity = narrowedReadIdentity(right);
-          rightIdentity != null && isNullConstant(left)
-            ? nullComparisonFacts(op, rightIdentity, source)
-            : emptyCondition();
+          rightIdentity != null
+          && isNullConstant(left) ? nullComparisonFacts(op, rightIdentity,
+            source) : emptyCondition();
         }
       case TBinop(OpBoolAnd, left, right):
         final leftFacts = conditionFacts(left);
         final rightFacts = conditionFacts(right);
         {
-          whenTrue: uniqueFacts(leftFacts.whenTrue.concat(
-            rightFacts.whenTrue)),
+          whenTrue: uniqueFacts(leftFacts.whenTrue.concat(rightFacts.whenTrue)),
           whenFalse: []
         };
       case TBinop(OpBoolOr, left, right):
@@ -1072,8 +1045,7 @@ private final class TsNarrowingPlanBuilder {
         final rightFacts = conditionFacts(right);
         {
           whenTrue: [],
-          whenFalse: uniqueFacts(leftFacts.whenFalse.concat(
-            rightFacts.whenFalse))
+          whenFalse: uniqueFacts(leftFacts.whenFalse.concat(rightFacts.whenFalse))
         };
       case TUnop(OpNot, _, inner):
         final innerFacts = conditionFacts(inner);
@@ -1088,8 +1060,8 @@ private final class TsNarrowingPlanBuilder {
         if (map == null || key == null) {
           emptyCondition();
         } else {
-          whenTrue: [new TsNarrowFact(MapReadValue(map, key),
-            MapExistsGuard, source)],
+          whenTrue: [new TsNarrowFact(MapReadValue(map, key), MapExistsGuard,
+            source)],
           whenFalse: []
         };
       default: emptyCondition();
@@ -1142,11 +1114,9 @@ private final class TsNarrowingPlanBuilder {
   static function definitelyExits(expression: TypedExpr): Bool {
     return switch unwrap(expression).expr {
       case TReturn(_) | TThrow(_) | TContinue | TBreak: true;
-      case TBlock(elements):
-        elements.length > 0 && definitelyExits(elements[elements.length - 1]);
-      case TIf(_, thenExpression, elseExpression):
-        elseExpression != null && definitelyExits(thenExpression)
-          && definitelyExits(elseExpression);
+      case TBlock(elements): elements.length > 0 && definitelyExits(elements[elements.length
+          - 1]);
+      case TIf(_, thenExpression, elseExpression): elseExpression != null && definitelyExits(thenExpression) && definitelyExits(elseExpression);
       default: false;
     }
   }
@@ -1155,9 +1125,8 @@ private final class TsNarrowingPlanBuilder {
       identity: TsNarrowValueIdentity,
       source: SourcePosition): TsNarrowCondition {
     final fact = new TsNarrowFact(identity, NullGuard, source);
-    return op == OpNotEq
-      ? {whenTrue: [fact], whenFalse: []}
-      : {whenTrue: [], whenFalse: [fact]};
+    return op == OpNotEq ? {whenTrue: [fact], whenFalse: []} : {whenTrue: [],
+      whenFalse: [fact]};
   }
 
   static function emptyCondition(): TsNarrowCondition {
@@ -1185,18 +1154,15 @@ private final class TsNarrowingPlanBuilder {
     return identity != null && state.factFor(identity) != null;
   }
 
-  public static function narrowedReadIdentity(
-      expression: TypedExpr): Null<TsNarrowValueIdentity> {
+  public static function narrowedReadIdentity(expression: TypedExpr): Null<TsNarrowValueIdentity> {
     final unwrapped = unwrap(expression);
     return switch unwrapped.expr {
       case TLocal(variable)
         if (NullishContract.forType(unwrapped.t).haxeAllowsNull):
         LocalValue(variable.id);
       case TCall({expr: TField(mapExpression, field)}, [keyExpression])
-        if (fieldAccessName(field) == "get"):
-        final map = stableNonNullableMap(mapExpression);
-        final key = stableValue(keyExpression);
-        map != null && key != null ? MapReadValue(map, key) : null;
+        if (fieldAccessName(field) == "get"): final map = stableNonNullableMap(mapExpression); final key = stableValue(keyExpression); map != null && key != null ? MapReadValue(map,
+          key) : null;
       case TField(receiver, field) if (isOptionalField(field)):
         final parent = stableFieldReceiver(receiver);
         parent == null ? null : FieldValue(parent, TypeUtil.fieldName(field));
@@ -1204,8 +1170,7 @@ private final class TsNarrowingPlanBuilder {
     }
   }
 
-  static function stableValue(
-      expression: TypedExpr): Null<TsNarrowValueIdentity> {
+  static function stableValue(expression: TypedExpr): Null<TsNarrowValueIdentity> {
     return switch unwrap(expression).expr {
       case TLocal(variable): LocalValue(variable.id);
       case TConst(TThis): ThisValue;
@@ -1220,8 +1185,7 @@ private final class TsNarrowingPlanBuilder {
     }
   }
 
-  static function stableFieldReceiver(
-      expression: TypedExpr): Null<TsNarrowValueIdentity> {
+  static function stableFieldReceiver(expression: TypedExpr): Null<TsNarrowValueIdentity> {
     return switch unwrap(expression).expr {
       case TLocal(variable): LocalValue(variable.id);
       case TConst(TThis): ThisValue;
@@ -1232,13 +1196,11 @@ private final class TsNarrowingPlanBuilder {
     }
   }
 
-  static function stableNonNullableMap(
-      expression: TypedExpr): Null<TsNarrowValueIdentity> {
+  static function stableNonNullableMap(expression: TypedExpr): Null<TsNarrowValueIdentity> {
     final valueType = TsNarrowingPlan.mapValueType(expression.t);
     return valueType != null
-      && !NullishContract.forType(valueType).haxeAllowsNull
-      ? stableValue(expression)
-      : null;
+      && !NullishContract.forType(valueType)
+        .haxeAllowsNull ? stableValue(expression) : null;
   }
 
   static function mapKeysOrigin(expression: TypedExpr,
@@ -1266,12 +1228,11 @@ private final class TsNarrowingPlanBuilder {
   static function changedValueEffect(target: TypedExpr,
       sourceExpression: TypedExpr): Null<TsNarrowInvalidation> {
     final value = stableValue(target);
-    return value == null ? null : new TsNarrowInvalidation(
-      ValueChanged(value), sourceExpression.pos);
+    return value == null ? null : new TsNarrowInvalidation(ValueChanged(value),
+      sourceExpression.pos);
   }
 
-  static function callEffects(
-      expression: TypedExpr): Array<TsNarrowInvalidation> {
+  static function callEffects(expression: TypedExpr): Array<TsNarrowInvalidation> {
     return switch unwrap(expression).expr {
       case TCall({expr: TField(mapExpression, field)}, arguments):
         final name = fieldAccessName(field);
@@ -1280,9 +1241,11 @@ private final class TsNarrowingPlanBuilder {
           [];
         } else if (name == "remove" && arguments.length == 1) {
           final key = stableValue(arguments[0]);
-          [new TsNarrowInvalidation(key == null
-            ? MapEntryPossiblyRemoved(map)
-            : MapEntryRemoved(map, key), expression.pos)];
+          [
+            new TsNarrowInvalidation(key == null ? MapEntryPossiblyRemoved(map) : MapEntryRemoved(map,
+              key),
+              expression.pos)
+          ];
         } else if (name == "clear" && arguments.length == 0) {
           [new TsNarrowInvalidation(MapCleared(map), expression.pos)];
         } else {
@@ -1292,8 +1255,7 @@ private final class TsNarrowingPlanBuilder {
     }
   }
 
-  static function collectEffects(
-      expression: TypedExpr): Array<TsNarrowInvalidation> {
+  static function collectEffects(expression: TypedExpr): Array<TsNarrowInvalidation> {
     final effects: Array<TsNarrowInvalidation> = [];
     function visit(current: TypedExpr): Void {
       // Keep this inventory exhaustive for the same reason as `analyze`: a new
@@ -1314,14 +1276,13 @@ private final class TsNarrowingPlanBuilder {
         case TCall(_, _):
           for (effect in callEffects(current))
             effects.push(effect);
-        case TConst(_) | TLocal(_) | TArray(_, _) | TField(_, _)
-          | TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_)
-          | TArrayDecl(_) | TNew(_, _, _) | TBinop(_, _, _)
-          | TUnop(_, _, _) | TVar(_, _) | TBlock(_) | TFor(_, _, _)
-          | TIf(_, _, _) | TWhile(_, _, _) | TSwitch(_, _, _)
-          | TTry(_, _) | TReturn(_) | TBreak | TContinue | TThrow(_)
-          | TCast(_, _) | TMeta(_, _) | TEnumParameter(_, _, _)
-          | TEnumIndex(_) | TIdent(_):
+        case TConst(_) | TLocal(_) | TArray(_, _) | TField(_, _) |
+          TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_) | TArrayDecl(_) |
+          TNew(_, _, _) | TBinop(_, _, _) | TUnop(_, _, _) | TVar(_, _) |
+          TBlock(_) | TFor(_, _, _) | TIf(_, _, _) | TWhile(_, _, _) |
+          TSwitch(_, _, _) | TTry(_, _) | TReturn(_) | TBreak | TContinue |
+          TThrow(_) | TCast(_, _) | TMeta(_, _) | TEnumParameter(_, _, _) |
+          TEnumIndex(_) | TIdent(_):
       }
       current.iter(visit);
     }
@@ -1339,8 +1300,8 @@ private final class TsNarrowingPlanBuilder {
 
   static function isOptionalField(field: FieldAccess): Bool {
     return switch field {
-      case FAnon(reference) | FInstance(_, _, reference)
-        | FStatic(_, reference):
+      case FAnon(reference) | FInstance(_, _, reference) |
+        FStatic(_, reference):
         NullishContract.forField(reference.get()).mayBeOmitted;
       default: false;
     }
@@ -1348,8 +1309,8 @@ private final class TsNarrowingPlanBuilder {
 
   static function fieldAccessName(field: FieldAccess): Null<String> {
     return switch field {
-      case FInstance(_, _, reference) | FStatic(_, reference)
-        | FAnon(reference):
+      case FInstance(_, _, reference) | FStatic(_, reference) |
+        FAnon(reference):
         TypeUtil.classFieldName(reference.get());
       case FDynamic(name): name;
       default: null;
