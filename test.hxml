@@ -17,6 +17,7 @@
 
 --macro tests.staticcallable.CallableSignaturePlanProbe.validate()
 --macro tests.typedexprmap.TypedExprMapProbe.validate()
+--macro tests.sourceposition.SourcePositionProbe.validate()
 --macro tests.jsonhelpers.JsonHelperModuleProbe.validate()
 --macro tests.signaturecache.EnumAbstractAnswersProbe.install()
 tests.signaturecache.EnumAbstractAnswers
