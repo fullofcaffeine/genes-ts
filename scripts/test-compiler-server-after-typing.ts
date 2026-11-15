@@ -26,6 +26,17 @@
  * The gate cannot pass empty: in each request with no edit, the kept
  * records must be above 0, and in `reuse` the skipped audits too.
  *
+ * A third lane checks diagnostics without and with the define. Haxe ends a
+ * callback at its first `Context.error` but still runs the next callback, so
+ * one build can report an error of a pass and an error of the
+ * module-directive capture. The lane requires both, in Haxe's callback
+ * order, for three orders of the init macros.
+ *
+ * Three more checks run once each: `KeepRuleProbe` proves each condition of
+ * the keep rule on its own; a program with an `@:rtti` class leaves the
+ * incremental path and still equals cold; and a report file that cannot be
+ * written gives a warning, never a failed build.
+ *
  * Each edit moves the file time to a later whole second, because Haxe 4.3.7
  * compares file times at one-second precision. The timings are printed, not
  * judged: the fixtures are small, and a timing claim needs a quiet machine.
@@ -136,8 +147,18 @@ type AfterTypingReport = {
 type Step = {
   readonly id: string;
   readonly apply?: (lane: Lane) => void;
-  /** Text that the diagnostics of a failing request must contain. */
-  readonly fails?: string;
+  /**
+   * Texts that the diagnostics of a failing request must contain, in this
+   * order.
+   */
+  readonly fails?: ReadonlyArray<string>;
+  /** Text that the diagnostics of a failing request must not contain. */
+  readonly failsWithout?: string;
+  /**
+   * Text of the reason for which the request must leave the incremental
+   * path. Such a request adds no stamp and reads no record.
+   */
+  readonly off?: string;
   /**
    * True for a request with no edit after a successful one: Haxe must type
    * nothing again, every class record must be kept, and in `reuse` every
@@ -181,11 +202,19 @@ type Measurement = {
 const measurements: Array<Measurement> = [];
 let requestCount = 0;
 let coldCount = 0;
+let offRequests = 0;
 let clock = Math.floor(Date.now() / 1000);
 
 /** The mutable state of one fixture while its steps run. */
 class Lane {
   public defines: Array<string> = [];
+  /**
+   * The order of the init macros. `double` calls `Generator.use()` twice;
+   * `reactFirst` installs the React audit before `Generator.use()`. Haxe
+   * runs after-typing callbacks in reverse order of registration, so each
+   * order gives another order of the Genes callbacks.
+   */
+  public macroOrder: "default" | "double" | "reactFirst" = "default";
   public modules: Array<string>;
   public programSalt = 0;
   public readonly root: string;
@@ -260,14 +289,21 @@ class Lane {
       `genes-ts=${genesVersion}`,
       "--macro",
       'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
+      ...(this.macroOrder === "reactFirst"
+        ? ["--macro", "genes.react.ReactDiagnosticsMacro.install()"]
+        : []),
       "--macro",
       "genes.Generator.use()",
+      ...(this.macroOrder === "double"
+        ? ["--macro", "genes.Generator.use()"]
+        : []),
       "--macro",
       "genes.js.Async.enable()",
       "--macro",
       "genes.react.InlineMarkup.enable()",
-      "--macro",
-      "genes.react.ReactDiagnosticsMacro.install()",
+      ...(this.macroOrder === "reactFirst"
+        ? []
+        : ["--macro", "genes.react.ReactDiagnosticsMacro.install()"]),
       "--macro",
       "addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')",
       "-cp",
@@ -329,6 +365,27 @@ class Lane {
 
 function resultText(result: ProcessResult): string {
   return `${result.stdout}${result.stderr}`;
+}
+
+/**
+ * Requires that a failing request reports the texts of the step in order,
+ * and does not report the text that the step excludes.
+ */
+function assertDiagnostics(where: string, step: Step, result: ProcessResult): void {
+  const text = resultText(result);
+  let from = 0;
+  for (const expected of step.fails ?? []) {
+    const at = text.indexOf(expected, from);
+    ok(at !== -1,
+      `${where}: the diagnostics do not contain ${JSON.stringify(expected)} `
+      + `after the earlier expected texts\n${text}`);
+    from = at + expected.length;
+  }
+  if (step.failsWithout !== undefined) {
+    ok(!text.includes(step.failsWithout),
+      `${where}: the diagnostics contain ${JSON.stringify(step.failsWithout)}`
+      + `\n${text}`);
+  }
 }
 
 /** Returns the report of the React audit pass, or fails. */
@@ -443,8 +500,7 @@ async function runLane(
           coldDiagnostics = "";
         } else {
           ok(cold.code !== 0, `Cold "${step.id}" did not fail`);
-          ok(resultText(cold).includes(step.fails),
-            `Cold "${step.id}" failed for another reason\n${resultText(cold)}`);
+          assertDiagnostics(`${config.name} cold "${step.id}"`, step, cold);
           coldDiagnostics = cold.stderr;
         }
         coldTree = hashTree(lane.outputRoot("cold"));
@@ -485,6 +541,20 @@ async function runLane(
           const report = JSON.parse(
             readFileSync(lane.reportFile(mode), "utf8")
           ) as AfterTypingReport;
+          if (step.off !== undefined) {
+            strictEqual(report.mode, "off",
+              `${where}: the request stayed on the incremental path`);
+            ok(report.reason !== null && report.reason.includes(step.off),
+              `${where}: off for another reason: ${report.reason ?? ""}`);
+            strictEqual(report.typedAgain + report.arrivedStamped
+              + report.foreignStamps, 0,
+              `${where}: a request that left the incremental path read stamps`);
+            deepStrictEqual(report.passes, [],
+              `${where}: a request that left the incremental path used records`);
+            offRequests += 1;
+            settledNow = true;
+            continue;
+          }
           if (step.fails !== undefined) {
             // A request that stops with a diagnostic leaves the report of
             // the last step that it reached. It must not be a wrong record.
@@ -554,9 +624,9 @@ const projectA: LaneConfig = {
     {
       id: "a Hook call inside a condition (audit error)",
       apply: (lane) => lane.edit("servercase/Main.hx", hookCall, conditionalHook),
-      fails: "GTS-REACT-HOOK-002"
+      fails: ["GTS-REACT-HOOK-002"]
     },
-    { id: "no edit after the audit error", fails: "GTS-REACT-HOOK-002" },
+    { id: "no edit after the audit error", fails: ["GTS-REACT-HOOK-002"] },
     {
       id: "audit error repaired",
       apply: (lane) => lane.edit("servercase/Main.hx", conditionalHook, hookCall),
@@ -580,6 +650,16 @@ const projectA: LaneConfig = {
       }
     },
     { id: "no edit after the restore", settled: true },
+    // Haxe prints the metadata of an `@:rtti` class into `__rtti`, so a
+    // stamp would reach output. The request must leave the incremental path.
+    {
+      id: "an @:rtti class joins the program (-D server_rtti)",
+      apply: (lane) => {
+        lane.defines = ["server_rtti"];
+      },
+      off: "@:rtti"
+    },
+    { id: "no edit with the @:rtti class", off: "@:rtti" },
     {
       id: "a module joins the program (-D server_removed)",
       apply: (lane) => {
@@ -696,7 +776,7 @@ const keptTypes: LaneConfig = {
     {
       id: "type error in Lone",
       apply: (lane) => lane.edit("kepttypes/Lone.hx", '"lone-v2"', "(1 : Int)"),
-      fails: "Int should be String"
+      fails: ["Int should be String"]
     },
     {
       id: "Lone repaired",
@@ -706,6 +786,154 @@ const keptTypes: LaneConfig = {
     { id: "last request, no edit", settled: true }
   ]
 };
+
+const goodDirective = '@:genes.moduleDirective("server-project-a-v1")\nclass Main {';
+const bareDirective = "@:genes.moduleDirective\nclass Main {";
+const bareDirectiveWithLibrary =
+  '@:genes.moduleDirective\n@:genes.library("x")\nclass Main {';
+const directiveError = "GENES-MODULE-DIRECTIVE-ARITY-001";
+const auditError = "GTS-REACT-HOOK-002";
+
+/**
+ * Diagnostics of more than one Genes callback in one build, in project A.
+ *
+ * `Context.error` ends the callback that calls it; Haxe still runs the next
+ * callback. The passes, the module-directive capture and the module
+ * inventory are separate callbacks, so a recoverable error of one does not
+ * hide an error of the next. A fatal error (the React audit) stops the
+ * build. Every row compares the warm diagnostics with the cold build, also
+ * without the define.
+ */
+const diagnosticOrder: LaneConfig = {
+  name: "diagnostic-order",
+  template: path.join(fixtureRoot, "templates/project-a"),
+  main: "servercase.Main",
+  pack: "servercase",
+  modules: ["servercase.UnimportedLeaf"],
+  steps: [
+    { id: "first request" },
+    {
+      id: "two recoverable errors: a pass, then the directive capture",
+      apply: (lane) => {
+        lane.edit("servercase/Main.hx", goodDirective, bareDirectiveWithLibrary);
+        lane.defines = ["genes.library"];
+      },
+      fails: ["@:genes.library does not accept arguments", directiveError]
+    },
+    {
+      id: "Generator.use() twice: the directive error, then the audit error",
+      apply: (lane) => {
+        lane.edit("servercase/Main.hx", bareDirectiveWithLibrary, bareDirective);
+        lane.edit("servercase/Main.hx", hookCall, conditionalHook);
+        lane.defines = [];
+        lane.macroOrder = "double";
+      },
+      fails: [directiveError, auditError]
+    },
+    {
+      id: "React audit installed first: the directive error, then the audit error",
+      apply: (lane) => {
+        lane.macroOrder = "reactFirst";
+      },
+      fails: [directiveError, auditError]
+    },
+    {
+      id: "usual order: the fatal audit error stops the build first",
+      apply: (lane) => {
+        lane.macroOrder = "default";
+      },
+      fails: [auditError],
+      failsWithout: directiveError
+    },
+    {
+      id: "repaired",
+      apply: (lane) => lane.restore("servercase/Main.hx")
+    },
+    { id: "no edit after the repair", settled: true }
+  ]
+};
+
+/**
+ * Runs `KeepRuleProbe` in one cold compile: each condition of the keep rule
+ * on its own, with made-up inputs.
+ */
+async function assertKeepRuleProbe(
+  compiler: ReturnType<typeof selectedHaxeCompiler>
+): Promise<string> {
+  const lane = new Lane({ ...keptTypes, name: "keep-rule-probe", steps: [] });
+  coldCount += 1;
+  const result = await runBoundedProcess(
+    compiler.binary,
+    [
+      ...lane.arguments("cold"),
+      "-cp",
+      path.join(fixtureRoot, "probes"),
+      "--macro",
+      "KeepRuleProbe.check()",
+      "--no-output"
+    ],
+    {
+      cwd: lane.workspace,
+      timeoutMs,
+      label: "after-typing keep-rule probe",
+      reportProgress: true
+    }
+  );
+  ok(result.code === 0, `KeepRuleProbe failed\n${resultText(result)}`);
+  const line = /keep-rule-probe:ok \(\d+ cases\)/.exec(result.stdout);
+  ok(line !== null, `KeepRuleProbe printed no result\n${resultText(result)}`);
+  return line[0];
+}
+
+/**
+ * Requires that a report file that cannot be written gives one warning and
+ * the same tree as a build without the define, in the off mode (the folder
+ * of the descriptor does not exist) and in the on mode (a folder has the
+ * name of the report file).
+ */
+async function assertReportNeverFailsBuild(
+  compiler: ReturnType<typeof selectedHaxeCompiler>
+): Promise<void> {
+  const lane = new Lane({ ...keptTypes, name: "report-path", steps: [] });
+  const compile = async (
+    label: string,
+    extra: ReadonlyArray<string>
+  ): Promise<ProcessResult> => {
+    coldCount += 1;
+    return await runBoundedProcess(
+      compiler.binary,
+      [...lane.arguments("cold"), ...extra],
+      {
+        cwd: lane.workspace,
+        timeoutMs,
+        label: `after-typing report path, ${label}`,
+        reportProgress: true
+      }
+    );
+  };
+  const plain = await compile("no define", []);
+  ok(plain.code === 0, `report path: the plain build failed\n${resultText(plain)}`);
+  const tree = hashTree(lane.outputRoot("cold"));
+  const missing = path.join(lane.root, "no-such-folder", "request.json");
+  const descriptor = lane.descriptor("measure");
+  mkdirSync(path.dirname(descriptor), { recursive: true });
+  writeFileSync(descriptor, `${JSON.stringify({
+    format: 1,
+    programDigest: "report-path",
+    kind: "full"
+  })}\n`);
+  mkdirSync(lane.reportFile("measure"));
+  for (const [label, file] of [["off", missing], ["on", descriptor]] as const) {
+    const result = await compile(label, ["-D", `genes.dev_incremental=${file}`]);
+    ok(result.code === 0,
+      `report path, ${label}: a report that cannot be written failed the `
+      + `build\n${resultText(result)}`);
+    ok(resultText(result).includes("GENES-INCREMENTAL-REPORT-001"),
+      `report path, ${label}: no warning for the report\n${resultText(result)}`);
+    deepStrictEqual(hashTree(lane.outputRoot("cold")), tree,
+      `report path, ${label}: the tree differs from the build without the define`);
+  }
+}
 
 function sum(values: ReadonlyArray<number>): number {
   return values.reduce((total, value) => total + value, 0);
@@ -785,8 +1013,24 @@ function printSummary(): void {
 async function main(): Promise<void> {
   rmSync(tempRoot, { recursive: true, force: true });
   const compiler = selectedHaxeCompiler(repoRoot);
-  for (const config of [projectA, keptTypes]) await runLane(config, compiler);
+  for (const config of [projectA, keptTypes, diagnosticOrder]) {
+    await runLane(config, compiler);
+  }
+  const keepRule = await assertKeepRuleProbe(compiler);
+  await assertReportNeverFailsBuild(compiler);
   printSummary();
+  process.stdout.write(
+    `after-typing | ${diagnosticOrder.name} | `
+    + `${diagnosticOrder.steps.filter((step) => step.fails !== undefined).length} `
+    + `failing steps, each in cold and in ${warmModes.join(", ")}: the `
+    + "diagnostics of every Genes callback, in Haxe's callback order, equal "
+    + "cold\n"
+  );
+  process.stdout.write(
+    `after-typing | checks | ${keepRule} | @:rtti requests that left the `
+    + `incremental path: ${offRequests} | a report that cannot be written `
+    + "gives a warning in the off and the on mode, never a failed build\n"
+  );
   const load = loadavg()[0] ?? 0;
   process.stdout.write(
     `compiler-server-after-typing:ok (Haxe ${compiler.version}; `

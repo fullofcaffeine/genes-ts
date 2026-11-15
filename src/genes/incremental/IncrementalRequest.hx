@@ -169,6 +169,17 @@ class IncrementalRequest {
     return descriptorPath + '.after-typing.json';
   }
 
+  /**
+   * Decides the mode of this request from the defines and the descriptor
+   * file. `mode()` calls it once and keeps the answer.
+   *
+   * It returns `Absent` without the define. With the define it checks the
+   * supported scope in a fixed order (see the class comment) and returns
+   * `Off` with the first reason that applies, for example "Haxe 5.0.0 is not
+   * a proved version". Only when every check passes and the descriptor
+   * decodes, it returns `On`. It never raises an error: a request outside the
+   * scope must build exactly as without the define.
+   */
   static function decide(): IncrementalMode {
     if (!Context.defined(DEFINE))
       return Absent;

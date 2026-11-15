@@ -77,6 +77,29 @@ runs only the named warm modes. The request report is the file
 `<descriptor>.after-typing.json` beside the request descriptor; it is never
 in the output tree.
 
+The same gate has a lane `diagnostic-order`, also for builds without the
+define. Haxe ends an after-typing callback at its first `Context.error` and
+still runs the next callback. The lane requires the errors of both callbacks
+in Haxe's order: "@:genes.library does not accept arguments" and then
+`GENES-MODULE-DIRECTIVE-ARITY-001` in the usual macro order; the directive
+error and then the audit error when `Generator.use()` runs twice or after
+the React install. Three single checks follow: `probes/KeepRuleProbe.hx`
+(each condition of the keep rule on its own), a program with an `@:rtti`
+class (the request leaves the incremental path and equals cold), and a
+report file that cannot be written (one warning, never a failed build).
+
+Mutation check, by hand, when the keep rule changes. The gate has no
+automatic step for it, because it needs a broken copy of the compiler source.
+In `GenerationChangeSet.keep`, remove the rejects for `TypedAgain`,
+`StampNamesOtherDeclaration` and `StampDiffers`, then run
+`yarn test:compiler-server:after-typing --modes=reuse` and
+`--modes=compare`. Expected: `reuse` stops at the step "a Hook call inside a
+condition (audit error)" with "did not fail", because the skipped audit hid
+the diagnostic; `compare` stops there with `GENES-INCREMENTAL-AUDIT-001`.
+Restore the file afterwards. Removing only one of the two stamp rejects
+shows nothing in a lane: the other one rejects the same records. That is
+why `KeepRuleProbe` exists.
+
 Run the complete stable owner with `yarn test:compiler-server`. Use
 `yarn test:compiler-server:rollback` when changing exception handling,
 transaction cleanup, or the Haxe preview lane: it executes only the TS/classic

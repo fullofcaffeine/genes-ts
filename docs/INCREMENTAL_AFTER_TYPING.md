@@ -321,8 +321,12 @@ contracts):
   first after-typing callback, and owns the keep rule.
 - `KeptRecords` holds the plain records of each pass: the stamp, the member
   list of a class, and the request that wrote the record.
-- `AfterTypingPasses.run` is the one `onAfterTyping` entry point of Genes.
-  It calls the change set before any pass.
+- `AfterTypingPasses.run`, the callback of the three passes, calls the
+  change set first, so every stamp exists before the first pass.
+  `ModuleDirectivePlan` and `TypedModuleInventory` keep callbacks of their
+  own, as before. Haxe ends a callback at its first `Context.error` and
+  still runs the next one, so one shared callback would hide an error of the
+  module-directive capture behind an error of a pass.
 
 The keep rule has six conditions. This slice enforces five from plain text:
 
@@ -348,8 +352,14 @@ A case that five conditions cannot reject: a macro defines a type again with
 the same key and with the stamp that its own earlier object carried, and the
 member list is equal. The record of the earlier object would then be kept. A
 macro can do this only when it stores the metadata of its typed result
-between requests. For the React audit the effect would be one missed
-diagnostic, never other output.
+between requests. The emitted files of each module would not differ, but
+the build as a whole can: an audit diagnostic is fatal, so a cold build
+refuses to publish the tree, and the warm build with the wrongly kept record
+publishes it. Any wrongly kept record has that effect, whatever its cause:
+a missed fatal diagnostic, and so a published tree that a cold build does
+not publish. The `compare` mode exists to find such a record. The
+same-object condition stays unenforced in this slice; whether a later slice
+holds a declaration reference for it is an owner decision.
 
 The React audit (`genes.react.ReactDiagnosticsMacro`) writes one record for a
 class only after `auditMembers` returned `Clean` in this request. The
@@ -367,7 +377,14 @@ the decisions.
 
 Proof: `yarn test:compiler-server:after-typing` (see
 `tests/compiler-server/README.md`), and rows E1 to E3 of
-`yarn test:compiler-server:kept-types`.
+`yarn test:compiler-server:kept-types`. Conditions 3 and 4 reject the same
+records in a real request sequence: every input that gives a kept
+declaration another stamp than its record also changes the session key,
+which drops the record first. `tests/compiler-server/probes/KeepRuleProbe.hx`
+therefore proves each condition on its own, with made-up inputs.
+
+The report is evidence, not output: when its file cannot be written, the
+request gets the warning `GENES-INCREMENTAL-REPORT-001` and goes on.
 
 Not supported, by contract: the `Retype` and `NoCheckDependencies` module
 check policies, and a server that other clients share. With `Retype` Haxe

@@ -95,11 +95,13 @@ enum SessionState {
 
 /** The report that one request writes beside its descriptor. */
 typedef AfterTypingReport = {
+  /** The report format; `GenerationChangeSet.FORMAT`. */
   final format: Int;
 
   /** The request number inside this macro interpreter; 0 when no stamp was added. */
   final request: Int;
 
+  /** The name of this life of the macro interpreter; empty before the first stamp. */
   final nonce: String;
 
   /** `measure`, `reuse`, `compare`, or `off`. */
@@ -114,15 +116,25 @@ typedef AfterTypingReport = {
   /** Records of all passes that a changed session key dropped. */
   final droppedRecords: Int;
 
+  /** Declarations that Haxe gave to the after-typing callback in this request. */
   final declarations: Int;
+
+  /** The classes among `declarations`. Each class gets one keep decision of each pass. */
   final classes: Int;
+
+  /** Declarations that arrived without a stamp: Haxe typed them in this request. */
   final typedAgain: Int;
+
+  /** Declarations that arrived with one stamp that names them: Haxe kept the object. */
   final arrivedStamped: Int;
+
+  /** Declarations that arrived with a stamp of another declaration, or an unreadable one. */
   final foreignStamps: Int;
 
   /** Modules with a declaration that arrived without a valid stamp (at most 100). */
   final typedAgainModules: Array<String>;
 
+  /** The number of those modules, without the limit of the list. */
   final typedAgainModuleCount: Int;
 
   /** Time to read and add the stamps. */
@@ -140,6 +152,7 @@ typedef AfterTypingReport = {
   /** False in a report that was written before the passes ended. */
   final passesComplete: Bool;
 
+  /** One entry for each pass that used its records in this request, by name. */
   final passes: Array<KeptRecordsReport>;
 }
 
@@ -254,6 +267,7 @@ class GenerationChangeSet {
   static var memberSeconds = 0.0;
   static var walkSeconds = 0.0;
   static var complete = false;
+  static var reportWarned = false;
 
   /**
    * Stamps one declaration list that Haxe gave to `onAfterTyping` and
@@ -312,7 +326,7 @@ class GenerationChangeSet {
     for (index => type in types) {
       final record = records[index];
       final base: BaseType = record != null ? record : DependencyPlan.moduleTypeBase(type);
-      final stamped = stamp(base, DependencyPlan.moduleTypeKey(type),
+      final stamped = stamp(base, DependencyPlan.moduleTypeKeyOf(type, base),
         currentNonce, pos);
       declarations++;
       switch stamped.arrival {
@@ -400,6 +414,10 @@ class GenerationChangeSet {
    * Writes the report of this request beside the descriptor. Each call
    * replaces the file, so a request that stops with an error leaves the
    * report of the last step that it reached.
+   *
+   * The report is evidence, not output. When the file cannot be written (for
+   * example the folder of the descriptor does not exist), the request gets
+   * one warning and goes on; a build never fails because of the report.
    */
   public static function writeReport(): Void {
     final path = switch IncrementalRequest.mode() {
@@ -444,8 +462,18 @@ class GenerationChangeSet {
       passesComplete: complete,
       passes: off != null ? [] : KeptRecords.reports()
     };
-    File.saveContent(IncrementalRequest.afterTypingReportPath(path),
-      haxe.Json.stringify(report, null, ' ') + '\n');
+    final file = IncrementalRequest.afterTypingReportPath(path);
+    try {
+      File.saveContent(file, haxe.Json.stringify(report, null, ' ') + '\n');
+    } catch (error:haxe.Exception) {
+      if (!reportWarned) {
+        reportWarned = true;
+        Context.warning('[GENES-INCREMENTAL-REPORT-001] Genes cannot write the '
+          + 'after-typing report $file (${error.message}). The build '
+          + 'continues without it.',
+          Context.currentPos());
+      }
+    }
   }
 
   /** Rounds seconds to milliseconds with two decimal places. */
@@ -547,6 +575,16 @@ class GenerationChangeSet {
     return buffer.toString();
   }
 
+  /**
+   * Adds one line for each `.hx` file under `root/relative` to the session
+   * key text: its path below `root`, its size and its modification time. The
+   * entries of each folder are sorted, so the same tree gives the same text.
+   *
+   * Why: Haxe can keep the macro interpreter, and with it the kept records,
+   * when a Genes source file changes in place. A record that an older Genes
+   * wrote must not be kept; the changed line makes the session key differ.
+   * Example line: `source genes/Generator.hx 41250 1763190000000`.
+   */
   static function addSourceStatus(buffer: StringBuf, root: String,
       relative: String): Void {
     final directory = relative.length == 0 ? root : Path.join([root, relative]);
@@ -564,6 +602,15 @@ class GenerationChangeSet {
     }
   }
 
+  /**
+   * Returns the name of this life of the macro interpreter: 16 hexadecimal
+   * characters, made from the time and two random numbers at the first call
+   * and kept in a `@:persistent` field.
+   *
+   * Why: a new macro interpreter counts requests from 1 again. Without the
+   * name, a stamp of request 3 of an earlier interpreter would equal a stamp
+   * of request 3 of this one, and a record could be kept for another object.
+   */
   static function interpreterNonce(): String {
     final known = nonce;
     if (known != null)
