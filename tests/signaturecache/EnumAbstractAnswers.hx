@@ -51,6 +51,21 @@ typedef AnswerLoop = {
 }
 
 /**
+ * A closed value set that has a literal TypeScript spelling in every output
+ * profile.
+ *
+ * Why `@:ts.type`: this fixture compiles in the classic profile, where an
+ * ordinary enum abstract prints as its underlying `string`. The metadata
+ * replaces the printed type of `AnswerLevel` with the given text, so the
+ * probe has a literal spelling to compare. It changes no runtime value.
+ */
+@:ts.type('"low" | "high"')
+enum abstract AnswerLevel(String) {
+  var Low = "low";
+  var High = "high";
+}
+
+/**
  * Field types for `EnumAbstractAnswersProbe`. The field order is part of the
  * test: `genes.ts.SignatureCache` reads the fields in this order, and each
  * later field asks again about a declaration that an earlier field walked.
@@ -66,4 +81,5 @@ interface EnumAbstractAnswers {
   var plainSameEarly: AnswerSameEarly<String>;
   var plainSameLate: AnswerSameLate<String>;
   var plainText: String;
+  var nullableLevel: Null<AnswerLevel>;
 }

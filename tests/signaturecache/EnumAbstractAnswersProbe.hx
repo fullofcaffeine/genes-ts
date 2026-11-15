@@ -28,6 +28,9 @@ import haxe.macro.Type;
  *   alias applied to `AnswerLoop` finds the phase, but only through that one
  *   type argument. That "yes" must not be remembered for the same alias
  *   applied to `String`.
+ *
+ * It also checks the literal spelling (`"low" | "high"`) that the cache keeps
+ * beside an answer; see `checkLiteralSpellings`.
  */
 class EnumAbstractAnswersProbe {
   #if macro
@@ -70,6 +73,68 @@ class EnumAbstractAnswersProbe {
         Context.error('SignatureCache answered $kept for EnumAbstractAnswers.$field; expected $containsEnumAbstract',
           cl.pos);
     }
+    checkLiteralSpellings(cl);
+  }
+
+  /**
+   * Checks that the capture keeps the same literal spelling as the direct
+   * question `enumAbstractLiteralUnionTsType`.
+   *
+   * Why: the capture asks that question only when its walk found an enum
+   * abstract in the type. The walk stops after 64 levels and then answers
+   * "no" for a type that does have a spelling. The capture must notice the
+   * stop and ask the direct question.
+   *
+   * What it checks: `AnswerLevel` alone, and below 1, 64 and 65 levels of
+   * `Null`. The walk reaches the level through 64 `Null` and stops at 65.
+   * Haxe source cannot name the deep types through a typedef, because the
+   * walk follows a typedef and its `Null` in one step. So the probe builds
+   * them from the `Null<AnswerLevel>` type of `nullableLevel`. A record and
+   * `String` have no spelling before or after.
+   */
+  @:access(genes.ts.SignatureCache)
+  static function checkLiteralSpellings(cl: ClassType): Void {
+    var checkedLevels = false;
+    for (field in cl.fields.get()) {
+      switch [field.name, field.type] {
+        case ['nullableLevel', TAbstract(nullReference, [level])]:
+          checkedLevels = true;
+          function below(levels: Int): Type {
+            var type = level;
+            for (_ in 0...levels)
+              type = TAbstract(nullReference, [type]);
+            return type;
+          }
+          expectSameSpelling(cl, 'AnswerLevel', level, true);
+          expectSameSpelling(cl, 'AnswerLevel below 1 Null', below(1), true);
+          expectSameSpelling(cl, 'AnswerLevel below 64 Null', below(64), true);
+          expectSameSpelling(cl, 'AnswerLevel below 65 Null', below(65), true);
+          if (SignatureCache.sourceTypeWithEnumAbstract(below(64)) == null
+            || SignatureCache.sourceTypeWithEnumAbstract(below(65)) != null)
+            Context.error('The walk limit moved: the probe needs one type that the walk reaches and one that it does not',
+              cl.pos);
+        case ['phaseBox' | 'plainText', type]:
+          expectSameSpelling(cl, field.name, type, false);
+        default:
+      }
+    }
+    if (!checkedLevels)
+      Context.error('EnumAbstractAnswers.nullableLevel is not Null<AnswerLevel>; the probe builds its deep types from it',
+        cl.pos);
+  }
+
+  @:access(genes.ts.SignatureCache)
+  static function expectSameSpelling(cl: ClassType, label: String, type: Type,
+      hasSpelling: Bool): Void {
+    final direct = SignatureCache.enumAbstractLiteralUnionTsType(type);
+    final captured = SignatureCache.literalUnionAfterWalk(type,
+      SignatureCache.sourceTypeWithEnumAbstract(type));
+    if ((direct != null) != hasSpelling)
+      Context.error('The direct question answered $direct for $label; the probe expects ${hasSpelling ? "a spelling" : "none"}',
+        cl.pos);
+    if (captured != direct)
+      Context.error('SignatureCache kept the spelling $captured for $label; the direct question answers $direct',
+        cl.pos);
   }
   #end
 }
