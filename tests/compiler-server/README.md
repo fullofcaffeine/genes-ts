@@ -63,6 +63,20 @@ TypeScript generator. It compares no generated file. See
 [`docs/INCREMENTAL_AFTER_TYPING.md`](../../docs/INCREMENTAL_AFTER_TYPING.md)
 for the cases and the result.
 
+`yarn test:compiler-server:after-typing` is the gate for the keep rule of the
+passes after typing (`-D genes.dev_incremental`, off by default). It runs the
+edit lists of project A and of `templates/kept-types`, plus one React audit
+error, in a new Haxe process without the define (the cold oracle) and on four
+warm servers: `plain` (no define), `measure` (stamps and records, no skipped
+work), `reuse` (the React audit skips each class whose record the keep rule
+keeps) and `compare` (every audit runs; a class with a kept record that fails
+is an error). Each warm tree and each diagnostic must equal cold. In each
+request with no edit the kept records must be above 0, and in `reuse` the
+skipped audits too, so the gate cannot pass empty. `--modes=reuse,compare`
+runs only the named warm modes. The request report is the file
+`<descriptor>.after-typing.json` beside the request descriptor; it is never
+in the output tree.
+
 Run the complete stable owner with `yarn test:compiler-server`. Use
 `yarn test:compiler-server:rollback` when changing exception handling,
 transaction cleanup, or the Haxe preview lane: it executes only the TS/classic

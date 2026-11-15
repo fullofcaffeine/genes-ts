@@ -2,6 +2,8 @@ package genes.react;
 
 #if macro
 import genes.AfterTypingPasses.AfterTypingClass;
+import genes.incremental.GenerationChangeSet;
+import genes.incremental.KeptRecords;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -50,6 +52,21 @@ private typedef FieldUse = {
   final owner: Ref<ClassType>;
   final field: ClassField;
 }
+
+/** What the audit did for one class in this request. */
+private enum ReactClassAudit {
+  /**
+   * The audit read every member of the class in this request and raised no
+   * diagnostic. Only this result permits a record for the class.
+   */
+  Clean;
+
+  /**
+   * The audit did not read the class: the keep rule holds for the record of
+   * an earlier request, and the request asked for reuse.
+   */
+  SkippedByRecord;
+}
 #end
 
 /**
@@ -60,16 +77,61 @@ private typedef FieldUse = {
  *
  * This is a compiler-only module because the pass owns no runtime object,
  * inheritance contract, or constructible identity.
+ *
+ * Between requests of a compilation server (only with
+ * `-D genes.dev_incremental`, see `genes.incremental.GenerationChangeSet`):
+ * the audit keeps one plain record for each class that it found clean: the
+ * class key, the stamp of the class, and its member list. It keeps no typed
+ * value. The record is written only after `auditMembers` returned `Clean`.
+ * In a later request the audit of a class can be skipped when the keep rule
+ * holds for its record. That is correct because the result for a class
+ * depends only on the class itself, on declarations that it reads (Haxe
+ * types the class again when one of them changes), and on the defines (they
+ * are part of the session key). The request descriptor selects one of three
+ * behaviors: `measure` audits every class and only counts the keep
+ * decisions; `reuse` skips the kept classes; `compare` audits every class
+ * and reports `GENES-INCREMENTAL-AUDIT-001` when a class with a kept record
+ * fails.
  */
 #if macro
 private inline final COMPONENT_METADATA = ":genes.reactComponent";
 private inline final HOOK_METADATA = ":genes.reactHook";
 private inline final REACT_USE_METADATA = ":genes.reactUse";
+
+/** The name of this pass in `KeptRecords` and in the after-typing report. */
+private inline final AUDIT_PASS = "reactAudit";
+
 private final NO_RETURN: ReturnFlow = {mayReturn: false, alwaysReturns: false};
 private final MAY_RETURN: ReturnFlow = {mayReturn: true, alwaysReturns: false};
 private var installed: Bool = false;
 
+/**
+ * Compare mode only: the key of the class under audit when the keep rule
+ * kept its record, else `null`. `fail` reads it.
+ */
+private var comparedClass: Null<String> = null;
+
+/**
+ * Raises one audit diagnostic and stops the compilation. It never returns.
+ *
+ * In compare mode, when the class under audit has a kept record, the keep
+ * rule said that this audit would be clean. That is a defect of the rule, so
+ * it is reported first, as its own error, and written to the report.
+ */
 private function fail<T>(code: String, message: String, position: Position): T {
+  final compared = comparedClass;
+  if (compared != null) {
+    comparedClass = null;
+    KeptRecords.of(AUDIT_PASS).countCompareFailure(compared);
+    GenerationChangeSet.writeReport();
+    Context.reportError('[GENES-INCREMENTAL-AUDIT-001] The React audit record of '
+      + compared
+      + ' passed the keep rule, but a new audit of the class fails with '
+      + code
+      + '. The record of an earlier request was not valid. Report this, and '
+      + 'build without -D genes.dev_incremental.',
+      position);
+  }
   return Context.fatalError('[$code] $message', position);
 }
 
@@ -639,7 +701,15 @@ private function auditField(current: AfterTypingClass, field: ClassField,
   }
 }
 
-private function auditClass(current: AfterTypingClass): Void {
+/**
+ * Audits every member of one class and returns `Clean`.
+ *
+ * A diagnostic stops the compilation inside this function (`fail`), so a
+ * caller that gets a value back knows that every member was read and none
+ * failed. The explicit result is what permits a record: a path that is added
+ * later and returns early must name another result.
+ */
+private function auditMembers(current: AfterTypingClass): ReactClassAudit {
   final type = current.type;
   for (field in current.statics()) {
     auditField(current, field, true);
@@ -654,6 +724,41 @@ private function auditClass(current: AfterTypingClass): Void {
   if (type.init != null) {
     analyze(type.init, placement(OrdinaryFunction));
   }
+  return Clean;
+}
+
+/**
+ * Audits one class, or skips it when a record of an earlier request is still
+ * valid and the request asked for reuse.
+ *
+ * Without `-D genes.dev_incremental` the class has no stamp, and this is the
+ * plain audit. With it, the keep rule is decided first. The audit then runs
+ * unless the rule holds and the mode is `reuse`. A record is written only
+ * when the audit ran in this request and returned `Clean`.
+ */
+private function auditClass(current: AfterTypingClass): ReactClassAudit {
+  final stamp = current.stamp;
+  if (stamp == null) {
+    return auditMembers(current);
+  }
+  final records = KeptRecords.of(AUDIT_PASS);
+  final reuse = GenerationChangeSet.reuse();
+  final kept = records.decide(stamp, current.memberList).match(Keep);
+  if (kept && reuse == Reuse) {
+    records.countSkipped();
+    return SkippedByRecord;
+  }
+  comparedClass = kept && reuse == Compare ? stamp.key : null;
+  final started = haxe.Timer.stamp();
+  final result = auditMembers(current);
+  comparedClass = null;
+  records.countWorked(haxe.Timer.stamp() - started);
+  switch result {
+    case Clean:
+      records.write(stamp, current.memberList());
+    case SkippedByRecord:
+  }
+  return result;
 }
 
 /** Installs one typed React diagnostics pass for the compilation. */
@@ -663,6 +768,6 @@ function install(): Void {
   }
   installed = true;
   ReactAnalyzerFunctionMacro.install();
-  genes.AfterTypingPasses.add(auditClass);
+  genes.AfterTypingPasses.add(current -> auditClass(current));
 }
 #end

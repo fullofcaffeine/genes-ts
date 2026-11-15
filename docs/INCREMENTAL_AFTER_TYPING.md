@@ -1,8 +1,10 @@
 # The passes after typing on a warm compiler server (design and proof)
 
-Status: design note and proof for step 3 of task `genes-d5uv`. Nothing in
-`src/genes` reuses a value yet. An independent design review must accept this
-note before anyone implements it.
+Status: design note and proof for step 3 of task `genes-d5uv`. An
+independent design review accepted the direction with changes. Section 10
+says what is implemented: the keep rule and the plain record of the React
+audit, off by default. Nothing in `src/genes` keeps a typed value between
+requests.
 
 ## 1. Practical result
 
@@ -300,3 +302,78 @@ text and flags. Every typed value is captured again on each request.
 section 7, starting with the React audit. Keep the text-only variant of
 section 6 as the fallback if the review rejects kept typed values or if the
 compare mode finds a difference on a real application.
+
+## 10. Slice 1: what is implemented
+
+The design review of this note required a stricter keep rule than section 4,
+rule 2. Slice 1 implements that rule and uses it for the pass that keeps no
+typed value, the React audit. Everything is off unless the request has
+`-D genes.dev_incremental=<descriptor path>`.
+
+Owners (all in `src/genes/incremental`, see their comments for the exact
+contracts):
+
+- `IncrementalRequest` reads the define and the descriptor and says whether
+  the request is eligible: Haxe 4.3.7, no display request, the TypeScript or
+  TSX profile, no `@:rtti` class.
+- `GenerationChangeSet` stamps each declaration with
+  `@:genes.typedEpoch(nonce, N, key)`, computes the session key once in the
+  first after-typing callback, and owns the keep rule.
+- `KeptRecords` holds the plain records of each pass: the stamp, the member
+  list of a class, and the request that wrote the record.
+- `AfterTypingPasses.run` is the one `onAfterTyping` entry point of Genes.
+  It calls the change set before any pass.
+
+The keep rule has six conditions. This slice enforces five from plain text:
+
+| Condition | Where | Rejects |
+| --- | --- | --- |
+| 1. The request is eligible. | `IncrementalRequest` | Other Haxe versions, display requests, `@:rtti` programs. No stamp is added and no record is read or written. |
+| 2. The session key is the same. | `GenerationChangeSet` | Other defines (also one that an init macro sets), another program digest from the session, other class paths, an edited Genes source file. Every record is dropped. |
+| 3. The stamp names this declaration. | `GenerationChangeSet` | A type that a macro defined with the metadata of another class (probe row E2). |
+| 4. The stamp equals the stamp of the record, and the same pass wrote the record. | `GenerationChangeSet.keep`, `KeptRecords` | A declaration that Haxe typed again; a declaration of another Haxe cache. |
+| 5. The record's typed values address the same declaration object. | Not in `src/genes`. | See below. |
+| 6. For a class, the member list is the same. | `GenerationChangeSet.keep` | The first use of a `@:generic` method from another module (probe row E1). |
+
+Condition 5 needs a kept reference to the declaration: the test writes one
+metadata entry through the old reference and reads it through the new one. A
+record of this slice is plain text, so it has nothing to test and nothing
+that can address a wrong object. The probe runs the test on its own kept
+values in every request (125 tests took about 3.7 ms on a loaded host). A
+pass that will keep typed values must hold such a reference and run the test
+before it reads them. That is also the point where the rule "never persist
+typed compiler objects" must change; this slice does not change it.
+
+A case that five conditions cannot reject: a macro defines a type again with
+the same key and with the stamp that its own earlier object carried, and the
+member list is equal. The record of the earlier object would then be kept. A
+macro can do this only when it stores the metadata of its typed result
+between requests. For the React audit the effect would be one missed
+diagnostic, never other output.
+
+The React audit (`genes.react.ReactDiagnosticsMacro`) writes one record for a
+class only after `auditMembers` returned `Clean` in this request. The
+descriptor field `afterTyping` selects what a kept record does:
+
+- `measure` (default): every class is audited; the decisions are counted.
+- `reuse`: the audit of a class with a kept record is skipped.
+- `compare`: every class is audited; when a class with a kept record fails,
+  Genes reports `GENES-INCREMENTAL-AUDIT-001` before the audit diagnostic.
+
+Each request writes `<descriptor>.after-typing.json`: the declarations, the
+ones typed again, the records that passed the keep rule, the rejects by
+reason, and the time of the stamps, the session key, the member lists and
+the decisions.
+
+Proof: `yarn test:compiler-server:after-typing` (see
+`tests/compiler-server/README.md`), and rows E1 to E3 of
+`yarn test:compiler-server:kept-types`.
+
+Not supported, by contract: the `Retype` and `NoCheckDependencies` module
+check policies, and a server that other clients share. With `Retype` Haxe
+types a module again in place; probe row E3 asserts that no stamp shows it.
+
+Not in this slice: `SignatureCache` and `PublicSurface` still read every
+class on every request. A changed argument list drops the records but does
+not ask for a compiler restart. Records of classes that left the program
+have no age limit.

@@ -39,7 +39,8 @@ private typedef CapturedDirectiveOwner = {
  * Empty or computed values and multiple metadata owners in one Haxe module are
  * rejected with stable source-positioned diagnostics.
  *
- * How: `install()` records typed declarations in an `onAfterTyping` callback
+ * How: after `install()`, the after-typing walk of Genes
+ * (`AfterTypingPasses`) gives each typed declaration list to `capture`,
  * without adding `@:keep`, roots, or dependency edges. `validate()` sorts by
  * source position and freezes plans before the output transaction opens any
  * emitter. A plan affects a module only when normal reachability independently
@@ -53,6 +54,12 @@ class ModuleDirectivePlan {
   @:persistent static var seenOwners: Map<String, Bool> = new Map();
   @:persistent static var plans: Map<String, ModuleDirectivePlan> = new Map();
   @:persistent static var finalized = false;
+
+  /**
+   * True when `install()` ran in this compilation. An ordinary static: Haxe
+   * sets it back at the start of each compilation.
+   */
+  static var installed = false;
 
   static final EMPTY = new ModuleDirectivePlan([]);
 
@@ -68,16 +75,29 @@ class ModuleDirectivePlan {
     return directiveValues;
   }
 
-  /** Resets and installs the pre-DCE metadata capture for one compilation. */
+  /**
+   * Resets and installs the pre-DCE metadata capture for one compilation.
+   *
+   * The capture runs in the one after-typing walk of Genes, after every pass
+   * (see `AfterTypingPasses`).
+   */
   public static function install(): Void {
     ownersByModule = new Map();
     seenOwners = new Map();
     plans = new Map();
     finalized = false;
-    Context.onAfterTyping(capture);
+    installed = true;
+    AfterTypingPasses.register();
   }
 
-  static function capture(types: Array<ModuleType>): Void {
+  /**
+   * Records the module directives of one declaration list that Haxe gave to
+   * `onAfterTyping`. Only `AfterTypingPasses` calls it. It does nothing in a
+   * compilation that did not call `install()`.
+   */
+  public static function capture(types: Array<ModuleType>): Void {
+    if (!installed)
+      return;
     for (type in types) {
       final base = DependencyPlan.moduleTypeBase(type);
       captureOwner(base.module, DependencyPlan.moduleTypeKey(type),

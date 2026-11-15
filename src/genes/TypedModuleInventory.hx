@@ -61,11 +61,31 @@ class TypedModuleInventory {
   /** Declarations of each module, in Haxe's module order. */
   @:persistent static var modules: Map<String, Array<Type>> = new Map();
 
-  /** Starts an empty inventory for the current request and fills it after typing. */
+  /**
+   * True when `install()` ran in this compilation. An ordinary static: Haxe
+   * sets it back at the start of each compilation.
+   */
+  static var installed = false;
+
+  /**
+   * Starts an empty inventory for the current request. The one after-typing
+   * walk of Genes fills it (see `AfterTypingPasses`), after every pass.
+   */
   public static function install(): Void {
     pending = [];
     modules = new Map();
-    Context.onAfterTyping(types -> pending.push(types));
+    installed = true;
+    AfterTypingPasses.register();
+  }
+
+  /**
+   * Keeps one declaration list that Haxe gave to `onAfterTyping`. Only
+   * `AfterTypingPasses` calls it. It does nothing in a compilation that did
+   * not call `install()`.
+   */
+  public static function collect(types: Array<ModuleType>): Void {
+    if (installed)
+      pending.push(types);
   }
 
   /**
