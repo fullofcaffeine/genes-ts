@@ -539,7 +539,18 @@ class SignatureCache {
     haxe.macro.TypedExprTools.iter(expression, captureExpression);
   }
 
-  /** Captures one class. The other after-typing passes read the same copy. */
+  /**
+   * Captures one class. The other after-typing passes read the same copy.
+   *
+   * Extern classes are captured here too, and not later on the first
+   * `getSig` call for one of them. After this walk, Haxe 4.3.7 changes the
+   * values that such a late capture would read: `@:native` replaces the path
+   * of a class and the name of a field (`js.lib.Promise.catchError` becomes
+   * `catch`), and dead-code elimination removes the unused fields of `Array`
+   * and `Math`. A late capture would store entries under other keys than
+   * this one does, so a lookup could find a signature that it does not find
+   * today.
+   */
   static function captureClass(current: AfterTypingClass): Void {
     final owner = current.ownerKey;
     switch current.constructor() {
