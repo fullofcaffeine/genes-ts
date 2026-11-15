@@ -1,5 +1,6 @@
 package genes.ts;
 
+import genes.AfterTypingPasses.AfterTypingClass;
 import genes.NullishContract;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
@@ -41,11 +42,13 @@ typedef CachedSig = {
  * `genes.PublicSurface`; this cache only recovers types erased before target
  * emission.
  *
- * How: `install()` registers an `onAfterTyping` hook. At that point the compiler
- * has resolved declarations and positions, but later JS/codegen phases have not
- * erased enum abstracts from every expression. Emitters then consult this cache
- * by declaration key or source position when Haxe's JavaScript-oriented view
- * has become too broad for accurate strict TypeScript.
+ * How: `install()` adds its capture to the `onAfterTyping` walk that
+ * `genes.AfterTypingPasses` shares between the pre-DCE passes. At that point
+ * the compiler has resolved declarations and positions, but later JS/codegen
+ * phases have not erased enum abstracts from every expression. Emitters then
+ * consult this cache by declaration key or source position when Haxe's
+ * JavaScript-oriented view has become too broad for accurate strict
+ * TypeScript.
  */
 class SignatureCache {
   @:persistent static var sigs: Map<String, CachedSig> = new Map();
@@ -60,6 +63,54 @@ class SignatureCache {
   @:persistent static var enumAbstractTsTypes: Map<String, String> = new Map();
   @:persistent static var enumConstructorSourceTypes: Map<String,
     Type> = new Map();
+
+  /**
+   * Request-local answers to "does the own body of this abstract or typedef
+   * contain an enum abstract?".
+   *
+   * Why: one real application asked 52,600 such questions in one request and
+   * entered declaration bodies 268,600 times to answer them, because each use
+   * of `Null`, `Int` or a large record typedef walked that declaration again.
+   *
+   * What: the key is the declaration kind and its Haxe type path, the same
+   * identity as the recursion guard of the walk. The value is
+   * `ENUM_ABSTRACT`, `BODY_WITHOUT_ENUM_ABSTRACT`, or the number of levels
+   * between the declaration and the enum abstract that its body reaches.
+   *
+   * How it stays exact, except near the depth limit of 64. There, a cached
+   * "yes" can answer a lookup that the old walk cut off. The old walk could
+   * mark a declaration as seen and then stop at the limit, so a later use of
+   * that declaration answered "no". The reproducer is a chain of 31 typedefs
+   * that puts a generic typedef at depth 63. The emitted TypeScript was
+   * byte-identical for it.
+   * - Type arguments are never part of an answer. The walk checks the
+   *   arguments of each use first, as it always did.
+   * - "No" is stored only after an outermost walk ended with "no" and did not
+   *   reach the depth limit. Such a walk entered every body that it marked, so
+   *   each of those bodies is free of enum abstracts for every use. A "no"
+   *   found below a walk that later answers "yes" is not stored, because an
+   *   active recursive alias can hide a branch.
+   * - "Yes" is stored only for a declaration without type parameters. The body
+   *   of a generic declaration is walked with the arguments of one use, and
+   *   that use must not answer for another. The stored distance keeps the
+   *   depth limit: an answer is not used where the walk itself could not
+   *   have reached that enum abstract. It does not restore a cut that the old
+   *   walk made below a seen mark, as described above.
+   *
+   * Lifetime: `install()` replaces the map, so no answer and no typed value
+   * passes to the next request. It holds only strings and integers.
+   */
+  @:persistent static var declarationAnswers: Map<String, Int> = new Map();
+
+  static inline final ENUM_ABSTRACT = -2;
+  static inline final BODY_WITHOUT_ENUM_ABSTRACT = -1;
+  static inline final MAX_SOURCE_TYPE_DEPTH = 64;
+
+  /** Depth at which the current walk last found an enum abstract. */
+  static var enumAbstractDepth = 0;
+
+  /** True when the current outermost walk stopped at the depth limit. */
+  static var walkWasCut = false;
 
   static inline function enumConstructorKey(owner: EnumType,
       constructor: EnumField): String
@@ -114,10 +165,12 @@ class SignatureCache {
   }
 
   static function followTypedefs(t: Type, ?seen: Map<String, Bool>): Type {
-    if (seen == null)
-      seen = new Map();
     return switch unlazy(t) {
       case TType(_, _):
+        // Most callers pass a type that is not an alias; make the guard only
+        // when one must be followed.
+        if (seen == null)
+          seen = new Map();
         final key = typeVisitKey(t);
         if (key != null) {
           if (seen.exists(key))
@@ -141,43 +194,85 @@ class SignatureCache {
    * cannot loop forever. If Haxe has not resolved a type yet, or the walk gets
    * unexpectedly deep, this returns `null`; the ordinary type printer then
    * handles the type conservatively instead of guessing.
+   *
+   * Many fields, arguments and locals name the same abstracts and typedefs.
+   * `declarationAnswers` keeps the answer for a declaration's own body during
+   * one request, so the walk enters each body about once instead of once for
+   * each use. The type arguments of each use are still checked every time.
    */
   static function sourceTypeWithEnumAbstract(t: Type, depth = 0,
       ?seen: Map<String, Bool>): Null<Type> {
-    if (depth > 64)
+    if (depth > MAX_SOURCE_TYPE_DEPTH) {
+      walkWasCut = true;
       return null;
-    if (seen == null)
+    }
+    final outermost = seen == null;
+    if (seen == null) {
       seen = new Map();
+      walkWasCut = false;
+    }
 
     final contains = switch unlazy(t) {
-      case TAbstract(_.get() => ab, params):
-        if (ab.meta.has(':enum')) {
+      case TAbstract(reference, params):
+        final key = 'A:' + reference.toString();
+        var answer = declarationAnswers.get(key);
+        var ab: Null<AbstractType> = null;
+        if (answer == null) {
+          ab = reference.get();
+          if (ab.meta.has(':enum')) {
+            answer = ENUM_ABSTRACT;
+            declarationAnswers.set(key, ENUM_ABSTRACT);
+          }
+        }
+        if (answer == ENUM_ABSTRACT) {
+          enumAbstractDepth = depth;
           true;
         } else if (typesContainEnumAbstract(params, depth + 1, seen)) {
           true;
+        } else if (seen.exists(key)) {
+          false;
         } else {
-          final key = 'A:' + ab.module + '.' + ab.name;
-          if (seen.exists(key)) {
+          seen.set(key, true);
+          if (answer == BODY_WITHOUT_ENUM_ABSTRACT) {
             false;
+          } else if (answer != null && depth
+            + answer <= MAX_SOURCE_TYPE_DEPTH) {
+            enumAbstractDepth = depth + answer;
+            true;
           } else {
-            seen.set(key, true);
-            sourceTypeWithEnumAbstract(ab.type.applyTypeParameters(ab.params,
-              params), depth
-              + 1,
-              seen) != null;
+            final declaration = ab ?? reference.get();
+            final found = sourceTypeWithEnumAbstract(declaration.type.applyTypeParameters(declaration.params,
+              params),
+              depth
+              + 1, seen) != null;
+            if (found && params.length == 0)
+              declarationAnswers.set(key, enumAbstractDepth - depth);
+            found;
           }
         }
-      case TType(_.get() => def, params):
+      case TType(reference, params):
         if (typesContainEnumAbstract(params, depth + 1, seen)) {
           true;
         } else {
-          final key = 'T:' + def.module + '.' + def.name;
+          final key = 'T:' + reference.toString();
           if (seen.exists(key)) {
             false;
           } else {
             seen.set(key, true);
-            sourceTypeWithEnumAbstract(Context.follow(t), depth + 1,
-              seen) != null;
+            final answer = declarationAnswers.get(key);
+            if (answer == BODY_WITHOUT_ENUM_ABSTRACT) {
+              false;
+            } else if (answer != null
+              && depth + answer <= MAX_SOURCE_TYPE_DEPTH) {
+              enumAbstractDepth = depth + answer;
+              true;
+            } else {
+              final found = sourceTypeWithEnumAbstract(Context.follow(t),
+                depth + 1, seen) != null;
+              if (found && params.length == 0)
+                declarationAnswers.set(key, enumAbstractDepth - depth);
+              found;
+            }
           }
         }
       case TInst(_, params) | TEnum(_, params):
@@ -209,6 +304,13 @@ class SignatureCache {
       default:
         false;
     };
+    // A complete walk that found nothing entered the body of every declaration
+    // in `seen` and found nothing there. A walk that found something stopped
+    // early, so its unfinished declarations stay unanswered.
+    if (outermost && !contains && !walkWasCut)
+      for (key in seen.keys())
+        if (!declarationAnswers.exists(key))
+          declarationAnswers.set(key, BODY_WITHOUT_ENUM_ABSTRACT);
     return contains ? t : null;
   }
 
@@ -294,11 +396,12 @@ class SignatureCache {
       || out == 'true' || out == 'false' || ~/^-?[0-9]+(\.[0-9]+)?$/.match(out);
   }
 
-  static function storeSig(cl: ClassType, isStatic: Bool, fieldName: String,
+  /** `owner` is `classFullName` of the declaring class, computed once per class. */
+  static function storeSig(owner: String, isStatic: Bool, fieldName: String,
       fnType: Type): Void {
     switch unlazy(fnType) {
       case TFun(args, ret):
-        sigs.set(keyFor(classFullName(cl), isStatic, fieldName), {
+        sigs.set(keyFor(owner, isStatic, fieldName), {
           args: [
             for (a in args) {
               final nullish = NullishContract.forType(a.t);
@@ -318,17 +421,16 @@ class SignatureCache {
     }
   }
 
-  static function storeFieldType(cl: ClassType, isStatic: Bool,
+  /** `owner` is `classFullName` of the declaring class, computed once per class. */
+  static function storeFieldType(owner: String, isStatic: Bool,
       field: ClassField): Void {
-    final tsType = enumAbstractLiteralUnionTsType(NullishContract.forField(field)
-      .emittedType);
+    final emittedType = NullishContract.forField(field).emittedType;
+    final tsType = enumAbstractLiteralUnionTsType(emittedType);
     if (tsType != null)
-      fieldTsTypes.set(keyFor(classFullName(cl), isStatic, field.name), tsType);
-    final sourceType = sourceTypeWithEnumAbstract(NullishContract.forField(field)
-      .emittedType);
+      fieldTsTypes.set(keyFor(owner, isStatic, field.name), tsType);
+    final sourceType = sourceTypeWithEnumAbstract(emittedType);
     if (sourceType != null)
-      fieldSourceTypes.set(keyFor(classFullName(cl), isStatic, field.name),
-        sourceType);
+      fieldSourceTypes.set(keyFor(owner, isStatic, field.name), sourceType);
   }
 
   /**
@@ -405,36 +507,38 @@ class SignatureCache {
     haxe.macro.TypedExprTools.iter(expression, captureExpression);
   }
 
-  static function captureClass(cl: ClassType): Void {
-    switch cl.constructor {
+  /** Captures one class. The other after-typing passes read the same copy. */
+  static function captureClass(current: AfterTypingClass): Void {
+    final owner = current.ownerKey;
+    switch current.constructor() {
       case null:
       case ctor:
-        final e = ctor.get().expr();
+        final e = current.body(ctor, false);
         if (e != null) {
-          storeSig(cl, false, 'new', e.t);
+          storeSig(owner, false, 'new', e.t);
           captureExpression(e);
         }
     }
 
-    for (f in cl.fields.get()) {
+    for (f in current.fields()) {
       switch f.kind {
         case FMethod(_):
-          storeSig(cl, false, f.name, f.type);
+          storeSig(owner, false, f.name, f.type);
         case FVar(_, _):
-          storeFieldType(cl, false, f);
+          storeFieldType(owner, false, f);
       }
-      final expression = f.expr();
+      final expression = current.body(f, false);
       if (expression != null)
         captureExpression(expression);
     }
-    for (f in cl.statics.get()) {
+    for (f in current.statics()) {
       switch f.kind {
         case FMethod(_):
-          storeSig(cl, true, f.name, f.type);
+          storeSig(owner, true, f.name, f.type);
         case FVar(_, _):
-          storeFieldType(cl, true, f);
+          storeFieldType(owner, true, f);
       }
-      final expression = f.expr();
+      final expression = current.body(f, true);
       if (expression != null)
         captureExpression(expression);
     }
@@ -462,14 +566,15 @@ class SignatureCache {
     directEnumLocalSourceTypes = new Map();
     enumAbstractTsTypes = new Map();
     enumConstructorSourceTypes = new Map();
+    declarationAnswers = new Map();
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
-    Context.onAfterTyping(types -> {
+    // Classes come from the shared walk; the second function reads the other
+    // declaration kinds after it.
+    AfterTypingPasses.add(captureClass, types -> {
       for (t in types) {
         switch t {
-          case TClassDecl(ref):
-            captureClass(ref.get());
           case TEnumDecl(ref):
             final owner = ref.get();
             for (constructor in owner.constructs) {

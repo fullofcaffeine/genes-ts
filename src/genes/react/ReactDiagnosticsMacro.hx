@@ -1,6 +1,7 @@
 package genes.react;
 
 #if macro
+import genes.AfterTypingPasses.AfterTypingClass;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -36,6 +37,19 @@ private typedef ReturnFlow = {
   final mayReturn: Bool;
   final alwaysReturns: Bool;
 }
+
+/**
+ * One field that a typed expression reads or calls.
+ *
+ * `owner` stays a compiler reference. Reading a `ClassType` from it makes the
+ * macro interpreter copy the class record, and the audit meets one field use
+ * for almost every call in the program. Only a check that already matched the
+ * field name, or a diagnostic message, reads the owner.
+ */
+private typedef FieldUse = {
+  final owner: Ref<ClassType>;
+  final field: ClassField;
+}
 #end
 
 /**
@@ -52,6 +66,7 @@ private inline final COMPONENT_METADATA = ":genes.reactComponent";
 private inline final HOOK_METADATA = ":genes.reactHook";
 private inline final REACT_USE_METADATA = ":genes.reactUse";
 private final NO_RETURN: ReturnFlow = {mayReturn: false, alwaysReturns: false};
+private final MAY_RETURN: ReturnFlow = {mayReturn: true, alwaysReturns: false};
 private var installed: Bool = false;
 
 private function fail<T>(code: String, message: String, position: Position): T {
@@ -153,14 +168,22 @@ private function mergeFlows(values: Array<ReturnFlow>): ReturnFlow {
   };
 }
 
-private function fieldAccess(value: FieldAccess): Null<{final owner: ClassType; final field: ClassField;}> {
+private function fieldAccess(value: FieldAccess): Null<FieldUse> {
   return switch value {
     case FInstance(owner, _, field) | FStatic(owner, field):
-      {owner: owner.get(), field: field.get()};
+      {owner: owner, field: field.get()};
     case FClosure(owner, field) if (owner != null):
-      {owner: owner.c.get(), field: field.get()};
+      {owner: owner.c, field: field.get()};
     case _:
       null;
+  };
+}
+
+/** Returns the field that a call expression calls, or `null` for another callee. */
+private function calledField(callee: TypedExpr): Null<FieldUse> {
+  return switch unwrapCallee(callee).expr {
+    case TField(_, access): fieldAccess(access);
+    case _: null;
   };
 }
 
@@ -172,28 +195,21 @@ private function unwrapCallee(expression: TypedExpr): TypedExpr {
   };
 }
 
-private function callKind(callee: TypedExpr): Null<ReactCallKind> {
-  final expression = unwrapCallee(callee);
-  return switch expression.expr {
-    case TField(_, access):
-      final resolved = fieldAccess(access);
-      if (resolved == null) {
-        null;
-      } else if (resolved.field.meta.has(REACT_USE_METADATA)) {
-        ReactUse(resolved.owner, resolved.field);
-      } else if (resolved.field.meta.has(HOOK_METADATA)) {
-        ReviewedHook(resolved.owner, resolved.field);
-      } else if (resolved.owner.module == "Math"
-        && resolved.field.name == "random") {
-        KnownImpure("Math.random");
-      } else if (resolved.owner.module == "Date"
-        && resolved.field.name == "now") {
-        KnownImpure("Date.now");
-      } else {
-        null;
-      }
-    case _:
-      null;
+private function callKind(resolved: Null<FieldUse>): Null<ReactCallKind> {
+  return if (resolved == null) {
+    null;
+  } else if (resolved.field.meta.has(REACT_USE_METADATA)) {
+    ReactUse(resolved.owner.get(), resolved.field);
+  } else if (resolved.field.meta.has(HOOK_METADATA)) {
+    ReviewedHook(resolved.owner.get(), resolved.field);
+  } else if (resolved.field.name == "random"
+    && resolved.owner.get().module == "Math") {
+    KnownImpure("Math.random");
+  } else if (resolved.field.name == "now"
+    && resolved.owner.get().module == "Date") {
+    KnownImpure("Date.now");
+  } else {
+    null;
   };
 }
 
@@ -259,17 +275,13 @@ private function validateReactUse(owner: ClassType, field: ClassField,
   }
 }
 
-private function isCurrentDateConstruction(callee: TypedExpr,
+private function isCurrentDateConstruction(resolved: Null<FieldUse>,
     arguments: Array<TypedExpr>): Bool {
   if (arguments.length != 1) {
     return false;
   }
-  final resolved = switch unwrapCallee(callee).expr {
-    case TField(_, access): fieldAccess(access);
-    case _: null;
-  };
-  if (resolved == null || resolved.owner.module != "js.Syntax"
-    || resolved.field.name != "construct") {
+  if (resolved == null || resolved.field.name != "construct"
+    || resolved.owner.get().module != "js.Syntax") {
     return false;
   }
   return switch unwrapCallee(arguments[0]).expr {
@@ -289,12 +301,14 @@ private function failImpureCall(label: String, value: ReactPlacement,
 
 private function validateCall(call: TypedExpr, callee: TypedExpr,
     arguments: Array<TypedExpr>, value: ReactPlacement): Void {
-  if (isCurrentDateConstruction(callee, arguments)) {
+  // Three checks ask about the same called field; resolve it once.
+  final resolved = calledField(callee);
+  if (isCurrentDateConstruction(resolved, arguments)) {
     failImpureCall("Date.now", value, call.pos);
   }
-  final kind = callKind(callee);
+  final kind = callKind(resolved);
   if (kind == null) {
-    validateOrdinaryUseName(callee, value, call.pos);
+    validateOrdinaryUseName(resolved, value, call.pos);
     return;
   }
   switch kind {
@@ -307,33 +321,28 @@ private function validateCall(call: TypedExpr, callee: TypedExpr,
   }
 }
 
-private function validateOrdinaryUseName(callee: TypedExpr,
+private function validateOrdinaryUseName(resolved: Null<FieldUse>,
     value: ReactPlacement, position: Position): Void {
   if (!isReactFunction(value)) {
     return;
   }
-  final expression = unwrapCallee(callee);
-  final resolved = switch expression.expr {
-    case TField(_, access): fieldAccess(access);
-    case _: null;
-  };
   if (resolved == null || !~/^use(?:$|[A-Z0-9])/.match(resolved.field.name)) {
     return;
   }
   fail("GTS-REACT-NAME-006",
-    'Ordinary function ${fieldLabel(resolved.owner, resolved.field)} uses React\'s reserved use-prefixed spelling inside a component or custom Hook. Haxe does not classify it as a Hook, but official React lint must treat that emitted name as one. Rename the ordinary helper without the use prefix, or mark and structure a genuine Hook with @:genes.reactHook.',
+    'Ordinary function ${fieldLabel(resolved.owner.get(), resolved.field)} uses React\'s reserved use-prefixed spelling inside a component or custom Hook. Haxe does not classify it as a Hook, but official React lint must treat that emitted name as one. Rename the ordinary helper without the use prefix, or mark and structure a genuine Hook with @:genes.reactHook.',
     position);
 }
 
-private function validateConstruction(type: ClassType,
+private function validateConstruction(type: Ref<ClassType>,
     arguments: Array<TypedExpr>, value: ReactPlacement,
     position: Position): Void {
-  if (type.module == "Date" && arguments.length == 0) {
+  if (arguments.length == 0 && type.get().module == "Date") {
     failImpureCall("Date.now", value, position);
   }
 }
 
-private function staticFieldTarget(expression: TypedExpr): Null<{final owner: ClassType; final field: ClassField;}> {
+private function staticFieldTarget(expression: TypedExpr): Null<FieldUse> {
   final value = unwrapCallee(expression);
   return switch value.expr {
     case TField(_, access):
@@ -355,18 +364,45 @@ private function validateStaticMutation(target: TypedExpr,
   final resolved = staticFieldTarget(target);
   if (resolved != null) {
     fail("GTS-REACT-PURITY-004",
-      'React render mutates non-local static field ${fieldLabel(resolved.owner, resolved.field)}. Create per-render local data, or update state from an event handler or Effect.',
+      'React render mutates non-local static field ${fieldLabel(resolved.owner.get(), resolved.field)}. Create per-render local data, or update state from an event handler or Effect.',
       position);
   }
 }
 
+/**
+ * Audits every expression of a list in order. The result says whether one of
+ * them may return; a list never proves that control always returns.
+ *
+ * The audit visits every typed expression of the program, so this function
+ * and its callers do not build an array or a closure for each node.
+ */
 private function analyzeList(expressions: Array<TypedExpr>,
     value: ReactPlacement): ReturnFlow {
-  final flows = [for (expression in expressions) analyze(expression, value)];
-  return {
-    mayReturn: flows.exists(flow -> flow.mayReturn),
-    alwaysReturns: false
-  };
+  var mayReturn = false;
+  for (expression in expressions) {
+    if (analyze(expression, value).mayReturn) {
+      mayReturn = true;
+    }
+  }
+  return mayReturn ? MAY_RETURN : NO_RETURN;
+}
+
+/** Audits the values of an object literal in order; see `analyzeList`. */
+private function analyzeObjectFields(fields: Array<{name: String, expr: TypedExpr}>,
+    value: ReactPlacement): ReturnFlow {
+  var mayReturn = false;
+  for (field in fields) {
+    if (analyze(field.expr, value).mayReturn) {
+      mayReturn = true;
+    }
+  }
+  return mayReturn ? MAY_RETURN : NO_RETURN;
+}
+
+/** Joins two flows that were both audited: either one may return. */
+private function eitherMayReturn(first: ReturnFlow,
+    second: ReturnFlow): ReturnFlow {
+  return first.mayReturn || second.mayReturn ? MAY_RETURN : NO_RETURN;
 }
 
 private function analyzeBlock(expressions: Array<TypedExpr>,
@@ -395,7 +431,7 @@ private function analyze(expression: TypedExpr,
     case TConst(_) | TLocal(_) | TTypeExpr(_) | TBreak | TContinue | TIdent(_):
       NO_RETURN;
     case TArray(left, right):
-      analyzeList([left, right], value);
+      eitherMayReturn(analyze(left, value), analyze(right, value));
     case TBinop(op, left, right): switch op {
         case OpAssign | OpAssignOp(_): validateStaticMutation(left, value,
             expression.pos);
@@ -403,25 +439,23 @@ private function analyze(expression: TypedExpr,
       } final rightPlacement = switch op {
         case OpBoolAnd | OpBoolOr | OpNullCoal: withConditional(value);
         case _: value;
-      }; analyzeList([left],
-        value).mayReturn || analyze(right, rightPlacement).mayReturn ? {
-        mayReturn: true,
-        alwaysReturns: false
-      } : NO_RETURN;
+      }; analyze(left,
+        value).mayReturn || analyze(right,
+        rightPlacement).mayReturn ? MAY_RETURN : NO_RETURN;
     case TField(target, _):
       analyze(target, value);
     case TParenthesis(inner) | TCast(inner, _) | TMeta(_, inner) |
       TEnumParameter(inner, _, _) | TEnumIndex(inner):
       analyze(inner, value);
     case TObjectDecl(fields):
-      analyzeList([for (field in fields) field.expr], value);
+      analyzeObjectFields(fields, value);
     case TArrayDecl(expressions):
       analyzeList(expressions, value);
     case TCall(callee, arguments):
       validateCall(expression, callee, arguments, value);
-      analyzeList([callee].concat(arguments), value);
+      eitherMayReturn(analyze(callee, value), analyzeList(arguments, value));
     case TNew(type, _, arguments):
-      validateConstruction(type.get(), arguments, value, expression.pos);
+      validateConstruction(type, arguments, value, expression.pos);
       analyzeList(arguments, value);
     case TUnop(op, _, inner):
       switch op {
@@ -581,10 +615,11 @@ private function validateMetadata(type: ClassType, field: ClassField,
   }
 }
 
-private function auditField(type: ClassType, field: ClassField,
+private function auditField(current: AfterTypingClass, field: ClassField,
     isStatic: Bool): Void {
-  validateMetadata(type, field, isStatic);
-  final expression = field.expr();
+  validateMetadata(current.type, field, isStatic);
+  // The pre-DCE capture passes read the same body; share one copy.
+  final expression = current.body(field, isStatic);
   if (expression == null) {
     return;
   }
@@ -604,28 +639,20 @@ private function auditField(type: ClassType, field: ClassField,
   }
 }
 
-private function auditClass(type: ClassType): Void {
-  for (field in type.statics.get()) {
-    auditField(type, field, true);
+private function auditClass(current: AfterTypingClass): Void {
+  final type = current.type;
+  for (field in current.statics()) {
+    auditField(current, field, true);
   }
-  for (field in type.fields.get()) {
-    auditField(type, field, false);
+  for (field in current.fields()) {
+    auditField(current, field, false);
   }
-  if (type.constructor != null) {
-    auditField(type, type.constructor.get(), false);
+  final constructor = current.constructor();
+  if (constructor != null) {
+    auditField(current, constructor, false);
   }
   if (type.init != null) {
     analyze(type.init, placement(OrdinaryFunction));
-  }
-}
-
-private function audit(types: Array<ModuleType>): Void {
-  for (type in types) {
-    switch type {
-      case TClassDecl(reference):
-        auditClass(reference.get());
-      case _:
-    }
   }
 }
 
@@ -636,6 +663,6 @@ function install(): Void {
   }
   installed = true;
   ReactAnalyzerFunctionMacro.install();
-  Context.onAfterTyping(audit);
+  genes.AfterTypingPasses.add(auditClass);
 }
 #end
