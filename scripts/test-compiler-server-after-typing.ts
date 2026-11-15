@@ -106,6 +106,7 @@ type PassReport = {
     readonly typedAgain: number;
     readonly stampNamesOtherDeclaration: number;
     readonly stampDiffers: number;
+    readonly otherObject: number;
     readonly membersChanged: number;
   };
   readonly rejectExamples: ReadonlyArray<{
@@ -116,7 +117,15 @@ type PassReport = {
   readonly worked: number;
   readonly written: number;
   readonly compareFailures: ReadonlyArray<string>;
+  readonly compareFailureCount: number;
+  readonly compareQueries: number;
+  readonly compareExplained: number;
+  readonly compareExplainedExamples: ReadonlyArray<string>;
   readonly sameObjectTested: number;
+  readonly sameObjectMs: number;
+  readonly agedOut: number;
+  readonly replayMs: number;
+  readonly fullWork: string | null;
   readonly decisionMs: number;
   readonly workMs: number;
 };
@@ -173,8 +182,19 @@ type Step = {
   readonly restarts?: boolean;
   /** True when only the session's program digest changed: every record is dropped. */
   readonly dropsSession?: boolean;
-  /** Rejects that the React audit report must list, as `key` and `reason`. */
+  /**
+   * Rejects that the report of each pass must list, as `key` and `reason`:
+   * the plain records of the React audit and the buckets of
+   * `SignatureCache`.
+   */
   readonly rejects?: ReadonlyArray<readonly [string, string]>;
+  /**
+   * True when a type of the program is nested deeper than the walk limit of
+   * `SignatureCache`. Its declaration then gets no bucket, and a request
+   * with reuse on that puts buckets back must capture every declaration
+   * again.
+   */
+  readonly deepType?: boolean;
   /** The exact fixture modules that Haxe must type again, without the package. */
   readonly typesAgain?: ReadonlyArray<string>;
 };
@@ -388,11 +408,106 @@ function assertDiagnostics(where: string, step: Step, result: ProcessResult): vo
   }
 }
 
+const passNames = ["reactAudit", "signatureCache"] as const;
+type PassName = (typeof passNames)[number];
+
+/** Returns the report of one pass, or fails. */
+function passOf(
+  report: AfterTypingReport,
+  name: PassName,
+  where: string
+): PassReport {
+  const pass = report.passes.find((entry) => entry.pass === name);
+  ok(pass !== undefined, `${where}: the report has no ${name} pass`);
+  return pass;
+}
+
 /** Returns the report of the React audit pass, or fails. */
 function auditOf(report: AfterTypingReport, where: string): PassReport {
-  const pass = report.passes.find((entry) => entry.pass === "reactAudit");
-  ok(pass !== undefined, `${where}: the report has no React audit pass`);
-  return pass;
+  return passOf(report, "reactAudit", where);
+}
+
+/**
+ * Checks the report of `SignatureCache`, the pass that keeps typed values
+ * in buckets: one keep decision for each declaration, a same-object test
+ * for each bucket whose stamp agrees, and no wrong answer in compare mode.
+ */
+function assertSignatureBuckets(
+  where: string,
+  mode: Exclude<WarmMode, "plain">,
+  step: Step,
+  report: AfterTypingReport,
+  settledNow: boolean
+): void {
+  const pass = passOf(report, "signatureCache", where);
+  strictEqual(pass.kept + pass.rejected, report.declarations,
+    `${where}: not every declaration got a keep decision of SignatureCache`);
+  strictEqual(
+    pass.sameObjectTested,
+    pass.kept + pass.rejectedByReason.otherObject
+      + pass.rejectedByReason.membersChanged,
+    `${where}: a bucket with an equal stamp had no same-object test`
+  );
+  strictEqual(pass.rejectedByReason.otherObject, 0,
+    `${where}: a bucket with an equal stamp addresses another object`);
+  deepStrictEqual(pass.compareFailures, [],
+    `${where}: a kept SignatureCache bucket answers differently from a new capture`);
+  strictEqual(pass.compareFailureCount, 0, `${where}: compare failures`);
+  const withoutBucket = step.deepType === true ? 1 : 0;
+  if (mode === "reuse" && step.deepType === true && pass.kept > 0) {
+    ok(pass.fullWork !== null && pass.fullWork.includes("nested deeper"),
+      `${where}: reuse put buckets back beside a capture that reached the `
+      + "walk limit, and did not capture every declaration again");
+  } else {
+    strictEqual(pass.fullWork, null, `${where}: ${pass.fullWork ?? ""}`);
+  }
+  if (mode === "reuse") {
+    strictEqual(pass.skipped, pass.kept,
+      `${where}: reuse did not put back exactly the kept buckets`);
+    strictEqual(pass.worked, pass.rejected,
+      `${where}: reuse did not capture exactly the rejected declarations`);
+    strictEqual(pass.compareQueries, 0, `${where}: reuse compared answers`);
+  } else {
+    strictEqual(pass.skipped, 0, `${where}: ${mode} skipped a capture`);
+    strictEqual(pass.worked, report.declarations,
+      `${where}: ${mode} did not capture every declaration`);
+  }
+  strictEqual(pass.written, pass.rejected - withoutBucket,
+    `${where}: SignatureCache wrote a bucket for a kept declaration, or `
+    + "none for a rejected one");
+  if (step.restarts === true) {
+    strictEqual(pass.kept, 0, `${where}: a bucket survived other -D values`);
+  }
+  if (step.dropsSession === true) {
+    strictEqual(pass.kept, 0,
+      `${where}: a bucket was kept across another session key`);
+  }
+  if (settledNow) {
+    ok(pass.kept > 0, `${where}: the gate would pass empty: no bucket was kept`);
+    strictEqual(pass.kept, report.declarations - withoutBucket,
+      `${where}: not every bucket was kept`);
+    ok(pass.sameObjectTested > 0,
+      `${where}: the gate would pass empty: no same-object test ran`);
+    if (mode === "reuse") {
+      ok(pass.skipped > 0,
+        `${where}: the gate would pass empty: no capture was skipped`);
+    }
+    if (mode === "compare") {
+      ok(pass.compareQueries > 0,
+        `${where}: the gate would pass empty: compare mode compared no answer`);
+    }
+  }
+  if (step.typesAgain !== undefined) {
+    ok(pass.kept > 0, `${where}: an edit of some modules kept no bucket`);
+  }
+  for (const [key, reason] of step.rejects ?? []) {
+    ok(
+      pass.rejectExamples.some((entry) =>
+        entry.key === key && entry.reason === reason),
+      `${where}: SignatureCache did not reject the bucket of ${key} for `
+      + `${reason}: ${JSON.stringify(pass.rejectExamples)}`
+    );
+  }
 }
 
 /** Checks one warm report against the mode and the step. */
@@ -463,6 +578,7 @@ function assertReport(
       + JSON.stringify(audit.rejectExamples)
     );
   }
+  assertSignatureBuckets(where, mode, step, report, settledNow);
 }
 
 /** Runs every step of one fixture in the cold oracle and on the warm servers. */
@@ -523,6 +639,8 @@ async function runLane(
           );
           ok(!resultText(warm).includes("GENES-INCREMENTAL-AUDIT-001"),
             `${where}: compare mode found a wrong record\n${resultText(warm)}`);
+          ok(!resultText(warm).includes("GENES-INCREMENTAL-COMPARE-001"),
+            `${where}: compare mode found a wrong bucket\n${resultText(warm)}`);
           if (step.fails === undefined) {
             ok(warm.code === 0,
               `${where} failed\n${resultText(warm)}\nserver:\n${server.logs}`);
@@ -946,66 +1064,88 @@ function round(value: number): number {
 /** Prints the numbers of the gate: counts are exact, times are diagnostic. */
 function printSummary(): void {
   for (const lane of [projectA.name, keptTypes.name]) {
-    for (const mode of warmModes) {
-      if (mode === "plain") continue;
-      const rows = measurements.filter((row) =>
-        row.lane === lane && row.mode === mode);
-      const audits = rows.map((row) => auditOf(row.report, `${lane} ${mode}`));
-      const reasons = {
-        noRecord: sum(audits.map((audit) => audit.rejectedByReason.noRecord)),
-        typedAgain: sum(audits.map((audit) => audit.rejectedByReason.typedAgain)),
-        stampNamesOtherDeclaration: sum(audits.map((audit) =>
-          audit.rejectedByReason.stampNamesOtherDeclaration)),
-        stampDiffers: sum(audits.map((audit) => audit.rejectedByReason.stampDiffers)),
-        membersChanged: sum(audits.map((audit) =>
-          audit.rejectedByReason.membersChanged))
-      };
-      process.stdout.write(
-        `after-typing | ${lane} | ${mode} | ${rows.length} successful requests | `
-        + `kept ${sum(audits.map((audit) => audit.kept))} | `
-        + `rejected ${sum(audits.map((audit) => audit.rejected))} `
-        + `${JSON.stringify(reasons)} | `
-        + `skipped audits ${sum(audits.map((audit) => audit.skipped))} | `
-        + `audited ${sum(audits.map((audit) => audit.worked))} | `
-        + `compare failures ${sum(audits.map((audit) =>
-          audit.compareFailures.length))}\n`
-      );
-    }
-    // The share that stays kept after an edit of one module.
-    for (const row of measurements) {
-      if (row.lane !== lane || row.mode !== "reuse" || !row.oneModuleEdit) continue;
-      const audit = auditOf(row.report, `${lane} reuse`);
-      process.stdout.write(
-        `after-typing | ${lane} | reuse | one-module edit "${row.step}" | `
-        + `${row.report.arrivedStamped} of ${row.report.declarations} `
-        + `declarations arrived with their stamp | kept ${audit.kept} of `
-        + `${row.report.classes} class records `
-        + `(${round(100 * audit.kept / row.report.classes)}%) | audited `
-        + `${audit.worked}\n`
-      );
-    }
-    // The cost of the keep decision beside the cost of the passes, for the
-    // last request with no edit of each mode.
-    for (const mode of warmModes) {
-      if (mode === "plain") continue;
-      const rows = measurements.filter((row) =>
-        row.lane === lane && row.mode === mode
-        && row.report.typedAgain === 0);
-      const row = rows[rows.length - 1];
-      if (row === undefined) continue;
-      const audit = auditOf(row.report, `${lane} ${mode}`);
-      const decision = row.report.stampMs + row.report.sessionKeyMs
-        + row.report.memberListMs + audit.decisionMs;
-      process.stdout.write(
-        `after-typing | ${lane} | ${mode} | no-edit request "${row.step}" | `
-        + `${row.report.declarations} declarations, ${row.report.classes} `
-        + `classes | kept ${audit.kept} | skipped ${audit.skipped} | `
-        + `stamps ${row.report.stampMs} ms + session key `
-        + `${row.report.sessionKeyMs} ms + member lists `
-        + `${row.report.memberListMs} ms + decisions ${audit.decisionMs} ms = `
-        + `${round(decision)} ms | audit ${audit.workMs} ms | walk of all `
-        + `passes ${row.report.walkMs} ms\n`
-      );
+    for (const name of passNames) {
+      const work = name === "reactAudit" ? "audits" : "captures";
+      const unit = name === "reactAudit" ? "class records" : "buckets";
+      for (const mode of warmModes) {
+        if (mode === "plain") continue;
+        const rows = measurements.filter((row) =>
+          row.lane === lane && row.mode === mode);
+        const passes = rows.map((row) =>
+          passOf(row.report, name, `${lane} ${mode}`));
+        const reasons = {
+          noRecord: sum(passes.map((pass) => pass.rejectedByReason.noRecord)),
+          typedAgain: sum(passes.map((pass) => pass.rejectedByReason.typedAgain)),
+          stampNamesOtherDeclaration: sum(passes.map((pass) =>
+            pass.rejectedByReason.stampNamesOtherDeclaration)),
+          stampDiffers: sum(passes.map((pass) => pass.rejectedByReason.stampDiffers)),
+          otherObject: sum(passes.map((pass) => pass.rejectedByReason.otherObject)),
+          membersChanged: sum(passes.map((pass) =>
+            pass.rejectedByReason.membersChanged))
+        };
+        process.stdout.write(
+          `after-typing | ${lane} | ${name} | ${mode} | ${rows.length} `
+          + `successful requests | kept ${sum(passes.map((pass) => pass.kept))} | `
+          + `rejected ${sum(passes.map((pass) => pass.rejected))} `
+          + `${JSON.stringify(reasons)} | `
+          + `skipped ${work} ${sum(passes.map((pass) => pass.skipped))} | `
+          + `full ${work} ${sum(passes.map((pass) => pass.worked))} | `
+          + `same-object tests ${sum(passes.map((pass) => pass.sameObjectTested))} | `
+          + `compared answers ${sum(passes.map((pass) => pass.compareQueries))} | `
+          + `compare failures ${sum(passes.map((pass) =>
+            pass.compareFailureCount))} | explained differences `
+          + `${sum(passes.map((pass) => pass.compareExplained))} | requests `
+          + "that captured everything again "
+          + `${passes.filter((pass) => pass.fullWork !== null).length}\n`
+        );
+        const explained = passes.flatMap((pass) => pass.compareExplainedExamples);
+        for (const example of explained.slice(0, 5)) {
+          process.stdout.write(
+            `after-typing | ${lane} | ${name} | ${mode} | explained `
+            + `difference: ${example}\n`
+          );
+        }
+      }
+      // The share that stays kept after an edit of one module.
+      for (const row of measurements) {
+        if (row.lane !== lane || row.mode !== "reuse" || !row.oneModuleEdit) continue;
+        const pass = passOf(row.report, name, `${lane} reuse`);
+        const total = pass.kept + pass.rejected;
+        process.stdout.write(
+          `after-typing | ${lane} | ${name} | reuse | one-module edit `
+          + `"${row.step}" | ${row.report.arrivedStamped} of `
+          + `${row.report.declarations} declarations arrived with their stamp `
+          + `| kept ${pass.kept} of ${total} ${unit} `
+          + `(${round(100 * pass.kept / total)}%) | full ${work} `
+          + `${pass.worked}\n`
+        );
+      }
+      // The cost of the keep decision beside the cost of the pass, for the
+      // last request with no edit of each mode.
+      for (const mode of warmModes) {
+        if (mode === "plain") continue;
+        const rows = measurements.filter((row) =>
+          row.lane === lane && row.mode === mode
+          && row.report.typedAgain === 0);
+        const row = rows[rows.length - 1];
+        if (row === undefined) continue;
+        const pass = passOf(row.report, name, `${lane} ${mode}`);
+        const shared = row.report.stampMs + row.report.sessionKeyMs
+          + row.report.memberListMs;
+        process.stdout.write(
+          `after-typing | ${lane} | ${name} | ${mode} | no-edit request `
+          + `"${row.step}" | ${row.report.declarations} declarations, `
+          + `${row.report.classes} classes | kept ${pass.kept} | skipped `
+          + `${pass.skipped} | shared by all passes: stamps `
+          + `${row.report.stampMs} ms + session key `
+          + `${row.report.sessionKeyMs} ms + member lists `
+          + `${row.report.memberListMs} ms = ${round(shared)} ms | decisions `
+          + `of this pass ${pass.decisionMs} ms (same-object tests `
+          + `${pass.sameObjectMs} ms) | kept values put back `
+          + `${pass.replayMs} ms | full ${work} ${pass.workMs} ms | walk of `
+          + `all passes ${row.report.walkMs} ms\n`
+        );
+      }
     }
   }
 }

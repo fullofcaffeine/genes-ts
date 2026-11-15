@@ -43,6 +43,14 @@ class AfterTypingClass {
    */
   public final stamp: Null<StampedDeclaration>;
 
+  /**
+   * The declaration reference that Haxe gave for this class in this request,
+   * or `null` unless the request uses the incremental path. A pass that
+   * keeps typed values gives it to `genes.incremental.KeptBuckets`, which
+   * needs it for the same-object test.
+   */
+  public final declaration: Null<ModuleType>;
+
   var instanceFields: Null<Array<ClassField>> = null;
   var staticFields: Null<Array<ClassField>> = null;
   var constructorField: Null<ClassField> = null;
@@ -50,9 +58,11 @@ class AfterTypingClass {
   var bodies: Null<Map<String, Null<TypedExpr>>> = null;
   var members: Null<String> = null;
 
-  public function new(type: ClassType, ?stamp: StampedDeclaration) {
+  public function new(type: ClassType, ?stamp: StampedDeclaration,
+      ?declaration: ModuleType) {
     this.type = type;
     this.stamp = stamp;
+    this.declaration = declaration;
     final declaredPath = type.pack.concat([type.name]).join('.');
     this.ownerKey = declaredPath == type.module ? declaredPath : type.module
       + '.'
@@ -134,6 +144,23 @@ class AfterTypingClass {
 }
 
 /**
+ * One declaration list that Haxe gave to `onAfterTyping`, as the second
+ * function of a pass receives it.
+ */
+typedef AfterTypingDeclarations = {
+  /** The declarations, in Haxe's order. */
+  final types: Array<ModuleType>;
+
+  /**
+   * The stamp of each entry of `types`, at the same index. The array is
+   * `null` unless the request uses the incremental path
+   * (`-D genes.dev_incremental`); one entry is `null` when the request left
+   * that path after the stamps were read.
+   */
+  final stamps: Null<Array<Null<StampedDeclaration>>>;
+}
+
+/**
  * Runs the passes that read every typed class before dead-code elimination in
  * one walk, class by class.
  *
@@ -149,7 +176,9 @@ class AfterTypingClass {
  * so all passes share one copy of the fields and bodies of that class. A pass
  * may also give a second function that receives the whole declaration list
  * after all classes; it reads the other declaration kinds there, and it can
- * rely on its class function having seen every class.
+ * rely on its class function having seen every class. That function also
+ * gets the stamp of each declaration of the list, or `null` unless the
+ * request uses the incremental path.
  *
  * Stamps before passes: a pass that keeps a record between requests must
  * know, before it reads a class, whether Haxe typed that class again. One
@@ -192,7 +221,7 @@ class AfterTypingClass {
  */
 class AfterTypingPasses {
   static var classPasses: Array<AfterTypingClass->Void> = [];
-  static var declarationPasses: Array<Array<ModuleType>->Void> = [];
+  static var declarationPasses: Array<AfterTypingDeclarations->Void> = [];
 
   /**
    * Adds one pass for the current compilation.
@@ -203,7 +232,7 @@ class AfterTypingPasses {
    * defines new types; the walk then reads only those new declarations.
    */
   public static function add(visitClass: AfterTypingClass->Void,
-      ?visitDeclarations: Array<ModuleType>->Void): Void {
+      ?visitDeclarations: AfterTypingDeclarations->Void): Void {
     if (classPasses.length == 0)
       Context.onAfterTyping(run);
     classPasses.push(visitClass);
@@ -221,8 +250,10 @@ class AfterTypingPasses {
       switch type {
         case TClassDecl(reference):
           final seen = observed == null ? null : observed[index];
-          final current = seen == null ? new AfterTypingClass(reference.get()) : new AfterTypingClass(seen.type,
-            seen.stamp);
+          final record = seen == null ? null : seen.type;
+          final current = seen == null
+            || record == null ? new AfterTypingClass(reference.get()) : new AfterTypingClass(record,
+              seen.stamp, type);
           if (current.stamp != null)
             GenerationChangeSet.readMembers(current.memberList);
           for (visit in classPasses)
@@ -230,8 +261,12 @@ class AfterTypingPasses {
         default:
       }
     }
+    final declarations: AfterTypingDeclarations = {
+      types: types,
+      stamps: observed == null ? null : [for (seen in observed) seen.stamp]
+    };
     for (visit in declarationPasses)
-      visit(types);
+      visit(declarations);
     if (observed != null)
       GenerationChangeSet.finish(haxe.Timer.stamp() - walkStart);
   }

@@ -5,6 +5,13 @@ import genes.NullishContract;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
+#if macro
+import genes.AfterTypingPasses.AfterTypingDeclarations;
+import genes.incremental.GenerationChangeSet;
+import genes.incremental.GenerationChangeSet.StampedDeclaration;
+import genes.incremental.KeptBuckets;
+import genes.ts.SignatureFacts.SignatureFact;
+#end
 
 using haxe.macro.TypeTools;
 
@@ -49,20 +56,64 @@ typedef CachedSig = {
  * consult this cache by declaration key or source position when Haxe's
  * JavaScript-oriented view has become too broad for accurate strict
  * TypeScript.
+ *
+ * Every request builds the maps (`facts`) again from nothing. The capture of
+ * one declaration is a list of `SignatureFact` values, and `put` stores each
+ * one.
+ *
+ * Reuse between requests (only with `-D genes.dev_incremental`, see
+ * `visit`): the list of one declaration is also its bucket in
+ * `genes.incremental.KeptBuckets`. In a later request, a declaration whose
+ * bucket passes the keep rule is not read again; its facts are put back at
+ * its place in the declaration order. So the maps are the same as after a
+ * capture of every declaration, also when two declarations write one key.
+ * Without the define no bucket exists and every declaration is captured.
  */
 class SignatureCache {
-  @:persistent static var sigs: Map<String, CachedSig> = new Map();
-  @:persistent static var fieldTsTypes: Map<String, String> = new Map();
-  @:persistent static var anonFieldTsTypes: Map<String, String> = new Map();
-  @:persistent static var fieldSourceTypes: Map<String, Type> = new Map();
-  @:persistent static var anonFieldSourceTypes: Map<String, Type> = new Map();
-  @:persistent static var typedefSourceTypes: Map<String, Type> = new Map();
-  @:persistent static var localSourceTypes: Map<Int, Type> = new Map();
-  @:persistent static var directEnumLocalSourceTypes: Map<Int,
-    Type> = new Map();
-  @:persistent static var enumAbstractTsTypes: Map<String, String> = new Map();
-  @:persistent static var enumConstructorSourceTypes: Map<String,
-    Type> = new Map();
+  /** The name of this pass in the after-typing report. */
+  public static inline final PASS = 'signatureCache';
+
+  /**
+   * The maps of this request. `install()` replaces the set, so no fact
+   * passes to a later request through it.
+   */
+  @:persistent static var facts: SignatureFacts = new SignatureFacts();
+
+  /**
+   * The kept buckets of this pass: for each declaration the facts of its
+   * capture. This is the only state of the pass that a later request reads,
+   * and only through the keep rule of `KeptBuckets`. It is `null` until the
+   * first eligible request with `-D genes.dev_incremental`.
+   */
+  @:persistent static var keptBuckets: Null<KeptBuckets<Array<SignatureFact>>> = null;
+
+  /** The list that receives the facts of the declaration that is captured now. */
+  static var recording: Null<Array<SignatureFact>> = null;
+
+  /** The key of the declaration that is captured now, for the compare mode. */
+  static var capturing: Null<String> = null;
+
+  /** Compare mode only: the second set of maps and the differences. */
+  static var comparison: Null<SignatureComparison> = null;
+
+  /**
+   * How often a walk of this request reached the depth limit, or could not
+   * use a remembered answer because of it. Only such a walk can answer
+   * differently when `declarationAnswers` holds other answers (see there).
+   */
+  static var limitEvents = 0;
+
+  /** Declarations of this request whose kept bucket was put back. */
+  static var replayed = 0;
+
+  /** True after `captureEverything`: no bucket is read or written any more. */
+  static var fullCapture = false;
+
+  /** True when this request asked the bucket store at least once. */
+  static var usedBuckets = false;
+
+  /** The declaration lists of this request, for `captureEverything`. */
+  static var requestLists: Array<Array<ModuleType>> = [];
 
   /**
    * Request-local answers to "does the own body of this abstract or typedef
@@ -204,6 +255,7 @@ class SignatureCache {
       ?seen: Map<String, Bool>): Null<Type> {
     if (depth > MAX_SOURCE_TYPE_DEPTH) {
       walkWasCut = true;
+      limitEvents++;
       return null;
     }
     final outermost = seen == null;
@@ -240,6 +292,8 @@ class SignatureCache {
             enumAbstractDepth = depth + answer;
             true;
           } else {
+            if (answer != null)
+              limitEvents++;
             final declaration = ab ?? reference.get();
             final found = sourceTypeWithEnumAbstract(declaration.type.applyTypeParameters(declaration.params,
               params),
@@ -267,6 +321,8 @@ class SignatureCache {
               enumAbstractDepth = depth + answer;
               true;
             } else {
+              if (answer != null)
+                limitEvents++;
               final found = sourceTypeWithEnumAbstract(Context.follow(t),
                 depth + 1, seen) != null;
               if (found && params.length == 0)
@@ -444,11 +500,11 @@ class SignatureCache {
           }
         ];
         final retSourceType = sourceTypeWithEnumAbstract(ret);
-        sigs.set(keyFor(owner, isStatic, fieldName), {
+        put(Sig(keyFor(owner, isStatic, fieldName), {
           args: capturedArgs,
           retTsType: literalUnionAfterWalk(ret, retSourceType),
           retSourceType: retSourceType
-        });
+        }));
       default:
     }
   }
@@ -460,9 +516,9 @@ class SignatureCache {
     final sourceType = sourceTypeWithEnumAbstract(emittedType);
     final tsType = literalUnionAfterWalk(emittedType, sourceType);
     if (tsType != null)
-      fieldTsTypes.set(keyFor(owner, isStatic, field.name), tsType);
+      put(FieldTsType(keyFor(owner, isStatic, field.name), tsType));
     if (sourceType != null)
-      fieldSourceTypes.set(keyFor(owner, isStatic, field.name), sourceType);
+      put(FieldSourceType(keyFor(owner, isStatic, field.name), sourceType));
   }
 
   /**
@@ -488,9 +544,9 @@ class SignatureCache {
           final sourceType = sourceTypeWithEnumAbstract(fieldType);
           final tsType = literalUnionAfterWalk(fieldType, sourceType);
           if (tsType != null)
-            anonFieldTsTypes.set(posKey(field.pos), tsType);
+            put(AnonFieldTsType(posKey(field.pos), tsType));
           if (sourceType != null)
-            anonFieldSourceTypes.set(posKey(field.pos), sourceType);
+            put(AnonFieldSourceType(posKey(field.pos), sourceType));
           captureAnonFieldTypes(field.type, depth + 1);
         }
       case TInst(_, params) | TEnum(_, params) | TAbstract(_, params) |
@@ -518,9 +574,9 @@ class SignatureCache {
     if (sourceType == null)
       return;
     if (includeDirect || !isDirectEnumAbstractType(variable.t))
-      localSourceTypes.set(variable.id, sourceType);
+      put(LocalSourceType(variable.id, sourceType));
     else
-      directEnumLocalSourceTypes.set(variable.id, sourceType);
+      put(DirectEnumLocalSourceType(variable.id, sourceType));
   }
 
   /** Finds declarations even when a warm typed tree has split their initializers. */
@@ -552,6 +608,16 @@ class SignatureCache {
    * today.
    */
   static function captureClass(current: AfterTypingClass): Void {
+    final stamp = current.stamp;
+    final declaration = current.declaration;
+    if (stamp == null || declaration == null)
+      readClass(current);
+    else
+      visit(stamp, declaration, current.memberList, () -> readClass(current));
+  }
+
+  /** Reads every fact of one class and stores it with `put`. */
+  static function readClass(current: AfterTypingClass): Void {
     final owner = current.ownerKey;
     switch current.constructor() {
       case null:
@@ -594,82 +660,298 @@ class SignatureCache {
     final sourceType = TAbstract(reference, [for (param in ab.params) param.t]);
     final tsType = enumAbstractLiteralUnionTsType(sourceType);
     if (tsType != null)
-      enumAbstractTsTypes.set(abstractKey(ab), tsType);
+      put(EnumAbstractTsType(abstractKey(ab), tsType));
+  }
+
+  /**
+   * Reads every fact of one enum, typedef or abstract and stores it with
+   * `put`. Classes go through `readClass`.
+   */
+  static function readDeclaration(type: ModuleType): Void {
+    switch type {
+      case TEnumDecl(ref):
+        final owner = ref.get();
+        for (constructor in owner.constructs) {
+          final sourceType = sourceTypeWithEnumAbstract(constructor.type);
+          if (sourceType != null)
+            put(EnumConstructorSourceType(enumConstructorKey(owner,
+              constructor), sourceType));
+        }
+      case TTypeDecl(ref):
+        final definition = ref.get();
+        final sourceType = sourceTypeWithEnumAbstract(definition.type);
+        if (sourceType != null)
+          put(TypedefSourceType(typedefKey(definition), sourceType));
+        // Inspect the declaration as it was authored. In particular, do
+        // not follow a named alias such as
+        // `ReviewEnvelope = Envelope<ReviewState>` into `Envelope`'s
+        // anonymous body. Both declarations then point at the same field
+        // positions, and caching the concrete alias there would wrongly
+        // rewrite the shared `Envelope<Value>` declaration as
+        // `Envelope<ReviewState>`. The collector can still enter an
+        // anonymous body owned directly by this typedef and can inspect
+        // anonymous types supplied as its own type arguments.
+        captureAnonFieldTypes(definition.type);
+      case TAbstract(ref):
+        captureEnumAbstract(ref);
+      case TClassDecl(_):
+    }
+  }
+
+  /**
+   * Stores one fact of the declaration that is captured now. When a bucket
+   * is recorded for that declaration, the fact also goes into the bucket.
+   */
+  static function put(fact: SignatureFact): Void {
+    facts.put(fact);
+    final log = recording;
+    if (log != null)
+      log.push(fact);
+    final check = comparison;
+    final owner = capturing;
+    if (check != null && owner != null)
+      check.noteNew(owner, fact);
+  }
+
+  /**
+   * Captures one declaration of a request that uses the incremental path
+   * (`-D genes.dev_incremental`), or puts its kept bucket back.
+   *
+   * `capture` reads the declaration and stores its facts with `put`.
+   * `members` returns the member list of a class, or `null` for another
+   * kind. What happens depends on the descriptor field `afterTyping`:
+   *
+   * - `reuse`: when the bucket passes the keep rule, its facts are put back
+   *   and `capture` does not run. Else `capture` runs and its facts become
+   *   the new bucket.
+   * - `measure` (the default): `capture` always runs. The keep rule is
+   *   decided and counted. A bucket is written only when none was kept, so
+   *   a kept bucket stays the read of the request that made it.
+   * - `compare`: as `measure`, and the facts that `reuse` would use go into
+   *   a second set of maps (`SignatureComparison`).
+   *
+   * A capture that reached the depth limit of the enum-abstract walk writes
+   * no bucket. Only such a capture can depend on which other declarations
+   * were captured before it in the request (`declarationAnswers`), so its
+   * facts are valid for this request only.
+   *
+   * Example: after an edit of `app/Leaf.hx`, `visit` runs `capture` for the
+   * declarations of `app.Leaf` and puts the buckets of the other 2,000
+   * declarations back.
+   */
+  static function visit(stamp: StampedDeclaration, declaration: ModuleType,
+      members: Void->Null<String>, capture: Void->Void): Void {
+    if (fullCapture) {
+      capture();
+      return;
+    }
+    final store = buckets();
+    final counts = store.counts();
+    usedBuckets = true;
+    final mode = GenerationChangeSet.reuse();
+    if (mode == Compare && comparison == null) {
+      comparison = new SignatureComparison(counts);
+      Context.onAfterGenerate(reportComparison);
+    }
+    final check = comparison;
+    final found = store.kept(stamp, declaration, members);
+    final started = haxe.Timer.stamp();
+    if (found != null) {
+      if (mode == Reuse) {
+        for (fact in found.value)
+          facts.put(fact);
+        replayed++;
+        counts.countSkipped();
+        counts.countReplay(haxe.Timer.stamp() - started);
+        return;
+      }
+      capturing = stamp.key;
+      capture();
+      capturing = null;
+      counts.countWorked(haxe.Timer.stamp() - started);
+      if (check != null)
+        check.replay(stamp.key, found.value, found.firstRead);
+      return;
+    }
+    final log: Array<SignatureFact> = [];
+    final eventsBefore = limitEvents;
+    recording = log;
+    capturing = stamp.key;
+    capture();
+    capturing = null;
+    recording = null;
+    counts.countWorked(haxe.Timer.stamp() - started);
+    if (limitEvents != eventsBefore)
+      store.forget(stamp);
+    else
+      store.write(stamp, declaration, members(), log);
+    if (check != null)
+      check.replay(stamp.key, log, false);
+  }
+
+  /** Returns the bucket store of this pass; makes it at the first call. */
+  static function buckets(): KeptBuckets<Array<SignatureFact>> {
+    final known = keptBuckets;
+    if (known != null)
+      return known;
+    final created = new KeptBuckets(PASS);
+    keptBuckets = created;
+    return created;
+  }
+
+  /**
+   * Ends one declaration list of a request that uses the incremental path.
+   *
+   * With reuse on, it checks the one case in which kept buckets and new
+   * captures together can differ from a capture of everything: a new
+   * capture reached the depth limit of the enum-abstract walk
+   * (`limitEvents`) in a request that put a bucket back. Such a walk can
+   * answer differently when fewer declarations were captured before it.
+   * Then `captureEverything` reads every declaration of the request again,
+   * in order, as a request without reuse does.
+   */
+  static function endList(types: Array<ModuleType>): Void {
+    requestLists.push(types);
+    if (!usedBuckets)
+      return;
+    if (!fullCapture && replayed > 0 && limitEvents > 0)
+      captureEverything();
+    buckets().endRequest();
+  }
+
+  /**
+   * Drops the facts of this request and captures every declaration again,
+   * list by list, classes first: the order of a request without reuse.
+   * After it, the request reads and writes no bucket.
+   */
+  static function captureEverything(): Void {
+    fullCapture = true;
+    facts = new SignatureFacts();
+    declarationAnswers = new Map();
+    for (types in requestLists) {
+      for (type in types)
+        switch type {
+          case TClassDecl(reference):
+            readClass(new AfterTypingClass(reference.get()));
+          default:
+        }
+      for (type in types)
+        readDeclaration(type);
+    }
+    buckets().counts()
+      .noteFullWork('a type is nested deeper than $MAX_SOURCE_TYPE_DEPTH '
+        + 'levels: its capture can depend on the declarations that were '
+        + 'captured before it, so every declaration was captured again');
+  }
+
+  /**
+   * Compare mode: writes the report again after generation, with the
+   * compared questions and the differences, and warns when a kept bucket
+   * answered wrongly.
+   */
+  static function reportComparison(): Void {
+    final failures = buckets().counts().compareFailureTotal();
+    GenerationChangeSet.writeReport();
+    if (failures > 0)
+      Context.warning('[GENES-INCREMENTAL-COMPARE-001] $failures answers of '
+        + 'kept SignatureCache buckets differ from a new capture. The '
+        + 'output of this request uses the new capture. See '
+        + '"compareFailures" in the after-typing report.',
+        Context.currentPos());
   }
 
   public static function install(): Void {
     // Reset for each compilation.
-    sigs = new Map();
-    fieldTsTypes = new Map();
-    anonFieldTsTypes = new Map();
-    fieldSourceTypes = new Map();
-    anonFieldSourceTypes = new Map();
-    typedefSourceTypes = new Map();
-    localSourceTypes = new Map();
-    directEnumLocalSourceTypes = new Map();
-    enumAbstractTsTypes = new Map();
-    enumConstructorSourceTypes = new Map();
+    facts = new SignatureFacts();
     declarationAnswers = new Map();
+    recording = null;
+    capturing = null;
+    comparison = null;
+    limitEvents = 0;
+    replayed = 0;
+    fullCapture = false;
+    usedBuckets = false;
+    requestLists = [];
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
     // Classes come from the shared walk; the second function reads the other
     // declaration kinds after it.
-    AfterTypingPasses.add(captureClass, types -> {
-      for (t in types) {
-        switch t {
-          case TEnumDecl(ref):
-            final owner = ref.get();
-            for (constructor in owner.constructs) {
-              final sourceType = sourceTypeWithEnumAbstract(constructor.type);
-              if (sourceType != null)
-                enumConstructorSourceTypes.set(enumConstructorKey(owner,
-                  constructor), sourceType);
-            }
-          case TTypeDecl(ref):
-            final definition = ref.get();
-            final sourceType = sourceTypeWithEnumAbstract(definition.type);
-            if (sourceType != null)
-              typedefSourceTypes.set(typedefKey(definition), sourceType);
-            // Inspect the declaration as it was authored. In particular, do
-            // not follow a named alias such as
-            // `ReviewEnvelope = Envelope<ReviewState>` into `Envelope`'s
-            // anonymous body. Both declarations then point at the same field
-            // positions, and caching the concrete alias there would wrongly
-            // rewrite the shared `Envelope<Value>` declaration as
-            // `Envelope<ReviewState>`. The collector can still enter an
-            // anonymous body owned directly by this typedef and can inspect
-            // anonymous types supplied as its own type arguments.
-            captureAnonFieldTypes(definition.type);
-          case TAbstract(ref):
-            captureEnumAbstract(ref);
-          default:
-        }
+    AfterTypingPasses.add(captureClass, captureDeclarations);
+  }
+
+  /** Captures the enums, typedefs and abstracts of one declaration list. */
+  static function captureDeclarations(declarations: AfterTypingDeclarations): Void {
+    final stamps = declarations.stamps;
+    for (index => type in declarations.types) {
+      switch type {
+        case TClassDecl(_):
+        default:
+          final stamp = stamps == null ? null : stamps[index];
+          if (stamp == null)
+            readDeclaration(type);
+          else
+            visit(stamp, type, noMembers, () -> readDeclaration(type));
       }
-    });
+    }
+    if (stamps != null)
+      endList(declarations.types);
+  }
+
+  /** The member list of a declaration that is not a class: none. */
+  static function noMembers(): Null<String> {
+    return null;
   }
 
   public static function getSig(cl: ClassType, isStatic: Bool,
       fieldName: String): Null<CachedSig> {
-    return sigs.get(keyFor(classFullName(cl), isStatic, fieldName));
+    final key = keyFor(classFullName(cl), isStatic, fieldName);
+    final answer = facts.sigs.get(key);
+    final check = comparison;
+    if (check != null)
+      check.sigs(key, check.kept.sigs.get(key), answer);
+    return answer;
   }
 
   public static function getFieldTsType(cl: ClassType, isStatic: Bool,
       fieldName: String): Null<String> {
-    return fieldTsTypes.get(keyFor(classFullName(cl), isStatic, fieldName));
+    final key = keyFor(classFullName(cl), isStatic, fieldName);
+    final answer = facts.fieldTsTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.texts('fieldTsType', key, check.kept.fieldTsTypes.get(key), answer);
+    return answer;
   }
 
   public static function getAnonFieldTsType(pos: Position): Null<String> {
-    return anonFieldTsTypes.get(posKey(pos));
+    final key = posKey(pos);
+    final answer = facts.anonFieldTsTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.texts('anonFieldTsType', key,
+        check.kept.anonFieldTsTypes.get(key), answer);
+    return answer;
   }
 
   public static function getFieldSourceType(cl: ClassType, isStatic: Bool,
       fieldName: String): Null<Type> {
-    return fieldSourceTypes.get(keyFor(classFullName(cl), isStatic, fieldName));
+    final key = keyFor(classFullName(cl), isStatic, fieldName);
+    final answer = facts.fieldSourceTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.types('fieldSourceType', key,
+        check.kept.fieldSourceTypes.get(key), answer);
+    return answer;
   }
 
   public static function getAnonFieldSourceType(pos: Position): Null<Type> {
-    return anonFieldSourceTypes.get(posKey(pos));
+    final key = posKey(pos);
+    final answer = facts.anonFieldSourceTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.types('anonFieldSourceType', key,
+        check.kept.anonFieldSourceTypes.get(key), answer);
+    return answer;
   }
 
   /**
@@ -679,7 +961,12 @@ class SignatureCache {
    */
   public static function getTypedefSourceType(def: DefType,
       parameters: Array<Type>): Null<Type> {
-    final sourceType = typedefSourceTypes.get(typedefKey(def));
+    final key = typedefKey(def);
+    final sourceType = facts.typedefSourceTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.types('typedefSourceType', key,
+        check.kept.typedefSourceTypes.get(key), sourceType);
     if (sourceType == null)
       return null;
     return
@@ -688,14 +975,24 @@ class SignatureCache {
   }
 
   public static function getLocalSourceType(variable: TVar): Null<Type> {
-    return localSourceTypes.get(variable.id);
+    final answer = facts.localSourceTypes.get(variable.id);
+    final check = comparison;
+    if (check != null)
+      check.locals('localSourceType', variable.id,
+        check.kept.localSourceTypes.get(variable.id), answer);
+    return answer;
   }
 
   /** Payload declarations must agree with source-typed switch locals after abstract erasure. */
   public static function getEnumConstructorSourceType(owner: EnumType,
       constructor: EnumField): Null<Type> {
-    return enumConstructorSourceTypes.get(enumConstructorKey(owner,
-      constructor));
+    final key = enumConstructorKey(owner, constructor);
+    final answer = facts.enumConstructorSourceTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.types('enumConstructorSourceType', key,
+        check.kept.enumConstructorSourceTypes.get(key), answer);
+    return answer;
   }
 
   /**
@@ -707,13 +1004,27 @@ class SignatureCache {
    * names, positions and initializer values are never used to recover it.
    */
   public static function getDirectEnumLocalSourceType(variable: TVar): Null<Type> {
-    return
-      directEnumLocalSourceTypes.get(variable.id) ?? (isDirectEnumAbstractType(variable.t) ? variable.t : null);
+    final captured = facts.directEnumLocalSourceTypes.get(variable.id);
+    final check = comparison;
+    if (captured != null && check == null)
+      return captured;
+    final declared = isDirectEnumAbstractType(variable.t) ? variable.t : null;
+    if (check != null)
+      check.locals('directEnumLocalSourceType', variable.id,
+        check.kept.directEnumLocalSourceTypes.get(variable.id) ?? declared,
+        captured ?? declared);
+    return captured ?? declared;
   }
 
   /** Saved literal spelling used after dead-code elimination removes constants. */
   public static function getEnumAbstractTsType(ab: AbstractType): Null<String> {
-    return enumAbstractTsTypes.get(abstractKey(ab));
+    final key = abstractKey(ab);
+    final answer = facts.enumAbstractTsTypes.get(key);
+    final check = comparison;
+    if (check != null)
+      check.texts('enumAbstractTsType', key,
+        check.kept.enumAbstractTsTypes.get(key), answer);
+    return answer;
   }
 }
 #end
