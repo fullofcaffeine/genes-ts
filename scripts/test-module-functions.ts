@@ -685,6 +685,12 @@ const negativeCases = [
     "GENES-MODULE-FUNCTION-EXPOSE-NAME-016"
   ],
   [
+    // The marker of a compiler-internal module field is checked by the
+    // generator's root-export loop: no module request plan holds the field.
+    "module_function_compiler_internal",
+    "GENES-MODULE-FUNCTION-IDENTIFIER-004"
+  ],
+  [
     "module_function_expose_arity",
     "GENES-MODULE-FUNCTION-EXPOSE-ARITY-011"
   ],

@@ -45,7 +45,70 @@ class PathUtilProbe {
 
     require(PathUtil.isWithin(filesystemRoot, rootChild),
       'The filesystem root must own an absolute child path');
-    require(PathUtil.fromRoot(filesystemRoot, rootChild) == 'portable-source/Main.hx',
+    require(PathUtil.fromRoot(filesystemRoot,
+      rootChild) == 'portable-source/Main.hx',
       'A filesystem-root child must not lose its first directory name');
+
+    checkNormalize(cwd);
+  }
+
+  /**
+   * `PathUtil.normalize` skips `Path.normalize` for a path that is already
+   * normal. It must give the same text as `Path.normalize` for every path:
+   * normal ones, each kind of change, and the normalized result again.
+   */
+  static function checkNormalize(cwd: String): Void {
+    final paths = [
+      '',
+      '/',
+      '.',
+      '..',
+      'a',
+      '/a',
+      'a/b',
+      '/a/b/Main.ts',
+      cwd,
+      cwd + '/out',
+      '/a/',
+      'a/',
+      '//a',
+      '/a//b',
+      '/a///b/',
+      '/./a',
+      '/a/.',
+      '/a/./b',
+      './a',
+      '../a',
+      'a/..',
+      '/a/..',
+      '/a/../b',
+      '/..',
+      '../../a/b',
+      'a\\b',
+      '\\\\server\\share',
+      'C:/a',
+      'C:\\a\\b',
+      'C:/a//b',
+      'http://x/y',
+      '/a:b/c',
+      '/a://b',
+      '/a:/b',
+      '/a/:b',
+      ':a',
+      'a/:',
+      '/a/b.c/.d/..e',
+      '/a/\u00e9t\u00e9/b',
+      '/a/\u{1F600}/b',
+      '/a/ b /c',
+      '/.a/b',
+      '/a/.../b'
+    ];
+    for (path in paths)
+      for (input in [path, Path.normalize(path)]) {
+        final expected = Path.normalize(input);
+        final actual = PathUtil.normalize(input);
+        require(actual == expected,
+          'PathUtil.normalize("$input") gave "$actual"; Path.normalize gives "$expected"');
+      }
   }
 }

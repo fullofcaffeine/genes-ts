@@ -162,13 +162,28 @@ class Generator {
           final module = owner.module;
           final fields = owner.statics.get();
           for (field in fields) {
+            final exposed = field.meta.has(':expose');
+            // Only an exposed field can become a root export, so no other
+            // field needs its module-function request here. The request
+            // calls `Module.fieldsOf(owner)`, which copies every typed
+            // function body of the module. Asking for each
+            // `@:genes.moduleFunction` field (each React component) cost
+            // seconds in a large build.
+            //
+            // The request also checks the marker. For a field without
+            // `@:expose`, the module's `ModuleFunctionRequestPlan` does the
+            // same check later, with the same diagnostic and before any
+            // output is published. That plan skips compiler-internal
+            // fields, so such a field keeps its check here.
+            if (!exposed && !CompilerInternal.isField(field.meta))
+              continue;
             // A selected genuine module field is exported by its own ESM
             // module. It is not a compilation-root barrel export: separate
             // modules may intentionally own the same conventional binding
             // (for example `render`) without competing globally.
             final request = ModuleFunctionRequestPlan.fromTypedFieldValues(owner,
               field);
-            if (field.meta.has(':expose') && request == null)
+            if (exposed && request == null)
               export({
                 name: field.name,
                 pos: field.pos,
@@ -201,7 +216,9 @@ class Generator {
       // One catalog for this request only; see JsxProviderSchemaCatalog.
       jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog(),
       // One catalog for this request only; see the class comment.
-      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations()
+      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations(),
+      // One set of answers for this request only; see the class comment.
+      jsonTypeDefinitions: new genes.JsonTypeSupport.JsonTypeDefinitionAnswers()
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)
