@@ -103,8 +103,16 @@ typedef CachedModule = {
 
   /**
    * The global questions that planning and emission of the module asked,
-   * with their answers: sorted, unique lines `feature <name> <0|1>` and
-   * `module <name> <0|1>` (a module-function owner was in the module map).
+   * with their answers: sorted, unique `answerLine` texts. The kinds:
+   *
+   * - `feature`: a Haxe feature flag (`api.hasFeature`);
+   * - `module`: a module-function owner was in the module map
+   *   (`Module.resolveModuleFunction`);
+   * - `cycle`: the named module reaches this one through runtime imports
+   *   (`Module.isCyclic`; review of #244, M1);
+   * - `anonTs` and `anonSource`: a `SignatureCache` fact keyed by the source
+   *   position of an anonymous-structure field. The capture of another
+   *   module's declaration can write it (review of #244, M2).
    */
   final answers: Array<String>;
 
@@ -249,7 +257,7 @@ typedef CacheRequestFacts = {
  */
 class GenerationCache {
   /** The entry format. A new field or meaning needs a new number. */
-  public static inline final FORMAT = 2;
+  public static inline final FORMAT = 3;
 
   /**
    * The features that emission can add while Genes prints modules, so that
@@ -285,6 +293,7 @@ class GenerationCache {
   @:persistent static var storedKey: Null<String> = null;
   @:persistent static var storedReservedNames: Null<String> = null;
   @:persistent static var storedGlobalWitnesses: Array<CachedWitness> = [];
+  @:persistent static var storedGlobalAnswers: Array<String> = [];
   @:persistent static var entries: Map<String, CachedModule> = new Map();
   @:persistent static var inventory: Map<String,
     CachedInventoryModule> = new Map();
@@ -295,6 +304,15 @@ class GenerationCache {
   /** Returns the stored entry of one module, or `null`. */
   public static function entry(module: String): Null<CachedModule> {
     return storedKey == null ? null : entries.get(module);
+  }
+
+  /**
+   * Returns the answers that were asked outside any module's clock in the
+   * stored generation (`answerLine` texts). The checks before emission
+   * compare each one with the answer now, like `storedGlobalWitnesses`.
+   */
+  public static function globalAnswers(): Array<String> {
+    return storedKey == null ? [] : storedGlobalAnswers;
   }
 
   /** Returns the stored module names, sorted. */
@@ -457,17 +475,34 @@ class GenerationCache {
   }
 
   /**
-   * Splits one stored answer line, `feature <name> <0|1>` or
-   * `module <name> <0|1>`, into its parts.
+   * Returns one answer line: the kind, the question and the answer, joined
+   * by the character U+0001, which no module name, source path or type text
+   * holds. Example: `answerLine('feature', 'js.Lib.global', '1')`.
    */
-  public static function parseAnswer(line: String): {kind: String, name: String, answer: Bool} {
-    final first = line.indexOf(' ');
-    final last = line.lastIndexOf(' ');
+  public static function answerLine(kind: String, question: String,
+      answer: String): String {
+    return '$kind\x01$question\x01$answer';
+  }
+
+  /** Returns the text of a yes-or-no answer: `1` or `0`. */
+  public static function flag(answer: Bool): String {
+    return answer ? '1' : '0';
+  }
+
+  /** Splits one `answerLine` text into its kind, question and answer. */
+  public static function parseAnswer(line: String): {kind: String, name: String, answer: String} {
+    final parts = line.split('\x01');
     return {
-      kind: line.substr(0, first),
-      name: line.substring(first + 1, last),
-      answer: line.substr(last + 1) == '1'
+      kind: parts[0],
+      name: parts.length > 1 ? parts[1] : '',
+      answer: parts.length > 2 ? parts.slice(2).join('\x01') : ''
     };
+  }
+
+  /** Returns a stored answer line in a form for a report or a diagnostic. */
+  public static function answerText(line: String): String {
+    final answer = parseAnswer(line);
+    return '${answer.kind} ${answer.name} = ${answer.answer}';
   }
 
   /**
@@ -484,9 +519,13 @@ class GenerationCache {
       reservedNameDigest: String, globalWitnesses: Array<CachedWitness>,
       modules: Map<String, CachedModule>,
       ?inventoryModules: Map<String, CachedInventoryModule>,
-      outputFolder = '', underReuse = false): Bool {
+      outputFolder = '', underReuse = false,
+      ?globalAnswers: Array<String>): Bool {
     final others = inventoryModules == null ? new Map() : inventoryModules;
+    final asked = globalAnswers == null ? [] : globalAnswers;
     var size = sessionKey.length + reservedNameDigest.length;
+    for (answer in asked)
+      size += answer.length;
     for (witness in globalWitnesses)
       size += witness.module.length + witness.epochs.length;
     for (name => module in others)
@@ -500,9 +539,19 @@ class GenerationCache {
       for (file in module.files)
         size += file.path.length + file.text.length;
       for (warning in module.warnings)
-        size += warning.message.length + warning.file.length;
+        size += warning.message.length
+          + warning.file.length
+          + Std.string(warning.min).length
+          + Std.string(warning.max).length;
       for (answer in module.answers)
         size += answer.length;
+      for (feature in module.additions)
+        size += feature.length;
+      for (entry in module.publicEntries)
+        size += entry.name.length
+          + entry.file.length
+          + Std.string(entry.min).length
+          + Std.string(entry.max).length;
       for (source in module.mapSources)
         size += source.length;
     }
@@ -513,6 +562,7 @@ class GenerationCache {
     storedKey = sessionKey;
     storedReservedNames = reservedNameDigest;
     storedGlobalWitnesses = globalWitnesses;
+    storedGlobalAnswers = asked;
     entries = modules;
     inventory = others;
     storedOutputFolder = outputFolder;
@@ -526,6 +576,7 @@ class GenerationCache {
     storedKey = null;
     storedReservedNames = null;
     storedGlobalWitnesses = [];
+    storedGlobalAnswers = [];
     entries = new Map();
     inventory = new Map();
     storedOutputFolder = '';

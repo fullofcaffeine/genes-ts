@@ -56,6 +56,7 @@ class CleanRuleProbe {
     checkUnstamped();
     checkRefusal();
     checkReplayRules();
+    checkEmissionFeatures();
     Sys.println('clean-rule-probe:ok ($cases cases)');
   }
 
@@ -174,6 +175,57 @@ class CleanRuleProbe {
       ReuseClean, Compare);
   }
 
+  /**
+   * Every feature that a Genes emitter adds with a literal name
+   * (`addFeature("...")`) must be in `GenerationCache.EMISSION_FEATURES`.
+   *
+   * Why: the checks before emission compare a clean module's feature
+   * answers with the answers before the first module is printed. That is
+   * exact only for features that no printing adds; a module that asked for
+   * one of the others is never clean (rule 10). A new `addFeature` call that
+   * is missing from the list would make that check unsound, so this case
+   * reads the sources under `src/genes` and fails for it.
+   */
+  static function checkEmissionFeatures(): Void {
+    final generator = Context.resolvePath('genes/Generator.hx');
+    final root = haxe.io.Path.directory(sys.FileSystem.absolutePath(generator));
+    final call = ~/addFeature\(\s*["']([^"']+)["']\s*\)/;
+    var found = 0;
+    for (file in haxeFiles(root)) {
+      var text = sys.io.File.getContent(file);
+      while (call.match(text)) {
+        final feature = call.matched(1);
+        found++;
+        if (GenerationCache.EMISSION_FEATURES.indexOf(feature) < 0)
+          fail('emission feature list',
+            'addFeature("$feature") in $file to be ' +
+            'in GenerationCache.EMISSION_FEATURES',
+            'it is missing');
+        text = call.matchedRight();
+      }
+    }
+    cases++;
+    if (found == 0)
+      fail('emission feature list',
+        'at least one addFeature call under $root', 'none');
+  }
+
+  /** Returns every `.hx` file below `folder`, sorted. */
+  static function haxeFiles(folder: String): Array<String> {
+    final result = [];
+    final entries = sys.FileSystem.readDirectory(folder);
+    entries.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    for (entry in entries) {
+      final path = haxe.io.Path.join([folder, entry]);
+      if (sys.FileSystem.isDirectory(path))
+        for (file in haxeFiles(path))
+          result.push(file);
+      else if (StringTools.endsWith(entry, '.hx'))
+        result.push(path);
+    }
+    return result;
+  }
+
   /** The rules that slice S1 added before any replay (items of the review of #243). */
   static function checkReplayRules(): Void {
     final epochs = [
@@ -245,8 +297,10 @@ class CleanRuleProbe {
         '/p/cand/rev-4/output')
         .join(','));
     // Rule 10: a module that asked for a feature that emission adds.
-    store(epochs, fingerprints, [], [], null,
-      {answers: ['feature use.' + '$' + 'bind 0']});
+    store(epochs, fingerprints, [], [], null, {
+      answers: [GenerationCache.answerLine('feature', 'use.' + '$' + 'bind',
+        '0')]
+    });
     expectDecision('asked for a feature that emission adds',
       GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean',
       'asked for the feature use.' + '$' + 'bind, which emission can add');

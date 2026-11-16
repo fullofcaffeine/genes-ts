@@ -88,6 +88,25 @@ typedef ReplayModuleFacts = {
   final rootFlags: String;
 }
 
+/**
+ * How a request answers each kind of recorded question now, for the checks
+ * before emission (`IncrementalShadow.planReplay`). A `null` function means
+ * that the kind is not checked at that moment (see `changedAnswer`).
+ */
+typedef ReplayAnswers = {
+  /** `api.hasFeature`. */
+  final feature: String->Bool;
+
+  /** Whether a module is in the final module map. */
+  final moduleExists: Null<String->Bool>;
+
+  /** `Module.isCyclic` of the asking module (first argument) for a module. */
+  final cycle: Null<(asker: String, test: String) -> Bool>;
+
+  /** The text of a position-keyed `SignatureCache` fact now (kind, key). */
+  final anonField: Null<(kind: String, key: String) -> String>;
+}
+
 /** One stored public entry of a replayed module, with its position made again. */
 typedef ReplayPublicEntry = {
   final name: String;
@@ -303,7 +322,13 @@ class IncrementalShadow {
    * module is not printed, so `"reuse"` cannot serve a request with one of
    * them.
    */
-  static final EMISSION_MESSAGE_DEFINES = ['genes.ts.indexed_access_inventory', 'genes.ts.narrowing_inventory'];
+  static final EMISSION_MESSAGE_DEFINES = [
+    'genes.ts.indexed_access_inventory',
+    'genes.ts.narrowing_inventory',
+    'genes.lexical_binding_inventory',
+    'genes.direct_binding_inventory',
+    'genes.writer_position_inventory'
+  ];
 
   static var current: Null<IncrementalShadow> = null;
 
@@ -481,7 +506,9 @@ class IncrementalShadow {
     final shadow = current;
     if (shadow == null || !shadow.active)
       return;
-    addLine(shadow.answers, module, 'feature $feature ${answer ? 1 : 0}');
+    addLine(shadow.answers, module,
+      GenerationCache.answerLine('feature', feature,
+        GenerationCache.flag(answer)));
   }
 
   /**
@@ -494,7 +521,54 @@ class IncrementalShadow {
     final shadow = current;
     if (shadow == null || !shadow.active)
       return;
-    addLine(shadow.answers, asker, 'module $module ${exists ? 1 : 0}');
+    addLine(shadow.answers, asker,
+      GenerationCache.answerLine('module', module,
+        GenerationCache.flag(exists)));
+  }
+
+  /**
+   * Records whether `test` reaches `asker` through internal runtime imports
+   * (`Module.isCyclic`), the question that decides, for example, whether
+   * `asker` prints `Register.inherits(() => Base, true)` (lazy) or
+   * `Register.inherits(Base)` for a superclass in `test`.
+   *
+   * Why (review of #244, M1): the answer depends on the import graph of
+   * other modules. A module that is dirty but not typed again can gain a
+   * member during the walk and close a cycle, so a clean module's stored
+   * output can be stale although nothing about it changed.
+   */
+  public static function recordCycle(asker: String, test: String,
+      cyclic: Bool): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    addLine(shadow.answers, asker,
+      GenerationCache.answerLine('cycle', test, GenerationCache.flag(cyclic)));
+  }
+
+  /**
+   * Records one answer of `SignatureCache.getAnonFieldTsType` (`anonTs`) or
+   * `getAnonFieldSourceType` (`anonSource`): `key` is the source position of
+   * an anonymous-structure field, and `answer` the text of the fact, or `-`
+   * when there is none. The answer belongs to the module whose clock runs
+   * (its planning or printing reads it); outside any clock it belongs to the
+   * request (`GenerationCache.globalAnswers`).
+   *
+   * Why (review of #244, M2): the capture of one declaration writes such a
+   * fact for every field position that its type reaches, also for a field
+   * of another module. Example: a typedef `{ > inc.Env.Envelope<inc.Color>,
+   * ... }` in `inc.Leaf2` writes the fact of the field `value` of
+   * `inc.Env.Envelope`, and the print of `inc.Env` reads it. `inc.Env` is
+   * not typed again, so no other clean rule sees the change.
+   */
+  public static function recordAnonField(kind: String, key: String,
+      answer: String): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    final module = shadow.clockModule;
+    addLine(shadow.answers, module == null ? '' : module,
+      GenerationCache.answerLine(kind, key, answer));
   }
 
   /** Records one feature that emission of `module` added (`api.addFeature`). */
@@ -599,24 +673,28 @@ class IncrementalShadow {
    * `"reuse"` and every check passed.
    *
    * `names` is the sorted list of reachable modules, `facts` gives the
-   * live facts of one of them, `featureNow` asks Haxe for a feature now, and
-   * `moduleExists` asks whether a module is in the final module map.
+   * live facts of one of them, and `now` answers each kind of recorded
+   * question as the request would answer it now.
    *
-   * For each clean module that is emitted now: the final member list (with
-   * order) and the root flags must equal the stored ones, and each stored
-   * answer must equal the answer now. Any difference makes the request
-   * generate in full; there is no partial fallback, because the difference
-   * may come from a module that the clean rules did not see. Nothing has
-   * added a feature yet, so the full generation is exact. A difference never
-   * becomes a replay.
+   * The checks: every stored module that Haxe did not type again must have
+   * its stored final member list (review of #244, M1: a module that is dirty
+   * only because of a clean rule can still gain a member during the walk and
+   * change what other modules import). Every answer that the stored request
+   * asked outside any module must be the same now. For each clean module
+   * that is emitted now: the root flags must equal the stored ones, and each
+   * stored answer (features, module map, import cycles, position-keyed
+   * signature facts) must equal the answer now. Any difference makes the
+   * request generate in full; there is no partial fallback, because the
+   * difference may come from a module that the clean rules did not see.
+   * Nothing has added a feature yet, so the full generation is exact. A
+   * difference never becomes a replay.
    *
    * In `"measure"` and `"compare"` the same checks run, and their result
    * selects the modules that `"compare"` checks after the commit, but
    * nothing is replayed.
    */
   public static function planReplay(names: Array<String>,
-      facts: String->ReplayModuleFacts, featureNow: String->Bool,
-      moduleExists: String->Bool): Map<String, Bool> {
+      facts: String->ReplayModuleFacts, now: ReplayAnswers): Map<String, Bool> {
     final none = new Map<String, Bool>();
     final shadow = current;
     if (shadow == null || !shadow.active)
@@ -636,8 +714,8 @@ class IncrementalShadow {
     }
     if (clean != null) {
       final plan = new Map<String, Bool>();
-      final fallback = planFallbackReason(shadow, names, emitted, clean,
-        featureNow, moduleExists, plan);
+      final fallback = planFallbackReason(shadow, names, emitted, clean, now,
+        plan);
       if (fallback == null)
         shadow.replayable = plan;
       else
@@ -653,44 +731,69 @@ class IncrementalShadow {
    */
   static function planFallbackReason(shadow: IncrementalShadow,
       names: Array<String>, emitted: Map<String, Bool>,
-      clean: Map<String, Bool>, featureNow: String->Bool,
-      moduleExists: String->Bool, plan: Map<String, Bool>): Null<String> {
+      clean: Map<String, Bool>, now: ReplayAnswers,
+      plan: Map<String, Bool>): Null<String> {
+    for (name in names) {
+      final stored = GenerationCache.entry(name);
+      if (stored == null)
+        continue;
+      final epochs = GenerationChangeSet.epochs(name);
+      final keptByHaxe = epochs.length > 0 && epochs == stored.epochs;
+      if ((keptByHaxe || clean.exists(name))
+        && stored.members != shadow.memberLists.get(name))
+        return 'the final member list of $name, which Haxe did not type '
+          + 'again, differs from the record';
+    }
+    final global = changedAnswer('', GenerationCache.globalAnswers(), now);
+    if (global != null)
+      return 'the answer "${GenerationCache.answerText(global)}" asked '
+        + 'outside any module differs now';
     for (name in names) {
       if (!clean.exists(name) || !emitted.exists(name))
         continue;
       final stored = GenerationCache.entry(name);
       if (stored == null)
         continue;
-      if (stored.members != shadow.memberLists.get(name))
-        return 'the final member list of $name differs from the record';
       if (stored.rootFlags != shadow.rootFlagTexts.get(name))
         return 'the root flags of $name differ from the record';
-      final changed = changedAnswer(stored, featureNow, moduleExists);
+      final changed = changedAnswer(name, stored.answers, now);
       if (changed != null)
-        return 'the answer "$changed" that $name recorded differs now';
+        return 'the answer "${GenerationCache.answerText(changed)}" that '
+          + '$name recorded differs now';
       plan.set(name, true);
     }
     return null;
   }
 
   /**
-   * Returns the first stored answer of `stored` that differs now, or `null`
-   * when every answer is the same. With `moduleExists` `null`, only the
-   * feature answers are checked: the module map does not change during
-   * emission, so `planReplay` already checked the others.
+   * Returns the first of `answers`, asked by `asker`, that differs now, or
+   * `null` when every answer is the same. A kind without a function in
+   * `now` is not checked: `replay` passes only the feature function, because
+   * the module map, the import graph and the signature facts do not change
+   * during emission, so `planReplay` already checked them. An unknown kind
+   * always counts as changed.
    */
-  static function changedAnswer(stored: CachedModule,
-      featureNow: String->Bool,
-      moduleExists: Null<String->Bool>): Null<String> {
-    for (line in stored.answers) {
+  static function changedAnswer(asker: String, answers: Array<String>,
+      now: ReplayAnswers): Null<String> {
+    for (line in answers) {
       final answer = GenerationCache.parseAnswer(line);
-      final now = switch answer.kind {
-        case 'feature': featureNow(answer.name);
-        case 'module' if (moduleExists == null): answer.answer;
-        case 'module': moduleExists(answer.name);
-        default: !answer.answer;
+      final current: Null<String> = switch answer.kind {
+        case 'feature':
+          GenerationCache.flag(now.feature(answer.name));
+        case 'module':
+          final exists = now.moduleExists;
+          exists == null ? answer.answer : GenerationCache.flag(exists(answer.name));
+        case 'cycle':
+          final cyclic = now.cycle;
+          cyclic == null ? answer.answer : GenerationCache.flag(cyclic(asker,
+            answer.name));
+        case 'anonTs' | 'anonSource':
+          final fact = now.anonField;
+          fact == null ? answer.answer : fact(answer.kind, answer.name);
+        default:
+          null;
       }
-      if (now != answer.answer)
+      if (current != answer.answer)
         return line;
     }
     return null;
@@ -735,15 +838,25 @@ class IncrementalShadow {
       addFeature: String->Void): Void {
     final shadow = current;
     final stored = GenerationCache.entry(module);
-    if (shadow == null || !shadow.active || stored == null)
+    if (shadow == null || !shadow.active || stored == null) {
+      GenerationCache.drop();
       CompilerDiagnostic.fail('[GENES-INCREMENTAL-REPLAY-002] Genes was asked '
-        + 'to replay $module without a stored entry. This is a Genes defect.',
+        + 'to replay $module without a stored entry. Nothing was published, '
+        + 'and the generation cache was dropped; the next request generates '
+        + 'in full. This is a Genes defect.',
         Context.currentPos());
-    final changed = changedAnswer(stored, hasFeature, null);
+    }
+    final changed = changedAnswer(module, stored.answers, {
+      feature: hasFeature,
+      moduleExists: null,
+      cycle: null,
+      anonField: null
+    });
     if (changed != null) {
       GenerationCache.drop();
       CompilerDiagnostic.fail('[GENES-INCREMENTAL-REPLAY-001] The stored '
-        + 'output of $module cannot be replayed: the answer "$changed" '
+        + 'output of $module cannot be replayed: the answer '
+        + '"${GenerationCache.answerText(changed)}" '
         + 'differs at its place in the emission order. Nothing was '
         + 'published, and the generation cache was dropped; the next request '
         + 'generates in full. Please report this Genes defect.',
@@ -1281,7 +1394,7 @@ class IncrementalShadow {
         });
     return GenerationCache.commit(sessionKey,
       GenerationChangeSet.reservedNameDigest(), witnessesOf(''), modules,
-      others, outputFolder, underReuse);
+      others, outputFolder, underReuse, sortedLines(answers.get('')));
   }
 
   static function witnessesOf(module: String): Array<CachedWitness> {

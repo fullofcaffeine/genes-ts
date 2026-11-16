@@ -938,6 +938,11 @@ class SignatureCache {
     if (check != null)
       check.texts('anonFieldTsType', key,
         check.kept.anonFieldTsTypes.get(key), answer);
+    // The capture of another declaration can write this fact; see
+    // `IncrementalShadow.recordAnonField`. Without it this does nothing.
+    if (genes.incremental.IncrementalShadow.recording())
+      genes.incremental.IncrementalShadow.recordAnonField(ANON_TS, key,
+        anonFieldAnswer(ANON_TS, key));
     return answer;
   }
 
@@ -959,7 +964,36 @@ class SignatureCache {
     if (check != null)
       check.types('anonFieldSourceType', key,
         check.kept.anonFieldSourceTypes.get(key), answer);
+    if (genes.incremental.IncrementalShadow.recording())
+      genes.incremental.IncrementalShadow.recordAnonField(ANON_SOURCE, key,
+        anonFieldAnswer(ANON_SOURCE, key));
     return answer;
+  }
+
+  /** The answer kind of `getAnonFieldTsType` for the incremental generator. */
+  public static inline final ANON_TS = 'anonTs';
+
+  /** The answer kind of `getAnonFieldSourceType` for the incremental generator. */
+  public static inline final ANON_SOURCE = 'anonSource';
+
+  /**
+   * Returns the text of one position-keyed fact of this request, as the
+   * incremental generator records and checks it: `-` when there is no fact,
+   * else `+` and the TypeScript text (`ANON_TS`) or the Haxe type text
+   * (`ANON_SOURCE`, `TypeTools.toString`, the text that `SignatureComparison`
+   * also compares). `key` is the `posKey` of the field.
+   *
+   * Why: a replay checks before emission that each such fact that a clean
+   * module read is the same now (review of #244, M2). It reads the facts
+   * directly and runs no comparison of `afterTyping: "compare"`.
+   */
+  public static function anonFieldAnswer(kind: String, key: String): String {
+    if (kind == ANON_TS) {
+      final text = facts.anonFieldTsTypes.get(key);
+      return text == null ? '-' : '+' + text;
+    }
+    final type = facts.anonFieldSourceTypes.get(key);
+    return type == null ? '-' : '+' + haxe.macro.TypeTools.toString(type);
   }
 
   /**

@@ -38,6 +38,10 @@ class Main {
       Std.string(PropUser.run()),
       Std.string(GenericMethodUse.run()),
       parted.Parted.value(),
+      new CyChild().name(),
+      Std.string(Env.unwrap({
+        value: 1
+      })),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

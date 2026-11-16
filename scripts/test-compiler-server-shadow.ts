@@ -36,8 +36,8 @@
  * published tree must equal the cold tree, and the request must report the
  * cold build's warnings. The gate counts the replayed modules, and fails when
  * a request with no edit replays nothing or leaves a clean module unreplayed,
- * so it cannot pass with an empty replay. `--only=<regex>` runs the first
- * request and the matching edits only; `--skip-plain` skips the warm server
+ * so it cannot pass with an empty replay. `--only=<a|b>` runs the first
+ * request and the edits whose id contains `a` or `b` (`=a` for an exact id); `--skip-plain` skips the warm server
  * without the define (G0, G2); `--skip-probe` skips `CleanRuleProbe` (for a
  * run with a guard switched off by hand, whose probe case would fail first).
  * Each of them ends with a `partial` line.
@@ -50,6 +50,7 @@
  * descriptor fields as a session would.
  */
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cpSync,
@@ -104,10 +105,13 @@ const options = (() => {
     .map((mode) => mode.trim());
   for (const mode of modes)
     ok(mode === "compare" || mode === "reuse", `unknown mode ${mode}`);
+  // `--only` is a list of edit ids separated by "|"; an entry matches an id
+  // that contains it, or, with a leading "=", the id that equals it. Plain
+  // text matching: the value never becomes a regular expression.
   const only = value("only");
   return {
     modes: modes as GenerationMode[],
-    only: only === undefined ? null : new RegExp(only),
+    only: only === undefined ? null : only.split("|").filter((part) => part.length > 0),
     skipPlain: process.argv.includes("--skip-plain"),
     skipProbe: process.argv.includes("--skip-probe")
   };
@@ -175,6 +179,12 @@ const cloneModule = "inc.Clone";
 
 /** Modules that a macro defines anew in every request: never clean. */
 const macroModules = [lateModule, cloneModule];
+
+/**
+ * Modules that ask for a feature that emission can add (rule 10 of
+ * `GenerationCache`): never clean.
+ */
+const emissionFeatureModules = ["inc.CyHub"];
 
 /** The root module of the fixture (the output file name). */
 const rootModule = "index";
@@ -850,6 +860,53 @@ const edits: ReadonlyArray<Edit> = [
     results: ["full"]
   },
   {
+    // M1 of the review of #244: `inc.CyHub` is never clean and Haxe does not
+    // type it again. A type position in another module makes the walk add
+    // `CyHubExtra` to it, which closes the import cycle CyChild -> CyBase ->
+    // CyHub -> CyChild. `inc.CyChild` is clean, but its emission asked
+    // whether `inc.CyBase` is in a cycle with it; the answer changed.
+    id: "a late member in a module that is never clean closes an import cycle",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef Leaf2Hint = {\n  final ?extra: inc.CyHub.CyHubExtra;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final hint: Null<Leaf2Hint> = null;");
+    }
+  },
+  {
+    id: "that type position removed: the import cycle opens again",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef Leaf2Hint = {\n  final ?extra: inc.CyHub.CyHubExtra;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final hint: Null<Leaf2Hint> = null;",
+        "value(): String {");
+    }
+  },
+  {
+    // M2 of the review of #244: the capture of a typedef in `inc.Leaf2`
+    // writes a SignatureCache fact for the source position of the field
+    // `value` of `inc.Env.Envelope`, and the print of `inc.Env` reads that
+    // fact. `inc.Env` is not typed again.
+    id: "another module extends a generic structure with an enum abstract argument",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef ColorEnvelope = {\n  > inc.Env.Envelope<inc.Color>,\n  final extra: Int;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final hint: Null<ColorEnvelope> = null;");
+    }
+  },
+  {
+    id: "that extension of the generic structure removed",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef ColorEnvelope = {\n  > inc.Env.Envelope<inc.Color>,\n  final extra: Int;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final hint: Null<ColorEnvelope> = null;",
+        "value(): String {");
+    }
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -996,6 +1053,18 @@ type Row = {
   readonly reason: string;
 };
 
+/** Runs one read-only Git command in the repository and returns its output. */
+function runGit(args: ReadonlyArray<string>): string {
+  return execFileSync("git", [...args], { cwd: repoRoot, encoding: "utf8" });
+}
+
+/** Returns true when one of the `--only` entries selects the edit `id`. */
+function selected(entries: ReadonlyArray<string>, id: string): boolean {
+  return entries.some((entry) => entry.startsWith("=")
+    ? id === entry.slice(1)
+    : id.includes(entry));
+}
+
 /** Puts every value that an edit can change back to its first state. */
 function resetState(mode: GenerationMode): void {
   currentMode = mode;
@@ -1022,6 +1091,12 @@ type PassResult = {
 };
 
 async function main(): Promise<void> {
+  // Evidence: the exact commit and working tree that this run tests.
+  const head = runGit(["rev-parse", "HEAD"]);
+  const status = runGit(["status", "--short"]);
+  process.stdout.write(`compiler-server-shadow: HEAD ${head.trim()}\n`
+    + `compiler-server-shadow: git status --short: `
+    + `${status.trim().length === 0 ? "(clean)" : "\n" + status}\n`);
   const results: PassResult[] = [];
   let probeLine = "";
   const loadAtStart = loadavg()[0] ?? 0;
@@ -1099,7 +1174,7 @@ async function runPass(
   let editsRun = 0;
   try {
     for (const [index, step] of edits.entries()) {
-      if (index > 0 && options.only !== null && !options.only.test(step.id))
+      if (index > 0 && options.only !== null && !selected(options.only, step.id))
         continue;
       editsRun++;
       const label = `[${mode} ${index + 1}/${edits.length}] ${step.id}`;
@@ -1284,7 +1359,7 @@ async function runPass(
         // With no edit, every module is replayed (reuse) or would be
         // (compare), except the modules that are never clean.
         const neverClean = new Set([rootModule, ...macroModules,
-          ...report.haxePrinterModuleNames]);
+          ...emissionFeatureModules, ...report.haxePrinterModuleNames]);
         const leftOut = emittedModules
           .filter((entry) => entry.state === "dirty" && !neverClean.has(entry.module))
           .map((entry) => entry.module);

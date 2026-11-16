@@ -244,7 +244,11 @@ inference through a third module, a typedef chain, generic instances, types
 that a build macro and an expression macro load, import cycles, `@:expose`,
 module directives, HXX markup, a props type named by a string in metadata, a
 dynamic iterator, the first use of `js.Lib.global` and of `js.Boot.isEnum`
-(feature answers that change the output of unedited modules), private types
+(feature answers that change the output of unedited modules), a late member
+of a module that is never clean that closes an import cycle (`inc.CyHub`,
+`inc.CyBase`, `inc.CyChild`), another module that extends the generic
+structure `inc.Env.Envelope` and so writes the signature fact of its field
+(both directions), private types
 with one name, enum abstract values, new, edited, deleted and renamed
 declarations, type errors, a generation diagnostic, a failure in
 `onGenerate` and one after the commit (`inc.FailMacro` and flag files), a
@@ -274,13 +278,17 @@ request (with source maps) runs three times:
   modules that `"reuse"` would replay: files, warnings, final member list,
   root flags, recorded answers, added features and public entries. With
   `"reuse"`, those modules are not printed; their stored output is staged.
+Each log starts with the tested commit (`git rev-parse HEAD`) and
+`git status --short`.
 
 For a request with no edit, every emitted module except the root module,
-`inc.Late`, `inc.Clone` and modules that used Haxe's printer must be
+`inc.Late`, `inc.Clone`, `inc.CyHub` (it asks for a feature that emission
+adds) and modules that used Haxe's printer must be
 replayed (reuse) or replayable (compare), and the checks before emission must
 not fall back. The gate prints the replayed modules of each edit and fails
-when the reuse pass replayed none. `--only=<regex>` runs the first request
-and the matching edits; `--skip-plain` skips the server without the define.
+when the reuse pass replayed none. `--only=<a|b>` runs the first request and
+the edits whose id contains `a` or `b` (`=a` for an exact id; plain text,
+never a regular expression); `--skip-plain` skips the server without the define.
 Such runs end with `compiler-server-shadow:partial`.
 
 Before the edits, `probes/CleanRuleProbe.hx` checks the rules that must hold

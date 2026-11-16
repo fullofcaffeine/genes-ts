@@ -592,8 +592,8 @@ class Module {
     return genes.util.PathUtil.relative(path, from.replace('.', '/'));
   }
 
-  public function isCyclic(test: String)
-    return switch cycleCache.get(test) {
+  public function isCyclic(test: String): Bool {
+    final answer = switch cycleCache.get(test) {
       case null:
         final endTimer = timer('isCyclic');
         final seen = new Set();
@@ -604,6 +604,12 @@ class Module {
         res;
       case v: v;
     }
+    // The answer depends on the imports of other modules. The incremental
+    // generator records it for this module so that a replay can check it
+    // (`IncrementalShadow.recordCycle`); without it this does nothing.
+    genes.incremental.IncrementalShadow.recordCycle(module, test, answer);
+    return answer;
+  }
 
   function testCycles(test: String, seen: Set<String>) {
     seen.add(test);

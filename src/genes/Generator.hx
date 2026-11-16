@@ -491,7 +491,16 @@ class Generator {
           exposed) : needsGen(module),
           exposed, module.expose.length, implementation)
       };
-    }, api.hasFeature, name -> modules.exists(name));
+    }, {
+      feature: api.hasFeature,
+      moduleExists: name -> modules.exists(name),
+      cycle: (asker, test) -> {
+        final module = modules.get(asker);
+        module != null
+        && module.isCyclic(test);
+      },
+      anonField: genes.ts.SignatureCache.anonFieldAnswer
+    });
 
     final endValidationTimer = timer('genes.validate.modules');
     final jsxCapability = JsxCapabilityPolicy.current();
