@@ -16,9 +16,13 @@ it.
   the output descriptor (`-D genes.output_descriptor`), the incremental
   descriptor (`-D genes.dev_incremental`, mode `measure`, so Genes keeps its
   plain records but still does all work), and the compiler-data descriptor.
-  Only a content edit of an existing `.hx` file keeps the warm cache; when its
-  whole-second file time may equal the one Haxe recorded, the session first
-  sends `server/invalidate`, so two saves within one second are both built.
+  Only a content edit of an existing `.hx` file on a class path keeps the warm
+  cache; when its whole-second file time may equal the one Haxe recorded
+  (the session tracks the end of each request and the second it saw for each
+  changed file, and treats a time ahead of the clock as unsafe), the session
+  first sends `server/invalidate`, so two saves within one second are both
+  built. A `.hx` file in another declared input is an ordinary input. A macro
+  that reads the source text of a class-path `.hx` file is not supported.
   A created or removed `.hx` file (which can change a name lookup in an
   unchanged module, for example a new `import.hx`) and a change of any other
   watched input (a file that a macro may read without telling Haxe) restart

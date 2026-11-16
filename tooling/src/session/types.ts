@@ -237,7 +237,11 @@ export interface DevelopmentSession<Diagnostic extends JsonValue> {
    */
   start(): Promise<void>;
 
-  /** Records an explicit host-owned input change without adding a watcher. */
+  /**
+   * Records an explicit host-owned input change without adding a watcher.
+   * The session cannot tell what kind of change it was, so the next build
+   * restarts the owned Haxe server and types everything from an empty cache.
+   */
   invalidate(change: ExternalChange): void;
 
   /** Forces the session's existing watcher to compare authoritative inputs. */

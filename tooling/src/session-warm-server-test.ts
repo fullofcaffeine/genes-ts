@@ -210,6 +210,8 @@ try {
     projectRoot,
     { recursive: true },
   );
+  mkdirSync(path.join(projectRoot, "data"));
+  writeFileSync(path.join(projectRoot, "data", "snippet.hx"), "snippet-v1", "utf8");
   writeFileSync(
     path.join(projectRoot, "build.hxml"),
     [...programArguments, ""].join("\n"),
@@ -223,6 +225,9 @@ try {
     hxml: { allowedRoots: [projectRoot, genesSourceRoot, helderSourceRoot] },
     publicOutputFile: "src-gen/index.ts",
     stateDirectory: ".genes/dev",
+    // A declared input that is not on a class path. A macro reads a `.hx`
+    // file in it as text, so its change must not keep the warm cache.
+    extraInputs: [{ kind: "tree", path: "data", impact: { rebuild: true } }],
     resolveInvocation: () => ({
       executable: haxeExecutable,
       cwd: projectRoot,
@@ -483,6 +488,27 @@ try {
       {
         label: "servercase.TopThing removed",
         apply: () => rmSync(path.join(projectRoot, "src", "servercase/TopThing.hx")),
+      },
+      {
+        label: "new macro module Snip that reads data/snippet.hx",
+        apply: () =>
+          writeSource(
+            "servercase/Snip.hx",
+            'package servercase;\n\nclass Snip {\n  public static macro function text() {\n    return macro $v{sys.io.File.getContent("data/snippet.hx")};\n  }\n}\n',
+          ),
+      },
+      {
+        label: "leaf uses Snip (content edit)",
+        apply: () => {
+          edit("servercase/UnimportedLeaf.hx", '"leaf-" + TopThing.value()', '"leaf-" + TopThing.value() + Snip.text()');
+        },
+        expect: () => assert.equal(published(leaf).includes("snippet-v1"), true),
+      },
+      {
+        label: "data/snippet.hx edited (a .hx file that is not on a class path)",
+        apply: () =>
+          writeFileSync(path.join(projectRoot, "data", "snippet.hx"), "snippet-v2", "utf8"),
+        expect: () => assert.equal(published(leaf).includes("snippet-v2"), true),
       },
     ];
     for (const step of structureSteps) {

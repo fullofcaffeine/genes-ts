@@ -391,6 +391,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    * file time that it read. See `#needsInvalidation`.
    */
   #lastRequestStampSeconds = 0;
+  /**
+   * The whole-second file time of each changed source file at the last
+   * request that could read it. A later edit with the same or an earlier
+   * second must be invalidated, even when that second is ahead of the clock.
+   */
+  readonly #seenSourceSeconds = new Map<string, number>();
+  /** Changed source files (created or edited) whose time the next request records. */
+  readonly #pendingSourceTimes = new Set<string>();
   /** Changed `.hx` files that the next Haxe request must invalidate. */
   readonly #pendingInvalidations = new Set<string>();
   #publishedManifestDigest: string | null = null;
@@ -1314,9 +1322,18 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (impact.rebuild) {
       this.#newestRebuildRevision = this.#newestRevision;
     }
-    const contentEdit = absolutePath.endsWith(".hx") && existence === "modified";
+    // Only a module file on a class path can keep the cache. A `.hx` file in
+    // another declared input (for example `data/snippet.hx` that a macro
+    // reads) is an ordinary input.
+    const sourceFile =
+      absolutePath.endsWith(".hx") &&
+      inventory.classPaths.some((classPath) => containedBy(classPath, absolutePath));
+    const contentEdit = sourceFile && existence === "modified";
     if (contentEdit) {
       this.#pendingInvalidations.add(absolutePath);
+    }
+    if (sourceFile) {
+      this.#pendingSourceTimes.add(absolutePath);
     }
     const relative = this.#logicalInputPath(inventory, absolutePath);
     this.#emit({
@@ -1537,10 +1554,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       const changedFiles = bytewise(this.#pendingInvalidations);
       this.#pendingInvalidations.clear();
       const changedSeconds = changedFiles.map((file) => fileSeconds(file));
-      const invalidatedFiles = changedFiles.filter(
-        (_file, index) =>
-          changedSeconds[index]! <= this.#lastRequestStampSeconds,
-      );
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      // Haxe reads the file again by itself only when its second is later
+      // than every second Haxe can have recorded for it: not at or before the
+      // end of the last request, not at or before a second recorded for this
+      // file, and not ahead of the clock (a later request may have read it).
+      const invalidatedFiles = changedFiles.filter((file, index) => {
+        const seconds = changedSeconds[index]!;
+        return (
+          seconds <= this.#lastRequestStampSeconds ||
+          seconds <= (this.#seenSourceSeconds.get(file) ?? -1) ||
+          seconds > nowSeconds
+        );
+      });
+      const recordedFiles = bytewise(this.#pendingSourceTimes);
+      this.#pendingSourceTimes.clear();
       let compiler: CompilerResult;
       try {
         compiler = await this.#compiler.compile(
@@ -1575,12 +1603,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         }
         throw error;
       } finally {
+        // File times are wall-clock times, so this is the wall clock too.
         this.#lastRequestStampSeconds = Math.max(
           this.#lastRequestStampSeconds,
-          // File times are wall-clock times, so this is the wall clock too.
           Math.floor(Date.now() / 1000),
-          ...changedSeconds,
         );
+        for (const file of recordedFiles) {
+          const seconds = fileSeconds(file);
+          if (seconds < 0) this.#seenSourceSeconds.delete(file);
+          else this.#seenSourceSeconds.set(file, Math.max(seconds, this.#seenSourceSeconds.get(file) ?? -1));
+        }
       }
       if (this.#closing !== null || abort.signal.aborted) return;
       const candidate = readGenesOutput(

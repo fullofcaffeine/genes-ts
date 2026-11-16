@@ -7130,9 +7130,14 @@ await withHarness("invalidation-only-for-same-second-edits", async (harness) => 
   await harness.session.start();
   await harness.session.waitForIdle();
   const epochs = (): number => new Set(harness.compiler.compatibilityDigests).size;
-  // A save whose second is later than the last request needs no invalidation.
+  // A save whose second is later than the end of the last request, and not
+  // ahead of the clock, needs no invalidation.
+  const lastEnd = Math.floor(Date.now() / 1000);
+  while (Math.floor(Date.now() / 1000) === lastEnd) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   writeFileSync(harness.source, "class Main { static function main() {} }\n", "utf8");
-  const later = Math.floor(Date.now() / 1000) + 5;
+  const later = Math.floor(Date.now() / 1000);
   utimesSync(harness.source, later, later);
   currentWatch(harness).change(harness.source);
   await harness.session.waitForIdle();
@@ -7158,6 +7163,25 @@ await withHarness("invalidation-only-for-same-second-edits", async (harness) => 
   assert.deepEqual(harness.compiler.invalidations.at(-1), []);
   assert.equal(epochs(), 3, "a created source file starts a new server");
   assert.equal(harness.session.state.kind, "ready");
+  // A file dated ahead of the clock: the fresh server read it at that second,
+  // so an edit that keeps the second must be invalidated.
+  const ahead = path.join(harness.root, "src", "Ahead.hx");
+  const aheadSecond = Math.floor(Date.now() / 1000) + 600;
+  harness.compiler.steps.push(
+    { content: "export const value = 5;\n" },
+    { content: "export const value = 6;\n" },
+  );
+  writeFileSync(ahead, "class Ahead {}\n", "utf8");
+  utimesSync(ahead, aheadSecond, aheadSecond);
+  currentWatch(harness).change(ahead, "created");
+  await harness.session.waitForIdle();
+  assert.deepEqual(harness.compiler.invalidations.at(-1), []);
+  writeFileSync(ahead, "class Ahead { static var edited = 1; }\n", "utf8");
+  utimesSync(ahead, aheadSecond, aheadSecond);
+  currentWatch(harness).change(ahead);
+  await harness.session.waitForIdle();
+  assert.deepEqual(harness.compiler.invalidations.at(-1), [ahead]);
+  assert.equal(epochs(), 4, "a content edit keeps the server");
 });
 
 // `server/invalidate` waits as long as the server needs (Haxe can pause for a

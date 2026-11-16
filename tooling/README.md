@@ -661,10 +661,15 @@ rolled back, the other output can start normally.
   again for every build. The incremental descriptor
   (`-D genes.dev_incremental`, mode `measure`) and the compiler-data
   descriptor are also fixed files in `haxe-request/` that the session
-  rewrites before each request. Only a content edit of an existing `.hx` file keeps
-  the warm cache. When the edit has the same whole-second file time that Haxe
-  may already have recorded, the session sends `server/invalidate` for it
-  first, because Haxe compares file times in whole seconds. A created or
+  rewrites before each request. Only a content edit of an existing `.hx` file on a
+  class path keeps the warm cache; a `.hx` file in another declared input is
+  an ordinary input. When the edit's whole-second file time may equal the one
+  Haxe recorded (it is not after the end of the last request, not after the
+  second recorded for that file, or it is ahead of the clock), the session
+  sends `server/invalidate` for it first, because Haxe compares file times in
+  whole seconds. Two assumptions remain: no macro reads the source text of a
+  class-path `.hx` file, and a file that the session never saw change was not
+  dated ahead of the clock when Haxe read it. A created or
   removed `.hx` file can change a name lookup in an unchanged module (Haxe
   remembers failed lookups such as a missing `import.hx` without a
   dependency), and a macro may read any other watched file without telling

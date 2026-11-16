@@ -139,7 +139,38 @@ async function main(): Promise<void> {
     await waitUntil(() =>
       missingChanges.some((change) => change.path === later),
     );
+    assert.equal(
+      missingChanges.find((change) => change.path === later)?.existence,
+      "created",
+      "a file in a tree whose root was missing is created",
+    );
     missingSession.close();
+
+    // An exact input that does not exist yet keeps a placeholder snapshot
+    // entry. Its creation and removal must still report `created` and
+    // `deleted`, not `modified`: a compiler host treats a new source file as
+    // a structure change.
+    const exactChanges: Array<ReconciledWatchChange<string>> = [];
+    const exactLater = path.join(root, "src", "import.hx");
+    const exactSession = watchReconciledInputs({
+      inputs: [{ kind: "exact", path: exactLater, cause: "import" }],
+      merge: (left) => left,
+      onChange: (change) => exactChanges.push(change),
+      onError: (error) => errors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 1_000,
+    });
+    writeFileSync(exactLater, "import other.Extra;\n", "utf8");
+    assert.deepEqual(exactSession.reconcile(), { ok: true, changed: true });
+    writeFileSync(exactLater, "import other.Extra;\n// edited\n", "utf8");
+    assert.deepEqual(exactSession.reconcile(), { ok: true, changed: true });
+    rmSync(exactLater);
+    assert.deepEqual(exactSession.reconcile(), { ok: true, changed: true });
+    assert.deepEqual(
+      exactChanges.map((change) => change.existence),
+      ["created", "modified", "deleted"],
+    );
+    exactSession.close();
 
     const directoryChanges: Array<ReconciledWatchChange<string>> = [];
     const directorySession = watchReconciledInputs({
