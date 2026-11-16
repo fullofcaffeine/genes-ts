@@ -45,6 +45,25 @@ enum AfterTypingReuse {
 }
 
 /**
+ * What the generator does with the output of earlier requests.
+ *
+ * The descriptor field `generation` selects it for one request. Both values
+ * generate and publish the complete tree.
+ */
+enum GenerationReuse {
+  /** The default: the generator stores no output and compares nothing. */
+  Regenerate;
+
+  /**
+   * Byte-stability shadow (Stage 3, slice 1): after the commit, Genes
+   * compares the stored files of each module that the clean rules call clean
+   * with the files that it just staged, and stores the new files. See
+   * `IncrementalShadow`.
+   */
+  Shadow;
+}
+
+/**
  * The request descriptor that a development session writes before each
  * request.
  *
@@ -53,13 +72,18 @@ enum AfterTypingReuse {
  * that can change from one request to the next therefore live in a file that
  * the define names.
  *
- * Format (JSON, version 1). `afterTyping` is optional; `"measure"` when
- * absent:
+ * Format (JSON, version 1). `afterTyping` and `generation` are optional;
+ * `"measure"` and `"full"` when absent:
  *
  * ```json
  * {"format": 1, "programDigest": "<digest of the argument list>",
- *  "kind": "full", "afterTyping": "measure" | "reuse" | "compare"}
+ *  "kind": "full", "afterTyping": "measure" | "reuse" | "compare",
+ *  "generation": "full" | "shadow"}
  * ```
+ *
+ * One descriptor serves every consumer of the incremental path: the passes
+ * after typing read `afterTyping`, the generator reads `generation`. Both
+ * use the stamps and the session key of the one `GenerationChangeSet`.
  *
  * The session owns `programDigest`: a macro cannot read the `--macro`
  * arguments of its request, so the session names them. Genes only compares
@@ -70,6 +94,7 @@ typedef IncrementalDescriptor = {
   final programDigest: String;
   final kind: IncrementalRequestKind;
   final afterTyping: AfterTypingReuse;
+  final generation: GenerationReuse;
 }
 
 /** What one request does with the incremental path. */
@@ -87,7 +112,11 @@ enum IncrementalMode {
    */
   Off(descriptorPath: String, reason: String);
 
-  /** The request is eligible: declarations get stamps and records are kept. */
+  /**
+   * The request is eligible: declarations get stamps and records are kept.
+   * This is the only mode in which a consumer (a pass after typing, the
+   * generation shadow) may use a result of an earlier request.
+   */
   On(descriptor: IncrementalDescriptor);
 }
 
@@ -122,6 +151,12 @@ enum IncrementalMode {
  * together with them. With the `Retype` policy Haxe types a module again in
  * place, and no stamp can show that.
  *
+ * One mode for every consumer: the passes after typing and the generation
+ * shadow do not decide eligibility themselves. A consumer that cannot serve
+ * a request for a reason of its own (the shadow, for an output file that is
+ * not `.ts` or `.tsx`) stays out without turning the mode off, so that the
+ * other consumers keep working.
+ *
  * Lifetime: the answer is an ordinary static, so Haxe replaces it at the
  * start of each compilation. Nothing here outlives a request.
  */
@@ -136,6 +171,7 @@ class IncrementalRequest {
   static final PROVED_HAXE_VERSIONS = ['4.3.7'];
 
   static var current: Null<IncrementalMode> = null;
+  static var decoded: Null<IncrementalDescriptor> = null;
 
   /** Returns the mode of the current request. Reads the descriptor at most once. */
   public static function mode(): IncrementalMode {
@@ -153,6 +189,19 @@ class IncrementalRequest {
       case On(descriptor): descriptor;
       case Absent | Off(_, _): null;
     }
+  }
+
+  /**
+   * Returns the descriptor that this request read, also after `turnOff`;
+   * `null` when the request never had a readable descriptor.
+   *
+   * Why: a consumer writes its report also for a request that left the
+   * incremental path after typing (an `@:rtti` class). It needs the
+   * descriptor to know whether the session asked for it.
+   */
+  public static function requestedDescriptor(): Null<IncrementalDescriptor> {
+    mode();
+    return decoded;
   }
 
   /**
@@ -175,6 +224,16 @@ class IncrementalRequest {
    */
   public static function afterTypingReportPath(descriptorPath: String): String {
     return descriptorPath + '.after-typing.json';
+  }
+
+  /**
+   * Returns the path of the generation report (the shadow report) for a
+   * descriptor path: a file beside the descriptor, never inside the output
+   * tree, so that the tree stays equal to the output of a build without the
+   * define.
+   */
+  public static function generationReportPath(descriptorPath: String): String {
+    return descriptorPath + '.report.json';
   }
 
   /**
@@ -217,7 +276,9 @@ class IncrementalRequest {
       return Off(absolute, 'the request descriptor does not exist');
     return switch decodeDescriptor(absolute, File.getContent(absolute)) {
       case Left(reason): Off(absolute, reason);
-      case Right(descriptor): On(descriptor);
+      case Right(descriptor):
+        decoded = descriptor;
+        On(descriptor);
     }
   }
 
@@ -226,10 +287,10 @@ class IncrementalRequest {
    *
    * BOUNDARY_DYNAMIC: `haxe.Json.parse` returns an untyped value, and the
    * standard library has no typed JSON decoder. This function reads exactly
-   * four fields, checks the runtime type of each one before use, and returns
-   * only typed values. An unknown format, kind or `afterTyping` value is an
-   * answer ("off"), not an error, so an older Genes keeps working with a
-   * newer session.
+   * five fields, checks the runtime type of each one before use, and returns
+   * only typed values. An unknown format, kind, `afterTyping` or `generation`
+   * value is an answer ("off"), not an error, so an older Genes keeps working
+   * with a newer session.
    */
   static function decodeDescriptor(path: String,
       text: String): haxe.ds.Either<String, IncrementalDescriptor> {
@@ -262,11 +323,22 @@ class IncrementalRequest {
       case 'compare': Compare;
       case other: return Left('unknown afterTyping value "$other"');
     }
+    final stored: Dynamic = Reflect.field(parsed, 'generation');
+    final generation = if (stored == null) {
+      Regenerate;
+    } else if (!Std.isOfType(stored, String)) {
+      return Left('the generation value of the request descriptor is not text');
+    } else switch (stored : String) {
+      case 'full': Regenerate;
+      case 'shadow': Shadow;
+      case other: return Left('unknown generation value "$other"');
+    }
     return Right({
       path: path,
       programDigest: (digest : String),
       kind: requestKind,
-      afterTyping: afterTyping
+      afterTyping: afterTyping,
+      generation: generation
     });
   }
 }

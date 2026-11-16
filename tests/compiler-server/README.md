@@ -228,3 +228,52 @@ own cold baseline and the corrected warm build with its own warm baseline; it
 does not pretend those two different typed trees are byte-identical. Stable
 Haxe continues to require cold/warm identity in both the focused rollback probe
 and the complete server matrix.
+
+## Incremental-generation shadow gates
+
+`yarn test:compiler-server` also runs `scripts/test-compiler-server-shadow.ts`
+(alone: `yarn test:compiler-server:shadow`). It copies
+`templates/incremental` and applies a fixed list of about 50 scripted edits:
+bodies of modules with no, few and many importers, signature and inline
+constant changes, the first and last use of a method that dead-code
+elimination removes and of a type used only in type positions, inference
+through a third module, a typedef chain, generic instances, types that a
+build macro and an expression macro load, import cycles, `@:expose`, module
+directives, HXX markup, a props type named by a string in metadata, a
+dynamic iterator, private types with one name, enum abstract values, new,
+edited, deleted and renamed declarations, type errors, a generation
+diagnostic, a define change, a failure after typing, a changed resource file
+with no Haxe source edit, an `@:rtti` class, a new top-level name, and an
+edit of a Genes source file.
+
+After each edit the same TSX request (with source maps) runs three times:
+
+- in a new Haxe process: the cold oracle;
+- on a warm server without `-D genes.dev_incremental`: **G0**, the warm tree
+  equals the cold tree with no cache, and **G2**, `probes/EpochStampProbe.hx`
+  finds no epoch stamp;
+- on a second warm server with the define and a request descriptor that
+  selects the shadow (`"generation": "shadow"`): **G1**, the published tree
+  equals the cold tree, and the shadow report beside the request descriptor
+  (`<descriptor>.report.json`) lists 0 mismatches for the modules that the
+  clean rules call clean.
+
+Two inputs of a module's output are not visible in Haxe's typing, and the
+gate covers both. The request embeds one resource (`-resource`), and the
+module `haxe.Resource` prints its bytes: after the resource edit the session
+key must differ, so the result is `full`, not `incremental` with stale
+bytes. The module `inc.Legacy` holds one `__js__` call, and Genes reports
+"__js__ is deprecated" when it prints the call: every request, cold and
+warm, must report the same warnings, and the shadow report must count them
+(`printWarnings`). A later version that does not print a clean module must
+report the stored warnings of that module.
+
+The shadow and the passes after typing (previous section) use one request
+owner. `IncrementalRequest` decides the mode, and `GenerationChangeSet` adds
+the stamps and builds the session key once after typing; the shadow only
+reads them. A descriptor without `generation`, or with `"full"`, runs no
+shadow and writes no shadow report.
+
+The script prints, but does not judge, the clean share, projected generation
+time, shadow overhead and cache size of each edit. Times are diagnostic
+unless the 1-minute load stays at 2.0 or less.

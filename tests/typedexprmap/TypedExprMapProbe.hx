@@ -90,8 +90,11 @@ class TypedExprMapProbe {
 
     // `haxe.ds.ObjectMap` accepts a key without a position, so this map must.
     final unpositioned: TypedExpr = {expr: first.expr, pos: null, t: first.t};
-    final otherUnpositioned: TypedExpr = {expr: second.expr, pos: null,
-      t: second.t};
+    final otherUnpositioned: TypedExpr = {
+      expr: second.expr,
+      pos: null,
+      t: second.t
+    };
     require(!map.exists(unpositioned) && map.get(unpositioned) == null,
       "An expression without a position was found before it was stored");
     map.set(unpositioned, "no position");

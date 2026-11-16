@@ -768,6 +768,6 @@ function install(): Void {
   }
   installed = true;
   ReactAnalyzerFunctionMacro.install();
-  genes.AfterTypingPasses.add(current -> auditClass(current));
+  genes.AfterTypingPasses.add(AUDIT_PASS, current -> auditClass(current));
 }
 #end

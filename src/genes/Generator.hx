@@ -18,6 +18,7 @@ import genes.Module;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImportSpec;
 import genes.JsxPlan.JsxCapabilityPolicy;
+import genes.incremental.IncrementalShadow;
 import sys.FileSystem;
 
 using Lambda;
@@ -110,11 +111,16 @@ class Generator {
     final outputIdentity = Path.withoutDirectory(Path.normalize(outputFile));
     final outputTransaction = new OutputTransaction(outputDir, outputIdentity);
     endTransactionSetupTimer();
+    // Without `-D genes.dev_incremental`, or when the request descriptor does
+    // not select the shadow, this returns at once and every hook below does
+    // nothing, so the request runs exactly as before.
+    IncrementalShadow.start(outputFile, outputTransaction);
 
     try {
       removeCompilerSentinel();
       generateTransactional(api, outputFile, output, outputTransaction);
     } catch (error:haxe.Exception) {
+      IncrementalShadow.failed(error.message);
       try {
         outputTransaction.abort();
         removeCompilerSentinel();
@@ -145,7 +151,18 @@ class Generator {
     // Typing and Haxe's filters are complete: declaration names are final.
     TypeUtil.startGenerationNames();
     ModuleDirectivePlan.validate();
+    // With `-D genes.compile_stage_profile`, `haxe --times` splits the
+    // inventory stage into its whole-program loops (types, exports), the
+    // `Module` values (modules) and the incremental shadow (shadow). A request
+    // that replays stored output still runs the first two for every type.
+    #if genes.compile_stage_profile
+    final endInventoryTypesTimer = timer('genes.plan.inventory.types');
+    #end
     final toGenerate = typesPerModule(api.types);
+    #if genes.compile_stage_profile
+    endInventoryTypesTimer();
+    final endInventoryExportsTimer = timer('genes.plan.inventory.exports');
+    #end
     final extension = Path.extension(outputFile);
     final outputDir = Path.directory(outputFile);
     Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
@@ -231,6 +248,10 @@ class Generator {
         default:
       }
     }
+    #if genes.compile_stage_profile
+    endInventoryExportsTimer();
+    final endInventoryModulesTimer = timer('genes.plan.inventory.modules');
+    #end
     final context: genes.Module.ModuleContext = {
       concrete: concrete,
       modules: modules,
@@ -245,8 +266,16 @@ class Generator {
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)
       modules.set(module, new Module(context, module, types, main, expose));
+    // Inventory queries made while a module is built count as that module's
+    // witnesses (incremental shadow only; otherwise this does nothing).
+    function addInventoryModule(module: String, types: Array<Type>,
+        ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>) {
+      IncrementalShadow.enter(module, Inventory);
+      addModule(module, types, main, expose);
+      IncrementalShadow.enter(null, Inventory);
+    }
 
-    addModule(output, switch toGenerate.get(output) {
+    addInventoryModule(output, switch toGenerate.get(output) {
       case null: [];
       case v: v;
     }, api.main, [for (t in expose) t]);
@@ -255,9 +284,25 @@ class Generator {
       if (module.toLowerCase() == output.toLowerCase())
         CompilerDiagnostic.fail('Genes: Module name "${module}" is the same as the output file name "${output}".',
           Context.currentPos());
-      addModule(module, types);
+      addInventoryModule(module, types);
     }
     final tsMode = Context.defined('genes.ts');
+    final exposedByModule = new Map<String, Array<String>>();
+    for (item in expose) {
+      final names = exposedByModule.get(item.module);
+      if (names == null)
+        exposedByModule.set(item.module, [item.name]);
+      else
+        names.push(item.name);
+    }
+    #if genes.compile_stage_profile
+    endInventoryModulesTimer();
+    final endInventoryShadowTimer = timer('genes.plan.inventory.shadow');
+    #end
+    IncrementalShadow.inventory(api.types, exposedByModule, output);
+    #if genes.compile_stage_profile
+    endInventoryShadowTimer();
+    #end
     endInventoryTimer();
     if (tsMode && Genes.outExtension == '.jsx')
       CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-007] `.jsx` is the '
@@ -294,6 +339,7 @@ class Generator {
       var index = 0;
       while (index < pending.length) {
         final moduleName = pending[index++];
+        IncrementalShadow.enter(moduleName, Reachability);
         final sourceModule = modules.get(moduleName);
         if (sourceModule == null)
           CompilerDiagnostic.fail('Genes DependencyPlan ($profile): missing source module '
@@ -364,6 +410,7 @@ class Generator {
             pending.push(base.module);
         }
       }
+      IncrementalShadow.enter(null, Reachability);
       return reachable;
     }
 
@@ -413,6 +460,7 @@ class Generator {
     // writer. Capability failures therefore cannot leave a mixed output tree.
     final endJsxValidationTimer = timer('genes.validate.jsx');
     for (name in implementationNames) {
+      IncrementalShadow.enter(name, Validation);
       final module = modules.get(name);
       jsxCapability.validate(module.jsxPlan);
       // Resolve the edge here as well as in emitters so alias/capability
@@ -420,6 +468,7 @@ class Generator {
       jsxCapability.resolveRuntimeBinding(module.codeDependencies,
         module.jsxPlan);
     }
+    IncrementalShadow.enter(null, Validation);
     endJsxValidationTimer();
     // Public module functions must not force ModuleFunctionPlan ahead of other
     // semantic plans: a malformed template/JSX carrier owns the earlier source
@@ -428,6 +477,7 @@ class Generator {
     final endDirectBindingValidationTimer = timer('genes.validate.directBindings');
     final outputModule = modules.get(output);
     for (moduleName in implementationNames) {
+      IncrementalShadow.enter(moduleName, Validation);
       final module = modules.get(moduleName);
       for (entry in module.moduleFunctionPlan.rootPublicEntries()) {
         final publicName = entry.publicExportName;
@@ -443,6 +493,7 @@ class Generator {
         outputModule.expose.push(publicExport);
       }
     }
+    IncrementalShadow.enter(null, Validation);
     endDirectBindingValidationTimer();
     endValidationTimer();
 
@@ -455,9 +506,12 @@ class Generator {
       if (tsMode && module.path == 'StdTypes')
         continue;
       if ((tsMode && hasImplementation(module))
-        || (!tsMode && hasClassicImplementation(module)))
+        || (!tsMode && hasClassicImplementation(module))) {
+        IncrementalShadow.enter(name, Emit);
         generateImplementation(api, module, outputDir, outputTransaction);
+      }
     }
+    IncrementalShadow.enter(null, Emit);
     endImplementationTimer();
 
     if (tsMode) {
@@ -509,6 +563,9 @@ class Generator {
     final endPublicationTimer = timer('genes.publish.transaction');
     outputTransaction.commit();
     endPublicationTimer();
+    // Slice 1 of Stage 3: compare and store only after the complete tree is
+    // public. The shadow never changes what this request published.
+    IncrementalShadow.committed();
   }
 
   /**

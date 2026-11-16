@@ -221,23 +221,30 @@ typedef AfterTypingDeclarations = {
  */
 class AfterTypingPasses {
   static var classPasses: Array<AfterTypingClass->Void> = [];
+  static var classPassNames: Array<String> = [];
   static var declarationPasses: Array<AfterTypingDeclarations->Void> = [];
+  static var declarationPassNames: Array<String> = [];
 
   /**
    * Adds one pass for the current compilation.
    *
-   * `visitClass` runs once for each typed class. `visitDeclarations`, when
-   * given, runs once after all classes with the complete list that Haxe gave
-   * to `onAfterTyping`. Haxe can call `onAfterTyping` again when a callback
-   * defines new types; the walk then reads only those new declarations.
+   * `name` names the pass in the after-typing report, for example
+   * `signatureCache`. `visitClass` runs once for each typed class.
+   * `visitDeclarations`, when given, runs once after all classes with the
+   * complete list that Haxe gave to `onAfterTyping`. Haxe can call
+   * `onAfterTyping` again when a callback defines new types; the walk then
+   * reads only those new declarations.
    */
-  public static function add(visitClass: AfterTypingClass->Void,
+  public static function add(name: String, visitClass: AfterTypingClass->Void,
       ?visitDeclarations: AfterTypingDeclarations->Void): Void {
     if (classPasses.length == 0)
       Context.onAfterTyping(run);
     classPasses.push(visitClass);
-    if (visitDeclarations != null)
+    classPassNames.push(name);
+    if (visitDeclarations != null) {
       declarationPasses.push(visitDeclarations);
+      declarationPassNames.push(name);
+    }
   }
 
   static function run(types: Array<ModuleType>): Void {
@@ -246,6 +253,10 @@ class AfterTypingPasses {
     // change set already read, so that the walk does not copy it again.
     final observed = GenerationChangeSet.observe(types);
     final walkStart = observed == null ? 0.0 : haxe.Timer.stamp();
+    // One clock for each pass, only on the incremental path: the report then
+    // shows which pass a later slice must make cheaper. Without the define no
+    // clock is read.
+    final classSeconds = observed == null ? null : [for (_ in classPasses) 0.0];
     for (index => type in types) {
       switch type {
         case TClassDecl(reference):
@@ -256,8 +267,16 @@ class AfterTypingPasses {
               seen.stamp, type);
           if (current.stamp != null)
             GenerationChangeSet.readMembers(current.memberList);
-          for (visit in classPasses)
-            visit(current);
+          if (classSeconds == null) {
+            for (visit in classPasses)
+              visit(current);
+          } else {
+            for (index => visit in classPasses) {
+              final started = haxe.Timer.stamp();
+              visit(current);
+              classSeconds[index] += haxe.Timer.stamp() - started;
+            }
+          }
         default:
       }
     }
@@ -265,10 +284,20 @@ class AfterTypingPasses {
       types: types,
       stamps: observed == null ? null : [for (seen in observed) seen.stamp]
     };
-    for (visit in declarationPasses)
+    if (classSeconds == null) {
+      for (visit in declarationPasses)
+        visit(declarations);
+      return;
+    }
+    for (index => seconds in classSeconds)
+      GenerationChangeSet.passTime(classPassNames[index], seconds, 0.0);
+    for (index => visit in declarationPasses) {
+      final started = haxe.Timer.stamp();
       visit(declarations);
-    if (observed != null)
-      GenerationChangeSet.finish(haxe.Timer.stamp() - walkStart);
+      GenerationChangeSet.passTime(declarationPassNames[index], 0.0,
+        haxe.Timer.stamp() - started);
+    }
+    GenerationChangeSet.finish(haxe.Timer.stamp() - walkStart);
   }
 }
 #end

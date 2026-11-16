@@ -1125,8 +1125,10 @@ private final class TsNarrowingPlanBuilder {
       identity: TsNarrowValueIdentity,
       source: SourcePosition): TsNarrowCondition {
     final fact = new TsNarrowFact(identity, NullGuard, source);
-    return op == OpNotEq ? {whenTrue: [fact], whenFalse: []} : {whenTrue: [],
-      whenFalse: [fact]};
+    return op == OpNotEq ? {whenTrue: [fact], whenFalse: []} : {
+      whenTrue: [],
+      whenFalse: [fact]
+    };
   }
 
   static function emptyCondition(): TsNarrowCondition {

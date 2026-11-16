@@ -43,9 +43,9 @@ recommendation is **go**, under the rules of section 4.
   other declarations are the same compiler objects as in the earlier request.
 - **Stamp**: one private metadata entry on a declaration. It names the macro
   interpreter and the request that first saw this declaration object. A
-  declaration that Haxe typed again arrives without a stamp. The planned owner
-  is `genes.incremental.GenerationChangeSet` (`@:genes.typedEpoch`, branch
-  `loop/stage3-shadow`, not merged). The probe uses its own entry.
+  declaration that Haxe typed again arrives without a stamp. The owner is
+  `genes.incremental.GenerationChangeSet` (`@:genes.typedEpoch`, section 10).
+  The probe uses its own entry.
 - **Bucket**: what one pass keeps for one declaration, with the stamp that
   the declaration had when the pass made the bucket.
 - **Kept**: a bucket whose stamp equals the stamp on the declaration now.
@@ -153,8 +153,8 @@ Facts of Haxe 4.3.7 that explain the results (read in the source at tag
 
 1. **One owner decides.** The change set stamps each unstamped declaration in
    the first after-typing callback and gives each pass the stamp of each
-   declaration. It must run before the passes; on branch `loop/stage3-shadow`
-   it runs after them.
+   declaration. It must run before the passes (an earlier draft filled it in
+   the callback of `TypedModuleInventory`, which Haxe runs after them).
 2. **A pass keeps a bucket only when the stamps are equal.** The bucket's
    stamp must equal the stamp on the declaration now, and the pass itself must
    have made the bucket. "The mark is present" and "the module is not in the
@@ -377,7 +377,9 @@ descriptor field `afterTyping` selects what a kept record does:
 Each request writes `<descriptor>.after-typing.json`: the declarations, the
 ones typed again, the records that passed the keep rule, the rejects by
 reason, and the time of the stamps, the session key, the member lists and
-the decisions.
+the decisions. `passTimes` gives the time of each pass (`publicSurface`,
+`signatureCache`, `reactAudit`), for its class function and its declaration
+function.
 
 Proof: `yarn test:compiler-server:after-typing` (see
 `tests/compiler-server/README.md`), and rows E1 to E3 of
@@ -396,6 +398,19 @@ types a module again in place; probe row E3 asserts that no stamp shows it.
 The new body then has new local ids, which the compare mode of slice 2
 counts as explained differences (section 11): this contract, not the
 compare mode, covers that case.
+
+One owner with the generation shadow. The byte-stability shadow of
+incremental generation (`IncrementalShadow`, `GenerationCache`; selected with
+the descriptor field `"generation": "shadow"`) reads the same three things as
+the passes and owns none of them: the request mode of `IncrementalRequest`,
+and the stamps and the session key of `GenerationChangeSet`. The change set
+also gives it the epoch list of each module (its sorted
+`declaration key@stamp` entries) and the modules typed again. The session
+key holds the output path too, because a source map names its sources
+relative to the output folder, and the name and a digest of the content of
+each embedded resource, because `haxe.Resource` prints them and a changed
+resource file makes Haxe type no module again. `yarn test:compiler-server:shadow` is its
+gate.
 
 Not in this slice: `SignatureCache` and `PublicSurface` still read every
 class on every request (section 11 changes that for `SignatureCache`). A
