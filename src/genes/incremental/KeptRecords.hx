@@ -4,6 +4,7 @@ package genes.incremental;
 import genes.incremental.GenerationChangeSet.KeepDecision;
 import genes.incremental.GenerationChangeSet.KeepReject;
 import genes.incremental.GenerationChangeSet.StampedDeclaration;
+import haxe.macro.Context;
 
 /**
  * What one pass keeps for one declaration between requests: plain text and
@@ -99,6 +100,13 @@ typedef KeptRecordsReport = {
   /** Buckets of absent declarations that the age limit removed in this request. */
   final agedOut: Int;
 
+  /**
+   * Records that the start of this request dropped because the request that
+   * wrote them did not reach the end of generation (see the commit step of
+   * `KeptRecords`). A bucket of `KeptBuckets` goes with its record.
+   */
+  final uncommitted: Int;
+
   /** Time to put the values of the kept buckets back into the pass. */
   final replayMs: Float;
 
@@ -147,9 +155,18 @@ typedef KeptRecordsReport = {
  * The store grows with the number of declaration keys, not with the number of
  * requests.
  *
- * No commit step: a pass may write a record in a request that fails later.
- * Haxe keeps no module of a failed request, so the class is typed again in
- * the next request and arrives without the stamp of the record.
+ * Commit step: a record counts only when the request that wrote it reached
+ * the end of generation (`onAfterGenerate`). A request that fails can still
+ * run the passes after typing and write records, also for a declaration
+ * that it did not type. Example (case F2 of
+ * `docs/INCREMENTAL_AFTER_TYPING.md`): the first use of a `@:generic`
+ * method adds a member to a kept class in a request with a type error
+ * elsewhere. The pass writes a new record and bucket for that class with the
+ * new member. Haxe keeps no module of the failed request, so the repaired
+ * request makes the member again, with other local variable ids, while the
+ * class keeps its stamp and its member list. `beginRequest` therefore drops
+ * every record of a request that did not commit, and the pass does its work
+ * again.
  *
  * Lifetime: `stores` is `@:persistent`. The counters belong to one request;
  * `beginRequest` sets them back.
@@ -161,6 +178,15 @@ class KeptRecords {
 
   final pass: String;
   var records: Map<String, KeptRecord> = new Map();
+
+  /**
+   * The keys of the records that this request wrote. `commit` empties the
+   * list at the end of generation; keys that are still in it at the start
+   * of the next request belong to a request that failed.
+   */
+  var pending: Array<String> = [];
+
+  var uncommitted = 0;
   var used = false;
   var kept = 0;
   var noRecord = 0;
@@ -208,13 +234,23 @@ class KeptRecords {
   }
 
   /**
-   * Starts the counts of a request for every pass. When `drop` is true (the
-   * session key changed), it removes every record first and returns how many
-   * it removed. Only `GenerationChangeSet` calls it.
+   * Starts the counts of a request for every pass. It first removes each
+   * record that an earlier request wrote without reaching the end of
+   * generation (see the commit step in the class comment). When `drop` is
+   * true (the session key changed), it removes every record and returns how
+   * many it removed. It registers `commit` for the end of this request. Only
+   * `GenerationChangeSet` calls it, once for each request on the incremental
+   * path.
    */
   public static function beginRequest(request: Int, drop: Bool): Int {
     var dropped = 0;
     for (store in stores) {
+      var stale = 0;
+      for (key in store.pending)
+        if (store.records.remove(key))
+          stale++;
+      store.pending = [];
+      store.uncommitted = stale;
       if (drop) {
         for (_ in store.records)
           dropped++;
@@ -246,7 +282,17 @@ class KeptRecords {
       store.decisionSeconds = 0.0;
       store.workSeconds = 0.0;
     }
+    Context.onAfterGenerate(commit);
     return dropped;
+  }
+
+  /**
+   * The commit step: the request reached the end of generation, so the
+   * records that it wrote count from now on.
+   */
+  static function commit(): Void {
+    for (store in stores)
+      store.pending = [];
   }
 
   /** Returns the report of each pass that used its store in this request, by name. */
@@ -316,11 +362,24 @@ class KeptRecords {
    * Writes the record of `declaration`. Call it only after the work of the
    * pass for this declaration returned an explicit clean result in this
    * request.
+   *
+   * The record waits for the commit step when it differs from the record
+   * that it replaces, or when `holdsTypedValues` is true (`KeptBuckets`
+   * passes true: its bucket holds values of this request, so even an equal
+   * record must wait). Example: the React audit in `measure` writes the same
+   * record again for each kept class; such a record needs no commit, so a
+   * failed request does not make the next request audit every class.
    */
   public function write(declaration: StampedDeclaration,
-      members: Null<String>): Void {
+      members: Null<String>, holdsTypedValues = false): Void {
     used = true;
     written++;
+    final earlier = records.get(declaration.key);
+    if (holdsTypedValues
+      || earlier == null
+      || earlier.stamp != declaration.stamp
+      || earlier.members != members)
+      pending.push(declaration.key);
     records.set(declaration.key, {
       stamp: declaration.stamp,
       members: members,
@@ -434,6 +493,7 @@ class KeptRecords {
       sameObjectTested: sameObjectTested,
       sameObjectMs: GenerationChangeSet.milliseconds(sameObjectSeconds),
       agedOut: agedOut,
+      uncommitted: uncommitted,
       replayMs: GenerationChangeSet.milliseconds(replaySeconds),
       fullWork: fullWork,
       decisionMs: GenerationChangeSet.milliseconds(decisionSeconds),

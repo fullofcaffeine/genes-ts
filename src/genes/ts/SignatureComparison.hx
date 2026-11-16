@@ -28,16 +28,35 @@ using haxe.macro.TypeTools;
  * Haxe prints the same text for them at the time of the question.
  *
  * A difference is a failure (a defect of the keep rule), with one exception
- * that has a known cause and is counted as explained: a fact about a local
- * variable, when the kept bucket of the declaration that owns the variable
- * was made in the request in which Haxe typed that declaration. Haxe
- * changes each typed body after the after-typing callbacks (it lowers
- * loops, removes inlined objects, adds temporary variables) and saves the
- * changed state. The kept bucket holds the read before that change, which is
- * also what a build in a new compiler process reads. The new capture of a
- * later request reads the changed body. Example: an inlined call leaves a
- * new local `_g: Phase`; the new capture has a fact for it, the kept bucket
- * and a build in a new process have none.
+ * that has a known cause and is counted as explained. All three conditions
+ * must hold:
+ *
+ * - the question is about a local variable;
+ * - the kept bucket has no answer and the new capture has one;
+ * - the kept bucket of the declaration that owns the variable was made in
+ *   the request in which Haxe typed that declaration (a first read).
+ *
+ * Why this shape: Haxe changes each typed body after the after-typing
+ * callbacks (for example, it replaces an inline object with one local for
+ * each field) and saves the changed body. The first read is the body before
+ * that change, which is also what a build in a new compiler process reads.
+ * The new capture of a later request reads the changed body, so it can have
+ * a fact for a local that only the changed body has. A local that both reads
+ * saw must have the same answer in both. Example: with an inline
+ * constructor, `final phases = new Phases([Draft, Done])` becomes the local
+ * `phases_all: Array<Phase>`; the new capture has a fact for it, the kept
+ * bucket and a cold build have none.
+ *
+ * Every other shape is a failure: a kept answer that differs from the new
+ * one (kept `T1`, new `T2`), a kept answer with no new answer, and any
+ * difference for a bucket that is not a first read.
+ *
+ * Limit: under the `Retype` module check policy, Haxe types a module again
+ * in the same class object, with new local ids, and the stamp stays. The
+ * new locals then have exactly this explained shape. That policy is not
+ * supported (see "Retype is unsupported" in
+ * `docs/INCREMENTAL_AFTER_TYPING.md`), and this exception does not detect
+ * it.
  *
  * It keeps no value after the request: `SignatureCache.install()` drops it.
  */
@@ -116,9 +135,10 @@ class SignatureComparison {
 
   /**
    * Compares two answers about the local variable `id`. A difference is
-   * explained when the kept bucket of the owner is the read of an earlier
-   * request that typed the owner (see the class comment); else it is a
-   * failure.
+   * explained only when the kept answer is `null`, the new answer is not,
+   * and the kept bucket of the owner is the first read of an earlier request
+   * that typed the owner (see the class comment). Every other difference is
+   * a failure.
    */
   public function locals(query: String, id: Int, keptAnswer: Null<Type>,
       newAnswer: Null<Type>): Void {
@@ -132,7 +152,10 @@ class SignatureComparison {
     final text = difference(query,
       '$id of ${owner == null ? 'an unknown declaration' : owner}', keptText,
       newText);
-    if (owner != null && earlierFirstReads.exists(owner))
+    if (keptAnswer == null
+      && newAnswer != null
+      && owner != null
+      && earlierFirstReads.exists(owner))
       counts.countCompareExplained(text);
     else
       counts.countCompareFailure(text);

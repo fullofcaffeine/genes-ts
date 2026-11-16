@@ -124,6 +124,7 @@ type PassReport = {
   readonly sameObjectTested: number;
   readonly sameObjectMs: number;
   readonly agedOut: number;
+  readonly uncommitted: number;
   readonly replayMs: number;
   readonly fullWork: string | null;
   readonly decisionMs: number;
@@ -201,6 +202,35 @@ type Step = {
    * again.
    */
   readonly deepType?: boolean;
+  /**
+   * A text that names a declaration with an explained difference. In
+   * `compare`, a request of this step must count explained differences, and
+   * one example must contain this text. Such a difference is a fact about a
+   * local that only the new capture has, of a declaration whose kept bucket
+   * is the first read (see `SignatureComparison`). The row proves that the
+   * gate reaches that branch.
+   */
+  readonly explains?: string;
+  /**
+   * A step where the warm build of today (`plain`, without the define)
+   * differs from a cold build. `files` are the output files that differ.
+   * `measure` and `compare` capture every declaration in the request, as
+   * `plain` does, so their trees must equal the plain warm tree. `reuse`
+   * must equal the tree that `reuse` names: `plain` when the kept bucket
+   * gives the same answers as a new capture, `cold` when the kept bucket is
+   * the first read and so gives the answers of a cold build. A step with
+   * this field needs the plain mode.
+   */
+  readonly warmDiffersFromCold?: {
+    readonly files: ReadonlyArray<string>;
+    readonly reuse: "cold" | "plain";
+  };
+  /**
+   * True when the request after a failed one must drop records of the
+   * failed request (the commit step of `KeptRecords`): the signature cache
+   * must report them as uncommitted.
+   */
+  readonly dropsUncommitted?: boolean;
   /** The exact fixture modules that Haxe must type again, without the package. */
   readonly typesAgain?: ReadonlyArray<string>;
 };
@@ -389,6 +419,21 @@ class Lane {
   }
 }
 
+/** Returns the paths whose content differs between two trees, or that one lacks. */
+function differingPaths(
+  left: ReadonlyArray<TreeEntry>,
+  right: ReadonlyArray<TreeEntry>
+): ReadonlyArray<string> {
+  const rightByPath = new Map(right.map((entry) => [entry.path, entry.sha256]));
+  const leftPaths = new Set(left.map((entry) => entry.path));
+  return [
+    ...left.filter((entry) => rightByPath.get(entry.path) !== entry.sha256)
+      .map((entry) => entry.path),
+    ...right.filter((entry) => !leftPaths.has(entry.path))
+      .map((entry) => entry.path)
+  ].sort();
+}
+
 function resultText(result: ProcessResult): string {
   return `${result.stdout}${result.stderr}`;
 }
@@ -508,6 +553,15 @@ function assertSignatureBuckets(
         `${where}: the gate would pass empty: compare mode compared no answer`);
     }
   }
+  if (mode === "compare" && step.explains !== undefined) {
+    const explains = step.explains;
+    ok(pass.compareExplained > 0,
+      `${where}: the gate does not reach the explained differences`);
+    ok(pass.compareExplainedExamples.some((example) =>
+      example.includes(explains) && example.includes(": kept none; ")),
+    `${where}: no explained difference of ${explains} with no kept answer: `
+      + JSON.stringify(pass.compareExplainedExamples));
+  }
   if (step.typesAgain !== undefined) {
     ok(pass.kept > 0, `${where}: an edit of some modules kept no bucket`);
   }
@@ -530,9 +584,23 @@ function assertReport(
   mode: Exclude<WarmMode, "plain">,
   step: Step,
   report: AfterTypingReport,
-  settledNow: boolean
+  settledNow: boolean,
+  afterFailure: boolean
 ): void {
   const where = `${lane.config.name} ${mode} "${step.id}"`;
+  // Only a request that follows a failed one can find records without the
+  // commit of their request.
+  for (const pass of report.passes) {
+    if (!afterFailure) {
+      strictEqual(pass.uncommitted, 0,
+        `${where}: ${pass.pass} dropped records although the request before `
+        + "did not fail");
+    }
+  }
+  if (step.dropsUncommitted === true) {
+    ok(passOf(report, "signatureCache", where).uncommitted > 0,
+      `${where}: the records of the failed request were not dropped`);
+  }
   strictEqual(report.mode, mode, `${where}: ${report.reason ?? "wrong mode"}`);
   strictEqual(report.passesComplete, true, `${where}: the passes did not end`);
   const audit = auditOf(report, where);
@@ -610,6 +678,9 @@ async function runLane(
   try {
     let coldTree: ReadonlyArray<TreeEntry> = [];
     let coldDiagnostics = "";
+    // The plain warm tree of the current step, for a step whose warm result
+    // differs from cold in Haxe itself (`warmDiffersFromCold`).
+    let plainTree: ReadonlyArray<TreeEntry> | null = null;
     for (const [index, step] of config.steps.entries()) {
       step.apply?.(lane);
       // A step with no edit has the cold result of the step before it.
@@ -636,6 +707,7 @@ async function runLane(
         coldTree = hashTree(lane.outputRoot("cold"));
         ok(coldTree.length > 0, `Cold "${step.id}" published no file`);
       }
+      plainTree = null;
       for (const mode of warmModes) {
         const server = servers.get(mode);
         ok(server !== undefined);
@@ -663,8 +735,25 @@ async function runLane(
             strictEqual(warm.stderr, coldDiagnostics,
               `${where}: the diagnostics differ from the cold build`);
           }
-          deepStrictEqual(hashTree(lane.outputRoot(mode)), coldTree,
-            `${where}: the warm tree differs from the cold tree`);
+          const warmTree = hashTree(lane.outputRoot(mode));
+          const differs = step.warmDiffersFromCold;
+          if (differs === undefined) {
+            deepStrictEqual(warmTree, coldTree,
+              `${where}: the warm tree differs from the cold tree`);
+          } else if (mode === "plain") {
+            // The row checks that the difference of today is still there, so
+            // that it is noticed when Haxe or Genes repairs it.
+            deepStrictEqual(differingPaths(warmTree, coldTree), differs.files,
+              `${where}: the plain warm tree differs from cold in other files `
+              + "than the step expects");
+            plainTree = warmTree;
+          } else {
+            ok(plainTree !== null,
+              `${where}: this step needs the plain mode as its oracle`);
+            const oracle = mode === "reuse" ? differs.reuse : "plain";
+            deepStrictEqual(warmTree, oracle === "cold" ? coldTree : plainTree,
+              `${where}: the warm tree differs from the ${oracle} tree`);
+          }
           if (mode === "plain") {
             settledNow = true;
             continue;
@@ -694,13 +783,25 @@ async function runLane(
             for (const pass of report.passes) {
               deepStrictEqual(pass.compareFailures, [], `${where}: wrong record`);
             }
+            // A failing step can name the buckets that its request replaced,
+            // to show that the failed request wrote them.
+            const cache = report.passes.find((pass) =>
+              pass.pass === "signatureCache");
+            for (const [key, reason] of step.bucketRejects ?? []) {
+              ok(cache !== undefined && cache.rejectExamples.some((entry) =>
+                entry.key === key && entry.reason === reason),
+              `${where}: the failed request did not reject the bucket of ${key} `
+                + `for ${reason}: ${JSON.stringify(cache?.rejectExamples)}`);
+            }
             settledNow = true;
             continue;
           }
           settledNow = step.settled !== true
             || (report.typedAgain === 0 && report.foreignStamps === 0);
           if (settledNow || attempt === attempts) {
-            assertReport(lane, mode, step, report, step.settled === true);
+            assertReport(lane, mode, step, report, step.settled === true,
+              attempt === 1 && index > 0
+              && config.steps[index - 1]?.fails !== undefined);
             measurements.push({
               lane: config.name,
               mode,
@@ -958,6 +1059,126 @@ const keptTypes: LaneConfig = {
   ]
 };
 
+const holderUserBody = "return 0; // holder-user-body";
+const holderUserBinds = "Holder.items.push(Phase.Done);\n"
+  + "    return Holder.keep(Phase.Draft) == Phase.Done ? 1 : 0; // holder-user-body";
+const holderFiles = ["kepttypes/Holder.ts", "kepttypes/Holder.ts.map"];
+const phaseMakerBody = "return GenericOwner.plain(); // phase-maker-body";
+const phaseMakerUses = "return GenericOwner.plain()"
+  + " + GenericOwner.make(Phase.Draft).length; // phase-maker-body";
+
+const looperFiles = ["kepttypes/Looper.ts", "kepttypes/Looper.ts.map"];
+
+/**
+ * The explained differences of `compare`, on the kept-types fixture.
+ *
+ * Haxe replaces the inline object of `Looper.done` after the after-typing
+ * callbacks, and saves the changed body. The first request reads the body
+ * before that change, as a cold build does: it has no local `phases_all`.
+ * Each later request reads the changed body with the local
+ * `phases_all: Array<Phase>`. So the warm build of today prints
+ * `("done" | "draft")[]` for it and a cold build prints `string[]`.
+ *
+ * In `compare` the kept bucket of `Looper` has no fact for the local and
+ * the new capture has one: an explained difference. `reuse` puts the first
+ * read back, so its tree equals the cold tree, not the plain warm tree.
+ */
+const explained: LaneConfig = {
+  name: "explained",
+  template: path.join(fixtureRoot, "templates/kept-types"),
+  main: "kepttypes.Main",
+  pack: "kepttypes",
+  modules: ["kepttypes.Looper"],
+  steps: [
+    { id: "first request" },
+    {
+      id: "no edit",
+      settled: true,
+      explains: "kepttypes.Looper",
+      warmDiffersFromCold: { files: looperFiles, reuse: "cold" }
+    },
+    {
+      id: "no edit again",
+      settled: true,
+      explains: "kepttypes.Looper",
+      warmDiffersFromCold: { files: looperFiles, reuse: "cold" }
+    }
+  ]
+};
+
+/**
+ * Two cases in which a declaration that Haxe does not type again can change
+ * after its bucket was made, on the kept-types fixture.
+ *
+ * - F2: the first use of `GenericOwner.make` with `Phase` comes in a request
+ *   that fails with a type error in `Lone`. Haxe adds `make_kepttypes_Phase`
+ *   to `GenericOwner` without typing the class again, and the after-typing
+ *   callbacks still run: the failed request writes a new bucket for
+ *   `GenericOwner`. Haxe keeps no module of the failed request, so the
+ *   repaired request makes the member again with other local ids, while
+ *   `GenericOwner` keeps its stamp and member list. Without the commit step
+ *   of `KeptRecords`, `reuse` kept that bucket and printed `string[]` where
+ *   a cold build prints `("done" | "draft")[]` for the local `list`.
+ * - F1: `Holder` has open types (monomorphs). An edit of `HolderUser`
+ *   fixes them to `Phase` from another module; Haxe does not type `Holder`
+ *   again. Haxe's own warm build then prints `any` for them, where a cold
+ *   build prints the `Phase` literals. A new capture of `Holder` in that
+ *   request reads the same open types as its kept bucket, so every mode
+ *   equals the plain warm tree: the bucket adds no difference.
+ */
+const lateFacts: LaneConfig = {
+  name: "late-facts",
+  template: path.join(fixtureRoot, "templates/kept-types"),
+  main: "kepttypes.Main",
+  pack: "kepttypes",
+  modules: [
+    "kepttypes.Lone",
+    "kepttypes.PhaseMaker",
+    "kepttypes.Holder",
+    "kepttypes.HolderUser"
+  ],
+  steps: [
+    { id: "first request" },
+    { id: "no edit", settled: true },
+    {
+      id: "F2: first use of make<Phase> in a request with a type error",
+      apply: (lane) => {
+        lane.edit("kepttypes/PhaseMaker.hx", phaseMakerBody, phaseMakerUses);
+        lane.edit("kepttypes/Lone.hx", '"lone-v1"', "(1 : Int)");
+      },
+      fails: ["Int should be String"],
+      // The failed request still runs the after-typing callbacks: the new
+      // member makes it replace the bucket of GenericOwner.
+      bucketRejects: [[genericOwner, "membersChanged"]]
+    },
+    {
+      id: "F2: the type error repaired",
+      apply: (lane) => lane.edit("kepttypes/Lone.hx", "(1 : Int)", '"lone-v2"'),
+      typesAgain: ["Lone", "PhaseMaker"],
+      // The commit step drops the bucket that the failed request wrote for
+      // GenericOwner, so the repaired request captures GenericOwner again.
+      dropsUncommitted: true
+    },
+    { id: "no edit after F2", settled: true },
+    // Haxe's own warm build does not see the fixed types of `Holder`: it
+    // prints `any` where a cold build prints the `Phase` literals. So F1
+    // stays the last case of the lane, and its rows compare each mode with
+    // the plain warm tree.
+    {
+      id: "F1: another module fixes the open types of Holder",
+      apply: (lane) => lane.edit("kepttypes/HolderUser.hx", holderUserBody,
+        holderUserBinds),
+      typesAgain: ["HolderUser"],
+      warmDiffersFromCold: { files: holderFiles, reuse: "plain" }
+    },
+    {
+      id: "no edit after F1",
+      settled: true,
+      warmDiffersFromCold: { files: holderFiles, reuse: "plain" }
+    }
+  ]
+};
+
 const goodDirective = '@:genes.moduleDirective("server-project-a-v1")\nclass Main {';
 const bareDirective = "@:genes.moduleDirective\nclass Main {";
 const bareDirectiveWithLibrary =
@@ -1116,7 +1337,8 @@ function round(value: number): number {
 
 /** Prints the numbers of the gate: counts are exact, times are diagnostic. */
 function printSummary(): void {
-  for (const lane of [projectA.name, keptTypes.name]) {
+  for (const lane of [projectA.name, keptTypes.name, explained.name,
+    lateFacts.name]) {
     for (const name of passNames) {
       const work = name === "reactAudit" ? "audits" : "captures";
       const unit = name === "reactAudit" ? "class records" : "buckets";
@@ -1206,7 +1428,7 @@ function printSummary(): void {
 async function main(): Promise<void> {
   rmSync(tempRoot, { recursive: true, force: true });
   const compiler = selectedHaxeCompiler(repoRoot);
-  const allLanes = [projectA, keptTypes, diagnosticOrder];
+  const allLanes = [projectA, keptTypes, explained, lateFacts, diagnosticOrder];
   // `--lanes=kept-types` repeats one edit list, for example for a mutation
   // check. The result line then says that the run was not the whole gate.
   const laneOption = process.argv.find((value) => value.startsWith("--lanes="));

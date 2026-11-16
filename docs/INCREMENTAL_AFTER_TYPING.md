@@ -170,9 +170,11 @@ Facts of Haxe 4.3.7 that explain the results (read in the source at tag
    needed for correctness, not only for memory: some entries are found by
    source position or by local id, and a stale entry could answer for a new
    declaration at the same position.
-5. **No commit step.** A pass may replace a bucket in a request that fails
-   later. Rule 2 rejects that bucket in the next request (table: failed
-   requests).
+5. **Commit step.** A bucket counts only when its request reached the end of
+   generation. Rule 2 rejects a bucket of a failed request only for a
+   declaration that the failed request typed (table: failed requests). A
+   failed request can also replace the bucket of a declaration that it did
+   not type (case F2 in section 11).
 6. **Kept values are read-only.** Never write metadata through a kept value;
    read a new copy of the declaration first. A read through a kept `meta`
    gives the metadata of the request that made the bucket.
@@ -391,6 +393,9 @@ request gets the warning `GENES-INCREMENTAL-REPORT-001` and goes on.
 Not supported, by contract: the `Retype` and `NoCheckDependencies` module
 check policies, and a server that other clients share. With `Retype` Haxe
 types a module again in place; probe row E3 asserts that no stamp shows it.
+The new body then has new local ids, which the compare mode of slice 2
+counts as explained differences (section 11): this contract, not the
+compare mode, covers that case.
 
 Not in this slice: `SignatureCache` and `PublicSurface` still read every
 class on every request (section 11 changes that for `SignatureCache`). A
@@ -484,17 +489,69 @@ gets the same output as with reuse off.
   the request gets the warning `GENES-INCREMENTAL-COMPARE-001`.
 
 One kind of difference has a known cause and is counted as explained, not as
-a failure: a fact about a local variable, when the kept bucket of its
-declaration is the read of an earlier request that typed the declaration.
+a failure. All three conditions must hold (`SignatureComparison.locals`):
+
+- the question is about a local variable;
+- the kept answer is `none` and the new capture has an answer;
+- the kept bucket of the declaration that owns the local is a first read:
+  it was made in the earlier request that typed the declaration.
+
 Haxe changes the typed bodies after the after-typing callbacks (section 3,
-"a new read after typing differs between requests"). The kept bucket holds
-the read before that change, the same read as a build in a new compiler
-process. The new capture of a later request reads the changed body.
+"a new read after typing differs between requests"). The first read is the
+body before that change, the same read as a build in a new compiler process.
+The new capture of a later request reads the changed body, which can have
+more locals. Example (gate lane `explained`): with an inline constructor,
+`final phases = new Phases([Draft, Done])` becomes the local
+`phases_all: Array<Phase>`. Every other shape is a failure: kept `T1` and
+new `T2`, a kept answer with no new answer, and any difference for a bucket
+that is not a first read. `KeepRuleProbe` checks each shape directly.
+
+An explained difference is not a stale bucket. It shows a difference
+between the warm build of today and a cold build: the warm build reads the
+changed body. In the lane `explained`, the plain warm tree (no define)
+prints `("done" | "draft")[]` for `phases_all` and the cold tree prints
+`string[]`. With reuse on, the kept first read gives the cold answer, so the
+`reuse` tree equals the cold tree there.
+
+The `Retype` module check policy also gives this shape: Haxe types a module
+again in the same class object, the stamp stays, and the new body has new
+local ids. The new ids have no kept answer, so compare counts them as
+explained. That case is carried by the contract "`Retype` is unsupported"
+(section 10), not by the compare mode.
 
 A bucket is not always the first read. After a changed session key, or for a
 declaration whose bucket was removed, the new bucket is made from the
 declaration that Haxe already saved. It then holds what a request with reuse
 off reads for that declaration in every later request.
+
+### Requests that fail: the commit step
+
+A request that fails can still run the after-typing callbacks: a type error
+is reported, typing goes on, and the passes run before Haxe stops. Haxe
+then keeps no module of that request. For a declaration that the failed
+request typed, the next request types it again, and the bucket is rejected
+(`typedAgain`). That is not true for every bucket.
+
+Case F2 (gate lane `late-facts`): `PhaseMaker` uses `GenericOwner.make`
+with `Phase` for the first time, in a request with a type error in `Lone`.
+Haxe adds the member `make_kepttypes_Phase` to `GenericOwner` without typing
+the class again, and the pass writes a new bucket for `GenericOwner`
+(`membersChanged`). In the repaired request Haxe makes the member again,
+with new local ids, and `GenericOwner` keeps its stamp and member list.
+Without a commit step, `reuse` kept the bucket of the failed request and
+printed `string[]` for the local `list` of `make_kepttypes_Phase`; the cold
+build prints `("done" | "draft")[]`. `compare` reported one failure.
+
+So `KeptRecords` has a commit step. `write` puts the key on a pending list
+when the record changes (always for a bucket of `KeptBuckets`, because the
+bucket holds values of this request). An `onAfterGenerate` callback of the
+request empties the list. At the start of the next request, each key that is
+still pending belongs to a request that did not reach the end of
+generation: its record is removed, and `KeptBuckets.kept` then rejects the
+bucket (`noRecord`) and removes it. The report counts these records as
+`uncommitted`. An unchanged record of the React audit, which `measure`
+writes again for each kept class, does not wait for the commit, so a failed
+request does not make the next request audit every class.
 
 ### Proof
 
@@ -506,7 +563,11 @@ keys. In each request with no edit, the kept buckets, the same-object tests,
 the skipped captures (`reuse`) and the compared answers (`compare`) are
 above 0. The compare failures are 0. The buckets of `GenericOwner` (E1,
 member list), `Clone` (E2, copied stamp) and `Twin` (another object) are
-rejected.
+rejected. The lane `explained` reaches the explained differences; the lane
+`late-facts` has the cases F2 (the commit step) and F1 (open types, below).
+Mutation checks by hand (`tests/compiler-server/README.md`): without the
+commit step, F2 fails in `reuse` and `compare`; with the old, broad
+explained class, `KeepRuleProbe` fails on "kept T1, new T2".
 
 ### Limits
 
@@ -520,4 +581,17 @@ rejected.
   list or class path. Genes drops the buckets.
 - `PublicSurface` has no buckets yet. It still reads the public members of
   every class, including their typed bodies, on every request.
+- Case F1, open types: a kept class has a declaration without a written
+  type (`static var items = [];`, `function keep(value)`), and an edit of
+  another module fixes that type later (to `Phase` in lane `late-facts`).
+  Haxe does not type the class again. The warm build of today (no define)
+  then prints `any` for these declarations, where a cold build prints the
+  `Phase` literals. A new capture of the class in that request reads the
+  same open types as the kept bucket, so `measure`, `reuse` and `compare`
+  equal the plain warm tree and compare finds no failure. The difference to
+  cold is a difference of today's warm build, not of the buckets; the rows
+  require it, so that a repair of it is noticed.
+- The commit step runs in an `onAfterGenerate` callback that is registered
+  at the start of the incremental path of the request. A failure in an
+  `onAfterGenerate` callback that runs after it is not seen.
 - Not measured on a real application in this change.

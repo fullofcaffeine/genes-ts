@@ -2,6 +2,9 @@ import genes.incremental.GenerationChangeSet;
 import genes.incremental.GenerationChangeSet.DeclarationArrival;
 import genes.incremental.GenerationChangeSet.KeepDecision;
 import genes.incremental.GenerationChangeSet.StampedDeclaration;
+import genes.incremental.KeptRecords;
+import genes.ts.SignatureComparison;
+import genes.ts.SignatureFacts.SignatureFact;
 import haxe.macro.Context;
 
 /**
@@ -21,8 +24,14 @@ import haxe.macro.Context;
  * `keep-rule-probe:ok (<n> cases)`, which the gate
  * `yarn test:compiler-server:after-typing` requires.
  *
+ * It also checks which differences the compare mode of `SignatureCache`
+ * counts as explained (`SignatureComparison.locals`): only "kept none, new
+ * answer" for a bucket that is a first read. Each other shape must count as
+ * a failure, for example kept `T1` and new `T2`. A request sequence reaches
+ * only the explained shape, so these cases call the comparison directly.
+ *
  * It keeps nothing and reads no declaration: the rule is a function of plain
- * text.
+ * text, and the comparison cases use made-up types.
  */
 class KeepRuleProbe {
   static inline final STAMP = 'ab12:3';
@@ -102,7 +111,62 @@ class KeepRuleProbe {
         + 'bucket that the stamps already reject',
         Context.currentPos());
     cases++;
+    checkComparison();
     Sys.println('keep-rule-probe:ok ($cases cases)');
+  }
+
+  /**
+   * The shapes of a difference about a local in compare mode. `firstRead`
+   * says whether the kept bucket of the owner is the read of the request
+   * that typed it.
+   */
+  static function checkComparison(): Void {
+    final one: haxe.macro.Type = TDynamic(null);
+    final other: haxe.macro.Type = TFun([], TDynamic(null));
+    expectComparison('kept none, new answer, first read', Explained, true,
+      null, one);
+    expectComparison('kept T1, new T2, first read', Failure, true, one, other);
+    expectComparison('kept answer, new none, first read', Failure, true, one,
+      null);
+    expectComparison('kept none, new answer, not a first read', Failure,
+      false, null, one);
+    expectComparison('equal answers, first read', Equal, true, one, one);
+  }
+
+  static function expectComparison(name: String, wanted: ComparisonResult,
+      firstRead: Bool, keptAnswer: Null<haxe.macro.Type>,
+      newAnswer: Null<haxe.macro.Type>): Void {
+    cases++;
+    final counts = KeptRecords.of('keepRuleProbe');
+    final failuresBefore = counts.compareFailureTotal();
+    final explainedBefore = explainedOf();
+    final comparison = new SignatureComparison(counts);
+    final owner = 'class:app.Models.User';
+    final id = cases;
+    comparison.replay(owner,
+      keptAnswer == null ? [] : [LocalSourceType(id, keptAnswer)], firstRead);
+    if (newAnswer != null)
+      comparison.noteNew(owner, LocalSourceType(id, newAnswer));
+    comparison.locals('localSourceType', id, keptAnswer, newAnswer);
+    final failures = counts.compareFailureTotal() - failuresBefore;
+    final explained = explainedOf() - explainedBefore;
+    final got: Null<ComparisonResult> = if (failures == 0 && explained == 0)
+      Equal else if (failures == 0
+      && explained == 1) Explained else if (failures == 1 && explained == 0)
+      Failure else null;
+    if (got != wanted)
+      Context.fatalError('KeepRuleProbe: comparison case "$name" counts '
+        + '$failures failures and $explained explained differences, not '
+        + '$wanted',
+        Context.currentPos());
+  }
+
+  /** The explained differences that the probe store counted so far. */
+  static function explainedOf(): Int {
+    for (report in KeptRecords.reports())
+      if (report.pass == 'keepRuleProbe')
+        return report.compareExplained;
+    return 0;
   }
 
   static function declaration(arrival: DeclarationArrival,
@@ -122,4 +186,11 @@ class KeepRuleProbe {
       Context.fatalError('KeepRuleProbe: case "$name" gives $got, not $wanted',
         Context.currentPos());
   }
+}
+
+/** What one comparison case must count. */
+private enum ComparisonResult {
+  Equal;
+  Explained;
+  Failure;
 }

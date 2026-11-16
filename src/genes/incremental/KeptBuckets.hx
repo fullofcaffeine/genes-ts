@@ -87,9 +87,17 @@ typedef KeptValue<T> = {
  * the current request. The store grows with the number of declaration keys,
  * not with the number of requests.
  *
- * No commit step: a pass may write a bucket in a request that fails later.
- * Haxe keeps no module of a failed request, so the declaration is typed
- * again in the next request and arrives without the stamp of the bucket.
+ * Commit step: a bucket counts only when the request that wrote it reached
+ * the end of generation. A request that fails can still run the passes
+ * after typing and write buckets, also for a declaration that it did not
+ * type: the first use of a `@:generic` method adds a member to a kept class
+ * (case F2 of `docs/INCREMENTAL_AFTER_TYPING.md`). Haxe keeps no module of
+ * the failed request, so the repaired request makes that member again with
+ * other local variable ids, and the class keeps its stamp and member list. A
+ * bucket of the failed request would then pass the keep rule and miss the
+ * facts of the new locals. `KeptRecords` drops the record of each such
+ * write at the start of the next request; without its record `kept`
+ * rejects the bucket (`noRecord`) and removes it.
  *
  * Lifetime: a pass keeps its store in one `@:persistent` field. Only an
  * eligible request with `-D genes.dev_incremental` reads or writes it;
@@ -141,6 +149,11 @@ class KeptBuckets<T> {
       case Keep:
         bucket.seenIn = GenerationChangeSet.request();
         {value: bucket.value, firstRead: bucket.firstRead};
+      case Reject(NoRecord):
+        // The record was dropped (for example by the commit step of
+        // `KeptRecords`): the bucket goes with it.
+        buckets.remove(declaration.key);
+        null;
       case Reject(_):
         null;
     }
@@ -161,7 +174,7 @@ class KeptBuckets<T> {
       firstRead: declaration.arrival == TypedAgain,
       seenIn: request
     });
-    records.write(declaration, members);
+    records.write(declaration, members, true);
   }
 
   /**
