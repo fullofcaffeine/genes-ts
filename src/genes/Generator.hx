@@ -957,7 +957,8 @@ class Generator {
     if (!supported) {
       removeCompilerSentinel();
       final expected = Context.defined('genes.ts') ? '.ts or .tsx' : '.js, .jsx, or .mjs';
-      Context.error('[GENES-OUTPUT-TARGET-002] -D $OUTPUT_DEFINE="$output" '
+      final source = fromDescriptor ? 'The path "$output" in the descriptor of -D $OUTPUT_DESCRIPTOR_DEFINE' : '-D $OUTPUT_DEFINE="$output"';
+      Context.error('[GENES-OUTPUT-TARGET-002] $source '
         + 'does not match the active Genes profile; expected $expected.',
         Context.currentPos());
     }
