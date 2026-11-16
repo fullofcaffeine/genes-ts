@@ -52,6 +52,16 @@ import haxe.macro.Type;
  * from the inventory and looks up by name. Nothing is used in a later
  * request.
  *
+ * Witnesses (incremental shadow only): while `-D genes.dev_incremental`
+ * records, each answered query adds a witness, the asking module and the
+ * module that was read. A module whose output read another module by name
+ * must not count as clean when that module changed, also when its source does
+ * not name it (example: a provider type named by a string in metadata). A
+ * query that the inventory cannot answer during generation is a fallback
+ * lookup: it loads a module after typing and adds a dependency in Haxe. The
+ * count goes to the report, and such a request does not use the generation
+ * cache. Without the define nothing is recorded.
+ *
  * See also: `docs/ARCHITECTURE.md`, "State-owner ledger".
  */
 class TypedModuleInventory {
@@ -61,11 +71,88 @@ class TypedModuleInventory {
   /** Declarations of each module, in Haxe's module order. */
   @:persistent static var modules: Map<String, Array<Type>> = new Map();
 
-  /** Starts an empty inventory for the current request and fills it after typing. */
+  /** True while the generator records witnesses for the incremental shadow. */
+  @:persistent static var recording = false;
+
+  /** The module whose plan or output is being built, or `null` between modules. */
+  @:persistent static var asker: Null<String> = null;
+
+  /** Read modules of each asking module; the empty key holds reads with no asker. */
+  @:persistent static var witnessed: Map<String, Map<String, Bool>> = new Map();
+
+  /** Modules that were looked up by name during generation. */
+  @:persistent static var fallbacks: Map<String, Bool> = new Map();
+
+  /**
+   * Starts an empty inventory for the current request and fills it after
+   * typing. The callback only collects: the stamps of the incremental path
+   * are added by `GenerationChangeSet.observe`, which `AfterTypingPasses.run`
+   * calls, so this callback keeps its own place in Haxe's callback order and
+   * an error of a pass cannot stop it.
+   */
   public static function install(): Void {
     pending = [];
     modules = new Map();
+    recording = false;
+    asker = null;
+    witnessed = new Map();
+    fallbacks = new Map();
     Context.onAfterTyping(types -> pending.push(types));
+  }
+
+  /**
+   * Starts recording witnesses and fallback lookups for this request's
+   * generation. Only the incremental shadow calls it.
+   */
+  public static function startRecording(): Void {
+    recording = true;
+    asker = null;
+    witnessed = new Map();
+    fallbacks = new Map();
+  }
+
+  /** Stops recording; later queries add nothing. */
+  public static function stopRecording(): Void {
+    recording = false;
+    asker = null;
+  }
+
+  /** Names the module that the following queries work for, or `null` for none. */
+  public static function setAsker(module: Null<String>): Void {
+    asker = module;
+  }
+
+  /** Returns the sorted modules that `module` read by name; `""` gives reads without an asker. */
+  public static function witnessesOf(module: String): Array<String> {
+    final reads = witnessed.get(module);
+    if (reads == null)
+      return [];
+    final names = [for (name in reads.keys()) name];
+    names.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    return names;
+  }
+
+  /** Returns the sorted modules that were looked up by name during generation. */
+  public static function fallbackLookups(): Array<String> {
+    final names = [for (name in fallbacks.keys()) name];
+    names.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    return names;
+  }
+
+  static function witness(read: String): Void {
+    if (!recording)
+      return;
+    final key = asker == null ? '' : asker;
+    final reads = witnessed.get(key);
+    if (reads == null)
+      witnessed.set(key, [read => true]);
+    else
+      reads.set(read, true);
+  }
+
+  static function fallback(module: String): Void {
+    if (recording)
+      fallbacks.set(module, true);
   }
 
   /**
@@ -76,7 +163,12 @@ class TypedModuleInventory {
    */
   public static function moduleTypes(module: String): Array<Type> {
     final indexed = known(module);
-    return indexed != null ? indexed : Context.getModule(module);
+    if (indexed != null) {
+      witness(module);
+      return indexed;
+    }
+    fallback(module);
+    return Context.getModule(module);
   }
 
   /**
@@ -112,8 +204,10 @@ class TypedModuleInventory {
     final first = owner.charAt(0);
     final inModule = first != '' && first == first.toUpperCase()
       && first != first.toLowerCase();
-    final indexed = known(inModule ? parts.slice(0, -1).join('.') : path);
+    final moduleName = inModule ? parts.slice(0, -1).join('.') : path;
+    final indexed = known(moduleName);
     if (indexed != null) {
+      witness(moduleName);
       for (candidate in indexed) {
         final base = baseOf(candidate);
         // A private declaration answers too. `Context.getType` returns one
@@ -126,6 +220,7 @@ class TypedModuleInventory {
           return candidate;
       }
     }
+    fallback(moduleName);
     return Context.getType(path);
   }
 

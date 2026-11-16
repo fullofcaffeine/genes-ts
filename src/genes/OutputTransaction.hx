@@ -59,6 +59,18 @@ class OutputTransaction {
   var committed = false;
 
   /**
+   * Receives the relative path and the final text of each registered file,
+   * or `null` (the default) for no observer.
+   *
+   * Why: the incremental shadow stores and compares the exact staged text of
+   * each module (interface I4 of the Stage 3 review). The text is the one
+   * that this transaction publishes, after `canonicalSourceEof` for emitter
+   * source. The observer cannot change what is staged.
+   */
+  public var onRegister: Null<(relative: String,
+      content: String) -> Void> = null;
+
+  /**
    * Creates one filesystem owner for an exact configured output filename.
    *
    * Why: a stem-only name loses the extension, while replacing punctuation
@@ -260,11 +272,19 @@ class OutputTransaction {
       throw new haxe.Exception('Cannot register output after commit: $relative');
     if (staged.exists(relative))
       throw new haxe.Exception('Two emitters own the same output path: $relative');
+    // Staging writes the complete file. Its own timer in `haxe --times`
+    // (`genes.publish.stage`, beside `genes.publish.transaction`) shows what
+    // a request pays to stage files, also files whose text did not change.
+    final endStageTimer = genes.util.Timer.timer('genes.publish.stage');
     prepareStageRoot();
     final path = stagePath(relative);
     ensureDirectory(Path.directory(path));
     File.saveContent(path, content);
+    endStageTimer();
     staged.set(relative, true);
+    final observer = onRegister;
+    if (observer != null)
+      observer(relative, content);
   }
 
   function readManifest(): Array<String> {

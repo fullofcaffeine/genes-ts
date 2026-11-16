@@ -131,3 +131,9 @@ What to do:
 
 `tests/compile-stage-report/README.md` describes the same defect for the stage
 report, which records it as `known-unscaled-macos-monotonic-clock`.
+
+The clocks of the incremental generation report (`<descriptor>.report.json`
+of `-D genes.dev_incremental`: `generationMs`, the module and stage clocks)
+are not affected: they read `Sys.time()` in the macro interpreter, which is
+wall-clock seconds on every platform. Do not subtract them from unscaled
+`--times` rows.

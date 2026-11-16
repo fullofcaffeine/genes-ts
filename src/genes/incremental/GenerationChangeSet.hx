@@ -3,10 +3,12 @@ package genes.incremental;
 #if macro
 import genes.DependencyPlan;
 import genes.incremental.IncrementalRequest.AfterTypingReuse;
+import genes.incremental.IncrementalRequest.GenerationReuse;
 import genes.incremental.IncrementalRequest.IncrementalDescriptor;
 import genes.incremental.KeptRecords.KeptRecordsReport;
 import haxe.crypto.Sha256;
 import haxe.io.Path;
+import haxe.macro.Compiler;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -103,6 +105,18 @@ enum SessionState {
   Changed;
 }
 
+/** The time of one pass after typing in one request. */
+typedef PassTime = {
+  /** The name that the pass gave to `AfterTypingPasses.add`. */
+  final pass: String;
+
+  /** Time of the class function of the pass, over all classes. */
+  final classMs: Float;
+
+  /** Time of the declaration function of the pass; 0 when it has none. */
+  final declarationsMs: Float;
+}
+
 /** The report that one request writes beside its descriptor. */
 typedef AfterTypingReport = {
   /** The report format; `GenerationChangeSet.FORMAT`. */
@@ -159,6 +173,12 @@ typedef AfterTypingReport = {
   /** Time of the class walk and the declaration functions of all passes. */
   final walkMs: Float;
 
+  /**
+   * The part of `walkMs` that each pass used, in the order of the passes.
+   * Empty in a report that was written before the passes ended.
+   */
+  final passTimes: Array<PassTime>;
+
   /** False in a report that was written before the passes ended. */
   final passesComplete: Bool;
 
@@ -193,12 +213,16 @@ typedef AfterTypingReport = {
  *    Haxe version is proved, it is no display request, and the program has no
  *    `@:rtti` class.
  * 2. The session key is the one of the earlier request. The key is the
- *    text of the inputs that change what a pass computes but not always
- *    what Haxe types: the format, the Haxe version, every define at the first
- *    after-typing callback, the session's digest of the argument list, the
- *    class paths in order, the working folder, and the status of each `.hx`
- *    file under the Genes class path. When it differs, every record of every
- *    pass is dropped.
+ *    text of the inputs that change what a pass or the generator computes
+ *    but not always what Haxe types: the format, the Haxe version, every
+ *    define at the first after-typing callback, the session's digest of the
+ *    argument list, the output file name and the way from the output folder
+ *    to the project root (`outputKeyLines`; not the absolute output path),
+ *    the class paths in order, the working folder, the name and content of
+ *    each embedded resource, and the status of each `.hx` file under the
+ *    Genes class path.
+ *    When it differs, every record of every pass is dropped, and the
+ *    generation cache does not use its stored output.
  * 3. The declaration arrived with one stamp, and the stamp names it.
  * 4. That stamp equals the stamp in the record, and the same pass wrote the
  *    record (each pass has its own `KeptRecords`).
@@ -224,6 +248,28 @@ typedef AfterTypingReport = {
  * another cache while the macro state stays; those objects carry stamps of
  * other requests than the records.
  *
+ * One owner, several readers (design review R5): the stamps, the session key
+ * and the change set are computed here once, at the start of the first
+ * after-typing callback of the passes. The readers are the passes after
+ * typing (through `KeptRecords` and `keep`) and the generation shadow
+ * (`IncrementalShadow` and `GenerationCache`, through `epochs`,
+ * `retypedModules`, `sessionKey` and `reservedNameDigest`). No reader adds a
+ * stamp or builds a key of its own.
+ *
+ * For the generation readers, for one request:
+ *
+ * - `epochs(module)`: the sorted `declaration key@nonce:N` list of the
+ *   module. Two equal lists mean that Haxe did not type the module again and
+ *   that no declaration was added or removed.
+ * - `retypedModules()`: modules with a declaration that got its stamp in
+ *   this request.
+ * - `reservedNameDigest()`: digest of the names that Haxe's local-rename
+ *   filter reserves (`renameVars.ml`, `reserve_all_types`). The Stage 3
+ *   review expected that a new top-level name renames locals of every module
+ *   in a cold build while cached modules keep their old names. The fixture
+ *   showed no such difference, so the digest is reported only. It is read
+ *   only when the descriptor has a `generation` value.
+ *
  * How: `AfterTypingPasses.run` calls `observe` first, for each declaration
  * list that Haxe gives to `onAfterTyping`. That is before dead-code
  * elimination and before Haxe saves the class state that a cached class
@@ -246,8 +292,8 @@ typedef AfterTypingReport = {
  * Lifetime: only the nonce, the request counter and the last session key are
  * `@:persistent`. They are plain text and numbers. Every other field is an
  * ordinary static that Haxe replaces at the start of each compilation, and
- * none of them holds a compiler value. Without `-D genes.dev_incremental`
- * nothing here runs.
+ * none of them holds a compiler value (the maps hold text only). Without
+ * `-D genes.dev_incremental` nothing here runs.
  */
 class GenerationChangeSet {
   /** The metadata name of the stamp. */
@@ -274,6 +320,13 @@ class GenerationChangeSet {
   static var arrivedStamped = 0;
   static var foreignStamps = 0;
   static var typedAgainModules: Map<String, Bool> = new Map();
+  static var moduleEpochs: Map<String, Array<String>> = new Map();
+  static var reservedNames: Map<String, Bool> = new Map();
+  static var reservedDigest: Null<String> = null;
+  static var typingResources: Null<String> = null;
+  static var passOrder: Array<String> = [];
+  static var passClassSeconds: Map<String, Float> = new Map();
+  static var passDeclarationSeconds: Map<String, Float> = new Map();
   static var stampSeconds = 0.0;
   static var sessionKeySeconds = 0.0;
   static var memberSeconds = 0.0;
@@ -332,6 +385,7 @@ class GenerationChangeSet {
     }
     final currentNonce = interpreterNonce();
     final pos = Context.currentPos();
+    final reserve = descriptor.generation != Regenerate;
     final observed: Array<ObservedDeclaration> = [];
     for (index => type in types) {
       final record = records[index];
@@ -339,6 +393,14 @@ class GenerationChangeSet {
       final stamped = stamp(base, DependencyPlan.moduleTypeKeyOf(type, base),
         currentNonce, pos);
       declarations++;
+      final entry = '${stamped.key}@${stamped.stamp}';
+      final list = moduleEpochs.get(base.module);
+      if (list == null)
+        moduleEpochs.set(base.module, [entry]);
+      else
+        list.push(entry);
+      if (reserve)
+        reserveNames(type, base, record);
       switch stamped.arrival {
         case Kept:
           arrivedStamped++;
@@ -353,9 +415,111 @@ class GenerationChangeSet {
         classes++;
       observed.push({type: record, stamp: stamped});
     }
+    reservedDigest = null;
     stampSeconds += haxe.Timer.stamp() - started - keySeconds;
     writeReport();
     return observed;
+  }
+
+  /**
+   * Returns the epoch list of one module as one text: its sorted
+   * `declaration key@nonce:N` entries. Empty when Haxe gave no declaration of
+   * the module to the after-typing callback, or when the request added no
+   * stamp.
+   *
+   * Example: `class:app.Leaf@ab12cd34ef567890:3`. The generation cache keeps
+   * the text of a module with its stored output; an equal text in a later
+   * request says that Haxe did not type the module again and that no
+   * declaration was added or removed.
+   */
+  public static function epochs(module: String): String {
+    final list = moduleEpochs.get(module);
+    if (list == null)
+      return '';
+    final sorted = list.copy();
+    sorted.sort(compareStrings);
+    return sorted.join('\n');
+  }
+
+  /**
+   * Returns the sorted modules with a declaration that arrived without a
+   * valid stamp: Haxe typed them in this request, or a macro defined them.
+   */
+  public static function retypedModules(): Array<String> {
+    final names = [for (name in typedAgainModules.keys()) name];
+    names.sort(compareStrings);
+    return names;
+  }
+
+  /**
+   * Returns the session key text of this request, or `null` when the request
+   * added no stamp (it is not eligible, or typing did not end).
+   *
+   * Every consumer compares this one text; none builds a key of its own.
+   */
+  public static function sessionKey(): Null<String> {
+    return requestNumber == 0 ? null : lastSessionKey;
+  }
+
+  /**
+   * Returns one text for the resources that the build embeds at the time of
+   * the call: one line `resource <name as hexadecimal> <length> <SHA-1>` for
+   * each resource, sorted. Empty without a resource.
+   *
+   * Why: the module `haxe.Resource` prints the resource bytes into its
+   * output. A session can change a resource file and no Haxe source
+   * (`-resource note.txt@note` with the same argument list). Haxe then types
+   * no module again, so no stamp shows the change. The session key holds this
+   * text, so such an edit changes the key.
+   *
+   * How: `Context.getResources` copies every resource into the macro
+   * interpreter. SHA-1 is a native function of that interpreter, so the
+   * digest costs little. The name is written in hexadecimal because Haxe
+   * 4.3.7 marks each name as ASCII text, also when it holds UTF-8 bytes;
+   * reading one character of such a name stops the compiler.
+   */
+  public static function resourceDigest(): String {
+    final lines = [];
+    for (name => data in Context.getResources())
+      lines.push('resource ${haxe.io.Bytes.ofString(name).toHex()} '
+        + '${data.length} ${haxe.crypto.Sha1.make(data).toHex()}\n');
+    lines.sort(compareStrings);
+    return lines.join('');
+  }
+
+  /**
+   * Returns the resource text that is part of this request's session key
+   * (read at the first after-typing callback), or `null` when the request
+   * added no stamp.
+   *
+   * A reader that prints resources later in the request compares this text
+   * with `resourceDigest()` then: a macro can add a resource after typing.
+   */
+  public static function sessionResources(): Null<String> {
+    return requestNumber == 0 ? null : typingResources;
+  }
+
+  /**
+   * Returns the digest of the names that Haxe's rename filter reserves. The
+   * names are collected only when the descriptor has a `generation` value.
+   */
+  public static function reservedNameDigest(): String {
+    final known = reservedDigest;
+    if (known != null)
+      return known;
+    final names = [for (name in reservedNames.keys()) name];
+    names.sort(compareStrings);
+    final computed = Sha256.encode(names.join('\n'));
+    reservedDigest = computed;
+    return computed;
+  }
+
+  /**
+   * Returns the seconds that this owner used in this request to read and add
+   * the stamps and to build the session key.
+   */
+  public static function overheadSeconds(): Float {
+    return stampSeconds + sessionKeySeconds;
   }
 
   /**
@@ -454,6 +618,27 @@ class GenerationChangeSet {
     memberSeconds += haxe.Timer.stamp() - started;
   }
 
+  /**
+   * Adds the time that one pass used in the walk of one declaration list.
+   * `AfterTypingPasses.run` calls it after the walk, once for the class
+   * function and once for the declaration function of each pass.
+   */
+  public static function passTime(pass: String, classSeconds: Float,
+      declarationSeconds: Float): Void {
+    if (!passClassSeconds.exists(pass)) {
+      passOrder.push(pass);
+      passClassSeconds.set(pass, 0.0);
+      passDeclarationSeconds.set(pass, 0.0);
+    }
+    final classBefore = passClassSeconds.get(pass);
+    final declarationBefore = passDeclarationSeconds.get(pass);
+    passClassSeconds.set(pass,
+      (classBefore == null ? 0.0 : classBefore) + classSeconds);
+    passDeclarationSeconds.set(pass,
+      (declarationBefore == null ? 0.0 : declarationBefore) +
+      declarationSeconds);
+  }
+
   /** Ends the walk of one declaration list and writes the complete report. */
   public static function finish(seconds: Float): Void {
     walkSeconds += seconds;
@@ -510,6 +695,17 @@ class GenerationChangeSet {
       sessionKeyMs: milliseconds(sessionKeySeconds),
       memberListMs: milliseconds(memberSeconds),
       walkMs: milliseconds(walkSeconds),
+      passTimes: [
+        for (pass in passOrder) {
+          final classSeconds = passClassSeconds.get(pass);
+          final declarationSeconds = passDeclarationSeconds.get(pass);
+          {
+            pass: pass,
+            classMs: milliseconds(classSeconds == null ? 0.0 : classSeconds),
+            declarationsMs: milliseconds(declarationSeconds == null ? 0.0 : declarationSeconds)
+          }
+        }
+      ],
       passesComplete: complete,
       passes: off != null ? [] : KeptRecords.reports()
     };
@@ -596,8 +792,14 @@ class GenerationChangeSet {
 
   /**
    * Builds the session key (condition 2 of the keep rule): every input that
-   * can change the result of a pass for a declaration that Haxe did not type
-   * again.
+   * can change the result of a pass, or the output of a module, for a
+   * declaration that Haxe did not type again.
+   *
+   * The output path enters only through `outputKeyLines`: the file name and
+   * the way from the output folder to the project root, not the absolute
+   * path. A development session writes each build to a new candidate folder,
+   * and a key with the absolute path would drop every kept record and the
+   * generation cache on each request.
    */
   static function sessionKeyOf(descriptor: IncrementalDescriptor): String {
     final buffer = new StringBuf();
@@ -605,6 +807,12 @@ class GenerationChangeSet {
     buffer.add('haxe ${Context.definedValue('haxe')}\n');
     buffer.add('program ${descriptor.programDigest}\n');
     buffer.add('cwd ${Path.normalize(Sys.getCwd())}\n');
+    final output = genes.Generator.configuredOutput();
+    // Without a captured output path (no `-js` when `Generator.use()` ran),
+    // the key keeps Haxe's output slot as it is: safe, because any change of
+    // it changes the key.
+    buffer.add(output == null ? 'output-slot ${Compiler.getOutput()}\n' : outputKeyLines(output,
+      genes.SourceMapGenerator.projectRoot()));
     final defines = Context.getDefines();
     final names = [for (name in defines.keys()) name];
     names.sort(compareStrings);
@@ -612,6 +820,11 @@ class GenerationChangeSet {
       buffer.add('define $name=${defines.get(name)}\n');
     for (classPath in Context.getClassPath())
       buffer.add('classpath $classPath\n');
+    // The output of `haxe.Resource` holds the resource bytes, and a changed
+    // resource file makes Haxe type no module again.
+    final resources = resourceDigest();
+    typingResources = resources;
+    buffer.add(resources);
     // Haxe may keep the macro interpreter, and so the records, when a Genes
     // source file changes in place. The status of each file under the Genes
     // class path makes such an edit change the key.
@@ -624,6 +837,61 @@ class GenerationChangeSet {
     // The text itself is the key. A digest would cost more than the
     // comparison of two texts, because the macro interpreter computes it.
     return buffer.toString();
+  }
+
+  /**
+   * Returns the two lines of the session key that stand for the output path:
+   * the way from the output folder to the project root, and the name of the
+   * output file with its extension.
+   *
+   * Why: a development session writes each build to a new candidate folder,
+   * for example `.genes/dev/candidates/revision-3-ab/output/index.tsx` and
+   * then `.genes/dev/candidates/revision-4-cd/output/index.tsx`. An absolute
+   * path in the key would differ on every request, so every kept record and
+   * the generation cache would be dropped each time (G2 design review,
+   * required change 1). The output bytes depend on the output path only
+   * through what these lines hold:
+   *
+   * - the file name and extension: the name of the root module, the
+   *   extension of every module file and import, and the `file` field and
+   *   `sourceMappingURL` of each source map;
+   * - the way from the output folder to the project root: a source map names
+   *   each source inside the project root by a path relative to the map
+   *   (`SourceMapGenerator.sourceIdentities`). `projectRoot` is the root that
+   *   source maps use (`-D genes.source_map_root`, else the working folder);
+   *   both of those are in the key too. Sources outside the root get
+   *   `haxe://classpath/...` names, which do not depend on the output path.
+   *
+   * Example, with the project root `/p`:
+   *
+   * - `/p/.genes/dev/candidates/revision-3-ab/output/index.tsx` gives
+   *   `output-root ../../../../..` and `output-file index.tsx`. The sibling
+   *   folder `revision-4-cd/output` gives the same lines, so the cache stays.
+   * - `/p/out/index.tsx` gives `output-root ..`: another depth, other source
+   *   map paths, so the key differs and the cache is dropped.
+   * - `/p/out/index.ts` gives `output-file index.ts`: another extension.
+   *
+   * Boundary: two output folders with equal lines give equal source-map
+   * paths for every source that is not inside the folder where the two paths
+   * part (`revision-3-ab` or `revision-4-cd` above). The relative path of
+   * such a source starts with the different folder name. A source there
+   * would have to sit inside a candidate folder of the session.
+   *
+   * How: `PathUtil.relative` is the function that source maps use. It is
+   * asked for the way from the output file to a file of the same name in the
+   * project root; the folder part of the answer is the way back to the root.
+   *
+   * Keep it in step with `SourceMapGenerator.sourceIdentities`: when source
+   * maps name their sources from another folder (genes-f8vc.16 may make
+   * them relative to the published location instead of the candidate
+   * folder), these lines must describe that folder.
+   */
+  public static function outputKeyLines(output: String,
+      projectRoot: String): String {
+    final file = Path.withoutDirectory(output);
+    final toRoot = Path.directory(genes.util.PathUtil.relative(output,
+      Path.join([projectRoot, file])));
+    return 'output-root $toRoot\noutput-file $file\n';
   }
 
   /**
@@ -651,6 +919,54 @@ class GenerationChangeSet {
         buffer.add('source $child ${status.size} ${status.mtime.getTime()}\n');
       }
     }
+  }
+
+  /**
+   * Adds the names that `renameVars.ml` (`reserve_all_types`) reserves for one
+   * declaration: its native name, or the first package name, or the type name
+   * when there is no package. A class with an empty native name reserves its
+   * statics, and a module-fields class reserves its flat field names.
+   *
+   * `record` is the class record that `observe` already read, or `null` for
+   * another declaration kind.
+   */
+  static function reserveNames(type: ModuleType, base: BaseType,
+      record: Null<ClassType>): Void {
+    final native = nativeName(base.meta);
+    final topLevel = base.pack.length > 0 ? base.pack[0] : base.name;
+    if (record != null && native == '') {
+      for (field in record.statics.get()) {
+        final fieldNative = nativeName(field.meta);
+        reservedNames.set(fieldNative != null ? fieldNative : field.name, true);
+      }
+      return;
+    }
+    if (record != null) {
+      switch record.kind {
+        case KModuleFields(module):
+          final prefix = module.split('.').join('_') + '_';
+          for (field in record.statics.get()) {
+            final fieldNative = nativeName(field.meta);
+            reservedNames.set(fieldNative != null ? fieldNative : prefix
+              + field.name, true);
+          }
+          return;
+        default:
+      }
+    }
+    reservedNames.set(native != null ? native : topLevel, true);
+  }
+
+  /** Returns the text of `@:native("...")` in `meta`, or `null` without one. */
+  static function nativeName(meta: MetaAccess): Null<String> {
+    for (entry in meta.extract(':native')) {
+      switch entry.params {
+        case [{expr: EConst(CString(value, _))}]:
+          return value;
+        default:
+      }
+    }
+    return null;
   }
 
   /**

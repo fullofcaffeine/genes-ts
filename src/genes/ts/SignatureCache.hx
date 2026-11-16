@@ -885,7 +885,7 @@ class SignatureCache {
     // following abstracts). Capture declared signatures for TS emission.
     // Classes come from the shared walk; the second function reads the other
     // declaration kinds after it.
-    AfterTypingPasses.add(captureClass, captureDeclarations);
+    AfterTypingPasses.add('signatureCache', captureClass, captureDeclarations);
   }
 
   /** Captures the enums, typedefs and abstracts of one declaration list. */

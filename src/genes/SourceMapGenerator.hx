@@ -250,7 +250,16 @@ class SourceMapGenerator {
       .map(part -> StringTools.replace(StringTools.urlEncode(part), '+', '%20'))
       .join('/');
 
-  static function projectRoot(): String {
+  /**
+   * Returns the folder whose files a source map names by a relative path:
+   * `-D genes.source_map_root`, else the working folder. Files outside it get
+   * `haxe://classpath/...` names (see `sourceIdentities`).
+   *
+   * The incremental session key reads the same root
+   * (`GenerationChangeSet.outputKeyLines`), so that the key changes exactly
+   * when the relative source paths of the maps can change.
+   */
+  public static function projectRoot(): String {
     final configured = Context.definedValue('genes.source_map_root');
     return if (configured == null || configured.length == 0) Sys.getCwd() else
       configured;

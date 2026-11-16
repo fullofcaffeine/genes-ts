@@ -44,6 +44,12 @@ import sys.io.File;
  * generation succeeded, and a failed build leaves the previous file untouched.
  * The path is relative to the working directory of the Haxe process.
  *
+ * One counter, two readers: the incremental shadow
+ * (`genes.incremental.IncrementalShadow`) needs the same fact for its own
+ * report and for its clean rules. It calls `record()` instead of the init
+ * macro and reads `used` and `usedModules`. So the callbacks are wrapped only
+ * once, and both reports always name the same modules.
+ *
  * See also: `tests/syntax-code-forms/README.md`, which lists the raw-code
  * forms and names the two forms that still use Haxe's printer.
  */
@@ -52,6 +58,7 @@ class HaxePrinterUse {
   public static inline final REPORT_FORMAT = 'genes.haxe-printer-use/v1';
 
   static var reportFile: Null<String> = null;
+  static var recording = false;
   static var watched: Map<String, Bool> = new Map();
   static var modules: Map<String, Bool> = new Map();
 
@@ -70,13 +77,38 @@ class HaxePrinterUse {
   }
 
   /**
+   * Starts the same record for a caller inside the compiler, without a
+   * report file. The incremental shadow calls it before generation starts.
+   *
+   * A request that also uses the `report` init macro keeps its file: both
+   * read one record, which is empty until the first module is printed.
+   */
+  public static function record(): Void {
+    recording = true;
+    watched = new Map();
+    modules = new Map();
+  }
+
+  /** Tells whether `module` reached Haxe's printer in this request. */
+  public static function used(module: String): Bool {
+    return modules.exists(module);
+  }
+
+  /** Returns the modules that reached Haxe's printer, sorted by name. */
+  public static function usedModules(): Array<String> {
+    final names = [for (name in modules.keys()) name];
+    names.sort(Reflect.compare);
+    return names;
+  }
+
+  /**
    * Records `module` whenever one of its expressions reaches Haxe's printer.
    *
    * The wrapped callbacks return exactly what Haxe returned, so the generated
    * text cannot change.
    */
   public static function watch(context: genes.Context, module: String): Void {
-    if (reportFile == null)
+    if (reportFile == null && !recording)
       return;
     watched.set(module, true);
     final statement = context.expr;
@@ -95,8 +127,7 @@ class HaxePrinterUse {
     final file = reportFile;
     if (file == null)
       return;
-    final names = [for (name in modules.keys()) name];
-    names.sort(Reflect.compare);
+    final names = usedModules();
     final directory = Path.directory(file);
     if (directory.length > 0 && !FileSystem.exists(directory))
       FileSystem.createDirectory(directory);
