@@ -1,6 +1,7 @@
 package genes.incremental;
 
 #if macro
+import haxe.macro.Context;
 import haxe.macro.Expr.MetadataEntry;
 import haxe.macro.ExprTools;
 import haxe.macro.Type;
@@ -27,7 +28,12 @@ import genes.util.TypeUtil;
  *   metadata of each overload signature;
  * - an enum: the constructor names in order, each with its metadata;
  * - a typedef or abstract: the key;
- * - the metadata of the declaration.
+ * - the metadata of the declaration;
+ * - the field metadata of each anonymous structure that the declaration
+ *   writes inline: in a typedef body, the type behind an abstract, or the
+ *   type of a field, constructor, overload signature or enum constructor,
+ *   and in the type arguments of a parent class or interface
+ *   (`anonymousText`).
  *
  * Metadata always means every entry with its arguments (`metaText`): a
  * sorted set of `@name(arguments)` texts, printed without positions, with
@@ -46,8 +52,12 @@ import genes.util.TypeUtil;
  * The caller adds the module directives and the module's part of the
  * `@:expose` list.
  *
- * Not in the fingerprint: field types, bodies and positions. They change only
- * when Haxe types the module again, and the epochs guard that. Whether a
+ * A module of extern classes only gets `ofExtern`, a shorter text with the
+ * same metadata.
+ *
+ * Not in the fingerprint: field types (except the metadata of their
+ * anonymous structures), bodies and positions. They change only when Haxe
+ * types the module again, and the epochs guard that. Whether a
  * field has a body is also left out: reading it copies the complete typed
  * body in the macro interpreter, and only a new typing changes it.
  */
@@ -89,16 +99,25 @@ class ModuleFingerprint {
           final cls = ref.get();
           buffer.add('class ${TypeUtil.baseTypeFullName(cls)}');
           final parent = cls.superClass;
-          if (parent != null)
+          if (parent != null) {
             buffer.add(' extends ${TypeUtil.baseTypeFullName(parent.t.get())}');
-          for (item in cls.interfaces)
+            // One walk over all type arguments, so the structure numbers
+            // are unique within the list.
+            buffer.add(anonymousText(TInst(parent.t, parent.params)));
+          }
+          for (item in cls.interfaces) {
             buffer.add(' implements ${TypeUtil.baseTypeFullName(item.t.get())}');
+            buffer.add(anonymousText(TInst(item.t, item.params)));
+          }
           buffer.add(cls.isExtern ? ' extern' : '');
           buffer.add(cls.isInterface ? ' interface' : '');
           buffer.add(cls.init != null ? ' init' : '');
           final constructor = cls.constructor;
-          if (constructor != null)
-            buffer.add(' new' + metaText(constructor.get().meta));
+          if (constructor != null) {
+            final made = constructor.get();
+            buffer.add(' new' + metaText(made.meta));
+            buffer.add(anonymousText(made.type));
+          }
           addMeta(buffer, cls.meta);
           for (field in cls.fields.get())
             addField(buffer, 'field', field);
@@ -110,17 +129,22 @@ class ModuleFingerprint {
           addMeta(buffer, enm.meta);
           for (name in enm.names) {
             final construct = enm.constructs.get(name);
-            buffer.add('\n  constructor $name'
-              + (construct == null ? '' : metaText(construct.meta)));
+            buffer.add('\n  constructor $name');
+            if (construct != null) {
+              buffer.add(metaText(construct.meta));
+              buffer.add(anonymousText(construct.type));
+            }
           }
         case TType(ref, _):
           final def = ref.get();
           buffer.add('typedef ${TypeUtil.baseTypeFullName(def)}');
           addMeta(buffer, def.meta);
+          buffer.add(anonymousText(def.type));
         case TAbstract(ref, _):
           final abs = ref.get();
           buffer.add('abstract ${TypeUtil.baseTypeFullName(abs)}');
           addMeta(buffer, abs.meta);
+          buffer.add(anonymousText(abs.type));
         default:
           buffer.add('other');
       }
@@ -177,19 +201,117 @@ class ModuleFingerprint {
     buffer.add(Std.string(field.kind));
     buffer.add(field.isPublic ? ' public' : '');
     buffer.add(metaText(field.meta));
+    buffer.add(anonymousText(field.type));
     for (signature in field.overloads.get())
-      buffer.add(' overload' + metaText(signature.meta));
+      buffer.add(' overload'
+        + metaText(signature.meta)
+        + anonymousText(signature.type));
+  }
+
+  /**
+   * Returns the field metadata of each anonymous structure that `type`
+   * writes inline, as one text, or an empty text when no such field has
+   * metadata.
+   *
+   * Why (L2 of the round-3 review of #244): an anonymous structure belongs to
+   * the declaration whose type writes it, not to a module of its own. A
+   * macro of another module can add metadata to one of its fields, for
+   * example `@:ts.type("string")` on the field `x` of
+   * `typedef ChainB = {final x: Int;}`, and the printed type follows it.
+   * Haxe does not type the owning module again, so only the fingerprint of
+   * that module can show the change. The same holds for a structure in the
+   * type of a class field: a variable type, an argument, a result, or a type
+   * argument such as `Array<{w: Int}>`.
+   *
+   * What: the walk numbers each structure that it meets, from 0. For each
+   * field of a structure (sorted by name) that has metadata, it adds
+   * ` <number>.<name>` and the field's `metaText`. Example:
+   * ` 0.x @:ts.type("string")`. The number makes metadata that moves from
+   * one structure to another change the text.
+   *
+   * The walk enters the fields of a structure, the type arguments of named
+   * types, the arguments and result of functions, bound monomorphs and lazy
+   * types. It does not enter the body of a named type: that body belongs to
+   * the module of its declaration, whose own fingerprint holds it (rule 6
+   * falls back for every module when one of them changes). For the same
+   * reason it skips the structure that holds the statics of a class, enum or
+   * abstract.
+   */
+  public static function anonymousText(type: Null<Type>): String {
+    final buffer = new StringBuf();
+    var count = 0;
+    function walk(type: Null<Type>): Void {
+      if (type == null)
+        return;
+      switch type {
+        case TAnonymous(ref):
+          final anon = ref.get();
+          switch anon.status {
+            case AClassStatics(_) | AEnumStatics(_) | AAbstractStatics(_):
+              return;
+            default:
+          }
+          final index = count++;
+          final fields = anon.fields.copy();
+          fields.sort((left,
+              right) ->
+              left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+          for (field in fields) {
+            final meta = metaText(field.meta);
+            if (meta.length > 0)
+              buffer.add(' $index.${field.name}$meta');
+            walk(field.type);
+          }
+        case TInst(_, params) | TEnum(_, params) | TType(_, params) |
+          TAbstract(_, params):
+          for (param in params)
+            walk(param);
+        case TFun(args, result):
+          for (arg in args)
+            walk(arg.t);
+          walk(result);
+        case TDynamic(inner):
+          walk(inner);
+        case TMono(ref):
+          walk(ref.get());
+        case TLazy(get):
+          walk(get());
+      }
+    }
+    walk(type);
+    return buffer.toString();
   }
 
   /**
    * Returns the fingerprint of a module whose declarations are all extern
-   * classes: the key and the metadata of each class, without its fields.
+   * classes: the key and the metadata of each class, then the metadata of
+   * its constructor, fields, statics and overload signatures, and the
+   * anonymous structures of their types (`anonymousText`).
    *
    * Why: such a module gets no output file, but other modules print what its
-   * class metadata says (`@:jsRequire`, `@:native`), and a macro of another
-   * module can change that without typing it again. Its fields are left out:
-   * reading the field lists of the `js.*` externs was most of the cost of the
-   * fingerprints, so a field metadata change of an extern is a limit.
+   * metadata says, and a macro of another module can change that without
+   * typing it again. Class example: `@:jsRequire`, `@:native`. Field example
+   * (L1 of the round-3 review of #244): an after-typing macro adds
+   * `@:native("parseFloat")` to `inc.ExtApi.parseInt`, and the module that
+   * calls it must print `globalThis.parseFloat`.
+   *
+   * What it leaves out, unlike `of`: the kind and access of each field. Only
+   * dead-code elimination changes them without a new typing, and it keeps
+   * every field of an extern class. A field without metadata and without
+   * metadata in a structure of its type adds nothing. The field part of a
+   * class is stored as a digest (`Context.signature`), so the large `js.*`
+   * externs add about 40 characters each to the cache, not their full
+   * metadata text. Example line:
+   * `extern inc.ExtApi @:native("globalThis") fields 0f3c...`.
+   *
+   * Cost: Haxe copies every field of every extern class into the macro
+   * interpreter to give this text. On the shadow fixture (318 extern-only
+   * `js.*` modules) that is most of the added time. A lazy form that reads
+   * only the externs that other modules use would need a complete list of
+   * the extern classes that each module's typed expressions and types name.
+   * No Genes walk gives that list today (a field read through a value of an
+   * extern type adds no dependency edge), and a missed extern would be a
+   * stale replay, so every extern-only module is read.
    */
   public static function ofExtern(types: Array<Type>): String {
     final buffer = new StringBuf();
@@ -199,12 +321,45 @@ class ModuleFingerprint {
           final cls = ref.get();
           buffer.add('extern ${TypeUtil.baseTypeFullName(cls)}');
           addMeta(buffer, cls.meta);
+          final fields = new StringBuf();
+          final constructor = cls.constructor;
+          if (constructor != null)
+            addExternField(fields, 'new', constructor.get());
+          for (field in cls.fields.get())
+            addExternField(fields, 'i', field);
+          for (field in cls.statics.get())
+            addExternField(fields, 's', field);
+          final text = fields.toString();
+          if (text.length > 0)
+            buffer.add(' fields ' + Context.signature(text));
         default:
           buffer.add('other');
       }
       buffer.add('\n');
     }
     return buffer.toString();
+  }
+
+  /**
+   * Adds ` <label>:<name>` with the metadata and structures of one extern
+   * field, then ` <n>` with those of its overload signature number `n`. A
+   * part without metadata adds nothing, so that the large `js.*` externs
+   * add little text.
+   */
+  static function addExternField(buffer: StringBuf, label: String,
+      field: ClassField): Void {
+    final own = metaText(field.meta) + anonymousText(field.type);
+    final inner = new StringBuf();
+    var index = 0;
+    for (signature in field.overloads.get()) {
+      final text = metaText(signature.meta) + anonymousText(signature.type);
+      if (text.length > 0)
+        inner.add(' $index$text');
+      index++;
+    }
+    final overloads = inner.toString();
+    if (own.length > 0 || overloads.length > 0)
+      buffer.add(' $label:${field.name}$own$overloads');
   }
 
   static function addMeta(buffer: StringBuf, meta: MetaAccess): Void {
@@ -222,8 +377,11 @@ class ModuleFingerprint {
    * Example: ` @:keep @:ts.returnType("string | null")`.
    */
   public static function metaText(meta: MetaAccess): String {
+    final all = meta.get();
+    if (all.length == 0)
+      return '';
     final entries = new Map<String, Bool>();
-    for (entry in meta.get())
+    for (entry in all)
       if (!EXCLUDED_META.exists(entry.name))
         entries.set(metaEntryText(entry), true);
     final texts = [for (text in entries.keys()) text];

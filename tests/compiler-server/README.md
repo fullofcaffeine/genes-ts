@@ -335,6 +335,9 @@ before stored output may be replayed, each case with made-up inputs:
    `genes.incremental` reads an excluded name, except `Generator.needsGen`
    for `:genes.generate` on the classic path. Every literal
    `addFeature("...")` of the Genes sources is in `EMISSION_FEATURES`.
+   The same holds for a field of an extern-only module and for a field of
+   an anonymous structure, in a typedef body or in the type of a class
+   field (genes-f8vc.9.24, L1 and L2 of the round-3 review of #244).
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the

@@ -249,7 +249,11 @@ class CleanRuleProbe {
    * (`ModuleFingerprint.metaText`), as a set: each change of a name or an
    * argument on a field, a class, an enum constructor, an abstract or a
    * typedef changes the text; an entry added twice, in another order, or a
-   * left-out name does not. The cases change the metadata of fixture types
+   * left-out name does not. The same holds for the fields of an extern-only
+   * module (`ModuleFingerprint.ofExtern`, L1 of genes-f8vc.9.24) and for the
+   * fields of anonymous structures in a typedef body and in class field
+   * types (`ModuleFingerprint.anonymousText`, L2). The cases change the
+   * metadata of fixture types
    * in this compiler process only (the probe runs with `--no-output`) and
    * remove it again.
    */
@@ -262,9 +266,10 @@ class CleanRuleProbe {
       }
     ];
     function cycle(name: String, type: haxe.macro.Type,
-        meta: haxe.macro.Type.MetaAccess): Void {
-      final print = () -> genes.incremental.ModuleFingerprint.of([type], [],
-        []);
+        meta: haxe.macro.Type.MetaAccess, ?externOnly: Bool): Void {
+      final print = () ->
+        externOnly == true ? genes.incremental.ModuleFingerprint.ofExtern([type]) : genes.incremental.ModuleFingerprint.of([type],
+          [], []);
       final before = print();
       meta.add(':probe.mark', arg('a'), pos);
       final marked = print();
@@ -316,6 +321,78 @@ class CleanRuleProbe {
         cycle('typedef', bag, ref.get().meta);
       default:
         fail('metadata fingerprint', 'typedef inc.Env.Bag', Std.string(bag));
+    }
+    // genes-f8vc.9.24, L1: the fields of an extern-only module.
+    final api = Context.getType('inc.ExtApi');
+    switch api {
+      case TInst(ref, _):
+        cycle('extern class', api, ref.get().meta, true);
+        for (field in ref.get().statics.get())
+          if (field.name == 'parseInt')
+            cycle('extern static field', api, field.meta, true);
+      default:
+        fail('metadata fingerprint', 'extern class inc.ExtApi',
+          Std.string(api));
+    }
+    // genes-f8vc.9.24, L2: the fields of anonymous structures, in a typedef
+    // body and in each place of a class field type.
+    function anonymousField(owner: String, type: haxe.macro.Type,
+        name: String): Null<haxe.macro.Type.ClassField> {
+      return switch type {
+        case TAnonymous(ref):
+          var found: Null<haxe.macro.Type.ClassField> = null;
+          for (field in ref.get().fields)
+            if (field.name == name)
+              found = field;
+          found;
+        case TInst(_, [param]): anonymousField(owner, param, name);
+        case TFun(args, result):
+          var found = anonymousField(owner, result, name);
+          for (arg in args)
+            if (found == null)
+              found = anonymousField(owner, arg.t, name);
+          found;
+        case TLazy(get): anonymousField(owner, get(), name);
+        default: null;
+      }
+    }
+    function anonymousCycle(label: String, owner: haxe.macro.Type,
+        type: haxe.macro.Type, name: String): Void {
+      final field = anonymousField(label, type, name);
+      if (field == null)
+        fail('metadata fingerprint', '$label: anonymous field $name', 'none');
+      else
+        cycle(label, owner, field.meta);
+    }
+    final chain = Context.getType('inc.Chain.ChainB');
+    switch chain {
+      case TType(ref, _):
+        anonymousCycle('typedef anonymous field', chain, ref.get().type, 'x');
+      default:
+        fail('metadata fingerprint', 'typedef inc.Chain.ChainB',
+          Std.string(chain));
+    }
+    final anonSig = Context.getType('inc.AnonSig');
+    switch anonSig {
+      case TInst(ref, _):
+        for (field in ref.get().statics.get())
+          switch field.name {
+            case 'point':
+              anonymousCycle('anonymous field in a variable type', anonSig,
+                field.type, 'x');
+            case 'take':
+              anonymousCycle('anonymous field in an argument', anonSig,
+                field.type, 'y');
+            case 'make':
+              anonymousCycle('anonymous field in a result', anonSig,
+                field.type, 'z');
+            case 'rows':
+              anonymousCycle('anonymous field in a type argument', anonSig,
+                field.type, 'w');
+            default:
+          }
+      default:
+        fail('metadata fingerprint', 'class inc.AnonSig', Std.string(anonSig));
     }
   }
 

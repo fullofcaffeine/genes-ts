@@ -652,9 +652,8 @@ class IncrementalShadow {
         continue;
       // A module of extern classes only (most of the `js.*` standard
       // library) never gets an output file. Other modules print what its
-      // class metadata says, so rule 6 reads that metadata; reading the
-      // field lists of these externs was most of the cost, so they are left
-      // out (`ModuleFingerprint.ofExtern`).
+      // class and field metadata says, so rule 6 reads it
+      // (`ModuleFingerprint.ofExtern`: a shorter text than `of`).
       if (list.foreach(isExternClass)) {
         shadow.fingerprints.set(module, ModuleFingerprint.ofExtern(list));
         continue;
