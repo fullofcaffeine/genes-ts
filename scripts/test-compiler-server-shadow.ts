@@ -38,7 +38,9 @@
  * a request with no edit replays nothing or leaves a clean module unreplayed,
  * so it cannot pass with an empty replay. `--only=<regex>` runs the first
  * request and the matching edits only; `--skip-plain` skips the warm server
- * without the define (G0, G2). Both end with a `partial` line.
+ * without the define (G0, G2); `--skip-probe` skips `CleanRuleProbe` (for a
+ * run with a guard switched off by hand, whose probe case would fail first).
+ * Each of them ends with a `partial` line.
  *
  * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
  * the output lines of the session key (no absolute output path), the clean
@@ -106,7 +108,8 @@ const options = (() => {
   return {
     modes: modes as GenerationMode[],
     only: only === undefined ? null : new RegExp(only),
-    skipPlain: process.argv.includes("--skip-plain")
+    skipPlain: process.argv.includes("--skip-plain"),
+    skipProbe: process.argv.includes("--skip-probe")
   };
 })();
 
@@ -1026,7 +1029,9 @@ async function main(): Promise<void> {
     resetState(mode);
     const compiler = selectedHaxeCompiler(repoRoot);
     if (probeLine.length === 0)
-      probeLine = await assertCleanRuleProbe(compiler);
+      probeLine = options.skipProbe
+        ? "clean-rule probe skipped"
+        : await assertCleanRuleProbe(compiler);
     results.push(await runPass(mode, compiler));
   }
   const loadAtEnd = loadavg()[0] ?? 0;
@@ -1036,7 +1041,8 @@ async function main(): Promise<void> {
   writeFileSync(path.join(tempRoot, "summary.json"),
     JSON.stringify({ loadAtStart, loadAtEnd, results }, null, 2));
   printTimeComparison(results);
-  const partial = options.only !== null || options.skipPlain;
+  const partial = options.only !== null || options.skipPlain
+    || options.skipProbe;
   const counts = results.map((result) =>
     `${result.mode}: ${result.edits} edits, ${result.replayed} replayed modules`)
     .join("; ");
