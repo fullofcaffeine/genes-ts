@@ -28,8 +28,7 @@ function expectedLegacySequence(selection: AcceptanceSelection): ReadonlyArray<A
     nodeGate("genes-ts-full", "scripts/dist/test-genes-ts-full.js"),
     nodeGate("dynamic-import-policy", "scripts/dist/test-dynamic-import-policy.js"),
     ...(selection.skipCompilerServer ? [] : [
-      nodeGate("compiler-server", "scripts/dist/test-compiler-server.js"),
-      nodeGate("compiler-server-shadow", "scripts/dist/test-compiler-server-shadow.js")
+      nodeGate("compiler-server", "scripts/dist/test-compiler-server.js")
     ]),
     nodeGate("genes-tsx", "scripts/dist/test-genes-tsx.js"),
     nodeGate("package-shapes", "scripts/dist/test-package-shapes.js"),

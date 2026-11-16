@@ -2421,9 +2421,7 @@
       "artifacts": [
         ".tmp/test-evidence/test-plan/compiler-server-shadow.log"
       ],
-      "remoteJobs": [
-        "genes-ts"
-      ]
+      "remoteJobs": []
     },
     {
       "id": "compile-stage-report",

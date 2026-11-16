@@ -634,6 +634,11 @@ yarn benchmark:dependency-plan # report-only scaling experiment for large import
 yarn benchmark:compile-stages # machine-readable cold/warm compiler attribution
 ```
 
+`yarn test:compiler-server:shadow` is a local gate: no hosted job runs it,
+because both modes take longer than one acceptance shard allows. A pull
+request that changes Stage 3 incremental generation runs it locally in both
+modes and records the result; a trimmed hosted shard for it is a follow-up.
+
 Direct builds are the correctness baseline. They prove that a clean compiler
 process can type, plan, emit, publish, type-check, and run the requested
 profile. The compiler-server gate answers a different question: whether those

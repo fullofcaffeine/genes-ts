@@ -232,8 +232,8 @@ and the complete server matrix.
 ## Incremental-generation shadow and replay gates
 
 `yarn test:compiler-server:shadow` runs `scripts/test-compiler-server-shadow.ts`.
-It is its own gate (acceptance shard `compiler`, routing id
-`compiler-server-shadow`); `yarn test:compiler-server` no longer runs it. It
+It is its own local gate (routing id `compiler-server-shadow`, with no hosted
+job); `yarn test:compiler-server` no longer runs it. It
 copies `templates/incremental` and applies a fixed list of about 80 scripted
 edits: bodies of modules with no, few and many importers, signature and
 inline constant changes, the first and last use of a method that dead-code

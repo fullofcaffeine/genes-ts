@@ -343,7 +343,11 @@ function main(): void {
     ].join(" "),
       `${id}.command must remain locally reproducible from its package script`);
     stringArray(gate.artifacts, `${id}.artifacts`);
-    const remoteJobs = stringArray(gate.remoteJobs, `${id}.remoteJobs`);
+    // An empty list marks a local gate: no hosted job runs it, and the
+    // owning change runs it locally before merge and records the result
+    // (today `compiler-server-shadow`). It never names a job that does not
+    // run the gate.
+    const remoteJobs = stringArray(gate.remoteJobs, `${id}.remoteJobs`, true);
     enumValues(remoteJobs, validRemoteJobs, `${id}.remoteJobs`);
     text(gate.proves, `${id}.proves`);
     text(gate.doesNotProve, `${id}.doesNotProve`);
