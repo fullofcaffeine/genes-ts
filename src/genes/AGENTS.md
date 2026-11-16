@@ -94,7 +94,25 @@ maps fixture locations to compiler surfaces.
   nullish semantics, flow proof, or output ownership.
 - Validation that can fail should run before public output is committed.
 - Compilation-server correctness requires request-local typed facts or an
-  explicit reset/rebuild rule; never persist typed compiler objects casually.
+  explicit reset/rebuild rule. A typed compiler object is a `Type`, a typed
+  expression, a declaration or field record or reference, or a local
+  variable. An owner that holds one in process state must replace that state
+  at the start of every request, before the first consumer. Only one owner
+  may give a typed compiler object to a later request:
+  `genes.incremental.KeptBuckets`, and only when its keep rule holds. The
+  request must be eligible (`-D genes.dev_incremental`, Haxe 4.3.7, no
+  display request, no `@:rtti` class). The session key must be the same. The
+  declaration must carry one stamp that names it, equal to the stamp of the
+  bucket. The same-object test must pass. For a class the member list must
+  be the same. `genes.incremental.GenerationChangeSet` owns that rule. A
+  pass gives its values to `KeptBuckets.write` and reads them back only
+  through `KeptBuckets.kept`; it never keeps them in a map of its own, and
+  it never writes through a kept value. A new pass that keeps typed values
+  needs a compare mode, the gates of `yarn test:compiler-server:after-typing`
+  (warm equals cold with reuse on, kept buckets above 0, zero compare
+  failures) and a row in the state-owner ledger of `docs/ARCHITECTURE.md`.
+  Example: `genes.ts.SignatureCache` keeps the facts of each declaration as
+  one bucket and builds its maps again in every request.
 - Code that can run during generation must not look up a module or type by
   name. `Context.getModule` and `Context.getType` make Haxe record a
   dependency from an unrelated module, and the compilation server keeps it.

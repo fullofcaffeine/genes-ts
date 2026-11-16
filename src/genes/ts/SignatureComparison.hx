@@ -1,0 +1,207 @@
+package genes.ts;
+
+#if macro
+import genes.incremental.KeptRecords;
+import genes.ts.SignatureCache.CachedSig;
+import genes.ts.SignatureFacts.SignatureFact;
+import haxe.macro.Type;
+
+using haxe.macro.TypeTools;
+
+/**
+ * The compare mode of `SignatureCache`: for each question that the
+ * generator asks, it compares the answer of the kept buckets with the answer
+ * of a new capture of this request, and counts each difference.
+ *
+ * Why: with `-D genes.dev_incremental` and `afterTyping: "reuse"`,
+ * `SignatureCache` answers from buckets that it made in earlier requests. A
+ * wrong keep rule would give stale TypeScript. The compare mode
+ * (`afterTyping: "compare"`) finds such a bucket without any risk for the
+ * output: the request captures every declaration again and the generator
+ * gets those new answers, as with reuse off.
+ *
+ * What: `kept` is the set of maps that a request with reuse on would have:
+ * the facts of each kept bucket, and the new facts of each declaration
+ * without a kept bucket, in declaration order. Each getter of
+ * `SignatureCache` gives both answers to one of the functions here. A
+ * question is compared once for each key. Two `Type` values are equal when
+ * Haxe prints the same text for them at the time of the question.
+ *
+ * A difference is a failure (a defect of the keep rule), with one exception
+ * that has a known cause and is counted as explained. All three conditions
+ * must hold:
+ *
+ * - the question is about a local variable;
+ * - the kept bucket has no answer and the new capture has one;
+ * - the kept bucket of the declaration that owns the variable was made in
+ *   the request in which Haxe typed that declaration (a first read).
+ *
+ * Why this shape: Haxe changes each typed body after the after-typing
+ * callbacks (for example, it replaces an inline object with one local for
+ * each field) and saves the changed body. The first read is the body before
+ * that change, which is also what a build in a new compiler process reads.
+ * The new capture of a later request reads the changed body, so it can have
+ * a fact for a local that only the changed body has. A local that both reads
+ * saw must have the same answer in both. Example: with an inline
+ * constructor, `final phases = new Phases([Draft, Done])` becomes the local
+ * `phases_all: Array<Phase>`; the new capture has a fact for it, the kept
+ * bucket and a cold build have none.
+ *
+ * Every other shape is a failure: a kept answer that differs from the new
+ * one (kept `T1`, new `T2`), a kept answer with no new answer, and any
+ * difference for a bucket that is not a first read.
+ *
+ * Limit: under the `Retype` module check policy, Haxe types a module again
+ * in the same class object, with new local ids, and the stamp stays. The
+ * new locals then have exactly this explained shape. That policy is not
+ * supported (see "Retype is unsupported" in
+ * `docs/INCREMENTAL_AFTER_TYPING.md`), and this exception does not detect
+ * it.
+ *
+ * It keeps no value after the request: `SignatureCache.install()` drops it.
+ */
+class SignatureComparison {
+  /** The maps that a request with reuse on would answer from. */
+  public final kept = new SignatureFacts();
+
+  final counts: KeptRecords;
+  final keptLocalOwners: Map<Int, String> = new Map();
+  final newLocalOwners: Map<Int, String> = new Map();
+  final earlierFirstReads: Map<String, Bool> = new Map();
+  final compared: Map<String, Bool> = new Map();
+
+  /** `counts` receives the number of compared questions and each difference. */
+  public function new(counts: KeptRecords) {
+    this.counts = counts;
+  }
+
+  /**
+   * Puts the facts of the bucket of declaration `owner` into `kept`.
+   * `earlierFirstRead` is true when the bucket was made in an earlier
+   * request, in which Haxe typed the declaration.
+   */
+  public function replay(owner: String, bucket: Array<SignatureFact>,
+      earlierFirstRead: Bool): Void {
+    if (earlierFirstRead)
+      earlierFirstReads.set(owner, true);
+    for (fact in bucket) {
+      kept.put(fact);
+      switch fact {
+        case LocalSourceType(id, _) | DirectEnumLocalSourceType(id, _):
+          keptLocalOwners.set(id, owner);
+        default:
+      }
+    }
+  }
+
+  /** Notes which declaration owns the local variable of a new fact. */
+  public function noteNew(owner: String, fact: SignatureFact): Void {
+    switch fact {
+      case LocalSourceType(id, _) | DirectEnumLocalSourceType(id, _):
+        newLocalOwners.set(id, owner);
+      default:
+    }
+  }
+
+  /** Compares two text answers, for example a literal spelling. */
+  public function texts(query: String, key: String, keptAnswer: Null<String>,
+      newAnswer: Null<String>): Void {
+    if (first(query, key) && keptAnswer != newAnswer)
+      counts.countCompareFailure(difference(query, key, textOf(keptAnswer),
+        textOf(newAnswer)));
+  }
+
+  /** Compares two type answers by the text that Haxe prints for them. */
+  public function types(query: String, key: String, keptAnswer: Null<Type>,
+      newAnswer: Null<Type>): Void {
+    if (!first(query, key))
+      return;
+    final keptText = typeText(keptAnswer);
+    final newText = typeText(newAnswer);
+    if (keptText != newText)
+      counts.countCompareFailure(difference(query, key, keptText, newText));
+  }
+
+  /** Compares two signature answers: each flag, spelling and type. */
+  public function sigs(key: String, keptAnswer: Null<CachedSig>,
+      newAnswer: Null<CachedSig>): Void {
+    if (!first('sig', key))
+      return;
+    final keptText = sigText(keptAnswer);
+    final newText = sigText(newAnswer);
+    if (keptText != newText)
+      counts.countCompareFailure(difference('sig', key, keptText, newText));
+  }
+
+  /**
+   * Compares two answers about the local variable `id`. A difference is
+   * explained only when the kept answer is `null`, the new answer is not,
+   * and the kept bucket of the owner is the first read of an earlier request
+   * that typed the owner (see the class comment). Every other difference is
+   * a failure.
+   */
+  public function locals(query: String, id: Int, keptAnswer: Null<Type>,
+      newAnswer: Null<Type>): Void {
+    if (!first(query, Std.string(id)))
+      return;
+    final keptText = typeText(keptAnswer);
+    final newText = typeText(newAnswer);
+    if (keptText == newText)
+      return;
+    final owner = keptLocalOwners.get(id) ?? newLocalOwners.get(id);
+    final text = difference(query,
+      '$id of ${owner == null ? 'an unknown declaration' : owner}', keptText,
+      newText);
+    if (keptAnswer == null
+      && newAnswer != null
+      && owner != null
+      && earlierFirstReads.exists(owner))
+      counts.countCompareExplained(text);
+    else
+      counts.countCompareFailure(text);
+  }
+
+  /** Returns true the first time that this question is asked in the request. */
+  function first(query: String, key: String): Bool {
+    final id = query + ' ' + key;
+    if (compared.exists(id))
+      return false;
+    compared.set(id, true);
+    counts.countCompareQuery();
+    return true;
+  }
+
+  static function difference(query: String, key: String, keptText: String,
+      newText: String): String {
+    return '$query $key: kept $keptText; new capture $newText';
+  }
+
+  static function textOf(value: Null<String>): String {
+    return value == null ? 'none' : value;
+  }
+
+  static function typeText(type: Null<Type>): String {
+    return type == null ? 'none' : type.toString();
+  }
+
+  static function sigText(sig: Null<CachedSig>): String {
+    if (sig == null)
+      return 'none';
+    final args = [
+      for (arg in sig.args)
+        (arg.opt ? '?' : '')
+        + (arg.allowsNull ? 'N' : '')
+        + (arg.preservesUndefined ? 'U' : '')
+        + ' '
+        + textOf(arg.tsType)
+        + ' '
+        + typeText(arg.sourceType)];
+    return '('
+      + args.join(', ')
+      + ') -> '
+      + textOf(sig.retTsType)
+      + ' '
+      + typeText(sig.retSourceType);
+  }
+}
+#end

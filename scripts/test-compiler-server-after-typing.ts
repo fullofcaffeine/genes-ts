@@ -106,6 +106,7 @@ type PassReport = {
     readonly typedAgain: number;
     readonly stampNamesOtherDeclaration: number;
     readonly stampDiffers: number;
+    readonly otherObject: number;
     readonly membersChanged: number;
   };
   readonly rejectExamples: ReadonlyArray<{
@@ -116,7 +117,16 @@ type PassReport = {
   readonly worked: number;
   readonly written: number;
   readonly compareFailures: ReadonlyArray<string>;
+  readonly compareFailureCount: number;
+  readonly compareQueries: number;
+  readonly compareExplained: number;
+  readonly compareExplainedExamples: ReadonlyArray<string>;
   readonly sameObjectTested: number;
+  readonly sameObjectMs: number;
+  readonly agedOut: number;
+  readonly uncommitted: number;
+  readonly replayMs: number;
+  readonly fullWork: string | null;
   readonly decisionMs: number;
   readonly workMs: number;
 };
@@ -173,8 +183,54 @@ type Step = {
   readonly restarts?: boolean;
   /** True when only the session's program digest changed: every record is dropped. */
   readonly dropsSession?: boolean;
-  /** Rejects that the React audit report must list, as `key` and `reason`. */
+  /**
+   * Rejects that the report of each pass must list, as `key` and `reason`:
+   * the plain records of the React audit and the buckets of
+   * `SignatureCache`.
+   */
   readonly rejects?: ReadonlyArray<readonly [string, string]>;
+  /**
+   * Rejects that only the report of `SignatureCache` must list. A bucket
+   * holds typed values and gets the same-object test; a plain record of the
+   * React audit does not.
+   */
+  readonly bucketRejects?: ReadonlyArray<readonly [string, string]>;
+  /**
+   * True when a type of the program is nested deeper than the walk limit of
+   * `SignatureCache`. Its declaration then gets no bucket, and a request
+   * with reuse on that puts buckets back must capture every declaration
+   * again.
+   */
+  readonly deepType?: boolean;
+  /**
+   * A text that names a declaration with an explained difference. In
+   * `compare`, a request of this step must count explained differences, and
+   * one example must contain this text. Such a difference is a fact about a
+   * local that only the new capture has, of a declaration whose kept bucket
+   * is the first read (see `SignatureComparison`). The row proves that the
+   * gate reaches that branch.
+   */
+  readonly explains?: string;
+  /**
+   * A step where the warm build of today (`plain`, without the define)
+   * differs from a cold build. `files` are the output files that differ.
+   * `measure` and `compare` capture every declaration in the request, as
+   * `plain` does, so their trees must equal the plain warm tree. `reuse`
+   * must equal the tree that `reuse` names: `plain` when the kept bucket
+   * gives the same answers as a new capture, `cold` when the kept bucket is
+   * the first read and so gives the answers of a cold build. A step with
+   * this field needs the plain mode.
+   */
+  readonly warmDiffersFromCold?: {
+    readonly files: ReadonlyArray<string>;
+    readonly reuse: "cold" | "plain";
+  };
+  /**
+   * True when the request after a failed one must drop records of the
+   * failed request (the commit step of `KeptRecords`): the signature cache
+   * must report them as uncommitted.
+   */
+  readonly dropsUncommitted?: boolean;
   /** The exact fixture modules that Haxe must type again, without the package. */
   readonly typesAgain?: ReadonlyArray<string>;
 };
@@ -363,6 +419,21 @@ class Lane {
   }
 }
 
+/** Returns the paths whose content differs between two trees, or that one lacks. */
+function differingPaths(
+  left: ReadonlyArray<TreeEntry>,
+  right: ReadonlyArray<TreeEntry>
+): ReadonlyArray<string> {
+  const rightByPath = new Map(right.map((entry) => [entry.path, entry.sha256]));
+  const leftPaths = new Set(left.map((entry) => entry.path));
+  return [
+    ...left.filter((entry) => rightByPath.get(entry.path) !== entry.sha256)
+      .map((entry) => entry.path),
+    ...right.filter((entry) => !leftPaths.has(entry.path))
+      .map((entry) => entry.path)
+  ].sort();
+}
+
 function resultText(result: ProcessResult): string {
   return `${result.stdout}${result.stderr}`;
 }
@@ -388,11 +459,123 @@ function assertDiagnostics(where: string, step: Step, result: ProcessResult): vo
   }
 }
 
+const passNames = ["reactAudit", "signatureCache"] as const;
+type PassName = (typeof passNames)[number];
+
+/** Returns the report of one pass, or fails. */
+function passOf(
+  report: AfterTypingReport,
+  name: PassName,
+  where: string
+): PassReport {
+  const pass = report.passes.find((entry) => entry.pass === name);
+  ok(pass !== undefined, `${where}: the report has no ${name} pass`);
+  return pass;
+}
+
 /** Returns the report of the React audit pass, or fails. */
 function auditOf(report: AfterTypingReport, where: string): PassReport {
-  const pass = report.passes.find((entry) => entry.pass === "reactAudit");
-  ok(pass !== undefined, `${where}: the report has no React audit pass`);
-  return pass;
+  return passOf(report, "reactAudit", where);
+}
+
+/**
+ * Checks the report of `SignatureCache`, the pass that keeps typed values
+ * in buckets: one keep decision for each declaration, a same-object test
+ * for each bucket whose stamp agrees, and no wrong answer in compare mode.
+ */
+function assertSignatureBuckets(
+  where: string,
+  mode: Exclude<WarmMode, "plain">,
+  step: Step,
+  report: AfterTypingReport,
+  settledNow: boolean
+): void {
+  const pass = passOf(report, "signatureCache", where);
+  strictEqual(pass.kept + pass.rejected, report.declarations,
+    `${where}: not every declaration got a keep decision of SignatureCache`);
+  strictEqual(
+    pass.sameObjectTested,
+    pass.kept + pass.rejectedByReason.otherObject
+      + pass.rejectedByReason.membersChanged,
+    `${where}: a bucket with an equal stamp had no same-object test`
+  );
+  strictEqual(
+    pass.rejectedByReason.otherObject,
+    (step.bucketRejects ?? []).filter(([, reason]) =>
+      reason === "otherObject").length,
+    `${where}: the same-object test rejected other buckets than expected: `
+    + JSON.stringify(pass.rejectExamples)
+  );
+  deepStrictEqual(pass.compareFailures, [],
+    `${where}: a kept SignatureCache bucket answers differently from a new capture`);
+  strictEqual(pass.compareFailureCount, 0, `${where}: compare failures`);
+  const withoutBucket = step.deepType === true ? 1 : 0;
+  if (mode === "reuse" && step.deepType === true && pass.kept > 0) {
+    ok(pass.fullWork !== null && pass.fullWork.includes("nested deeper"),
+      `${where}: reuse put buckets back beside a capture that reached the `
+      + "walk limit, and did not capture every declaration again");
+  } else {
+    strictEqual(pass.fullWork, null, `${where}: ${pass.fullWork ?? ""}`);
+  }
+  if (mode === "reuse") {
+    strictEqual(pass.skipped, pass.kept,
+      `${where}: reuse did not put back exactly the kept buckets`);
+    strictEqual(pass.worked, pass.rejected,
+      `${where}: reuse did not capture exactly the rejected declarations`);
+    strictEqual(pass.compareQueries, 0, `${where}: reuse compared answers`);
+  } else {
+    strictEqual(pass.skipped, 0, `${where}: ${mode} skipped a capture`);
+    strictEqual(pass.worked, report.declarations,
+      `${where}: ${mode} did not capture every declaration`);
+  }
+  strictEqual(pass.written, pass.rejected - withoutBucket,
+    `${where}: SignatureCache wrote a bucket for a kept declaration, or `
+    + "none for a rejected one");
+  if (step.restarts === true) {
+    strictEqual(pass.kept, 0, `${where}: a bucket survived other -D values`);
+  }
+  if (step.dropsSession === true) {
+    strictEqual(pass.kept, 0,
+      `${where}: a bucket was kept across another session key`);
+  }
+  if (settledNow) {
+    ok(pass.kept > 0, `${where}: the gate would pass empty: no bucket was kept`);
+    strictEqual(pass.kept, report.declarations - withoutBucket,
+      `${where}: not every bucket was kept`);
+    ok(pass.sameObjectTested > 0,
+      `${where}: the gate would pass empty: no same-object test ran`);
+    if (mode === "reuse") {
+      ok(pass.skipped > 0,
+        `${where}: the gate would pass empty: no capture was skipped`);
+    }
+    if (mode === "compare") {
+      ok(pass.compareQueries > 0,
+        `${where}: the gate would pass empty: compare mode compared no answer`);
+    }
+  }
+  if (mode === "compare" && step.explains !== undefined) {
+    const explains = step.explains;
+    ok(pass.compareExplained > 0,
+      `${where}: the gate does not reach the explained differences`);
+    ok(pass.compareExplainedExamples.some((example) =>
+      example.includes(explains) && example.includes(": kept none; ")),
+    `${where}: no explained difference of ${explains} with no kept answer: `
+      + JSON.stringify(pass.compareExplainedExamples));
+  }
+  if (step.typesAgain !== undefined) {
+    ok(pass.kept > 0, `${where}: an edit of some modules kept no bucket`);
+  }
+  for (const [key, reason] of [
+    ...(step.rejects ?? []),
+    ...(step.bucketRejects ?? [])
+  ]) {
+    ok(
+      pass.rejectExamples.some((entry) =>
+        entry.key === key && entry.reason === reason),
+      `${where}: SignatureCache did not reject the bucket of ${key} for `
+      + `${reason}: ${JSON.stringify(pass.rejectExamples)}`
+    );
+  }
 }
 
 /** Checks one warm report against the mode and the step. */
@@ -401,9 +584,23 @@ function assertReport(
   mode: Exclude<WarmMode, "plain">,
   step: Step,
   report: AfterTypingReport,
-  settledNow: boolean
+  settledNow: boolean,
+  afterFailure: boolean
 ): void {
   const where = `${lane.config.name} ${mode} "${step.id}"`;
+  // Only a request that follows a failed one can find records without the
+  // commit of their request.
+  for (const pass of report.passes) {
+    if (!afterFailure) {
+      strictEqual(pass.uncommitted, 0,
+        `${where}: ${pass.pass} dropped records although the request before `
+        + "did not fail");
+    }
+  }
+  if (step.dropsUncommitted === true) {
+    ok(passOf(report, "signatureCache", where).uncommitted > 0,
+      `${where}: the records of the failed request were not dropped`);
+  }
   strictEqual(report.mode, mode, `${where}: ${report.reason ?? "wrong mode"}`);
   strictEqual(report.passesComplete, true, `${where}: the passes did not end`);
   const audit = auditOf(report, where);
@@ -463,6 +660,7 @@ function assertReport(
       + JSON.stringify(audit.rejectExamples)
     );
   }
+  assertSignatureBuckets(where, mode, step, report, settledNow);
 }
 
 /** Runs every step of one fixture in the cold oracle and on the warm servers. */
@@ -480,6 +678,9 @@ async function runLane(
   try {
     let coldTree: ReadonlyArray<TreeEntry> = [];
     let coldDiagnostics = "";
+    // The plain warm tree of the current step, for a step whose warm result
+    // differs from cold in Haxe itself (`warmDiffersFromCold`).
+    let plainTree: ReadonlyArray<TreeEntry> | null = null;
     for (const [index, step] of config.steps.entries()) {
       step.apply?.(lane);
       // A step with no edit has the cold result of the step before it.
@@ -506,6 +707,7 @@ async function runLane(
         coldTree = hashTree(lane.outputRoot("cold"));
         ok(coldTree.length > 0, `Cold "${step.id}" published no file`);
       }
+      plainTree = null;
       for (const mode of warmModes) {
         const server = servers.get(mode);
         ok(server !== undefined);
@@ -523,6 +725,8 @@ async function runLane(
           );
           ok(!resultText(warm).includes("GENES-INCREMENTAL-AUDIT-001"),
             `${where}: compare mode found a wrong record\n${resultText(warm)}`);
+          ok(!resultText(warm).includes("GENES-INCREMENTAL-COMPARE-001"),
+            `${where}: compare mode found a wrong bucket\n${resultText(warm)}`);
           if (step.fails === undefined) {
             ok(warm.code === 0,
               `${where} failed\n${resultText(warm)}\nserver:\n${server.logs}`);
@@ -531,8 +735,25 @@ async function runLane(
             strictEqual(warm.stderr, coldDiagnostics,
               `${where}: the diagnostics differ from the cold build`);
           }
-          deepStrictEqual(hashTree(lane.outputRoot(mode)), coldTree,
-            `${where}: the warm tree differs from the cold tree`);
+          const warmTree = hashTree(lane.outputRoot(mode));
+          const differs = step.warmDiffersFromCold;
+          if (differs === undefined) {
+            deepStrictEqual(warmTree, coldTree,
+              `${where}: the warm tree differs from the cold tree`);
+          } else if (mode === "plain") {
+            // The row checks that the difference of today is still there, so
+            // that it is noticed when Haxe or Genes repairs it.
+            deepStrictEqual(differingPaths(warmTree, coldTree), differs.files,
+              `${where}: the plain warm tree differs from cold in other files `
+              + "than the step expects");
+            plainTree = warmTree;
+          } else {
+            ok(plainTree !== null,
+              `${where}: this step needs the plain mode as its oracle`);
+            const oracle = mode === "reuse" ? differs.reuse : "plain";
+            deepStrictEqual(warmTree, oracle === "cold" ? coldTree : plainTree,
+              `${where}: the warm tree differs from the ${oracle} tree`);
+          }
           if (mode === "plain") {
             settledNow = true;
             continue;
@@ -562,13 +783,25 @@ async function runLane(
             for (const pass of report.passes) {
               deepStrictEqual(pass.compareFailures, [], `${where}: wrong record`);
             }
+            // A failing step can name the buckets that its request replaced,
+            // to show that the failed request wrote them.
+            const cache = report.passes.find((pass) =>
+              pass.pass === "signatureCache");
+            for (const [key, reason] of step.bucketRejects ?? []) {
+              ok(cache !== undefined && cache.rejectExamples.some((entry) =>
+                entry.key === key && entry.reason === reason),
+              `${where}: the failed request did not reject the bucket of ${key} `
+                + `for ${reason}: ${JSON.stringify(cache?.rejectExamples)}`);
+            }
             settledNow = true;
             continue;
           }
           settledNow = step.settled !== true
             || (report.typedAgain === 0 && report.foreignStamps === 0);
           if (settledNow || attempt === attempts) {
-            assertReport(lane, mode, step, report, step.settled === true);
+            assertReport(lane, mode, step, report, step.settled === true,
+              attempt === 1 && index > 0
+              && config.steps[index - 1]?.fails !== undefined);
             measurements.push({
               lane: config.name,
               mode,
@@ -682,6 +915,12 @@ const projectA: LaneConfig = {
 
 const genericOwner = "class:kepttypes.GenericOwner.GenericOwner";
 const clone = "class:kepttypes.Clone.Clone";
+const twin = "class:kepttypes.Twin.Twin";
+
+/** A type with 66 levels: two more than the walk of `SignatureCache` reads. */
+const deepType = `${"Array<".repeat(66)}Int${">".repeat(66)}`;
+const loneLabel = '  public static var label: String = "lone-v3";\n';
+const loneDeep = `${loneLabel}  public static var deep: ${deepType} = [];\n`;
 
 /**
  * The fixture of `yarn test:compiler-server:kept-types`, with its edit list:
@@ -698,7 +937,8 @@ const keptTypes: LaneConfig = {
     "kepttypes.MacroBuilt",
     "kepttypes.GenericUser",
     "kepttypes.Cloner",
-    "kepttypes.RetypeUser"
+    "kepttypes.RetypeUser",
+    "kepttypes.Twinner"
   ],
   steps: [
     { id: "first request" },
@@ -725,6 +965,21 @@ const keptTypes: LaneConfig = {
       rejects: [[clone, "stampNamesOtherDeclaration"]]
     },
     { id: "no edit after E2", settled: true },
+    // The new `Twin` carries the stamp of the earlier `Twin`: it names the
+    // declaration, it equals the stamp of the bucket, and the member list is
+    // equal. Only the same-object test rejects the bucket. Its field type
+    // changed, so a kept bucket would give stale TypeScript.
+    {
+      id: "a macro-defined type with its own earlier stamp (Twin)",
+      apply: (lane) => lane.edit(
+        "kepttypes/Twinner.hx",
+        '@:twin("phase") // twin-kind',
+        '@:twin("text") // twin-kind'
+      ),
+      typesAgain: ["Twinner"],
+      bucketRejects: [[twin, "otherObject"]]
+    },
+    { id: "no edit after the Twin edit", settled: true },
     {
       id: "edit of a module that nothing imports (Lone)",
       apply: (lane) => lane.edit("kepttypes/Lone.hx", '"lone-v1"', '"lone-v2"'),
@@ -783,7 +1038,144 @@ const keptTypes: LaneConfig = {
       apply: (lane) => lane.edit("kepttypes/Lone.hx", "(1 : Int)", '"lone-v3"'),
       typesAgain: ["Lone"]
     },
+    { id: "no edit after the repair of Lone", settled: true },
+    // A capture that reaches the depth limit of the enum-abstract walk can
+    // depend on the declarations that were captured before it. Its
+    // declaration gets no bucket, and a request with reuse on captures every
+    // declaration again.
+    {
+      id: "a type nested deeper than the walk limit (Lone.deep)",
+      apply: (lane) => lane.edit("kepttypes/Lone.hx", loneLabel, loneDeep),
+      typesAgain: ["Lone"],
+      deepType: true
+    },
+    { id: "no edit with the deep type", settled: true, deepType: true },
+    {
+      id: "the deep type removed",
+      apply: (lane) => lane.edit("kepttypes/Lone.hx", loneDeep, loneLabel),
+      typesAgain: ["Lone"]
+    },
     { id: "last request, no edit", settled: true }
+  ]
+};
+
+const holderUserBody = "return 0; // holder-user-body";
+const holderUserBinds = "Holder.items.push(Phase.Done);\n"
+  + "    return Holder.keep(Phase.Draft) == Phase.Done ? 1 : 0; // holder-user-body";
+const holderFiles = ["kepttypes/Holder.ts", "kepttypes/Holder.ts.map"];
+const phaseMakerBody = "return GenericOwner.plain(); // phase-maker-body";
+const phaseMakerUses = "return GenericOwner.plain()"
+  + " + GenericOwner.make(Phase.Draft).length; // phase-maker-body";
+
+const looperFiles = ["kepttypes/Looper.ts", "kepttypes/Looper.ts.map"];
+
+/**
+ * The explained differences of `compare`, on the kept-types fixture.
+ *
+ * Haxe replaces the inline object of `Looper.done` after the after-typing
+ * callbacks, and saves the changed body. The first request reads the body
+ * before that change, as a cold build does: it has no local `phases_all`.
+ * Each later request reads the changed body with the local
+ * `phases_all: Array<Phase>`. So the warm build of today prints
+ * `("done" | "draft")[]` for it and a cold build prints `string[]`.
+ *
+ * In `compare` the kept bucket of `Looper` has no fact for the local and
+ * the new capture has one: an explained difference. `reuse` puts the first
+ * read back, so its tree equals the cold tree, not the plain warm tree.
+ */
+const explained: LaneConfig = {
+  name: "explained",
+  template: path.join(fixtureRoot, "templates/kept-types"),
+  main: "kepttypes.Main",
+  pack: "kepttypes",
+  modules: ["kepttypes.Looper"],
+  steps: [
+    { id: "first request" },
+    {
+      id: "no edit",
+      settled: true,
+      explains: "kepttypes.Looper",
+      warmDiffersFromCold: { files: looperFiles, reuse: "cold" }
+    },
+    {
+      id: "no edit again",
+      settled: true,
+      explains: "kepttypes.Looper",
+      warmDiffersFromCold: { files: looperFiles, reuse: "cold" }
+    }
+  ]
+};
+
+/**
+ * Two cases in which a declaration that Haxe does not type again can change
+ * after its bucket was made, on the kept-types fixture.
+ *
+ * - F2: the first use of `GenericOwner.make` with `Phase` comes in a request
+ *   that fails with a type error in `Lone`. Haxe adds `make_kepttypes_Phase`
+ *   to `GenericOwner` without typing the class again, and the after-typing
+ *   callbacks still run: the failed request writes a new bucket for
+ *   `GenericOwner`. Haxe keeps no module of the failed request, so the
+ *   repaired request makes the member again with other local ids, while
+ *   `GenericOwner` keeps its stamp and member list. Without the commit step
+ *   of `KeptRecords`, `reuse` kept that bucket and printed `string[]` where
+ *   a cold build prints `("done" | "draft")[]` for the local `list`.
+ * - F1: `Holder` has open types (monomorphs). An edit of `HolderUser`
+ *   fixes them to `Phase` from another module; Haxe does not type `Holder`
+ *   again. Haxe's own warm build then prints `any` for them, where a cold
+ *   build prints the `Phase` literals. A new capture of `Holder` in that
+ *   request reads the same open types as its kept bucket, so every mode
+ *   equals the plain warm tree: the bucket adds no difference.
+ */
+const lateFacts: LaneConfig = {
+  name: "late-facts",
+  template: path.join(fixtureRoot, "templates/kept-types"),
+  main: "kepttypes.Main",
+  pack: "kepttypes",
+  modules: [
+    "kepttypes.Lone",
+    "kepttypes.PhaseMaker",
+    "kepttypes.Holder",
+    "kepttypes.HolderUser"
+  ],
+  steps: [
+    { id: "first request" },
+    { id: "no edit", settled: true },
+    {
+      id: "F2: first use of make<Phase> in a request with a type error",
+      apply: (lane) => {
+        lane.edit("kepttypes/PhaseMaker.hx", phaseMakerBody, phaseMakerUses);
+        lane.edit("kepttypes/Lone.hx", '"lone-v1"', "(1 : Int)");
+      },
+      fails: ["Int should be String"],
+      // The failed request still runs the after-typing callbacks: the new
+      // member makes it replace the bucket of GenericOwner.
+      bucketRejects: [[genericOwner, "membersChanged"]]
+    },
+    {
+      id: "F2: the type error repaired",
+      apply: (lane) => lane.edit("kepttypes/Lone.hx", "(1 : Int)", '"lone-v2"'),
+      typesAgain: ["Lone", "PhaseMaker"],
+      // The commit step drops the bucket that the failed request wrote for
+      // GenericOwner, so the repaired request captures GenericOwner again.
+      dropsUncommitted: true
+    },
+    { id: "no edit after F2", settled: true },
+    // Haxe's own warm build does not see the fixed types of `Holder`: it
+    // prints `any` where a cold build prints the `Phase` literals. So F1
+    // stays the last case of the lane, and its rows compare each mode with
+    // the plain warm tree.
+    {
+      id: "F1: another module fixes the open types of Holder",
+      apply: (lane) => lane.edit("kepttypes/HolderUser.hx", holderUserBody,
+        holderUserBinds),
+      typesAgain: ["HolderUser"],
+      warmDiffersFromCold: { files: holderFiles, reuse: "plain" }
+    },
+    {
+      id: "no edit after F1",
+      settled: true,
+      warmDiffersFromCold: { files: holderFiles, reuse: "plain" }
+    }
   ]
 };
 
@@ -945,67 +1337,90 @@ function round(value: number): number {
 
 /** Prints the numbers of the gate: counts are exact, times are diagnostic. */
 function printSummary(): void {
-  for (const lane of [projectA.name, keptTypes.name]) {
-    for (const mode of warmModes) {
-      if (mode === "plain") continue;
-      const rows = measurements.filter((row) =>
-        row.lane === lane && row.mode === mode);
-      const audits = rows.map((row) => auditOf(row.report, `${lane} ${mode}`));
-      const reasons = {
-        noRecord: sum(audits.map((audit) => audit.rejectedByReason.noRecord)),
-        typedAgain: sum(audits.map((audit) => audit.rejectedByReason.typedAgain)),
-        stampNamesOtherDeclaration: sum(audits.map((audit) =>
-          audit.rejectedByReason.stampNamesOtherDeclaration)),
-        stampDiffers: sum(audits.map((audit) => audit.rejectedByReason.stampDiffers)),
-        membersChanged: sum(audits.map((audit) =>
-          audit.rejectedByReason.membersChanged))
-      };
-      process.stdout.write(
-        `after-typing | ${lane} | ${mode} | ${rows.length} successful requests | `
-        + `kept ${sum(audits.map((audit) => audit.kept))} | `
-        + `rejected ${sum(audits.map((audit) => audit.rejected))} `
-        + `${JSON.stringify(reasons)} | `
-        + `skipped audits ${sum(audits.map((audit) => audit.skipped))} | `
-        + `audited ${sum(audits.map((audit) => audit.worked))} | `
-        + `compare failures ${sum(audits.map((audit) =>
-          audit.compareFailures.length))}\n`
-      );
-    }
-    // The share that stays kept after an edit of one module.
-    for (const row of measurements) {
-      if (row.lane !== lane || row.mode !== "reuse" || !row.oneModuleEdit) continue;
-      const audit = auditOf(row.report, `${lane} reuse`);
-      process.stdout.write(
-        `after-typing | ${lane} | reuse | one-module edit "${row.step}" | `
-        + `${row.report.arrivedStamped} of ${row.report.declarations} `
-        + `declarations arrived with their stamp | kept ${audit.kept} of `
-        + `${row.report.classes} class records `
-        + `(${round(100 * audit.kept / row.report.classes)}%) | audited `
-        + `${audit.worked}\n`
-      );
-    }
-    // The cost of the keep decision beside the cost of the passes, for the
-    // last request with no edit of each mode.
-    for (const mode of warmModes) {
-      if (mode === "plain") continue;
-      const rows = measurements.filter((row) =>
-        row.lane === lane && row.mode === mode
-        && row.report.typedAgain === 0);
-      const row = rows[rows.length - 1];
-      if (row === undefined) continue;
-      const audit = auditOf(row.report, `${lane} ${mode}`);
-      const decision = row.report.stampMs + row.report.sessionKeyMs
-        + row.report.memberListMs + audit.decisionMs;
-      process.stdout.write(
-        `after-typing | ${lane} | ${mode} | no-edit request "${row.step}" | `
-        + `${row.report.declarations} declarations, ${row.report.classes} `
-        + `classes | kept ${audit.kept} | skipped ${audit.skipped} | `
-        + `stamps ${row.report.stampMs} ms + session key `
-        + `${row.report.sessionKeyMs} ms + member lists `
-        + `${row.report.memberListMs} ms + decisions ${audit.decisionMs} ms = `
-        + `${round(decision)} ms | audit ${audit.workMs} ms | walk of all `
-        + `passes ${row.report.walkMs} ms\n`
-      );
+  for (const lane of [projectA.name, keptTypes.name, explained.name,
+    lateFacts.name]) {
+    for (const name of passNames) {
+      const work = name === "reactAudit" ? "audits" : "captures";
+      const unit = name === "reactAudit" ? "class records" : "buckets";
+      for (const mode of warmModes) {
+        if (mode === "plain") continue;
+        const rows = measurements.filter((row) =>
+          row.lane === lane && row.mode === mode);
+        const passes = rows.map((row) =>
+          passOf(row.report, name, `${lane} ${mode}`));
+        const reasons = {
+          noRecord: sum(passes.map((pass) => pass.rejectedByReason.noRecord)),
+          typedAgain: sum(passes.map((pass) => pass.rejectedByReason.typedAgain)),
+          stampNamesOtherDeclaration: sum(passes.map((pass) =>
+            pass.rejectedByReason.stampNamesOtherDeclaration)),
+          stampDiffers: sum(passes.map((pass) => pass.rejectedByReason.stampDiffers)),
+          otherObject: sum(passes.map((pass) => pass.rejectedByReason.otherObject)),
+          membersChanged: sum(passes.map((pass) =>
+            pass.rejectedByReason.membersChanged))
+        };
+        process.stdout.write(
+          `after-typing | ${lane} | ${name} | ${mode} | ${rows.length} `
+          + `successful requests | kept ${sum(passes.map((pass) => pass.kept))} | `
+          + `rejected ${sum(passes.map((pass) => pass.rejected))} `
+          + `${JSON.stringify(reasons)} | `
+          + `skipped ${work} ${sum(passes.map((pass) => pass.skipped))} | `
+          + `full ${work} ${sum(passes.map((pass) => pass.worked))} | `
+          + `same-object tests ${sum(passes.map((pass) => pass.sameObjectTested))} | `
+          + `compared answers ${sum(passes.map((pass) => pass.compareQueries))} | `
+          + `compare failures ${sum(passes.map((pass) =>
+            pass.compareFailureCount))} | explained differences `
+          + `${sum(passes.map((pass) => pass.compareExplained))} | requests `
+          + "that captured everything again "
+          + `${passes.filter((pass) => pass.fullWork !== null).length}\n`
+        );
+        const explained = passes.flatMap((pass) => pass.compareExplainedExamples);
+        for (const example of explained.slice(0, 5)) {
+          process.stdout.write(
+            `after-typing | ${lane} | ${name} | ${mode} | explained `
+            + `difference: ${example}\n`
+          );
+        }
+      }
+      // The share that stays kept after an edit of one module.
+      for (const row of measurements) {
+        if (row.lane !== lane || row.mode !== "reuse" || !row.oneModuleEdit) continue;
+        const pass = passOf(row.report, name, `${lane} reuse`);
+        const total = pass.kept + pass.rejected;
+        process.stdout.write(
+          `after-typing | ${lane} | ${name} | reuse | one-module edit `
+          + `"${row.step}" | ${row.report.arrivedStamped} of `
+          + `${row.report.declarations} declarations arrived with their stamp `
+          + `| kept ${pass.kept} of ${total} ${unit} `
+          + `(${round(100 * pass.kept / total)}%) | full ${work} `
+          + `${pass.worked}\n`
+        );
+      }
+      // The cost of the keep decision beside the cost of the pass, for the
+      // last request with no edit of each mode.
+      for (const mode of warmModes) {
+        if (mode === "plain") continue;
+        const rows = measurements.filter((row) =>
+          row.lane === lane && row.mode === mode
+          && row.report.typedAgain === 0);
+        const row = rows[rows.length - 1];
+        if (row === undefined) continue;
+        const pass = passOf(row.report, name, `${lane} ${mode}`);
+        const shared = row.report.stampMs + row.report.sessionKeyMs
+          + row.report.memberListMs;
+        process.stdout.write(
+          `after-typing | ${lane} | ${name} | ${mode} | no-edit request `
+          + `"${row.step}" | ${row.report.declarations} declarations, `
+          + `${row.report.classes} classes | kept ${pass.kept} | skipped `
+          + `${pass.skipped} | shared by all passes: stamps `
+          + `${row.report.stampMs} ms + session key `
+          + `${row.report.sessionKeyMs} ms + member lists `
+          + `${row.report.memberListMs} ms = ${round(shared)} ms | decisions `
+          + `of this pass ${pass.decisionMs} ms (same-object tests `
+          + `${pass.sameObjectMs} ms) | kept values put back `
+          + `${pass.replayMs} ms | full ${work} ${pass.workMs} ms | walk of `
+          + `all passes ${row.report.walkMs} ms\n`
+        );
+      }
     }
   }
 }
@@ -1013,12 +1428,29 @@ function printSummary(): void {
 async function main(): Promise<void> {
   rmSync(tempRoot, { recursive: true, force: true });
   const compiler = selectedHaxeCompiler(repoRoot);
-  for (const config of [projectA, keptTypes, diagnosticOrder]) {
+  const allLanes = [projectA, keptTypes, explained, lateFacts, diagnosticOrder];
+  // `--lanes=kept-types` repeats one edit list, for example for a mutation
+  // check. The result line then says that the run was not the whole gate.
+  const laneOption = process.argv.find((value) => value.startsWith("--lanes="));
+  const laneNames = laneOption?.slice("--lanes=".length).split(",");
+  const lanes = allLanes.filter((config) =>
+    laneNames === undefined || laneNames.includes(config.name));
+  ok(laneNames === undefined || lanes.length === laneNames.length,
+    `--lanes accepts ${allLanes.map((config) => config.name).join(", ")}`);
+  for (const config of lanes) {
     await runLane(config, compiler);
   }
   const keepRule = await assertKeepRuleProbe(compiler);
   await assertReportNeverFailsBuild(compiler);
   printSummary();
+  if (lanes.length < allLanes.length) {
+    process.stdout.write(
+      "compiler-server-after-typing:partial (only the lanes "
+      + `${lanes.map((config) => config.name).join(", ")}; this is not the `
+      + "gate)\n"
+    );
+    return;
+  }
   process.stdout.write(
     `after-typing | ${diagnosticOrder.name} | `
     + `${diagnosticOrder.steps.filter((step) => step.fails !== undefined).length} `

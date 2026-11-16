@@ -46,9 +46,13 @@ typedef StampedDeclaration = {
   final arrival: DeclarationArrival;
 }
 
-/** A class of this request: the record that the walk reads, and its stamp. */
-typedef ObservedClass = {
-  final type: ClassType;
+/**
+ * One declaration of this request, as the change set read it: the class
+ * record that the walk reads next, and the stamp.
+ */
+typedef ObservedDeclaration = {
+  /** The class record, so that the walk does not copy it again; `null` for another kind. */
+  final type: Null<ClassType>;
 
   /** `null` when the request left the incremental path (an `@:rtti` class). */
   final stamp: Null<StampedDeclaration>;
@@ -67,6 +71,12 @@ enum KeepReject {
 
   /** Condition 4: the record was written for another stamp. */
   StampDiffers;
+
+  /**
+   * Condition 5: the typed values of the bucket address another declaration
+   * object than the one that Haxe gives now.
+   */
+  OtherObject;
 
   /** Condition 6: the class has another member list than the record says. */
   MembersChanged;
@@ -192,15 +202,14 @@ typedef AfterTypingReport = {
  * 3. The declaration arrived with one stamp, and the stamp names it.
  * 4. That stamp equals the stamp in the record, and the same pass wrote the
  *    record (each pass has its own `KeptRecords`).
- * 5. The record's typed values address the declaration object of this
- *    request (the same-object test). This test needs a kept reference to the
- *    declaration: it writes one metadata entry through the old reference and
- *    reads it through the new one. The records of this owner are plain text
- *    and hold no typed compiler value, so no record here can be tested that
- *    way, and no such value can be stale. The probe
- *    `tests/compiler-server/probes/KeptTypeValuesProbe.hx` runs the test on
- *    its own kept values. A pass that will keep typed values must add this
- *    test before it reads them.
+ * 5. The typed values of a bucket address the declaration object of this
+ *    request (the same-object test, `sameObject`). A bucket of
+ *    `KeptBuckets` holds the declaration reference that Haxe gave when the
+ *    bucket was made. The test writes one metadata entry through that
+ *    reference, reads it through the reference of this request, and removes
+ *    it. A plain record of `KeptRecords` holds no typed value and no
+ *    reference, so it has nothing to test and nothing that can be stale; the
+ *    condition does not apply to it.
  * 6. For a class, the member list equals the one in the record. Haxe adds a
  *    static field to a class that it did not type again when another module
  *    first uses a `@:generic` method of it.
@@ -236,16 +245,19 @@ typedef AfterTypingReport = {
  *
  * Lifetime: only the nonce, the request counter and the last session key are
  * `@:persistent`. They are plain text and numbers. Every other field is an
- * ordinary static that Haxe replaces at the start of each compilation; the
- * declaration map holds no compiler value. Without
- * `-D genes.dev_incremental` nothing here runs.
+ * ordinary static that Haxe replaces at the start of each compilation, and
+ * none of them holds a compiler value. Without `-D genes.dev_incremental`
+ * nothing here runs.
  */
 class GenerationChangeSet {
   /** The metadata name of the stamp. */
   public static inline final EPOCH_META = ':genes.typedEpoch';
 
-  /** The format of the kept records and of the report. */
-  public static inline final FORMAT = 1;
+  /** The metadata name that the same-object test adds and removes again. */
+  public static inline final SAME_OBJECT_META = ':genes.sameObject';
+
+  /** The format of the kept records, of the kept buckets and of the report. */
+  public static inline final FORMAT = 2;
 
   static inline final MODULE_LIMIT = 100;
 
@@ -268,12 +280,13 @@ class GenerationChangeSet {
   static var walkSeconds = 0.0;
   static var complete = false;
   static var reportWarned = false;
+  static var sameObjectTokens = 0;
 
   /**
    * Stamps one declaration list that Haxe gave to `onAfterTyping` and
-   * returns, for each class in it, the class record and its stamp. The array
-   * has one entry for each entry of `types`; an entry that is not a class is
-   * `null`.
+   * returns the stamp of each declaration, and for a class also the class
+   * record. The array has one entry for each entry of `types`, in the same
+   * order.
    *
    * Returns `null` when the request does not use the incremental path. Then
    * nothing was read and nothing was added.
@@ -281,7 +294,7 @@ class GenerationChangeSet {
    * Haxe may call the callback again in one request, when a callback defines
    * new types; those declarations are new, so they arrive without a stamp.
    */
-  public static function observe(types: Array<ModuleType>): Null<Array<Null<ObservedClass>>> {
+  public static function observe(types: Array<ModuleType>): Null<Array<ObservedDeclaration>> {
     final descriptor = switch IncrementalRequest.mode() {
       case Absent:
         return null;
@@ -310,10 +323,7 @@ class GenerationChangeSet {
         + 'prints its metadata into __rtti, so a stamp would reach output');
       stampSeconds += haxe.Timer.stamp() - started;
       writeReport();
-      return [
-        for (record in records)
-          record == null ? null : {type: record, stamp: null}
-      ];
+      return [for (record in records) {type: record, stamp: null}];
     }
     var keySeconds = 0.0;
     if (requestNumber == 0) {
@@ -322,7 +332,7 @@ class GenerationChangeSet {
     }
     final currentNonce = interpreterNonce();
     final pos = Context.currentPos();
-    final observed: Array<Null<ObservedClass>> = [];
+    final observed: Array<ObservedDeclaration> = [];
     for (index => type in types) {
       final record = records[index];
       final base: BaseType = record != null ? record : DependencyPlan.moduleTypeBase(type);
@@ -339,12 +349,9 @@ class GenerationChangeSet {
           foreignStamps++;
           typedAgainModules.set(base.module, true);
       }
-      if (record != null) {
+      if (record != null)
         classes++;
-        observed.push({type: record, stamp: stamped});
-      } else {
-        observed.push(null);
-      }
+      observed.push({type: record, stamp: stamped});
     }
     stampSeconds += haxe.Timer.stamp() - started - keySeconds;
     writeReport();
@@ -353,17 +360,19 @@ class GenerationChangeSet {
 
   /**
    * Decides whether a record of an earlier request is still valid for
-   * `declaration` (conditions 3, 4 and 6 of the keep rule; see the class
-   * comment for 1, 2 and 5).
+   * `declaration` (conditions 3 to 6 of the keep rule; see the class comment
+   * for 1 and 2).
    *
    * `recordStamp` and `recordMembers` come from the record of the calling
    * pass; pass `null` for both when the pass has no record. `members` returns
    * the member list of the class now, or `null` for a declaration that is not
-   * a class. It is called only when the stamps agree.
+   * a class. `sameObject` runs the same-object test of a bucket that holds
+   * typed values; a plain record passes `null`. Both functions are called
+   * only when the stamps agree, the same-object test first.
    */
   public static function keep(declaration: StampedDeclaration,
       recordStamp: Null<String>, recordMembers: Null<String>,
-      members: Void->Null<String>): KeepDecision {
+      members: Void->Null<String>, ?sameObject: Void->Bool): KeepDecision {
     if (recordStamp == null)
       return Reject(NoRecord);
     switch declaration.arrival {
@@ -375,9 +384,51 @@ class GenerationChangeSet {
     }
     if (recordStamp != declaration.stamp)
       return Reject(StampDiffers);
+    if (sameObject != null && !sameObject())
+      return Reject(OtherObject);
     if (recordMembers != members())
       return Reject(MembersChanged);
     return Keep;
+  }
+
+  /**
+   * Returns true when `kept`, a declaration reference of an earlier request,
+   * and `current`, the reference that Haxe gives now, address one compiler
+   * object (condition 5 of the keep rule).
+   *
+   * Why: a bucket holds typed values that were read through `kept`. They are
+   * valid only for that declaration object. Equal stamps say that the object
+   * is the same in every case that the probe found, but a macro can give a
+   * new object an old stamp, so the bucket proves the identity itself.
+   *
+   * How: each `get()` of a reference copies the declaration record, so two
+   * macro values are never one macro object. The test adds one metadata
+   * entry through `kept`, looks for it through `current`, and removes it
+   * through the same copy that added it. Nothing else changes the metadata
+   * between the two writes, so the list is the same afterwards. When `kept`
+   * is another object, the entry goes to that object and comes off again.
+   *
+   * Example: `Context.defineType` makes `app.Clone` again with the same
+   * stamp text. The bucket's reference addresses the first `app.Clone`; the
+   * entry does not appear on the new one, and the answer is false.
+   */
+  public static function sameObject(kept: ModuleType,
+      current: ModuleType): Bool {
+    final token = '$requestNumber/${sameObjectTokens++}';
+    final pos = Context.currentPos();
+    final old = DependencyPlan.moduleTypeBase(kept);
+    old.meta.add(SAME_OBJECT_META,
+      [{expr: EConst(CString(token, DoubleQuotes)), pos: pos}], pos);
+    var found = false;
+    for (entry in DependencyPlan.moduleTypeBase(current)
+      .meta.extract(SAME_OBJECT_META))
+      switch entry.params {
+        case [{expr: EConst(CString(value, _))}] if (value == token):
+          found = true;
+        default:
+      }
+    old.meta.remove(SAME_OBJECT_META);
+    return found;
   }
 
   /** Returns what the passes do with a kept record in this request. */

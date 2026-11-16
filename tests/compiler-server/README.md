@@ -67,15 +67,59 @@ for the cases and the result.
 passes after typing (`-D genes.dev_incremental`, off by default). It runs the
 edit lists of project A and of `templates/kept-types`, plus one React audit
 error, in a new Haxe process without the define (the cold oracle) and on four
-warm servers: `plain` (no define), `measure` (stamps and records, no skipped
-work), `reuse` (the React audit skips each class whose record the keep rule
-keeps) and `compare` (every audit runs; a class with a kept record that fails
-is an error). Each warm tree and each diagnostic must equal cold. In each
-request with no edit the kept records must be above 0, and in `reuse` the
-skipped audits too, so the gate cannot pass empty. `--modes=reuse,compare`
-runs only the named warm modes. The request report is the file
-`<descriptor>.after-typing.json` beside the request descriptor; it is never
-in the output tree.
+warm servers: `plain` (no define), `measure` (stamps, records and buckets, no
+skipped work), `reuse` (a pass skips each declaration whose record or bucket
+the keep rule keeps) and `compare` (every pass does its full work; a kept
+result that would have been wrong is reported). Each warm tree and each
+diagnostic must equal cold. `--modes=reuse,compare` runs only the named warm
+modes. The request report is the file `<descriptor>.after-typing.json`
+beside the request descriptor; it is never in the output tree.
+
+Two passes keep results. The React audit keeps one plain record for each
+clean class (`reactAudit` in the report). `genes.ts.SignatureCache` keeps the
+facts of each declaration as one bucket with typed values
+(`signatureCache`). The gate cannot pass empty: in each request with no edit,
+the kept records and the kept buckets must be above 0; in `reuse` the skipped
+audits and captures too; for the buckets also the same-object tests, and in
+`compare` the compared answers. The compare failures must be 0.
+
+Rows of the `kept-types` list that only a complete keep rule passes, each
+for the `SignatureCache` bucket:
+
+- "E1: first use of a @:generic method": the bucket of `GenericOwner` is
+  rejected for `membersChanged`. Haxe did not type the class again.
+- "E2: a macro-defined type with a copied stamp": the bucket of `Clone` is
+  rejected for `stampNamesOtherDeclaration`.
+- "a macro-defined type with its own earlier stamp (Twin)": the build macro
+  of `Twinner` defines `Twin` again with the stamp of the earlier `Twin`,
+  the same member list and another field type. Only the same-object test
+  rejects the bucket (`otherObject`).
+- "a type nested deeper than the walk limit (Lone.deep)": the capture of
+  `Lone` reaches the depth limit of the enum-abstract walk. `Lone` gets no
+  bucket, and each request with reuse on captures every declaration again
+  (`fullWork` in the report).
+
+Two more lanes use `templates/kept-types` with other command-line modules:
+
+- `explained`: `Looper` has an inline object with an `Array<Phase>` field.
+  Haxe replaces the object after the after-typing callbacks and saves the
+  changed body, so each later request reads a local `phases_all` that the
+  first request and a cold build do not read. In `compare` the gate requires
+  explained differences of `Looper` with "kept none". This also shows a
+  difference of today: the plain warm tree prints `("done" | "draft")[]` for
+  that local and the cold tree prints `string[]`. The rows require exactly
+  that difference in `plain`, `measure` and `compare`, and `reuse` equal to
+  cold, because the kept bucket is the first read.
+- `late-facts`, case F2: the first use of `GenericOwner.make` with `Phase`
+  comes in a request that fails with a type error in `Lone`. That request
+  still writes a new bucket for `GenericOwner` (`membersChanged`). The
+  repaired request must drop it (`uncommitted` in the report, the commit
+  step of `KeptRecords`), and every tree equals cold. Case F1: an edit of
+  `HolderUser` fixes the open types of `Holder` from another module. The
+  warm build of today prints `any` for them and a cold build prints the
+  `Phase` literals; the rows require that difference in `plain` and every
+  other mode equal to the plain warm tree, so the bucket adds no
+  difference. F1 is the last case of the lane, because the difference stays.
 
 The same gate has a lane `diagnostic-order`, also for builds without the
 define. Haxe ends an after-typing callback at its first `Context.error` and
@@ -87,6 +131,10 @@ the React install. Three single checks follow: `probes/KeepRuleProbe.hx`
 (each condition of the keep rule on its own), a program with an `@:rtti`
 class (the request leaves the incremental path and equals cold), and a
 report file that cannot be written (one warning, never a failed build).
+`KeepRuleProbe` also checks the shapes of a compare difference about a
+local: only "kept none, new answer" for a first-read bucket is explained;
+kept `T1` and new `T2`, a kept answer with no new answer, and a bucket that
+is not a first read are failures.
 
 Mutation check, by hand, when the keep rule changes. The gate has no
 automatic step for it, because it needs a broken copy of the compiler source.
@@ -99,6 +147,36 @@ the diagnostic; `compare` stops there with `GENES-INCREMENTAL-AUDIT-001`.
 Restore the file afterwards. Removing only one of the two stamp rejects
 shows nothing in a lane: the other one rejects the same records. That is
 why `KeepRuleProbe` exists.
+
+Mutation checks for the buckets, also by hand. Run each with
+`--modes=reuse` and with `--modes=compare`, and restore the file afterwards.
+
+- In `KeptBuckets.kept`, return the bucket also when the keep rule rejects
+  it (`--lanes=project-a`). Expected: `reuse` stops at the first edit with
+  "reuse did not put back exactly the kept buckets"; `compare` stops there
+  with "SignatureCache wrote a bucket for a kept declaration, or none for a
+  rejected one". The counts stop the gate before a tree differs: that edit
+  changes no fact of the leaf module.
+- In `GenerationChangeSet.sameObject`, return `true` without reading the
+  result of the test (`--lanes=kept-types`). Expected: both modes stop at
+  the step "a macro-defined type with its own earlier stamp (Twin)".
+  `reuse` reports "the warm tree differs from the cold tree": the stale
+  bucket gives `Twin.state` the literal type of the earlier class.
+  `compare` reports `GENES-INCREMENTAL-COMPARE-001` with 2 answers.
+- In `KeptRecords.beginRequest`, do not remove the pending records
+  (`--lanes=late-facts`). Expected: both modes stop at "F2: the type error
+  repaired". `reuse` reports "the warm tree differs from the cold tree": the
+  local `list` of `GenericOwner.make_kepttypes_Phase` is `string[]`, not
+  `("done" | "draft")[]`. `compare` reports `GENES-INCREMENTAL-COMPARE-001`
+  with 1 answer.
+- In `SignatureComparison.locals`, count every difference of a first-read
+  bucket as explained (the rule before this change). Expected: the run
+  stops at `KeepRuleProbe` with the case "kept T1, new T2, first read".
+
+`--lanes=project-a,kept-types` runs only the named edit lists (lanes:
+`project-a`, `kept-types`, `explained`, `late-facts`, `diagnostic-order`). Such a run
+ends with `compiler-server-after-typing:partial`, not with the `ok` line of
+the gate.
 
 Run the complete stable owner with `yarn test:compiler-server`. Use
 `yarn test:compiler-server:rollback` when changing exception handling,
