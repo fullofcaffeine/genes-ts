@@ -957,6 +957,51 @@ const edits: ReadonlyArray<Edit> = [
     dirtyModules: ["inc.Env"]
   },
   {
+    // genes-f8vc.9.24, L1 of the round-3 review of #244: the after-typing
+    // macro inc.Mark2Macro adds `@:native("parseFloat")` to the field
+    // parseInt of the extern-only module inc.ExtApi. inc.ExtUser prints the
+    // call and is not typed again; only the field metadata of the extern
+    // module (now in its fingerprint) shows the change.
+    id: "REVIEW3 after-typing macro renames an extern field with @:native",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markExtern = 1;\n")
+  },
+  {
+    // genes-f8vc.9.24, L2: the same macro adds `@:ts.type("string")` to the
+    // field x of the anonymous structure of the typedef inc.Chain.ChainB.
+    id: "REVIEW3 after-typing macro overrides the type of a typedef field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAnon = 1;\n")
+  },
+  {
+    // genes-f8vc.9.24, L2 in class fields: an anonymous structure in
+    // the type of a variable of inc.AnonSig gets `@:ts.type("string")` on a field.
+    id: "after-typing macro overrides an anonymous field in the type of a variable of a class field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAnonVar = 1;\n")
+  },
+  {
+    // genes-f8vc.9.24, L2 in class fields: an anonymous structure in
+    // a function argument of inc.AnonSig gets `@:ts.type("string")` on a field.
+    id: "after-typing macro overrides an anonymous field in a function argument of a class field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAnonArg = 1;\n")
+  },
+  {
+    // genes-f8vc.9.24, L2 in class fields: an anonymous structure in
+    // a function result of inc.AnonSig gets `@:ts.type("string")` on a field.
+    id: "after-typing macro overrides an anonymous field in a function result of a class field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAnonResult = 1;\n")
+  },
+  {
+    // genes-f8vc.9.24, L2 in class fields: an anonymous structure in
+    // a type argument of inc.AnonSig gets `@:ts.type("string")` on a field.
+    id: "after-typing macro overrides an anonymous field in a type argument of a class field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAnonParam = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -986,6 +1031,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.CloneMacro.install()",
     "--macro", "inc.FailMacro.install()",
     "--macro", "inc.MarkMacro.install()",
+    "--macro", "inc.Mark2Macro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,

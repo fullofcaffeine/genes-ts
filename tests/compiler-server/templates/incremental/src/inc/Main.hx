@@ -44,6 +44,8 @@ class Main {
       })),
       MetaTarget.value(),
       ColorFacts.value(),
+      ExtUser.run(),
+      AnonSig.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));
