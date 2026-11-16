@@ -406,7 +406,10 @@ Machine-local folders stay private.
 
 Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
 session rejects JavaScript and every alternate target selector, then appends
-one private `--js` target and one private `genes.output` target itself. If Genes
+one private `--js` target and one private Genes target itself. The Genes target
+is `-D genes.output_descriptor=<fixed path>`; the file at that path names the
+entry in the candidate of this build, so the define value, and with it the
+Haxe compiler-server cache, stays the same for every build. If Genes
 does not activate, ordinary Haxe output remains inside the disposable candidate
 stage and a missing Genes ownership manifest prevents publication.
 

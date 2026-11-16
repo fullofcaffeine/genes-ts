@@ -648,14 +648,37 @@ rolled back, the other output can start normally.
   Entry and occurrence order are retained. A linked entry, class path, or
   library proof fails before compilation.
 - Authored HXML is deliberately targetless. The session appends exactly one
-  private ordinary Haxe `--js` target and one private
-  `-D genes.output=<entry>` target. This matters when Genes is missing or
-  fails to activate: ordinary Haxe may still generate JavaScript, but those
-  bytes remain disposable and cannot touch public output before admission.
+  private ordinary Haxe `--js` target and one private Genes target. The Genes
+  target is a descriptor file at a fixed path,
+  `-D genes.output_descriptor=<stateDirectory>/haxe-request/genes-output.descriptor`,
+  which names the entry in the private candidate of this build. This matters
+  when Genes is missing or fails to activate: ordinary Haxe may still
+  generate JavaScript, but those bytes remain disposable and cannot touch
+  public output before admission.
+- Every define that the session adds has the same value in each build.
+  Haxe 4.3.7 selects its compiler-server cache by all define values, so a
+  define that named the new candidate folder made Haxe type the whole program
+  again for every build. The incremental descriptor
+  (`-D genes.dev_incremental`, mode `measure`) and the compiler-data
+  descriptor are also fixed files in `haxe-request/` that the session
+  rewrites before each request. Before each warm request the session sends
+  `server/invalidate` for each changed `.hx` file, because Haxe compares file
+  times in whole seconds. A change of any other watched input increments the
+  one deliberately changing define, `-D genes.tooling.input_epoch`: a macro
+  may read such a file without telling Haxe, so that request starts a new
+  cache and types the whole program, as before. Each such cache stays in the
+  server until it restarts. It resolves the invocation plan at startup and again
+  only when a plan input changes: an HXML or library provenance file (their
+  bytes are compared before each build and just before Haxe starts), the
+  process environment, or an extra input with `reinventory` or
+  `restartCompiler`. A host must therefore declare every other input of
+  `resolveInvocation`, such as the compiler binary, as such an extra input.
   The versioned Haxe 4.3.7 policy classifies every compiler option spelling and
   rejects every authored target selector,
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
+  `genes.output_descriptor`, `genes.dev_incremental`,
+  `genes.tooling.input_epoch`,
   `genes.tooling.prepared`, `genes.tooling.compiler-data`, `--next`, and
   `--each` flags because two lifecycle owners or several output compilations
   would be ambiguous. When

@@ -347,6 +347,16 @@ yarn test:tooling-package
   The test still proves the private output override, the compiler's v2
   ownership manifest, source-map path safety, and HXML policy before public
   mutation.
+- `session-warm-server-test` drives the real session over the compiler-server
+  fixture `project-a` with the full Genes generator and checks that the
+  session keeps one warm Haxe cache. After every build the server's own
+  `server/contexts` answer must list the same cache signatures as after the
+  first build, and the Genes incremental report must keep records. Two saves
+  with the same whole-second file time must both be built (through
+  `server/invalidate`), the public tree must equal a cold build byte for byte,
+  and the server process must not grow. The fixture compiler-server gates
+  drive Haxe with stable arguments, so only this test can see a define that
+  the session changes per build.
 
 The focused HXML inventory test checks every Haxe 4.3.7 option that receives
 special early handling. Its inline `--option=value` form must fail before a

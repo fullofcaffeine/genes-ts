@@ -5788,6 +5788,7 @@ await withHarness(
   const mutableArgs = ["build.hxml"];
   const mutableEnv: Record<string, string> = { SESSION_FLAG: "before" };
   const mutableFacts: { version: string } = { version: "before" };
+  let mutateOnNextInventory = false;
   let inventoryCalls = 0;
   const harness = makeHarness(
     "changed-invocation-is-rejected-before-execution",
@@ -5795,7 +5796,8 @@ await withHarness(
       ...dependencies,
       inventory: async (options) => {
         inventoryCalls += 1;
-        if (inventoryCalls === 3) {
+        if (mutateOnNextInventory) {
+          mutateOnNextInventory = false;
           mutableArgs.push("--next", "second.hxml");
           mutableEnv.SESSION_FLAG = "after";
           mutableFacts.version = "after";
@@ -5818,21 +5820,36 @@ await withHarness(
   try {
     await harness.session.start();
     await harness.session.waitForIdle();
-    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.session.state.kind, "ready");
     assert.equal(harness.compiler.calls, 1);
-    assert.equal(harness.compiler.modes.length, 0);
-    assert.deepEqual(
-      harness.compiler.invocations[0]?.sourceInvocation.args,
-      ["build.hxml"],
+    // An ordinary source edit reuses the plan: neither the host callback nor
+    // the HXML inventory runs again, so a host-side change alone is not seen.
+    const inventoryBeforeEdit = inventoryCalls;
+    mutateOnNextInventory = true;
+    writeFileSync(
+      harness.source,
+      "class Main { static function main() {} }\n",
+      "utf8",
     );
-    assert.equal(
-      harness.compiler.invocations[0]?.environment.SESSION_FLAG,
-      "before",
-    );
-    assert.deepEqual(
-      harness.compiler.invocations[0]?.sourceInvocation.compatibilityFacts,
-      { version: "before" },
-    );
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(inventoryCalls, inventoryBeforeEdit);
+    assert.equal(harness.compiler.calls, 2);
+    // A changed plan input resolves the plan again. The changed host
+    // invocation is then checked before anything executes and rejected; the
+    // last good generation stays published.
+    currentWatch(harness).change(path.join(harness.root, "build.hxml"));
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(harness.compiler.calls, 2);
+    for (const invocation of harness.compiler.invocations) {
+      assert.deepEqual(invocation.sourceInvocation.args, ["build.hxml"]);
+      assert.equal(invocation.environment.SESSION_FLAG, "before");
+      assert.deepEqual(invocation.sourceInvocation.compatibilityFacts, {
+        version: "before",
+      });
+    }
   } finally {
     await harness.session.close();
     rmSync(harness.root, { recursive: true, force: true });

@@ -960,6 +960,8 @@ try {
           "src-gen",
           "index.ts",
         ),
+        path.join(reservedEnvironmentRoot, "request"),
+        0,
       ),
     /reserved key GENES_TOOLING_HXML_OPTION_VALUE_0/u,
   );

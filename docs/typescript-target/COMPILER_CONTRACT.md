@@ -300,6 +300,13 @@ Enable the target:
   destination without adding a second `-js` target. Use `.ts`/`.tsx` with
   `genes.ts`, or `.js`/`.jsx`/`.mjs` in classic mode; suffixes are lowercase
   and case-sensitive.
+- `-D genes.output_descriptor=<file>` — the same selection, read from a file.
+  The file has two lines: `genes.output-descriptor-v1` and the base64 UTF-8
+  output path. A compiler-server host writes a new path into the same file
+  for each request, so the define value stays the same and Haxe 4.3.7 keeps
+  one server cache (it selects the cache by all define values). Do not set
+  it together with `genes.output`; that, or a file that cannot be read,
+  fails with `GENES-OUTPUT-TARGET-005`.
 
 Import mode:
 - `-D genes.ts.no_extension` — emit extensionless import specifiers (bundler-first). Default is `.js` specifiers.

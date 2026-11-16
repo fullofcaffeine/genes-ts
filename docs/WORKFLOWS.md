@@ -130,6 +130,14 @@ Every path fails before publication. Haxe itself stores defines by name, so if
 a command repeats `-D genes.output=...`, Haxe keeps only the final value before
 Genes runs; host tools should therefore construct one unambiguous define.
 
+A host that sends many requests to one Haxe compiler server should use
+`-D genes.output_descriptor=<file>` instead: the file holds the output path
+(see the [compiler contract](typescript-target/COMPILER_CONTRACT.md#defines)),
+so the define value stays the same for every request. Haxe 4.3.7 selects its
+server cache by all define values; a new `genes.output` value per request
+makes Haxe type the whole program again each time. The Genes development
+session does this.
+
 `GENES-OUTPUT-TARGET-004` is a fail-closed compiler-server safeguard. It means
 Haxe presented Genes' private sentinel as a new request's authored `-js`
 destination, so the real owner could not be recovered safely. Restart that

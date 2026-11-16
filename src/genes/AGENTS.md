@@ -136,7 +136,9 @@ maps fixture locations to compiler surfaces.
   `yarn test:null-safety`. This source-quality gate does not replace
   `NullishContract`, `TsBoundaryPlan`, or target runtime evidence.
 - A host-selected output destination is generic compiler configuration. Keep
-  it request-local through `-D genes.output=<path>` and let
+  it request-local through `-D genes.output=<path>` (or, for a warm-server
+  host, `-D genes.output_descriptor=<fixed file>`, so that the define value
+  and Haxe's server cache stay the same between requests) and let
   `OutputTransaction` own the selected tree; never add framework names,
   routes, environments, or application policy to output selection. Capture
   both the path and `genes.ts` profile before typing, reject later macro

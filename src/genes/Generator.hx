@@ -59,11 +59,33 @@ class Generator {
    */
   public static inline final OUTPUT_DEFINE = 'genes.output';
 
+  /**
+   * Selects the Genes output entrypoint through a small file whose path stays
+   * the same between requests.
+   *
+   * Why: Haxe 4.3.7 chooses its compiler-server cache by the values of all
+   * defines. A development session that writes each build to a new private
+   * folder and names that folder in `-D genes.output=<path>` gets a new cache
+   * for every build: Haxe types the whole program again and the kept state of
+   * Genes starts again. With this define the value stays the same, and only
+   * the file content changes.
+   *
+   * What: `-D genes.output_descriptor=<path>` names a descriptor file with two
+   * lines: `genes.output-descriptor-v1` and the base64 UTF-8 output path.
+   * Example: a session writes `.genes/dev/haxe-request/genes-output.descriptor`
+   * before each request. The path that the file names follows the same rules
+   * as `-D genes.output`. A request must not set both defines.
+   */
+  public static inline final OUTPUT_DESCRIPTOR_DEFINE = 'genes.output_descriptor';
+
+  static inline final OUTPUT_DESCRIPTOR_HEADER = 'genes.output-descriptor-v1';
+
   @:persistent static var generation = 0;
   static var configuredOutputFile: Null<String>;
   static var compilerSentinelFile: Null<String>;
   static var configuredOutputOverridePresent = false;
   static var configuredOutputOverride: Null<String>;
+  static var configuredOutputDescriptor: Null<String>;
   static var configuredTypeScriptProfile = false;
 
   static function generate(api: JSGenApi) {
@@ -788,8 +810,14 @@ class Generator {
     if (compilerOutput == null || compilerOutput.length == 0)
       return;
 
-    final overridePresent = Context.defined(OUTPUT_DEFINE);
-    final overrideValue = Context.definedValue(OUTPUT_DEFINE);
+    final descriptorRead = readOutputDescriptor();
+    final overridePresent = Context.defined(OUTPUT_DEFINE)
+      || Context.defined(OUTPUT_DESCRIPTOR_DEFINE);
+    final overrideValue = switch descriptorRead {
+      case null: Context.definedValue(OUTPUT_DEFINE);
+      case Right(path): path;
+      case Left(_): null;
+    }
     final requestedOutput = switch overrideValue {
       case null:
         compilerOutput;
@@ -801,6 +829,7 @@ class Generator {
         // Validate on every call. A previous implementation returned as soon
         // as it saw the sentinel, allowing a later invalid define to bypass
         // the public host contract.
+        validateOutputDescriptor(descriptorRead);
         validateConfiguredOutput(requestedOutput);
         return;
       }
@@ -831,11 +860,68 @@ class Generator {
     final key = Sha256.encode(absolutePath(sentinelSeed)).substr(0, 20);
     compilerSentinelFile = Path.join([temporaryRoot, 'genes-haxe-output-$key.tmp']);
     Compiler.setOutput(compilerSentinelFile);
+    validateOutputDescriptor(descriptorRead);
     validateConfiguredOutput(requestedOutput);
     configuredOutputFile = requestedOutput;
-    configuredOutputOverridePresent = overridePresent;
-    configuredOutputOverride = overrideValue;
+    configuredOutputOverridePresent = Context.defined(OUTPUT_DEFINE);
+    configuredOutputOverride = Context.definedValue(OUTPUT_DEFINE);
+    configuredOutputDescriptor = Context.definedValue(OUTPUT_DESCRIPTOR_DEFINE);
     configuredTypeScriptProfile = Context.defined('genes.ts');
+  }
+
+  /**
+   * Returns the output path that `-D genes.output_descriptor` names, the
+   * reason why it cannot be read, or `null` when the define is absent.
+   *
+   * Why: the define value is only the path of the descriptor, so that it
+   * stays the same for every request of a development session (see
+   * `OUTPUT_DESCRIPTOR_DEFINE`). The path of this request is in the file.
+   * The answer is a value, not an error: `isolateCompilerOutput` must first
+   * move Haxe's own output to the private sentinel, and then reports the
+   * error through `validateOutputDescriptor`.
+   *
+   * Example file: `genes.output-descriptor-v1`, a newline, and the base64
+   * text of `/project/.genes/dev/candidates/revision-3-ab/output/index.tsx`.
+   */
+  static function readOutputDescriptor(): Null<haxe.ds.Either<String, String>> {
+    if (!Context.defined(OUTPUT_DESCRIPTOR_DEFINE))
+      return null;
+    if (Context.defined(OUTPUT_DEFINE))
+      return Left('-D $OUTPUT_DEFINE and -D $OUTPUT_DESCRIPTOR_DEFINE must not '
+        + 'both be set');
+    final file = Context.definedValue(OUTPUT_DESCRIPTOR_DEFINE);
+    if (file == null
+      || file == '1'
+      || file.trim().length == 0
+      || file.indexOf('\x00') >= 0)
+      return Left('-D $OUTPUT_DESCRIPTOR_DEFINE=<path> requires the path of a '
+        + 'descriptor file');
+    if (!FileSystem.exists(file) || FileSystem.isDirectory(file))
+      return Left('the descriptor file "$file" does not exist');
+    final text = try sys.io.File.getContent(file) catch (_:haxe.Exception)
+      return Left('the descriptor file "$file" cannot be read');
+    final lines = text.split('\n');
+    if (lines.length != 3 || lines[0] != OUTPUT_DESCRIPTOR_HEADER
+      || lines[2] != '')
+      return Left('the descriptor file "$file" is not a '
+        + '$OUTPUT_DESCRIPTOR_HEADER file');
+    final output = try haxe.crypto.Base64.decode(lines[1])
+      .toString() catch (_:haxe.Exception) return
+      Left('the descriptor file "$file" has no '
+      + 'valid base64 output path');
+    return Right(output);
+  }
+
+  /** Reports an output descriptor that cannot be used, after the sentinel redirect. */
+  static function validateOutputDescriptor(read: Null<haxe.ds.Either<String,
+    String>>): Void {
+    switch read {
+      case Left(reason):
+        removeCompilerSentinel();
+        Context.error('[GENES-OUTPUT-TARGET-005] $reason.',
+          Context.currentPos());
+      case null | Right(_):
+    }
   }
 
   /**
@@ -847,14 +933,17 @@ class Generator {
    * tree under an arbitrary filename.
    */
   static function validateConfiguredOutput(output: String): Void {
-    if (!Context.defined(OUTPUT_DEFINE))
+    final fromDescriptor = Context.defined(OUTPUT_DESCRIPTOR_DEFINE);
+    if (!Context.defined(OUTPUT_DEFINE) && !fromDescriptor)
       return;
     // Haxe represents a valueless `-D name` as the string "1".
-    if (output == '1' || output.trim().length == 0
+    if ((!fromDescriptor && output == '1') || output.trim().length == 0
       || output.indexOf('\x00') >= 0) {
       removeCompilerSentinel();
-      Context.error('[GENES-OUTPUT-TARGET-001] -D $OUTPUT_DEFINE=<path> '
-        + 'requires one explicit, non-empty output path.',
+      Context.error('[GENES-OUTPUT-TARGET-001] '
+        +
+        (fromDescriptor ? 'The descriptor of -D $OUTPUT_DESCRIPTOR_DEFINE' : '-D $OUTPUT_DEFINE=<path>')
+        + ' requires one explicit, non-empty output path.',
         Context.currentPos());
     }
 
@@ -882,7 +971,7 @@ class Generator {
    * make the sentinel, transaction, and generated tree disagree about which
    * destination they protect.
    *
-   * What/How: compare the output define and the `genes.ts` profile flag with
+   * What/How: compare the two output defines and the `genes.ts` profile flag with
    * the exact request-local snapshot taken during installation. Both choose
    * the syntax and legal filename family, so changing either one later could
    * publish TypeScript under `.js` or classic JavaScript under `.ts`.
@@ -893,15 +982,18 @@ class Generator {
   static function validateOutputOverrideTiming(): Void {
     final currentPresent = Context.defined(OUTPUT_DEFINE);
     final currentValue = Context.definedValue(OUTPUT_DEFINE);
+    final currentDescriptor = Context.definedValue(OUTPUT_DESCRIPTOR_DEFINE);
     final currentTypeScriptProfile = Context.defined('genes.ts');
     if (currentPresent == configuredOutputOverridePresent
       && currentValue == configuredOutputOverride
+      && currentDescriptor == configuredOutputDescriptor
       && currentTypeScriptProfile == configuredTypeScriptProfile) {
       return;
     }
 
     removeCompilerSentinel();
-    Context.error('[GENES-OUTPUT-TARGET-003] -D $OUTPUT_DEFINE and '
+    Context.error('[GENES-OUTPUT-TARGET-003] -D $OUTPUT_DEFINE, '
+      + '-D $OUTPUT_DESCRIPTOR_DEFINE and '
       + '`-D genes.ts` must be configured before genes.Generator.use(); a '
       + 'macro changed output-selection policy after Genes captured the '
       + 'transactional owner and profile.',

@@ -6,6 +6,36 @@ it.
 
 ## Unreleased
 
+- Keep one warm Haxe compiler-server cache for the whole development session.
+  Haxe 4.3.7 selects its cache by the values of all defines, and the session
+  used to name each new private candidate folder in `-D genes.output`. So
+  every build started a new cache: Haxe typed the whole program again, the
+  kept state of Genes started again, and server memory grew. Now each define
+  has the same value in every build. The session writes small request files
+  at fixed paths in `<stateDirectory>/haxe-request/` before each request:
+  the output descriptor (`-D genes.output_descriptor`), the incremental
+  descriptor (`-D genes.dev_incremental`, mode `measure`, so Genes keeps its
+  plain records but still does all work), and the compiler-data descriptor.
+  The session also tells a warm server about each changed `.hx` file with
+  `server/invalidate`, so two saves within one second are both built. A
+  change of any other watched input (for example a JSON or CSS file that a
+  macro reads without telling Haxe) increments
+  `-D genes.tooling.input_epoch`, so that request starts a new, empty cache
+  and types everything, as a cold build does. It
+  resolves the invocation plan (host callback plus HXML and library
+  inventory) only at startup and when a plan input changes, not twice per
+  build. A plan input is an HXML or library provenance file, an extra input
+  with `reinventory` or `restartCompiler`, or the process environment; before
+  each build and again just before Haxe starts, the session compares the
+  environment and the bytes of the HXML and provenance files, which takes
+  about a millisecond. A change that only the host callback can see now needs
+  a declared extra input. A server that the session starts
+  gets `OCAMLRUNPARAM=s=4M` unless the environment sets it. Requires the
+  Genes library at the same commit or later, because older Genes does not
+  read `-D genes.output_descriptor`. `session-warm-server-test` drives the
+  real session over the compiler-server fixture and fails when a build adds
+  a cache signature, keeps no record, misses a same-second save, differs
+  from a cold build, or grows server memory.
 - Add explicit development-session admission for a complete generated tree
   installed while the session is stopped. The host supplies the exact prior
   acceptance digest and replacement file inventory. Genes validates the tree

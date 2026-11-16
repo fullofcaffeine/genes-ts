@@ -23,6 +23,12 @@ export interface SessionLayout {
   readonly stateRoot: string;
   readonly stateRelative: string;
   readonly candidatesRelative: string;
+  /**
+   * Fixed folder for the small request files that Haxe reads by a define.
+   * The defines name these fixed paths, so every request of the session has
+   * equal define values and Haxe keeps one compiler-server cache.
+   */
+  readonly requestRelative: string;
   readonly transactionRelative: string;
   readonly generationMarkerRelative: string;
   /** Entry-scoped v1 paths read only while an existing project upgrades. */
@@ -239,6 +245,7 @@ export function resolveSessionLayout(
     stateRoot,
     stateRelative,
     candidatesRelative,
+    requestRelative: `${stateRelative}/haxe-request`,
     transactionRelative: `${publicationControlDirectory}/transactions`,
     generationMarkerRelative: `${publicationControlDirectory}/accepted-generation.json`,
     legacyTransactionRelative: `${legacyPublicationControlDirectory}/transactions`,
@@ -277,6 +284,7 @@ export function materializeSessionAuthorityLayout(layout: SessionLayout): void {
 export function materializeSessionPrivateLayout(layout: SessionLayout): void {
   ensureDirectoryNoFollow(layout.projectRoot, layout.stateRelative, 0o700);
   ensureDirectoryNoFollow(layout.projectRoot, layout.candidatesRelative, 0o700);
+  ensureDirectoryNoFollow(layout.projectRoot, layout.requestRelative, 0o700);
 }
 
 /** Completes runtime storage after startup authority is excluded. */
