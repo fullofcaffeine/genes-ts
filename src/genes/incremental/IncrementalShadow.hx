@@ -1265,8 +1265,12 @@ class IncrementalShadow {
       memberLists.get(module));
     compareText(mismatches, module, 'root flags differ', stored.rootFlags,
       rootFlagTexts.get(module));
+    // `answerText`: a stored line holds the separator U+0001, which the
+    // report must not carry raw (Haxe's JSON printer leaves it unescaped).
     compareText(mismatches, module, 'answers differ',
-      stored.answers.join('\n'), sortedLines(answers.get(module)).join('\n'));
+      stored.answers.map(GenerationCache.answerText).join('\n'),
+      sortedLines(answers.get(module)).map(GenerationCache.answerText)
+        .join('\n'));
     compareText(mismatches, module, 'added features differ',
       stored.additions.join('\n'),
       sortedLines(additions.get(module)).join('\n'));
