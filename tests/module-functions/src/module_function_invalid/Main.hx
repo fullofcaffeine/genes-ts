@@ -24,6 +24,17 @@ function originalModuleFunction(): Int {
 }
 #end
 
+#if module_function_compiler_internal
+// A compiler-internal field is in no module request plan, so the check of its
+// marker stays in the root-export loop of the generator.
+
+@:genes.compilerInternal
+@:genes.moduleFunction("await")
+function compilerInternalCarrier(): Int {
+  return 3;
+}
+#end
+
 #if (module_value_arity || module_value_arity_multiple
   || module_value_nonliteral || module_value_empty
   || module_value_identifier || module_value_public_name
@@ -185,6 +196,8 @@ class Main {
     trace(differentlyAuthored());
     #elseif module_function_module_field_rename
     originalModuleFunction();
+    #elseif module_function_compiler_internal
+    compilerInternalCarrier();
     #elseif module_function_generic_owner
     Invalid.selected(1);
     #elseif module_function_instance
