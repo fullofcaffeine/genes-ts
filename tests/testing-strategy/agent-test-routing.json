@@ -2366,6 +2366,66 @@
       ]
     },
     {
+      "id": "compiler-server-shadow",
+      "packageScript": "test:compiler-server:shadow",
+      "runnerToken": "scripts/dist/test-compiler-server-shadow.js",
+      "tier": "focused",
+      "cost": "slow",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "tsx"
+      ],
+      "evidence": [
+        "compiler-server",
+        "determinism",
+        "source-map",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "scripts/test-compiler-server-shadow.ts",
+        "src/genes/incremental",
+        "tests/compiler-server/templates/incremental",
+        "tests/compiler-server/probes/CleanRuleProbe.hx",
+        "tests/compiler-server/README.md"
+      ],
+      "proves": "On one warm Haxe 4.3.7 server with -D genes.dev_incremental, a fixed list of scripted edits publishes the tree of a cold build after every edit. In generation compare, every module that reuse would replay has its stored bytes, warnings, member list, answers, public entries and root flags; in generation reuse, replayed modules stage their stored output, a request with no edit replays every clean module, and each guard row (feature answers, copied stamps, parting output folders, failures) keeps stale output out.",
+      "doesNotProve": "One small fixture does not prove the clean rules for every Haxe program or macro, timing on a real application, other Haxe versions, the classic JavaScript profile, or -D dts.",
+      "owners": [
+        "scripts/test-compiler-server-shadow.ts",
+        "src/genes/incremental",
+        "tests/compiler-server/templates/incremental",
+        "tests/compiler-server/probes/CleanRuleProbe.hx",
+        "tests/compiler-server/README.md"
+      ],
+      "families": [
+        "compiler-server",
+        "determinism",
+        "source-maps",
+        "publication"
+      ],
+      "capabilities": [
+        "compiler-server",
+        "determinism",
+        "source-map",
+        "transaction"
+      ],
+      "ring": "R3",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 1800,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:compiler-server:shadow",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/compiler-server-shadow.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "compile-stage-report",
       "packageScript": "test:compile-stage-report",
       "runnerToken": "scripts/dist/test-compile-stage-suite.js",
@@ -3914,6 +3974,10 @@
         {
           "gate": "compiler-server",
           "when": "persistent state, callbacks, cross-project identity, output roots, or recovery changes"
+        },
+        {
+          "gate": "compiler-server-shadow",
+          "when": "incremental generation changes: the generation cache, its clean rules, the replay of stored output, or the change set that they read"
         }
       ],
       "inspect": [

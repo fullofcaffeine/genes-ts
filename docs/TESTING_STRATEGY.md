@@ -628,6 +628,7 @@ yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
 yarn test:compiler-server:rollback # raw/structured post-staging recovery
 yarn test:compiler-server:kept-types # proof: typed values kept between requests
 yarn test:compiler-server:after-typing # keep rule gate: plain/measure/reuse/compare equal cold
+yarn test:compiler-server:shadow # incremental generation: compare and reuse (replayed modules) equal cold
 yarn test:null-safety # compiler scope, macro order, escape inventory, stable compile
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 yarn benchmark:compile-stages # machine-readable cold/warm compiler attribution

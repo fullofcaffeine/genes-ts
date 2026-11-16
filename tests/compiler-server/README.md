@@ -229,42 +229,62 @@ does not pretend those two different typed trees are byte-identical. Stable
 Haxe continues to require cold/warm identity in both the focused rollback probe
 and the complete server matrix.
 
-## Incremental-generation shadow gates
+## Incremental-generation shadow and replay gates
 
-`yarn test:compiler-server` also runs `scripts/test-compiler-server-shadow.ts`
-(alone: `yarn test:compiler-server:shadow`). It copies
-`templates/incremental` and applies a fixed list of about 50 scripted edits:
-bodies of modules with no, few and many importers, signature and inline
-constant changes, the first and last use of a method that dead-code
-elimination removes and of a type used only in type positions, inference
-through a third module, a typedef chain, generic instances, types that a
-build macro and an expression macro load, import cycles, `@:expose`, module
-directives, HXX markup, a props type named by a string in metadata, a
-dynamic iterator, private types with one name, enum abstract values, new,
-edited, deleted and renamed declarations, type errors, a generation
-diagnostic, a define change, a failure after typing, a changed resource file
-with no Haxe source edit, an `@:rtti` class, a new top-level name, an output
-folder beside the old one and one at another depth, a descriptor that asks
-for compare without afterTyping reuse, the measure mode, and an edit of a
-Genes source file. The init macro `inc.LateMacro` defines the class
-`inc.Late` after typing in every request; the gate requires that it is
-emitted and never clean.
+`yarn test:compiler-server:shadow` runs `scripts/test-compiler-server-shadow.ts`.
+It is its own gate (acceptance shard `compiler`, routing id
+`compiler-server-shadow`); `yarn test:compiler-server` no longer runs it. It
+copies `templates/incremental` and applies a fixed list of about 80 scripted
+edits: bodies of modules with no, few and many importers, signature and
+inline constant changes, the first and last use of a method that dead-code
+elimination removes (also of a method with an override in a subclass in a
+third module) and of a type used only in type positions, a property whose
+setter dead-code elimination removes, the first use of a `@:generic` method,
+inference through a third module, a typedef chain, generic instances, types
+that a build macro and an expression macro load, import cycles, `@:expose`,
+module directives, HXX markup, a props type named by a string in metadata, a
+dynamic iterator, the first use of `js.Lib.global` and of `js.Boot.isEnum`
+(feature answers that change the output of unedited modules), private types
+with one name, enum abstract values, new, edited, deleted and renamed
+declarations, type errors, a generation diagnostic, a failure in
+`onGenerate` and one after the commit (`inc.FailMacro` and flag files), a
+define change, a failure after typing, a changed resource file with no Haxe
+source edit, an `@:rtti` class, a new top-level name, a macro that gives a
+new class the stamp of the old one (`inc.CloneMacro`), output folders beside
+the old one and at another depth, a candidate folder whose sibling holds a
+source folder, descriptors that ask for compare or reuse without
+afterTyping reuse and for measure with afterTyping measure, and an edit of a
+Genes source file. The init macros `inc.LateMacro` and `inc.CloneMacro`
+define the classes `inc.Late` and `inc.Clone` after typing in every request;
+the gate requires that they are emitted and never clean.
 
-After each edit the same TSX request (with source maps) runs three times:
+The edit list runs twice (`--modes=compare,reuse`, the default), each time in
+a new copy of the template and on new servers. After each edit the same TSX
+request (with source maps) runs three times:
 
 - in a new Haxe process: the cold oracle;
 - on a warm server without `-D genes.dev_incremental`: **G0**, the warm tree
   equals the cold tree with no cache, and **G2**, `probes/EpochStampProbe.hx`
   finds no epoch stamp;
 - on a second warm server with the define and a request descriptor with
-  `"generation": "compare"` and `"afterTyping": "reuse"`: **G1**, the
-  published tree equals the cold tree, and the shadow report beside the
-  request descriptor (`<descriptor>.report.json`) lists 0 mismatches for the
-  modules that the clean rules call clean.
+  `"afterTyping": "reuse"` and `"generation": "compare"` or `"reuse"`:
+  **G1**, the published tree equals the cold tree and the request reports
+  the cold build's warnings. With `"compare"`, the report beside the
+  descriptor (`<descriptor>.report.json`) also lists 0 mismatches for the
+  modules that `"reuse"` would replay: files, warnings, final member list,
+  root flags, recorded answers, added features and public entries. With
+  `"reuse"`, those modules are not printed; their stored output is staged.
 
-Before the edits, `probes/CleanRuleProbe.hx` checks the three rules that the
-G2 design review requires before stored output may be replayed, each case
-with made-up inputs:
+For a request with no edit, every emitted module except the root module,
+`inc.Late`, `inc.Clone` and modules that used Haxe's printer must be
+replayed (reuse) or replayable (compare), and the checks before emission must
+not fall back. The gate prints the replayed modules of each edit and fails
+when the reuse pass replayed none. `--only=<regex>` runs the first request
+and the matching edits; `--skip-plain` skips the server without the define.
+Such runs end with `compiler-server-shadow:partial`.
+
+Before the edits, `probes/CleanRuleProbe.hx` checks the rules that must hold
+before stored output may be replayed, each case with made-up inputs:
 
 1. The session key holds no absolute output path, only the way from the
    output folder to the project root and the output file name
@@ -280,10 +300,22 @@ with made-up inputs:
    not clean either. Haxe 4.3.7 gives every declaration to the after-typing
    callback, also one that a macro defines there (`inc.Late` above), so only
    the probe reaches an empty list.
-3. `"generation": "compare"` needs `"afterTyping": "reuse"`. Otherwise the
-   request is refused: the report has the result `off`, the refusal code
-   `compare-needs-after-typing-reuse` and its reason, the generation cache
-   is neither read nor written, and the tree is published in full.
+3. `"generation": "compare"` and `"reuse"` need `"afterTyping": "reuse"`.
+   Otherwise the request is refused: the report has the result `off`, the
+   refusal code `compare-needs-after-typing-reuse` or
+   `reuse-needs-after-typing-reuse` and its reason, the generation cache is
+   neither read nor written, and the tree is published in full.
+4. The rules of slice S1 (the items of the review of #243): a failed
+   same-object test falls back, and a module is clean only when each of its
+   declarations has the same same-object proof as when its output was
+   printed (item 1); a module with no stamp falls back when it is still in
+   the generator list with a changed fingerprint, and is only dirty when it
+   left the program (item 3); a module whose stored map names a source inside
+   a folder where the stored and the current output paths part is dirty
+   (item 4); a module without an output file is in rule 6 too (item 6); a
+   module that asked for a feature that emission can add is never clean; and
+   compare and reuse do not use a cache that afterTyping `"measure"` wrote
+   (item 7).
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the
@@ -291,17 +323,17 @@ module `haxe.Resource` prints its bytes: after the resource edit the session
 key must differ, so the result is `full`, not `incremental` with stale
 bytes. The module `inc.Legacy` holds one `__js__` call, and Genes reports
 "__js__ is deprecated" when it prints the call: every request, cold and
-warm, must report the same warnings, and the shadow report must count them
-(`printWarnings`). A later version that does not print a clean module must
-report the stored warnings of that module.
+warm, must report the same warnings, also when `inc.Legacy` is replayed
+(the replay reports its stored warnings), and the shadow report must count
+them (`printWarnings`).
 
-The shadow and the passes after typing (previous section) use one request
+The generator and the passes after typing (previous section) use one request
 owner. `IncrementalRequest` decides the mode, and `GenerationChangeSet` adds
-the stamps and builds the session key once after typing; the shadow only
-reads them. A descriptor without `generation` runs no shadow and writes no
-shadow report. `"generation": "measure"` applies the clean rules, stores the
-files and reports the clean share without comparing (report `mode`
-`measure`, no mismatches by definition).
+the stamps, records the same-object proofs and builds the session key once
+after typing; the shadow only reads them. A descriptor without `generation`
+runs no shadow and writes no shadow report. `"generation": "measure"`
+applies the clean rules, stores the files and reports the clean share
+without comparing or replaying.
 
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic

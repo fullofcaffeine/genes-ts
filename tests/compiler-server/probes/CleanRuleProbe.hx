@@ -4,10 +4,15 @@ import genes.incremental.IncrementalRequest;
 import haxe.macro.Context;
 
 /**
- * Checks three rules of the incremental generation shadow on their own,
- * with made-up inputs: the output lines of the session key, the clean rule
- * for a module without a declaration stamp, and the refusal of
- * `"generation": "compare"` without `"afterTyping": "reuse"`.
+ * Checks rules of incremental generation on their own, with made-up inputs:
+ * the output lines of the session key, the clean rule for a module without a
+ * declaration stamp, the refusal of `"generation": "compare"` and `"reuse"`
+ * without `"afterTyping": "reuse"`, and the rules that slice S1 added before
+ * any replay (the items of the review of #243): same-object proofs (item 1),
+ * "left the program" from the current request (item 3), sources inside the
+ * folder where output paths part (item 4), rule 6 for modules without an
+ * output file (item 6), and no replay from a cache of afterTyping
+ * `"measure"` (item 7).
  *
  * Why: these are the three changes that the G2 design review requires
  * before stored output may be replayed. A request sequence shows only the
@@ -24,7 +29,24 @@ import haxe.macro.Context;
  * requires. It changes the generation cache of its own compiler process
  * only; run it with `--no-output` in a new process.
  */
+/** Optional inputs of `CleanRuleProbe.store`. */
+private typedef StoreOptions = {
+  final ?answers: Array<String>;
+  final ?mapSources: Array<String>;
+  final ?outputFolder: String;
+  final ?underReuse: Bool;
+}
+
+/** Optional inputs of `CleanRuleProbe.facts`. */
+private typedef FactOptions = {
+  final ?absent: Array<String>;
+  final ?proofs: Map<String, Null<String>>;
+  final ?failures: Array<String>;
+  final ?outputFolder: String;
+}
+
 class CleanRuleProbe {
+  static inline final OUTPUT = '/p/cand/rev-3/output';
   static inline final KEY = 'probe session key';
   static inline final DIGEST = 'probe reserved names';
   static var cases = 0;
@@ -33,6 +55,7 @@ class CleanRuleProbe {
     checkOutputLines();
     checkUnstamped();
     checkRefusal();
+    checkReplayRules();
     Sys.println('clean-rule-probe:ok ($cases cases)');
   }
 
@@ -107,9 +130,10 @@ class CleanRuleProbe {
         fail('unstamped module with a changed fingerprint', 'Fallback',
           Std.string(other));
     }
-    // A module that had a stamp and has none now left the program (the
-    // last use of a type, a deleted module). It is dirty, and its changed
-    // fingerprint must not make the whole request fall back.
+    // A module that had a stamp, has none now and is absent from the
+    // generator list left the program (the last use of a type, a deleted
+    // module). It is dirty, and its changed fingerprint must not make the
+    // whole request fall back (item 3: decided from this request).
     final stored = epochs.copy();
     stored.set('app.Gone', 'class:app.Gone@n:1');
     final storedFingerprints = fingerprints.copy();
@@ -118,7 +142,7 @@ class CleanRuleProbe {
     switch GenerationCache.decide(facts(epochs, fingerprints)) {
       case Rules(clean, dirty):
         expectState('module that left the program', false, clean, dirty,
-          'app.Gone', 'no declaration stamp');
+          'app.Gone', 'left the program');
       case other:
         fail('module that left the program', 'Rules', Std.string(other));
     }
@@ -143,13 +167,133 @@ class CleanRuleProbe {
       CompareClean, Compare);
     expectRefusal('measure with measure', null, MeasureClean, Measure);
     expectRefusal('no generation value', null, Regenerate, Measure);
+    expectRefusal('reuse with reuse', null, ReuseClean, Reuse);
+    expectRefusal('reuse with measure', 'reuse-needs-after-typing-reuse',
+      ReuseClean, Measure);
+    expectRefusal('reuse with compare', 'reuse-needs-after-typing-reuse',
+      ReuseClean, Compare);
+  }
+
+  /** The rules that slice S1 added before any replay (items of the review of #243). */
+  static function checkReplayRules(): Void {
+    final epochs = [
+      'app.Clean' => 'class:app.Clean@n:1',
+      'app.Index' => 'class:app.Index@n:1',
+      'app.Types' => 'typedef:app.Types@n:1'
+    ];
+    final fingerprints = ['app.Clean' => 'f-clean', 'app.Index' => 'f-index', 'app.Types' => 'f-types'];
+    // Item 1: a failed same-object test anywhere falls back.
+    store(epochs, fingerprints, [], []);
+    expectFallback('a failed same-object test',
+      GenerationCache.decide(facts(epochs, fingerprints, {
+        failures: ['class:app.Other']
+      })));
+    // Item 1: a declaration without a proof, or with another proof, is dirty.
+    expectDecision('a declaration without a same-object proof',
+      GenerationCache.decide(facts(epochs, fingerprints, {
+        proofs: ['app.Clean' => null]
+      })), 'app.Clean',
+      'a declaration has no same-object proof');
+    expectDecision('a bucket written after the stored output',
+      GenerationCache.decide(facts(epochs, fingerprints,
+        {
+          proofs: ['app.Clean' => 'class:app.Clean@7']
+        })),
+      'app.Clean',
+      'a declaration object differs from the one that printed the stored output');
+    expectDecision('equal proofs',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean', null);
+    // Item 3: no stamp, but present in the generator list with a changed
+    // fingerprint: nothing shows that Haxe kept it, so the request falls back.
+    final unstamped = epochs.copy();
+    unstamped.set('app.Clean', '');
+    final changed = fingerprints.copy();
+    changed.set('app.Clean', 'f-clean-2');
+    expectFallback('no stamp, present, changed fingerprint',
+      GenerationCache.decide(facts(unstamped, changed)));
+    expectDecision('no stamp, absent, changed fingerprint',
+      GenerationCache.decide(facts(unstamped, changed, {
+        absent: ['app.Clean']
+      })), 'app.Clean', 'left the program');
+    // Item 6: a module without an output file is in rule 6 too.
+    store(epochs, fingerprints, [], [], ['app.Types']);
+    final typesChanged = fingerprints.copy();
+    typesChanged.set('app.Types', 'f-types-2');
+    expectFallback('a module without an output file changed its fingerprint',
+      GenerationCache.decide(facts(epochs, typesChanged)));
+    // Item 4: a stored map source inside the folder where the paths part.
+    store(epochs, fingerprints, [], [], null,
+      {mapSources: ['/p/cand/rev-3/gen/app/Clean.hx']});
+    expectDecision('a map source inside the stored parting folder',
+      GenerationCache.decide(facts(epochs, fingerprints,
+        {
+          outputFolder: '/p/cand/rev-4/output'
+        })),
+      'app.Clean',
+      'a source of its source maps is inside the folder where the output paths ' +
+      'part: /p/cand/rev-3/gen/app/Clean.hx');
+    expectDecision('the same output folder',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean', null);
+    store(epochs, fingerprints, [], [], null,
+      {mapSources: ['/p/src/app/Clean.hx']});
+    expectDecision('a map source outside the parting folders',
+      GenerationCache.decide(facts(epochs, fingerprints, {
+        outputFolder: '/p/cand/rev-4/output'
+      })), 'app.Clean', null);
+    expectText('parting folders', '/p/cand/rev-3,/p/cand/rev-4',
+      GenerationCache.partingFolders('/p/cand/rev-3/output',
+        '/p/cand/rev-4/output')
+        .join(','));
+    // Rule 10: a module that asked for a feature that emission adds.
+    store(epochs, fingerprints, [], [], null,
+      {answers: ['feature use.' + '$' + 'bind 0']});
+    expectDecision('asked for a feature that emission adds',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean',
+      'asked for the feature use.' + '$' + 'bind, which emission can add');
+    // Item 7: compare and reuse do not use a cache of afterTyping measure.
+    store(epochs, fingerprints, [], [], null, {underReuse: false});
+    switch GenerationCache.decide(facts(epochs, fingerprints)) {
+      case NoCache(_):
+        cases++;
+      case other:
+        fail('a cache written with afterTyping measure', 'NoCache',
+          Std.string(other));
+    }
+    GenerationCache.drop();
+  }
+
+  static function expectFallback(name: String, decision: CacheDecision): Void {
+    switch decision {
+      case Fallback(_):
+        cases++;
+      default:
+        fail(name, 'Fallback', Std.string(decision));
+    }
+  }
+
+  static function expectDecision(name: String, decision: CacheDecision,
+      module: String, wantReason: Null<String>): Void {
+    switch decision {
+      case Rules(clean, dirty):
+        expectState(name, wantReason == null, clean, dirty, module, wantReason);
+      default:
+        fail(name, 'Rules', Std.string(decision));
+    }
   }
 
   static function store(epochs: Map<String, String>,
       fingerprints: Map<String, String>, globalReads: Array<String>,
-      reads: Map<String, Array<String>>): Void {
+      reads: Map<String, Array<String>>, ?inventoryOnly: Array<String>,
+      ?options: StoreOptions): Void {
     final modules = new Map<String, CachedModule>();
+    final others = new Map<String, CachedInventoryModule>();
+    final skip = inventoryOnly == null ? [] : inventoryOnly;
     for (module => text in epochs) {
+      if (skip.indexOf(module) >= 0) {
+        others.set(module,
+          {epochs: text, fingerprint: fingerprints.get(module)});
+        continue;
+      }
       final read = reads.get(module);
       modules.set(module, {
         epochs: text,
@@ -160,18 +304,48 @@ class CleanRuleProbe {
         ],
         usedHaxePrinter: false,
         files: [],
-        warnings: []
+        warnings: [],
+        proofs: proofOf(module),
+        members: '',
+        rootFlags: '',
+        answers: options != null
+        && options.answers != null ? options.answers : [],
+        additions: [],
+        publicEntries: [],
+        mapSources: options != null
+        && options.mapSources != null ? options.mapSources : []
       });
     }
     GenerationCache.commit(KEY, DIGEST, [
       for (name in globalReads)
         {module: name, epochs: epochs.get(name)}
-    ], modules);
+    ],
+      modules,
+      others, options != null && options.outputFolder != null ? options.outputFolder : OUTPUT, options == null
+      || options.underReuse != false);
+  }
+
+  /** The made-up same-object proof text of one module. */
+  static function proofOf(module: String): String {
+    return 'class:$module@1';
   }
 
   static function facts(epochs: Map<String, String>,
-      fingerprints: Map<String, String>): CacheRequestFacts {
+      fingerprints: Map<String, String>,
+      ?options: FactOptions): CacheRequestFacts {
+    final absent = options != null
+      && options.absent != null ? options.absent : [];
+    final proofs = options != null
+      && options.proofs != null ? options.proofs : new Map();
     return {
+      present: module -> epochs.exists(module) && absent.indexOf(module) < 0,
+      proofs: module ->
+        proofs.exists(module) ? proofs.get(module) : proofOf(module),
+      sameObjectFailures: options != null
+      && options.failures != null ? options.failures : [],
+      outputFolder: options != null
+      && options.outputFolder != null ? options.outputFolder : OUTPUT,
+      needsReuseCache: true,
       sessionKey: KEY,
       reservedNameDigest: DIGEST,
       rootModule: 'app.Index',

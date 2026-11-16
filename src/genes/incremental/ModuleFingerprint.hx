@@ -90,6 +90,44 @@ class ModuleFingerprint {
     return buffer.toString();
   }
 
+  /**
+   * Returns the final member list of one module after the walk of
+   * reachability, as one text: one line for each member, in order.
+   *
+   * Why: the walk can add a declaration to a module because another module
+   * refers to it (`Module.addTypes`), and the order of such additions is part
+   * of the output. A typedef member also depends on the set of concrete type
+   * names of the whole program. The fingerprint reads only the generator's
+   * list, so a replay compares this text too, before any module is printed.
+   *
+   * What: the kind and full name of each member, the number of its type
+   * arguments, and for a class each emitted field in order with its static
+   * flag and whether it keeps a native getter or setter (dead-code
+   * elimination can remove an accessor). Example line:
+   * `class inc.Box 0 s:make i:item`.
+   */
+  public static function members(members: Array<genes.Module.Member>): String {
+    final buffer = new StringBuf();
+    for (member in members) {
+      switch member {
+        case MClass(type, params, fields):
+          buffer.add('class ${TypeUtil.baseTypeFullName(type)} ${params.length}');
+          for (field in fields)
+            buffer.add(' ${field.isStatic ? 's' : 'i'}:${field.name}'
+              + (field.getter ? '+get' : '')
+              + (field.setter ? '+set' : ''));
+        case MEnum(type, params):
+          buffer.add('enum ${TypeUtil.baseTypeFullName(type)} ${params.length}');
+        case MType(type, params):
+          buffer.add('typedef ${TypeUtil.baseTypeFullName(type)} ${params.length}');
+        case MMain(_):
+          buffer.add('main');
+      }
+      buffer.add('\n');
+    }
+    return buffer.toString();
+  }
+
   static function addField(buffer: StringBuf, label: String,
       field: ClassField): Void {
     buffer.add('\n  $label ${field.name} ');

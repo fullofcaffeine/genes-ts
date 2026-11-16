@@ -29,6 +29,17 @@
  * size) are printed, not judged: the fixture is small, and timing claims need
  * a quiet machine.
  *
+ * Stage 3, slice S1 runs the same edit list a second time with
+ * `"generation": "reuse"` (`--modes=compare,reuse`, the default): each module
+ * that the clean rules and the checks before emission accept is not printed;
+ * its stored files, maps and warnings are staged instead. After each edit the
+ * published tree must equal the cold tree, and the request must report the
+ * cold build's warnings. The gate counts the replayed modules, and fails when
+ * a request with no edit replays nothing or leaves a clean module unreplayed,
+ * so it cannot pass with an empty replay. `--only=<regex>` runs the first
+ * request and the matching edits only; `--skip-plain` skips the warm server
+ * without the define (G0, G2). Both end with a `partial` line.
+ *
  * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
  * the output lines of the session key (no absolute output path), the clean
  * rule for a module without a declaration stamp, and the refusal of compare
@@ -77,6 +88,28 @@ const genesVersion = (
 
 type Mode = "cold" | "plain" | "shadow";
 
+/** The `generation` value that one pass over the edit list uses. */
+type GenerationMode = "compare" | "reuse";
+
+/** Command-line options; see the file comment. */
+const options = (() => {
+  const value = (name: string): string | undefined => {
+    const prefix = `--${name}=`;
+    return process.argv.slice(2).find((argument) => argument.startsWith(prefix))
+      ?.slice(prefix.length);
+  };
+  const modes = (value("modes") ?? "compare,reuse").split(",")
+    .map((mode) => mode.trim());
+  for (const mode of modes)
+    ok(mode === "compare" || mode === "reuse", `unknown mode ${mode}`);
+  const only = value("only");
+  return {
+    modes: modes as GenerationMode[],
+    only: only === undefined ? null : new RegExp(only),
+    skipPlain: process.argv.includes("--skip-plain")
+  };
+})();
+
 /** The parts of the shadow report that this gate reads. */
 type ShadowReport = {
   readonly request: number;
@@ -106,6 +139,12 @@ type ShadowReport = {
   readonly generationMs: number;
   readonly projectedGenerationMs: number;
   readonly cacheBytes: number;
+  readonly replayable: number;
+  readonly replayed: number;
+  readonly replayedFiles: number;
+  readonly replayMs: number;
+  readonly planFallback: string | null;
+  readonly haxePrinterModuleNames: ReadonlyArray<string>;
   readonly reservedNamesChanged: boolean;
   /** Warnings that Genes reported while it printed the modules. */
   readonly printWarnings: number;
@@ -125,6 +164,18 @@ type ShadowReport = {
  */
 const lateModule = "inc.Late";
 
+/**
+ * The module that `inc.CloneMacro` defines in every request. Without its
+ * flag file it is new in each request, like `inc.Late`.
+ */
+const cloneModule = "inc.Clone";
+
+/** Modules that a macro defines anew in every request: never clean. */
+const macroModules = [lateModule, cloneModule];
+
+/** The root module of the fixture (the output file name). */
+const rootModule = "index";
+
 /** One scripted edit and what the gate expects from it. */
 type Edit = {
   readonly id: string;
@@ -138,6 +189,12 @@ type Edit = {
   readonly mode?: string;
   /** The report's `refusal` code, when the edit expects one. */
   readonly refusal?: string;
+  /**
+   * True for a request that fails after Genes published its tree and stored
+   * its cache (a failure in `onAfterGenerate`): every build must fail, and
+   * the published trees must be equal.
+   */
+  readonly failsAfterCommit?: boolean;
   /** Modules that the report must list as emitted and dirty. */
   readonly dirtyModules?: ReadonlyArray<string>;
   /**
@@ -163,8 +220,11 @@ const program = {
  */
 const request = {
   afterTyping: "reuse",
-  generation: "compare"
+  generation: "compare" as string
 };
+
+/** The `generation` value of the current pass over the edit list. */
+let currentMode: GenerationMode = "compare";
 
 /**
  * Where the three requests write their output: `<tempRoot>/<folders>/<mode>
@@ -181,6 +241,18 @@ const resourceFile = path.join(workspace, "res/note.txt");
 
 function sourceFile(relative: string): string {
   return path.join(workspace, "src", relative);
+}
+
+/** A classpath inside a candidate folder (see "a source inside the parting folder"). */
+const partedClassPath = path.join(tempRoot, "cand", "rev-1", "gen");
+
+/** Creates or removes one flag file in the working folder of the fixture. */
+function flag(name: string, present: boolean): void {
+  const file = path.join(workspace, name);
+  if (present)
+    writeFileSync(file, "on\n");
+  else
+    rmSync(file, { force: true });
 }
 
 let clock = Math.floor(Date.now() / 1000);
@@ -503,6 +575,119 @@ const edits: ReadonlyArray<Edit> = [
     results: ["incremental"]
   },
   {
+    id: "first use of js.Lib.global in one module",
+    apply: () => edit(
+      "inc/GlobalUse.hx",
+      '"global" /*GLOBAL_USE*/',
+      '"global" + (js.Lib.global != null ? "" : "?") /*GLOBAL_USE*/'
+    )
+  },
+  {
+    id: "last use of js.Lib.global",
+    apply: () => edit(
+      "inc/GlobalUse.hx",
+      '"global" + (js.Lib.global != null ? "" : "?") /*GLOBAL_USE*/',
+      '"global" /*GLOBAL_USE*/'
+    )
+  },
+  {
+    id: "first use of js.Boot.isEnum",
+    apply: () => edit(
+      "inc/EnumCheck.hx",
+      "text /*ENUM_CHECK*/",
+      'text + (@:privateAccess js.Boot.isEnum(Shape) ? "" : "?") /*ENUM_CHECK*/'
+    )
+  },
+  {
+    id: "last use of js.Boot.isEnum",
+    apply: () => edit(
+      "inc/EnumCheck.hx",
+      'text + (@:privateAccess js.Boot.isEnum(Shape) ? "" : "?") /*ENUM_CHECK*/',
+      "text /*ENUM_CHECK*/"
+    )
+  },
+  {
+    id: "first use of a method of another module, with a subclass in a third",
+    apply: () => edit("inc/BaseUser.hx", "/*BASE_RARE*/", "+ value.rare() /*BASE_RARE*/")
+  },
+  {
+    id: "last use of that method",
+    apply: () => edit("inc/BaseUser.hx", "+ value.rare() /*BASE_RARE*/", "/*BASE_RARE*/")
+  },
+  {
+    id: "last write of a property: dead-code elimination removes its setter",
+    apply: () => edit("inc/PropUser.hx", "prop.level = 2; /*PROP_WRITE*/", "/*PROP_WRITE*/")
+  },
+  {
+    id: "first write of that property again",
+    apply: () => edit("inc/PropUser.hx", "/*PROP_WRITE*/", "prop.level = 2; /*PROP_WRITE*/")
+  },
+  {
+    id: "first use of a @:generic method",
+    apply: () => edit(
+      "inc/GenericMethodUse.hx",
+      "/*GENERIC_METHOD*/",
+      "+ GenericMethod.make(1).length /*GENERIC_METHOD*/"
+    )
+  },
+  {
+    id: "last use of the @:generic method",
+    apply: () => edit(
+      "inc/GenericMethodUse.hx",
+      "+ GenericMethod.make(1).length /*GENERIC_METHOD*/",
+      "/*GENERIC_METHOD*/"
+    )
+  },
+  {
+    // Item 1 of the review of #243: a macro gives a new object the stamp of
+    // the earlier one, and its body changed (no Haxe edit). Only the
+    // same-object test of the kept bucket sees it.
+    id: "a macro copies the stamp of the earlier object (copied-stamp hole)",
+    apply: () => {
+      flag("clone-copy.flag", true);
+      writeFileSync(path.join(workspace, "res/clone.txt"), "clone-v2\n");
+    },
+    results: ["full"],
+    reason: "copied the stamp"
+  },
+  {
+    id: "the macro stops copying the stamp",
+    apply: () => flag("clone-copy.flag", false)
+  },
+  {
+    // A module that a macro defines after typing arrives with a new stamp in
+    // every request, so its epochs differ and it is never clean.
+    id: "body of the module that a macro defines after typing",
+    apply: () => writeFileSync(path.join(workspace, "res/clone.txt"), "clone-v3\n"),
+    dirtyModules: [cloneModule]
+  },
+  {
+    id: "a request that fails in onGenerate",
+    apply: () => {
+      edit("inc/Leaf2.hx", '"leaf2-v3"', '"leaf2-v4"');
+      flag("fail-on-generate.flag", true);
+    },
+    fails: true
+  },
+  {
+    id: "onGenerate failure repaired",
+    apply: () => flag("fail-on-generate.flag", false),
+    results: ["incremental"]
+  },
+  {
+    id: "a request that fails after the commit",
+    apply: () => {
+      edit("inc/Leaf2.hx", '"leaf2-v4"', '"leaf2-v5"');
+      flag("fail-after-generate.flag", true);
+    },
+    failsAfterCommit: true
+  },
+  {
+    id: "failure after the commit repaired, no edit",
+    apply: () => flag("fail-after-generate.flag", false),
+    results: ["incremental"]
+  },
+  {
     // F5: the resource bytes are an input of `haxe.Resource`, but Haxe types
     // no module again. Only the session key can show the change.
     id: "resource content changed, no Haxe source edit",
@@ -553,6 +738,40 @@ const edits: ReadonlyArray<Edit> = [
     }
   },
   {
+    id: "output in a candidate folder beside a source folder",
+    apply: () => {
+      output.folders = ["cand", "rev-1", "out"];
+    },
+    results: ["full"],
+    reason: "the session key changed"
+  },
+  {
+    id: "no edit in the candidate folder",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // Item 4 of the review of #243: the output moves to a sibling candidate
+    // folder (equal output-root lines, so the cache stays), but the source
+    // of `parted.Parted` lies inside the old candidate folder. Its map names
+    // the source by a path through that folder, so the stored map is stale.
+    id: "sibling candidate folder; a source lies inside the old one",
+    apply: () => {
+      output.folders = ["cand", "rev-2", "out"];
+    },
+    results: ["incremental"],
+    dirtyModules: ["parted.Parted"]
+  },
+  {
+    id: "output back in the first folder",
+    apply: () => {
+      output.folders = ["out"];
+    },
+    results: ["full"],
+    reason: "the session key changed"
+  },
+  {
     // Required change 1: the session key holds the way from the output
     // folder to the project root, not the absolute output path. A new
     // candidate folder beside the old one keeps every kept record and the
@@ -581,17 +800,18 @@ const edits: ReadonlyArray<Edit> = [
     settled: true
   },
   {
-    // Required change 3: compare needs afterTyping reuse. The request is
-    // refused with a typed reason and still publishes the full tree.
-    id: "generation compare without afterTyping reuse",
+    // Required change 3: compare and reuse need afterTyping reuse. The
+    // request is refused with a typed reason and still publishes the full
+    // tree. The code is `<generation>-needs-after-typing-reuse`.
+    id: "generation compare or reuse without afterTyping reuse",
     apply: () => {
       request.afterTyping = "measure";
     },
     results: ["off"],
-    refusal: "compare-needs-after-typing-reuse"
+    refusal: "needs-after-typing-reuse"
   },
   {
-    id: "generation measure: clean rules without a comparison",
+    id: "generation measure with afterTyping measure: clean rules without a comparison",
     apply: () => {
       request.generation = "measure";
     },
@@ -599,13 +819,22 @@ const edits: ReadonlyArray<Edit> = [
     mode: "measure"
   },
   {
-    id: "compare with afterTyping reuse again, no edit",
+    // Item 7 of the review of #243: the cache that the measure request just
+    // wrote came from afterTyping measure, so compare and reuse do not use it.
+    id: "back to afterTyping reuse: the cache of afterTyping measure is not used",
     apply: () => {
       request.afterTyping = "reuse";
-      request.generation = "compare";
+      request.generation = currentMode;
     },
+    results: ["full"],
+    reason: "afterTyping",
+    mode: "current"
+  },
+  {
+    id: "no edit after the measure cache",
+    apply: () => {},
     results: ["incremental"],
-    mode: "compare",
+    mode: "current",
     settled: true
   },
   {
@@ -642,7 +871,10 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "genes.react.ReactDiagnosticsMacro.install()",
     "--macro", "addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')",
     "-cp", path.join(workspace, "src"),
+    "-cp", partedClassPath,
     "--macro", "inc.LateMacro.install()",
+    "--macro", "inc.CloneMacro.install()",
+    "--macro", "inc.FailMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,
@@ -654,6 +886,9 @@ function buildArguments(mode: Mode): string[] {
       "genes.ts",
       "genes.ts.jsx_import_source=react",
       "genes.react.inline_markup",
+      // Sources below the gate folder get relative source-map names, also
+      // the classpath inside a candidate folder (`partedClassPath`).
+      `genes.source_map_root=${tempRoot}`,
       ...program.defines
     ].flatMap((define) => ["-D", define])
   ];
@@ -754,25 +989,114 @@ type Row = {
   readonly projectedMs: number;
   readonly overheadMs: number;
   readonly cacheBytes: number;
+  readonly replayed: number;
   readonly reason: string;
 };
 
-async function main(): Promise<void> {
+/** Puts every value that an edit can change back to its first state. */
+function resetState(mode: GenerationMode): void {
+  currentMode = mode;
+  program.defines = [];
+  program.modules = [
+    "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
+  ];
+  request.afterTyping = "reuse";
+  request.generation = mode;
+  output.folders = ["out"];
+  output.suffix = "";
   rmSync(tempRoot, { recursive: true, force: true });
   mkdirSync(tempRoot, { recursive: true });
   cpSync(template, workspace, { recursive: true });
-  const compiler = selectedHaxeCompiler(repoRoot);
-  const probeLine = await assertCleanRuleProbe(compiler);
-  let plain = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  mkdirSync(path.dirname(partedClassPath), { recursive: true });
+  cpSync(path.join(workspace, "gen"), partedClassPath, { recursive: true });
+}
+
+type PassResult = {
+  readonly mode: GenerationMode;
+  readonly rows: ReadonlyArray<Row>;
+  readonly replayed: number;
+  readonly edits: number;
+};
+
+async function main(): Promise<void> {
+  const results: PassResult[] = [];
+  let probeLine = "";
+  const loadAtStart = loadavg()[0] ?? 0;
+  for (const mode of options.modes) {
+    resetState(mode);
+    const compiler = selectedHaxeCompiler(repoRoot);
+    if (probeLine.length === 0)
+      probeLine = await assertCleanRuleProbe(compiler);
+    results.push(await runPass(mode, compiler));
+  }
+  const loadAtEnd = loadavg()[0] ?? 0;
+  const timing = Math.max(loadAtStart, loadAtEnd) <= 2
+    ? "quiet machine"
+    : "diagnostic: 1-minute load above 2.0";
+  writeFileSync(path.join(tempRoot, "summary.json"),
+    JSON.stringify({ loadAtStart, loadAtEnd, results }, null, 2));
+  printTimeComparison(results);
+  const partial = options.only !== null || options.skipPlain;
+  const counts = results.map((result) =>
+    `${result.mode}: ${result.edits} edits, ${result.replayed} replayed modules`)
+    .join("; ");
+  process.stdout.write(
+    `compiler-server-shadow:${partial ? "partial" : "ok"} (Haxe `
+    + `${selectedHaxeCompiler(repoRoot).version}; ${probeLine}; ${counts}; `
+    + `G0 warm equals cold, G1 0 mismatches and trees equal cold, G2 no `
+    + `stamp without the define; times ${timing}, load `
+    + `${loadAtStart.toFixed(1)} to ${loadAtEnd.toFixed(1)})\n`
+  );
+}
+
+/**
+ * Prints, for each edit that both passes ran, the generation time of the
+ * compare pass (every module printed) and of the reuse pass, and the number
+ * of replayed modules. Diagnostic only: the fixture is small and the
+ * machine is shared.
+ */
+function printTimeComparison(results: ReadonlyArray<PassResult>): void {
+  const compare = results.find((result) => result.mode === "compare");
+  const reuse = results.find((result) => result.mode === "reuse");
+  if (compare === undefined || reuse === undefined)
+    return;
+  process.stdout.write("edit | compare generation ms | reuse generation ms | replayed\n");
+  let saved = 0;
+  let counted = 0;
+  for (const row of reuse.rows) {
+    const other = compare.rows.find((entry) => entry.id === row.id);
+    if (other === undefined || row.replayed === 0)
+      continue;
+    saved += other.generationMs - row.generationMs;
+    counted++;
+    process.stdout.write(`${row.id} | ${other.generationMs} | ${row.generationMs} | ${row.replayed}\n`);
+  }
+  if (counted > 0)
+    process.stdout.write(`mean generation time saved on ${counted} replaying `
+      + `edits: ${(saved / counted).toFixed(1)} ms (diagnostic)\n`);
+}
+
+/** Runs the edit list once with one `generation` value. */
+async function runPass(
+  mode: GenerationMode,
+  compiler: ReturnType<typeof selectedHaxeCompiler>
+): Promise<PassResult> {
+  let plain = options.skipPlain
+    ? null
+    : await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   let shadow = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   const rows: Row[] = [];
   const g1Failures: string[] = [];
   const plainProbe = path.join(tempRoot, "plain.stamps.txt");
   const shadowProbe = path.join(tempRoot, "shadow.stamps.txt");
-  const loadAtStart = loadavg()[0] ?? 0;
+  let replayedTotal = 0;
+  let editsRun = 0;
   try {
     for (const [index, step] of edits.entries()) {
-      const label = `[${index + 1}/${edits.length}] ${step.id}`;
+      if (index > 0 && options.only !== null && !options.only.test(step.id))
+        continue;
+      editsRun++;
+      const label = `[${mode} ${index + 1}/${edits.length}] ${step.id}`;
       step.apply();
       writeDescriptor();
       for (const mode of ["cold", "plain", "shadow"] as const) {
@@ -788,13 +1112,16 @@ async function main(): Promise<void> {
           label: `Cold ${label}`,
           reportProgress: true
         });
-      const warm = await plain.compile(warmArguments("plain", plainProbe),
-        `Plain ${label}`, timeoutMs, workspace);
+      const warm = plain === null
+        ? null
+        : await plain.compile(warmArguments("plain", plainProbe),
+          `Plain ${label}`, timeoutMs, workspace);
       let shadowed = await shadow.compile(warmArguments("shadow", shadowProbe),
         `Shadow ${label}`, timeoutMs, workspace);
       if (step.fails === true) {
         ok(cold.code !== 0, `${label}: the cold build must fail`);
-        ok(warm.code !== 0, `${label}: the plain warm request must fail`);
+        ok(warm === null || warm.code !== 0,
+          `${label}: the plain warm request must fail`);
         ok(shadowed.code !== 0, `${label}: the shadow request must fail`);
         const report = readReport();
         ok(
@@ -802,31 +1129,45 @@ async function main(): Promise<void> {
           `${label}: a failed request must not report a committed generation`
         );
         rows.push({
-          id: step.id, result: report === null ? "failed in typing" : "failed",
+          id: step.id, result: report === null ? "failed before generation" : "failed",
           typedAgain: 0, emitted: 0, clean: 0, mismatches: 0,
           fallbackLookups: 0, generationMs: 0, projectedMs: 0, overheadMs: 0,
-          cacheBytes: 0, reason: ""
+          cacheBytes: 0, replayed: 0, reason: ""
         });
         continue;
       }
-      ok(cold.code === 0, `${label}: cold build failed\n${describe(cold)}`);
-      ok(warm.code === 0, `${label}: plain warm request failed\n${describe(warm)}`);
-      ok(shadowed.code === 0, `${label}: shadow request failed\n${describe(shadowed)}`);
+      if (step.failsAfterCommit === true) {
+        ok(cold.code !== 0, `${label}: the cold build must fail`);
+        ok(warm === null || warm.code !== 0,
+          `${label}: the plain warm request must fail`);
+        ok(shadowed.code !== 0, `${label}: the shadow request must fail`);
+      } else {
+        ok(cold.code === 0, `${label}: cold build failed\n${describe(cold)}`);
+        ok(warm === null || warm.code === 0,
+          `${label}: plain warm request failed\n${warm === null ? "" : describe(warm)}`);
+        ok(shadowed.code === 0, `${label}: shadow request failed\n${describe(shadowed)}`);
+      }
       const coldTree = hashTree(outputRoot("cold"));
-      // G0: warm full generation equals cold, with no cache.
-      const plainDifference = treeDifference(hashTree(outputRoot("plain")),
-        coldTree);
-      deepStrictEqual(
-        plainDifference,
-        [],
-        `G0 failed at ${label}: the warm full generation differs from the `
-        + `cold build in these files:\n${plainDifference.join("\n")}`
-      );
-      // G2: without the define no declaration carries an epoch stamp.
-      strictEqual(readStampCount(plainProbe), 0,
-        `G2 failed at ${label}: a request without the define stamped declarations`);
+      if (warm !== null) {
+        // G0: warm full generation equals cold, with no cache.
+        const plainDifference = treeDifference(hashTree(outputRoot("plain")),
+          coldTree);
+        deepStrictEqual(
+          plainDifference,
+          [],
+          `G0 failed at ${label}: the warm full generation differs from the `
+          + `cold build in these files:\n${plainDifference.join("\n")}`
+        );
+        // G2: without the define no declaration carries an epoch stamp.
+        strictEqual(readStampCount(plainProbe), 0,
+          `G2 failed at ${label}: a request without the define stamped declarations`);
+      }
       let report = readReport();
       ok(report !== null, `${label}: the shadow wrote no report`);
+      if (step.failsAfterCommit === true) {
+        ok(report.committed, `${label}: the failure after the commit must `
+          + "find a committed generation");
+      }
       if (report.result === "restart-required") {
         // The session's answer to this result: a new compiler process.
         await shadow.stop();
@@ -841,8 +1182,9 @@ async function main(): Promise<void> {
         rows.push(row(`${step.id} (restart required)`, report));
         report = afterRestart;
       }
-      // G1: the shadow published the full tree, and every clean module had
-      // the bytes that the full generation staged.
+      // G1: the shadow published the cold tree; in compare mode every module
+      // that reuse would replay also had the bytes that the full generation
+      // staged.
       const shadowDifference = treeDifference(hashTree(outputRoot("shadow")),
         coldTree);
       deepStrictEqual(
@@ -859,14 +1201,15 @@ async function main(): Promise<void> {
           + `${mismatch.stored}\n  staged: ${mismatch.staged}`);
       }
       // Diagnostics are output too: each request reports the warnings of the
-      // cold build, also for a module that Haxe did not type again, and the
-      // shadow recorded each of them for the module that it belongs to.
+      // cold build, also for a module that Haxe did not type again or whose
+      // stored output was replayed.
       const coldWarnings = printWarnings(cold);
       ok(coldWarnings.length > 0,
         `${label}: the cold build reported no __js__ warning`);
-      deepStrictEqual(printWarnings(warm), coldWarnings,
-        `G0 failed at ${label}: the plain warm request reported other `
-        + "print warnings than the cold build");
+      if (warm !== null)
+        deepStrictEqual(printWarnings(warm), coldWarnings,
+          `G0 failed at ${label}: the plain warm request reported other `
+          + "print warnings than the cold build");
       deepStrictEqual(printWarnings(shadowed), coldWarnings,
         `G1 failed at ${label}: the shadow request reported other print `
         + "warnings than the cold build");
@@ -897,16 +1240,23 @@ async function main(): Promise<void> {
         );
       }
       if (step.mode !== undefined) {
-        strictEqual(report.mode, step.mode, `${label}: shadow mode`);
+        strictEqual(report.mode, step.mode === "current" ? mode : step.mode,
+          `${label}: shadow mode`);
       }
       if (step.refusal !== undefined) {
-        strictEqual(report.refusal, step.refusal, `${label}: refusal code`);
+        strictEqual(report.refusal, `${mode}-${step.refusal}`,
+          `${label}: refusal code`);
         strictEqual(report.mismatches.length, 0,
           `${label}: a refused request compared files`);
+        strictEqual(report.replayed, 0, `${label}: a refused request replayed`);
       }
-      if (step.mode === "measure") {
+      if (report.mode !== "compare") {
         strictEqual(report.mismatches.length, 0,
-          `${label}: measure mode compared files`);
+          `${label}: a ${report.mode} request compared files`);
+      }
+      if (report.mode !== "reuse") {
+        strictEqual(report.replayed, 0,
+          `${label}: a ${report.mode} request replayed modules`);
       }
       const emittedModules: ShadowReport["modules"] = report.modules;
       for (const name of step.dirtyModules ?? []) {
@@ -915,54 +1265,63 @@ async function main(): Promise<void> {
         strictEqual(entry.state, "dirty", `${label}: ${name} must be dirty`);
       }
       if (step.settled === true) {
-        // `inc.Late` is defined anew in every request (see `lateModule`).
+        // `inc.Late` and `inc.Clone` are defined anew in every request (see
+        // `macroModules`).
         deepStrictEqual(
-          report.typedAgainModules.filter((module) => module !== lateModule),
+          report.typedAgainModules.filter((module) => !macroModules.includes(module)),
           [],
           `${label}: Haxe typed modules again with no edit`
         );
         ok(report.clean > 0, `${label}: no module was clean with no edit`);
+        strictEqual(report.planFallback, null,
+          `${label}: the checks before emission fell back with no edit`);
+        // With no edit, every module is replayed (reuse) or would be
+        // (compare), except the modules that are never clean.
+        const neverClean = new Set([rootModule, ...macroModules,
+          ...report.haxePrinterModuleNames]);
+        const leftOut = emittedModules
+          .filter((entry) => entry.state === "dirty" && !neverClean.has(entry.module))
+          .map((entry) => entry.module);
+        deepStrictEqual(leftOut, [],
+          `${label}: modules that a request with no edit did not replay`);
+        if (mode === "reuse") {
+          ok(report.replayed > 0, `${label}: nothing was replayed with no edit`);
+          strictEqual(report.replayed, report.clean,
+            `${label}: a clean module was not replayed`);
+        }
       }
+      replayedTotal += report.replayed;
       rows.push(row(step.id, report));
       // Keep the evidence of the edits so far, also when a later edit fails.
-      writeFileSync(path.join(tempRoot, "progress.json"),
+      writeFileSync(path.join(tempRoot, `progress-${mode}.json`),
         JSON.stringify({ rows, g1Failures }, null, 2));
     }
   } finally {
-    await plain.stop();
+    await plain?.stop();
     await shadow.stop();
   }
-  const loadAtEnd = loadavg()[0] ?? 0;
-  writeFileSync(path.join(tempRoot, "summary.json"),
-    JSON.stringify({ loadAtStart, loadAtEnd, rows }, null, 2));
-  const timing = Math.max(loadAtStart, loadAtEnd) <= 2
-    ? "quiet machine"
-    : "diagnostic: 1-minute load above 2.0";
   process.stdout.write(
-    "edit | result | typed again | emitted | clean | mismatches | generation ms "
-    + "| projected ms | overhead ms | cache bytes\n"
+    `[${mode}] edit | result | typed again | emitted | clean | replayed | `
+    + "mismatches | generation ms | projected ms | overhead ms | cache bytes\n"
   );
   for (const entry of rows) {
     process.stdout.write(
       `${entry.id} | ${entry.result} | ${entry.typedAgain} | ${entry.emitted} `
-      + `| ${entry.clean} | ${entry.mismatches} | ${entry.generationMs} `
-      + `| ${entry.projectedMs} | ${entry.overheadMs} | ${entry.cacheBytes}`
+      + `| ${entry.clean} | ${entry.replayed} | ${entry.mismatches} `
+      + `| ${entry.generationMs} | ${entry.projectedMs} | ${entry.overheadMs} `
+      + `| ${entry.cacheBytes}`
       + (entry.reason.length > 0 ? ` | ${entry.reason}` : "")
       + "\n"
     );
   }
   ok(
     g1Failures.length === 0,
-    `G1 failed: modules that the rules call clean changed bytes:\n`
+    `G1 failed (${mode}): modules that reuse would replay changed:\n`
     + g1Failures.join("\n")
   );
-  process.stdout.write(
-    `compiler-server-shadow:ok (Haxe ${compiler.version}; ${probeLine}; `
-    + `${edits.length} edits; G0 warm equals cold, G1 0 mismatches, G2 no `
-    + `stamp without the `
-    + `define; times ${timing}, load ${loadAtStart.toFixed(1)} to `
-    + `${loadAtEnd.toFixed(1)})\n`
-  );
+  if (mode === "reuse")
+    ok(replayedTotal > 0, "the reuse pass replayed no module");
+  return { mode, rows, replayed: replayedTotal, edits: editsRun };
 }
 
 /**
@@ -1004,6 +1363,7 @@ function row(id: string, report: ShadowReport): Row {
     projectedMs: report.projectedGenerationMs,
     overheadMs: report.overhead.totalMs,
     cacheBytes: report.cacheBytes,
+    replayed: report.replayed ?? 0,
     reason: (report.reason ?? "")
       + (report.reservedNamesChanged ? " (reserved names changed)" : "")
   };

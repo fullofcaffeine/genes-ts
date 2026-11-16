@@ -32,6 +32,12 @@ class Main {
       UsesA.value() + UsesB.value(),
       Std.string(Locals.compute(3)),
       Directive.value(),
+      GlobalUse.value(),
+      EnumCheck.value(Square),
+      BaseUser.run(),
+      Std.string(PropUser.run()),
+      Std.string(GenericMethodUse.run()),
+      parted.Parted.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

@@ -85,6 +85,7 @@ export const acceptanceGateManifest: ReadonlyArray<AcceptanceGateDefinition> = [
   nodeGate("genes-ts-full", "scripts/dist/test-genes-ts-full.js", "compiler"),
   nodeGate("dynamic-import-policy", "scripts/dist/test-dynamic-import-policy.js", "compiler"),
   nodeGate("compiler-server", "scripts/dist/test-compiler-server.js", "compiler", "compiler-server"),
+  nodeGate("compiler-server-shadow", "scripts/dist/test-compiler-server-shadow.js", "compiler", "compiler-server"),
   nodeGate("genes-tsx", "scripts/dist/test-genes-tsx.js", "react"),
   nodeGate("package-shapes", "scripts/dist/test-package-shapes.js", "output"),
   nodeGate("binding-identity", "scripts/dist/probe-binding-identity.js", "output"),
