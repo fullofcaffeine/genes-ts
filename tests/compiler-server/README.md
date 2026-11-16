@@ -243,8 +243,12 @@ directives, HXX markup, a props type named by a string in metadata, a
 dynamic iterator, private types with one name, enum abstract values, new,
 edited, deleted and renamed declarations, type errors, a generation
 diagnostic, a define change, a failure after typing, a changed resource file
-with no Haxe source edit, an `@:rtti` class, a new top-level name, and an
-edit of a Genes source file.
+with no Haxe source edit, an `@:rtti` class, a new top-level name, an output
+folder beside the old one and one at another depth, a descriptor that asks
+for compare without afterTyping reuse, the measure mode, and an edit of a
+Genes source file. The init macro `inc.LateMacro` defines the class
+`inc.Late` after typing in every request; the gate requires that it is
+emitted and never clean.
 
 After each edit the same TSX request (with source maps) runs three times:
 
@@ -252,11 +256,34 @@ After each edit the same TSX request (with source maps) runs three times:
 - on a warm server without `-D genes.dev_incremental`: **G0**, the warm tree
   equals the cold tree with no cache, and **G2**, `probes/EpochStampProbe.hx`
   finds no epoch stamp;
-- on a second warm server with the define and a request descriptor that
-  selects the shadow (`"generation": "shadow"`): **G1**, the published tree
-  equals the cold tree, and the shadow report beside the request descriptor
-  (`<descriptor>.report.json`) lists 0 mismatches for the modules that the
-  clean rules call clean.
+- on a second warm server with the define and a request descriptor with
+  `"generation": "compare"` and `"afterTyping": "reuse"`: **G1**, the
+  published tree equals the cold tree, and the shadow report beside the
+  request descriptor (`<descriptor>.report.json`) lists 0 mismatches for the
+  modules that the clean rules call clean.
+
+Before the edits, `probes/CleanRuleProbe.hx` checks the three rules that the
+G2 design review requires before stored output may be replayed, each case
+with made-up inputs:
+
+1. The session key holds no absolute output path, only the way from the
+   output folder to the project root and the output file name
+   (`GenerationChangeSet.outputKeyLines`). A development session writes each
+   build to a new candidate folder; a sibling folder keeps the lines, a
+   folder at another depth or another extension changes them. The edits
+   "output in a sibling folder" (result `incremental`, nothing typed again)
+   and "output in a folder at another depth" (result `full`, "the session
+   key changed") show the same on a real server.
+2. A module whose epoch list is empty (the after-typing callback saw no
+   declaration of it, so no stamp says that Haxe kept it) is never clean,
+   also when the stored list is empty too; a module that read it by name is
+   not clean either. Haxe 4.3.7 gives every declaration to the after-typing
+   callback, also one that a macro defines there (`inc.Late` above), so only
+   the probe reaches an empty list.
+3. `"generation": "compare"` needs `"afterTyping": "reuse"`. Otherwise the
+   request is refused: the report has the result `off`, the refusal code
+   `compare-needs-after-typing-reuse` and its reason, the generation cache
+   is neither read nor written, and the tree is published in full.
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the
@@ -271,8 +298,10 @@ report the stored warnings of that module.
 The shadow and the passes after typing (previous section) use one request
 owner. `IncrementalRequest` decides the mode, and `GenerationChangeSet` adds
 the stamps and builds the session key once after typing; the shadow only
-reads them. A descriptor without `generation`, or with `"full"`, runs no
-shadow and writes no shadow report.
+reads them. A descriptor without `generation` runs no shadow and writes no
+shadow report. `"generation": "measure"` applies the clean rules, stores the
+files and reports the clean share without comparing (report `mode`
+`measure`, no mismatches by definition).
 
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic

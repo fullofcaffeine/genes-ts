@@ -401,13 +401,17 @@ compare mode, covers that case.
 
 One owner with the generation shadow. The byte-stability shadow of
 incremental generation (`IncrementalShadow`, `GenerationCache`; selected with
-the descriptor field `"generation": "shadow"`) reads the same three things as
+the descriptor field `"generation": "measure"` or `"compare"`; compare needs
+`"afterTyping": "reuse"`) reads the same three things as
 the passes and owns none of them: the request mode of `IncrementalRequest`,
 and the stamps and the session key of `GenerationChangeSet`. The change set
 also gives it the epoch list of each module (its sorted
-`declaration key@stamp` entries) and the modules typed again. The session
-key holds the output path too, because a source map names its sources
-relative to the output folder, and the name and a digest of the content of
+`declaration key@stamp` entries) and the modules typed again. A module
+with an empty epoch list is never clean. The session key holds the output
+file name and the way from the output folder to the project root (not the
+absolute path, which changes with each candidate folder of a session),
+because a source map names its sources relative to the map, and the name
+and a digest of the content of
 each embedded resource, because `haxe.Resource` prints them and a changed
 resource file makes Haxe type no module again. `yarn test:compiler-server:shadow` is its
 gate.

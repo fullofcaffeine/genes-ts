@@ -47,20 +47,50 @@ enum AfterTypingReuse {
 /**
  * What the generator does with the output of earlier requests.
  *
- * The descriptor field `generation` selects it for one request. Both values
- * generate and publish the complete tree.
+ * The descriptor field `generation` selects it for one request. No value
+ * skips work yet: every request generates and publishes the complete tree.
  */
 enum GenerationReuse {
-  /** The default: the generator stores no output and compares nothing. */
+  /**
+   * The field is absent (the default): the generator keeps no output and
+   * decides nothing. The request runs as without the field.
+   */
   Regenerate;
 
   /**
-   * Byte-stability shadow (Stage 3, slice 1): after the commit, Genes
-   * compares the stored files of each module that the clean rules call clean
-   * with the files that it just staged, and stores the new files. See
-   * `IncrementalShadow`.
+   * `"measure"`: after the commit, Genes applies the clean rules, stores the
+   * files of each module as plain data and reports the clean share and the
+   * module clocks. It compares nothing. See `IncrementalShadow`.
    */
-  Shadow;
+  MeasureClean;
+
+  /**
+   * `"compare"`: as `MeasureClean`, and Genes also compares the stored files
+   * of each module that the clean rules call clean with the files that it
+   * just staged (the byte-stability shadow of Stage 3, slice 1). Needs
+   * `afterTyping: "reuse"` (see `GenerationRefusal`).
+   */
+  CompareClean;
+}
+
+/**
+ * Why the generator does not serve the `generation` value that the
+ * descriptor asks for. The request then generates in full as without the
+ * field, and the generation report names this reason.
+ */
+enum GenerationRefusal {
+  /**
+   * `generation: "compare"` with an `afterTyping` value other than
+   * `"reuse"`.
+   *
+   * Why (G2 design review, required change 3): a later version replays the
+   * stored output of clean modules. Its output must come from the same
+   * after-typing facts as the request that compare checks. With
+   * `"measure"` or `"compare"` the passes after typing read every kept class
+   * again from its current bodies, so a compare run would prove the bytes
+   * of a path that the replay never takes.
+   */
+  CompareNeedsAfterTypingReuse(afterTyping: AfterTypingReuse);
 }
 
 /**
@@ -72,14 +102,18 @@ enum GenerationReuse {
  * that can change from one request to the next therefore live in a file that
  * the define names.
  *
- * Format (JSON, version 1). `afterTyping` and `generation` are optional;
- * `"measure"` and `"full"` when absent:
+ * Format (JSON, version 1). `afterTyping` is optional and means `"measure"`
+ * when absent. `generation` is optional; when absent, the generator keeps
+ * and compares nothing:
  *
  * ```json
  * {"format": 1, "programDigest": "<digest of the argument list>",
  *  "kind": "full", "afterTyping": "measure" | "reuse" | "compare",
- *  "generation": "full" | "shadow"}
+ *  "generation": "measure" | "compare"}
  * ```
+ *
+ * `"generation": "compare"` needs `"afterTyping": "reuse"`; with another
+ * `afterTyping` value the generator refuses it (`generationRefusal`).
  *
  * One descriptor serves every consumer of the incremental path: the passes
  * after typing read `afterTyping`, the generator reads `generation`. Both
@@ -154,8 +188,9 @@ enum IncrementalMode {
  * One mode for every consumer: the passes after typing and the generation
  * shadow do not decide eligibility themselves. A consumer that cannot serve
  * a request for a reason of its own (the shadow, for an output file that is
- * not `.ts` or `.tsx`) stays out without turning the mode off, so that the
- * other consumers keep working.
+ * not `.ts` or `.tsx`, or a `generation` value that `generationRefusal`
+ * refuses) stays out without turning the mode off, so that the other
+ * consumers keep working.
  *
  * Lifetime: the answer is an ordinary static, so Haxe replaces it at the
  * start of each compilation. Nothing here outlives a request.
@@ -234,6 +269,52 @@ class IncrementalRequest {
    */
   public static function generationReportPath(descriptorPath: String): String {
     return descriptorPath + '.report.json';
+  }
+
+  /**
+   * Returns why the generator must not serve the `generation` value of
+   * `descriptor`, or `null` when it may.
+   *
+   * Only `"compare"` has a condition: it needs `afterTyping: "reuse"` (see
+   * `CompareNeedsAfterTypingReuse`). The answer does not turn the request
+   * mode off. The passes after typing still run in their own mode; only the
+   * generator keeps no output and compares nothing in this request.
+   *
+   * Example: `{"afterTyping": "measure", "generation": "compare"}` gives
+   * `CompareNeedsAfterTypingReuse(Measure)`.
+   */
+  public static function generationRefusal(descriptor: IncrementalDescriptor): Null<GenerationRefusal> {
+    return switch [descriptor.generation, descriptor.afterTyping] {
+      case [CompareClean, Reuse]: null;
+      case [CompareClean, other]: CompareNeedsAfterTypingReuse(other);
+      case [Regenerate | MeasureClean, _]: null;
+    }
+  }
+
+  /**
+   * Returns the stable code of a refusal for the generation report, for
+   * example `compare-needs-after-typing-reuse`. A session matches this code,
+   * not the sentence of `refusalText`.
+   */
+  public static function refusalCode(refusal: GenerationRefusal): String {
+    return switch refusal {
+      case CompareNeedsAfterTypingReuse(_): 'compare-needs-after-typing-reuse';
+    }
+  }
+
+  /** Returns the sentence that the generation report gives for a refusal. */
+  public static function refusalText(refusal: GenerationRefusal): String {
+    return switch refusal {
+      case CompareNeedsAfterTypingReuse(afterTyping):
+        final value = switch afterTyping {
+          case Measure: 'measure';
+          case Reuse: 'reuse';
+          case Compare: 'compare';
+        }
+        'generation "compare" needs afterTyping "reuse"; this request has ' +
+        'afterTyping "$value", so the generator keeps no output and ' +
+        'compares nothing';
+    }
   }
 
   /**
@@ -329,8 +410,8 @@ class IncrementalRequest {
     } else if (!Std.isOfType(stored, String)) {
       return Left('the generation value of the request descriptor is not text');
     } else switch (stored : String) {
-      case 'full': Regenerate;
-      case 'shadow': Shadow;
+      case 'measure': MeasureClean;
+      case 'compare': CompareClean;
       case other: return Left('unknown generation value "$other"');
     }
     return Right({

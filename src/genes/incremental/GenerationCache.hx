@@ -114,14 +114,18 @@ typedef CacheRequestFacts = {
  *    holds a digest of the name and content of each embedded resource,
  *    because `haxe.Resource` prints them and no stamp shows their change);
  * 2. the module has an entry from the last successful generation;
- * 3. its epoch list is equal (Haxe did not type it again, and no declaration
- *    was added or removed);
+ * 3. its epoch list is not empty and is equal (Haxe did not type it again,
+ *    and no declaration was added or removed). An empty list means that the
+ *    after-typing callback saw no declaration of the module, so no stamp
+ *    says that Haxe kept it: such a module is never clean, also when the
+ *    stored list is empty too (G2 design review, required change 2);
  * 4. its fingerprint is equal;
  * 5. it is not the root module, and its last emission did not use Haxe's own
  *    printer;
  * 6. no stored module that was not typed again has a changed fingerprint;
  *    otherwise the whole request falls back;
- * 7. the epoch list of each module that it read by name is equal.
+ * 7. the epoch list of each module that it read by name is not empty and is
+ *    equal. A read module without a stamp counts as changed.
  *
  * Print warnings: an entry also holds the warnings that the printer
  * reported for the module (`CachedWarning`). Rule for the version that
@@ -186,9 +190,9 @@ class GenerationCache {
     if (key != facts.sessionKey)
       return NoCache('the session key changed');
     for (witness in storedGlobalWitnesses)
-      if (facts.epochs(witness.module) != witness.epochs)
-        return Fallback('a module read by name outside any module changed: '
-          + witness.module);
+      if (!sameStampedEpochs(facts.epochs(witness.module), witness.epochs))
+        return Fallback('a module read by name outside any module changed '
+          + 'or has no declaration stamp: ${witness.module}');
     final clean = new Map<String, Bool>();
     final dirty = new Map<String, String>();
     final changedFingerprints = [];
@@ -196,14 +200,20 @@ class GenerationCache {
       final stored = entries.get(module);
       if (stored == null)
         continue;
-      final sameEpochs = facts.epochs(module) == stored.epochs;
+      final epochs = facts.epochs(module);
+      final unstamped = epochs.length == 0;
+      final sameEpochs = !unstamped && epochs == stored.epochs;
       final sameFingerprint = facts.fingerprint(module) == stored.fingerprint;
-      if (sameEpochs && !sameFingerprint)
+      // Rule 6 needs to know that Haxe did not type the module again. An
+      // unstamped module gives no such answer, so a changed fingerprint
+      // there falls back too.
+      if ((sameEpochs || unstamped) && !sameFingerprint)
         changedFingerprints.push(module);
       final reason = if (module == facts.rootModule) 'root module' else
-        if (!sameEpochs) 'typed again' else if (!sameFingerprint)
-          'fingerprint changed' else if (stored.usedHaxePrinter)
-          'used Haxe\'s printer' else changedWitness(stored, facts);
+        if (unstamped) 'no declaration stamp' else if (!sameEpochs)
+          'typed again' else if (!sameFingerprint) 'fingerprint changed' else
+          if (stored.usedHaxePrinter) 'used Haxe\'s printer' else
+            changedWitness(stored, facts);
       if (reason == null)
         clean.set(module, true);
       else
@@ -259,9 +269,22 @@ class GenerationCache {
   static function changedWitness(stored: CachedModule,
       facts: CacheRequestFacts): Null<String> {
     for (witness in stored.witnesses)
-      if (facts.epochs(witness.module) != witness.epochs)
-        return 'read ${witness.module} by name, and it changed';
+      if (!sameStampedEpochs(facts.epochs(witness.module), witness.epochs))
+        return 'read ${witness.module} by name, and it changed or has no '
+          + 'declaration stamp';
     return null;
+  }
+
+  /**
+   * Returns true only when `current`, the epoch list of a module in this
+   * request, is not empty and equals `stored`.
+   *
+   * Why: two empty lists are equal text, but an empty list says only that
+   * the after-typing callback saw no declaration of that module. No stamp
+   * then shows that Haxe kept the module, so equal text proves nothing.
+   */
+  static function sameStampedEpochs(current: String, stored: String): Bool {
+    return current.length > 0 && current == stored;
   }
 
   static function compareStrings(left: String, right: String): Int {

@@ -8,10 +8,12 @@
  *
  * - G0: a warm full generation equals a cold build, with no cache. A failure
  *   here is a Genes or Haxe defect of today, not a cache defect.
- * - G1: with `-D genes.dev_incremental`, every module that the clean rules
- *   call clean has the same bytes as the full generation that the request
- *   just published (0 mismatches), and the published tree equals the cold
- *   tree.
+ * - G1: with `-D genes.dev_incremental` and the descriptor fields
+ *   `"generation": "compare"` and `"afterTyping": "reuse"` (compare needs
+ *   reuse; G2 design review, required change 3), every module that the clean
+ *   rules call clean has the same bytes as the full generation that the
+ *   request just published (0 mismatches), and the published tree equals the
+ *   cold tree.
  * - G2: without the define nothing changes: the warm tree equals cold output
  *   and no declaration carries an epoch stamp.
  *
@@ -26,6 +28,13 @@
  * The G3 numbers (clean share, projected generation time, overhead, cache
  * size) are printed, not judged: the fixture is small, and timing claims need
  * a quiet machine.
+ *
+ * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
+ * the output lines of the session key (no absolute output path), the clean
+ * rule for a module without a declaration stamp, and the refusal of compare
+ * without afterTyping reuse. Edits near the end move the output folder (a
+ * sibling keeps the cache, another depth drops it) and change the
+ * descriptor fields as a session would.
  */
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { createHash } from "node:crypto";
@@ -71,8 +80,12 @@ type Mode = "cold" | "plain" | "shadow";
 /** The parts of the shadow report that this gate reads. */
 type ShadowReport = {
   readonly request: number;
+  /** `measure` or `compare`; `none` when the shadow did not run. */
+  readonly mode: string;
   readonly result: string;
   readonly reason: string | null;
+  /** The stable code of a refused `generation` value, or `null`. */
+  readonly refusal: string | null;
   readonly committed: boolean;
   readonly typedAgain: number;
   readonly emitted: number;
@@ -97,7 +110,20 @@ type ShadowReport = {
   /** Warnings that Genes reported while it printed the modules. */
   readonly printWarnings: number;
   readonly overhead: { readonly totalMs: number };
+  readonly typedAgainModules: ReadonlyArray<string>;
+  readonly modules: ReadonlyArray<{
+    readonly module: string;
+    readonly state: string;
+  }>;
 };
+
+/**
+ * The module that `inc.LateMacro` defines in an after-typing callback of
+ * every request. Haxe gives it to the after-typing callbacks again, so it
+ * arrives without a stamp each time: it is typed again in every request, and
+ * it must never be clean.
+ */
+const lateModule = "inc.Late";
 
 /** One scripted edit and what the gate expects from it. */
 type Edit = {
@@ -106,6 +132,14 @@ type Edit = {
   readonly fails?: boolean;
   /** Shadow results that this edit accepts; any result when absent. */
   readonly results?: ReadonlyArray<string>;
+  /** Text that the report's reason must contain. */
+  readonly reason?: string;
+  /** The report's `mode`, when the edit expects one. */
+  readonly mode?: string;
+  /** The report's `refusal` code, when the edit expects one. */
+  readonly refusal?: string;
+  /** Modules that the report must list as emitted and dirty. */
+  readonly dirtyModules?: ReadonlyArray<string>;
   /**
    * True for a request with no edit: Haxe must type nothing again, and some
    * modules must be clean. This catches stamps that do not survive in
@@ -120,6 +154,26 @@ const program = {
   modules: [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
   ] as string[]
+};
+
+/**
+ * The descriptor fields that an edit can change. The gate runs in compare
+ * mode, which needs the passes after typing to reuse their records (G2 design
+ * review, required change 3).
+ */
+const request = {
+  afterTyping: "reuse",
+  generation: "compare"
+};
+
+/**
+ * Where the three requests write their output: `<tempRoot>/<folders>/<mode>
+ * <suffix>`. A development session writes each build to a new candidate
+ * folder; the output edits move the folder as a session would.
+ */
+const output = {
+  folders: ["out"] as string[],
+  suffix: ""
 };
 
 /** The file that every request embeds as the resource `note`. */
@@ -176,7 +230,13 @@ function dropModule(name: string): void {
  */
 const edits: ReadonlyArray<Edit> = [
   { id: "first request", apply: () => {} },
-  { id: "no edit", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "no edit",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    dirtyModules: [lateModule]
+  },
   {
     id: "body of a module with no importer",
     apply: () => edit("inc/Leaf.hx", '"leaf-v1"', '"leaf-v2"'),
@@ -493,6 +553,62 @@ const edits: ReadonlyArray<Edit> = [
     }
   },
   {
+    // Required change 1: the session key holds the way from the output
+    // folder to the project root, not the absolute output path. A new
+    // candidate folder beside the old one keeps every kept record and the
+    // generation cache.
+    id: "output in a sibling folder (a new candidate folder)",
+    apply: () => {
+      output.suffix = "-candidate-2";
+    },
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // At another depth the relative source paths of the maps change, so the
+    // key must change and the cache must not be used.
+    id: "output in a folder at another depth",
+    apply: () => {
+      output.folders = ["out", "deeper"];
+    },
+    results: ["full"],
+    reason: "the session key changed"
+  },
+  {
+    id: "no edit at the new depth",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // Required change 3: compare needs afterTyping reuse. The request is
+    // refused with a typed reason and still publishes the full tree.
+    id: "generation compare without afterTyping reuse",
+    apply: () => {
+      request.afterTyping = "measure";
+    },
+    results: ["off"],
+    refusal: "compare-needs-after-typing-reuse"
+  },
+  {
+    id: "generation measure: clean rules without a comparison",
+    apply: () => {
+      request.generation = "measure";
+    },
+    results: ["incremental"],
+    mode: "measure"
+  },
+  {
+    id: "compare with afterTyping reuse again, no edit",
+    apply: () => {
+      request.afterTyping = "reuse";
+      request.generation = "compare";
+    },
+    results: ["incremental"],
+    mode: "compare",
+    settled: true
+  },
+  {
     id: "Genes compiler source file touched",
     apply: () => {
       const file = path.join(repoRoot, "src/genes/incremental/ModuleFingerprint.hx");
@@ -501,11 +617,17 @@ const edits: ReadonlyArray<Edit> = [
     },
     results: ["full"]
   },
-  { id: "no edit at the end", apply: () => {}, results: ["incremental"], settled: true }
+  {
+    id: "no edit at the end",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    dirtyModules: [lateModule]
+  }
 ];
 
 function outputRoot(mode: Mode): string {
-  return path.join(tempRoot, "out", mode);
+  return path.join(tempRoot, ...output.folders, `${mode}${output.suffix}`);
 }
 
 function buildArguments(mode: Mode): string[] {
@@ -520,6 +642,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "genes.react.ReactDiagnosticsMacro.install()",
     "--macro", "addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')",
     "-cp", path.join(workspace, "src"),
+    "--macro", "inc.LateMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,
@@ -550,11 +673,17 @@ function warmArguments(mode: "plain" | "shadow", probeReport: string): string[] 
 
 /**
  * Writes the request descriptor. The session owns the program digest: here it
- * is the digest of the arguments that a cold build of this request receives.
+ * is the digest of the arguments that a cold build of this request receives,
+ * without the `-js` path. The development session names each candidate
+ * folder in a descriptor file (`-D genes.output_descriptor`), so its
+ * arguments, and its digest, stay the same when the folder changes.
  */
 function writeDescriptor(): void {
+  const output = path.join(outputRoot("shadow"), "index.tsx");
   const digest = createHash("sha256")
-    .update(buildArguments("shadow").join("\0"))
+    .update(buildArguments("shadow")
+      .map((argument) => argument === output ? "<output>" : argument)
+      .join("\0"))
     .digest("hex");
   writeFileSync(
     descriptorFile,
@@ -562,7 +691,8 @@ function writeDescriptor(): void {
       format: 1,
       programDigest: digest,
       kind: "full",
-      generation: "shadow"
+      afterTyping: request.afterTyping,
+      generation: request.generation
     })
   );
 }
@@ -632,6 +762,7 @@ async function main(): Promise<void> {
   mkdirSync(tempRoot, { recursive: true });
   cpSync(template, workspace, { recursive: true });
   const compiler = selectedHaxeCompiler(repoRoot);
+  const probeLine = await assertCleanRuleProbe(compiler);
   let plain = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   let shadow = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   const rows: Row[] = [];
@@ -758,9 +889,38 @@ async function main(): Promise<void> {
           + `expected ${step.results.join(" or ")}`
         );
       }
+      if (step.reason !== undefined) {
+        ok(
+          (report.reason ?? "").includes(step.reason),
+          `${label}: shadow reason ${String(report.reason)}; expected it to `
+          + `contain ${JSON.stringify(step.reason)}`
+        );
+      }
+      if (step.mode !== undefined) {
+        strictEqual(report.mode, step.mode, `${label}: shadow mode`);
+      }
+      if (step.refusal !== undefined) {
+        strictEqual(report.refusal, step.refusal, `${label}: refusal code`);
+        strictEqual(report.mismatches.length, 0,
+          `${label}: a refused request compared files`);
+      }
+      if (step.mode === "measure") {
+        strictEqual(report.mismatches.length, 0,
+          `${label}: measure mode compared files`);
+      }
+      const emittedModules: ShadowReport["modules"] = report.modules;
+      for (const name of step.dirtyModules ?? []) {
+        const entry = emittedModules.find((item) => item.module === name);
+        ok(entry !== undefined, `${label}: ${name} was not emitted`);
+        strictEqual(entry.state, "dirty", `${label}: ${name} must be dirty`);
+      }
       if (step.settled === true) {
-        strictEqual(report.typedAgain, 0,
-          `${label}: Haxe typed modules again with no edit`);
+        // `inc.Late` is defined anew in every request (see `lateModule`).
+        deepStrictEqual(
+          report.typedAgainModules.filter((module) => module !== lateModule),
+          [],
+          `${label}: Haxe typed modules again with no edit`
+        );
         ok(report.clean > 0, `${label}: no module was clean with no edit`);
       }
       rows.push(row(step.id, report));
@@ -797,11 +957,38 @@ async function main(): Promise<void> {
     + g1Failures.join("\n")
   );
   process.stdout.write(
-    `compiler-server-shadow:ok (Haxe ${compiler.version}; ${edits.length} `
-    + `edits; G0 warm equals cold, G1 0 mismatches, G2 no stamp without the `
+    `compiler-server-shadow:ok (Haxe ${compiler.version}; ${probeLine}; `
+    + `${edits.length} edits; G0 warm equals cold, G1 0 mismatches, G2 no `
+    + `stamp without the `
     + `define; times ${timing}, load ${loadAtStart.toFixed(1)} to `
     + `${loadAtEnd.toFixed(1)})\n`
   );
+}
+
+/**
+ * Runs `CleanRuleProbe` in one cold compile: the output lines of the session
+ * key, the clean rule for a module without a declaration stamp, and the
+ * refusal of compare without afterTyping reuse, each case on its own.
+ * Returns the probe's result line.
+ */
+async function assertCleanRuleProbe(
+  compiler: ReturnType<typeof selectedHaxeCompiler>
+): Promise<string> {
+  const result = await runBoundedProcess(compiler.binary, [
+    ...buildArguments("cold"),
+    "-cp", path.join(fixtureRoot, "probes"),
+    "--macro", "CleanRuleProbe.check()",
+    "--no-output"
+  ], {
+    cwd: workspace,
+    timeoutMs,
+    label: "clean-rule probe",
+    reportProgress: true
+  });
+  ok(result.code === 0, `CleanRuleProbe failed\n${describe(result)}`);
+  const line = /clean-rule-probe:ok \(\d+ cases\)/.exec(result.stdout);
+  ok(line !== null, `CleanRuleProbe printed no result\n${describe(result)}`);
+  return line[0];
 }
 
 function row(id: string, report: ShadowReport): Row {

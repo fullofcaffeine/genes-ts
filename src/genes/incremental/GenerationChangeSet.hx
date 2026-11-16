@@ -216,9 +216,11 @@ typedef AfterTypingReport = {
  *    text of the inputs that change what a pass or the generator computes
  *    but not always what Haxe types: the format, the Haxe version, every
  *    define at the first after-typing callback, the session's digest of the
- *    argument list, the output path, the class paths in order, the working
- *    folder, the name and content of each embedded resource, and the status
- *    of each `.hx` file under the Genes class path.
+ *    argument list, the output file name and the way from the output folder
+ *    to the project root (`outputKeyLines`; not the absolute output path),
+ *    the class paths in order, the working folder, the name and content of
+ *    each embedded resource, and the status of each `.hx` file under the
+ *    Genes class path.
  *    When it differs, every record of every pass is dropped, and the
  *    generation cache does not use its stored output.
  * 3. The declaration arrived with one stamp, and the stamp names it.
@@ -266,7 +268,7 @@ typedef AfterTypingReport = {
  *   review expected that a new top-level name renames locals of every module
  *   in a cold build while cached modules keep their old names. The fixture
  *   showed no such difference, so the digest is reported only. It is read
- *   only when the descriptor selects the shadow.
+ *   only when the descriptor has a `generation` value.
  *
  * How: `AfterTypingPasses.run` calls `observe` first, for each declaration
  * list that Haxe gives to `onAfterTyping`. That is before dead-code
@@ -383,7 +385,7 @@ class GenerationChangeSet {
     }
     final currentNonce = interpreterNonce();
     final pos = Context.currentPos();
-    final reserve = descriptor.generation == Shadow;
+    final reserve = descriptor.generation != Regenerate;
     final observed: Array<ObservedDeclaration> = [];
     for (index => type in types) {
       final record = records[index];
@@ -499,7 +501,7 @@ class GenerationChangeSet {
 
   /**
    * Returns the digest of the names that Haxe's rename filter reserves. The
-   * names are collected only when the descriptor selects the shadow.
+   * names are collected only when the descriptor has a `generation` value.
    */
   public static function reservedNameDigest(): String {
     final known = reservedDigest;
@@ -793,10 +795,11 @@ class GenerationChangeSet {
    * can change the result of a pass, or the output of a module, for a
    * declaration that Haxe did not type again.
    *
-   * The `output` line holds Haxe's output slot. `Generator.use()` sets that
-   * slot to a private file whose name is a digest of the real output path, so
-   * the line changes exactly when the output path changes. The path matters
-   * because a source map names its sources relative to the output folder.
+   * The output path enters only through `outputKeyLines`: the file name and
+   * the way from the output folder to the project root, not the absolute
+   * path. A development session writes each build to a new candidate folder,
+   * and a key with the absolute path would drop every kept record and the
+   * generation cache on each request.
    */
   static function sessionKeyOf(descriptor: IncrementalDescriptor): String {
     final buffer = new StringBuf();
@@ -804,7 +807,12 @@ class GenerationChangeSet {
     buffer.add('haxe ${Context.definedValue('haxe')}\n');
     buffer.add('program ${descriptor.programDigest}\n');
     buffer.add('cwd ${Path.normalize(Sys.getCwd())}\n');
-    buffer.add('output ${Compiler.getOutput()}\n');
+    final output = genes.Generator.configuredOutput();
+    // Without a captured output path (no `-js` when `Generator.use()` ran),
+    // the key keeps Haxe's output slot as it is: safe, because any change of
+    // it changes the key.
+    buffer.add(output == null ? 'output-slot ${Compiler.getOutput()}\n' : outputKeyLines(output,
+      genes.SourceMapGenerator.projectRoot()));
     final defines = Context.getDefines();
     final names = [for (name in defines.keys()) name];
     names.sort(compareStrings);
@@ -829,6 +837,56 @@ class GenerationChangeSet {
     // The text itself is the key. A digest would cost more than the
     // comparison of two texts, because the macro interpreter computes it.
     return buffer.toString();
+  }
+
+  /**
+   * Returns the two lines of the session key that stand for the output path:
+   * the way from the output folder to the project root, and the name of the
+   * output file with its extension.
+   *
+   * Why: a development session writes each build to a new candidate folder,
+   * for example `.genes/dev/candidates/revision-3-ab/output/index.tsx` and
+   * then `.genes/dev/candidates/revision-4-cd/output/index.tsx`. An absolute
+   * path in the key would differ on every request, so every kept record and
+   * the generation cache would be dropped each time (G2 design review,
+   * required change 1). The output bytes depend on the output path only
+   * through what these lines hold:
+   *
+   * - the file name and extension: the name of the root module, the
+   *   extension of every module file and import, and the `file` field and
+   *   `sourceMappingURL` of each source map;
+   * - the way from the output folder to the project root: a source map names
+   *   each source inside the project root by a path relative to the map
+   *   (`SourceMapGenerator.sourceIdentities`). `projectRoot` is the root that
+   *   source maps use (`-D genes.source_map_root`, else the working folder);
+   *   both of those are in the key too. Sources outside the root get
+   *   `haxe://classpath/...` names, which do not depend on the output path.
+   *
+   * Example, with the project root `/p`:
+   *
+   * - `/p/.genes/dev/candidates/revision-3-ab/output/index.tsx` gives
+   *   `output-root ../../../../..` and `output-file index.tsx`. The sibling
+   *   folder `revision-4-cd/output` gives the same lines, so the cache stays.
+   * - `/p/out/index.tsx` gives `output-root ..`: another depth, other source
+   *   map paths, so the key differs and the cache is dropped.
+   * - `/p/out/index.ts` gives `output-file index.ts`: another extension.
+   *
+   * Boundary: two output folders with equal lines give equal source-map
+   * paths for every source that is not inside the folder where the two paths
+   * part (`revision-3-ab` or `revision-4-cd` above). The relative path of
+   * such a source starts with the different folder name. A source there
+   * would have to sit inside a candidate folder of the session.
+   *
+   * How: `PathUtil.relative` is the function that source maps use. It is
+   * asked for the way from the output file to a file of the same name in the
+   * project root; the folder part of the answer is the way back to the root.
+   */
+  public static function outputKeyLines(output: String,
+      projectRoot: String): String {
+    final file = Path.withoutDirectory(output);
+    final toRoot = Path.directory(genes.util.PathUtil.relative(output,
+      Path.join([projectRoot, file])));
+    return 'output-root $toRoot\noutput-file $file\n';
   }
 
   /**

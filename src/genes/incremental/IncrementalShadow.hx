@@ -90,8 +90,24 @@ typedef ShadowOverhead = {
 typedef ShadowReport = {
   final format: Int;
   final request: Int;
+
+  /**
+   * The `generation` value that this request served: `measure` or
+   * `compare`; `none` when the shadow did not run (`result` is `off`). With
+   * `measure`, `mismatches` is always empty because nothing was compared.
+   */
+  final mode: String;
+
   final result: String;
   final reason: Null<String>;
+
+  /**
+   * The stable code of a `GenerationRefusal`, for example
+   * `compare-needs-after-typing-reuse`, or `null`. A refused request has the
+   * result `off` and neither reads nor writes the generation cache.
+   */
+  final refusal: Null<String>;
+
   final committed: Bool;
   final typedAgain: Int;
   final typedAgainModules: Array<String>;
@@ -133,9 +149,9 @@ typedef ShadowReport = {
  * commit does it compare the stored files of the clean modules with the files
  * that it just staged.
  *
- * What: `start` returns at once unless the request descriptor selects the
- * shadow (`"generation": "shadow"`, see `IncrementalRequest`). Then the
- * generator calls the hooks below. They record:
+ * What: `start` returns at once unless the request descriptor has a
+ * `generation` value (`"measure"` or `"compare"`, see `IncrementalRequest`).
+ * Then the generator calls the hooks below. They record:
  *
  * - the staged text of each module's files (through
  *   `OutputTransaction.onRegister`);
@@ -150,8 +166,14 @@ typedef ShadowReport = {
  * - plan and emit time of each module, so that the saving of a later replay
  *   is a sum, not a guess.
  *
- * After the commit, `committed` compares, stores the new plain-data cache and
- * writes the report. A failed request writes a report and keeps the cache.
+ * After the commit, `committed` compares (only for `"compare"`), stores the
+ * new plain-data cache and writes the report. A failed request writes a
+ * report and keeps the cache.
+ *
+ * `"compare"` needs `"afterTyping": "reuse"`. Otherwise `start` refuses the
+ * request with a typed reason (`IncrementalRequest.generationRefusal`): the
+ * result is `off`, the report names the refusal, and the cache is neither
+ * read nor written. The request still generates and publishes in full.
  *
  * One owner for the request facts: the shadow decides no eligibility, adds
  * no stamp and builds no key. It reads the mode from `IncrementalRequest`,
@@ -165,7 +187,7 @@ typedef ShadowReport = {
  * `incremental` (the clean rules applied; slice 1 still generated in full).
  *
  * The report is evidence, not output. It is written only for a request
- * whose descriptor selects the shadow. A request that left the incremental
+ * whose descriptor has a `generation` value. A request that left the incremental
  * path before its descriptor was read writes only the after-typing report,
  * which names the reason. When the file cannot be written, the request gets
  * one warning and goes on.
@@ -176,7 +198,9 @@ typedef ShadowReport = {
  * data.
  */
 class IncrementalShadow {
-  static inline final REPORT_FORMAT = 1;
+  /** The report format. Format 2 added `mode` and `refusal`. */
+  static inline final REPORT_FORMAT = 2;
+
   static inline final LINE_LIMIT = 240;
   static inline final MISMATCH_LIMIT = 200;
 
@@ -184,6 +208,8 @@ class IncrementalShadow {
 
   final reportFile: String;
   final started: Float;
+  final mode: GenerationReuse;
+  final refusal: Null<GenerationRefusal>;
   var active: Bool;
   var reason: Null<String> = null;
   var rootModule = '';
@@ -207,17 +233,24 @@ class IncrementalShadow {
   var decideSeconds = 0.0;
   var recordSeconds = 0.0;
 
-  function new(reportFile: String, active: Bool, reason: Null<String>) {
+  function new(reportFile: String, mode: GenerationReuse, active: Bool,
+      reason: Null<String>, ?refusal: GenerationRefusal) {
     this.reportFile = reportFile;
+    this.mode = mode;
     this.active = active;
     this.reason = reason;
+    this.refusal = refusal;
     this.started = haxe.Timer.stamp();
   }
 
   /**
    * Starts the shadow for one generation. Without the define, or when the
-   * descriptor does not select the shadow, this sets nothing and returns, so
+   * descriptor has no `generation` value, this sets nothing and returns, so
    * the request runs exactly as before.
+   *
+   * A `generation` value that `IncrementalRequest.generationRefusal`
+   * refuses (`"compare"` without `afterTyping: "reuse"`) gives a report with
+   * the result `off`, the refusal code and its reason; nothing else runs.
    *
    * A request that selected the shadow and then left the incremental path
    * (an `@:rtti` class), or that the shadow cannot serve, still gets a report
@@ -231,7 +264,7 @@ class IncrementalShadow {
       transaction: OutputTransaction): Void {
     current = null;
     final descriptor = IncrementalRequest.requestedDescriptor();
-    if (descriptor == null || descriptor.generation != Shadow)
+    if (descriptor == null || descriptor.generation == Regenerate)
       return;
     final reportFile = IncrementalRequest.generationReportPath(descriptor.path);
     final unsupported = switch IncrementalRequest.mode() {
@@ -243,10 +276,18 @@ class IncrementalShadow {
         unsupportedReason(outputFile);
     }
     if (unsupported != null) {
-      current = new IncrementalShadow(reportFile, false, unsupported);
+      current = new IncrementalShadow(reportFile, descriptor.generation,
+        false, unsupported);
       return;
     }
-    final shadow = new IncrementalShadow(reportFile, true, null);
+    final refused = IncrementalRequest.generationRefusal(descriptor);
+    if (refused != null) {
+      current = new IncrementalShadow(reportFile, descriptor.generation,
+        false, IncrementalRequest.refusalText(refused), refused);
+      return;
+    }
+    final shadow = new IncrementalShadow(reportFile, descriptor.generation,
+      true, null);
     current = shadow;
     final key = GenerationChangeSet.sessionKey();
     shadow.sessionKey = key == null ? '' : key;
@@ -472,10 +513,12 @@ class IncrementalShadow {
           for (why in dirty)
             dirtyReasons.set(why,
               (dirtyReasons.exists(why) ? dirtyReasons.get(why) : 0) + 1);
-          final compareStart = haxe.Timer.stamp();
-          for (module in sortedKeys(clean))
-            compare(module, mismatches);
-          compareSeconds = haxe.Timer.stamp() - compareStart;
+          if (mode == CompareClean) {
+            final compareStart = haxe.Timer.stamp();
+            for (module in sortedKeys(clean))
+              compare(module, mismatches);
+            compareSeconds = haxe.Timer.stamp() - compareStart;
+          }
       }
       final writeStart = haxe.Timer.stamp();
       stored = storeCache();
@@ -540,11 +583,18 @@ class IncrementalShadow {
       + cacheWriteSeconds;
     final printerNames = HaxePrinterUse.usedModules();
     final retyped = GenerationChangeSet.retypedModules();
+    final refused = refusal;
     final report: ShadowReport = {
       format: REPORT_FORMAT,
       request: GenerationChangeSet.request(),
+      mode: !active ? 'none' : switch mode {
+        case Regenerate: 'none';
+        case MeasureClean: 'measure';
+        case CompareClean: 'compare';
+      },
       result: result,
       reason: reason,
+      refusal: refused == null ? null : IncrementalRequest.refusalCode(refused),
       committed: success,
       typedAgain: retyped.length,
       typedAgainModules: retyped,

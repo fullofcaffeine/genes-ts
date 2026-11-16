@@ -89,6 +89,21 @@ class Generator {
   static var configuredOutputDescriptor: Null<String>;
   static var configuredTypeScriptProfile = false;
 
+  /**
+   * Returns the output file that this request publishes, as `use()` captured
+   * it: the `-js` path, or the path that `-D genes.output` or
+   * `-D genes.output_descriptor` names. `null` before `use()`, or when the
+   * request has no output path.
+   *
+   * Why: after `use()`, Haxe's own output slot (`Compiler.getOutput()`) names
+   * a private sentinel file, not the real output. The incremental session key
+   * (`GenerationChangeSet.outputKeyLines`) needs the real file name and folder
+   * during typing, before `generate` runs.
+   */
+  public static function configuredOutput(): Null<String> {
+    return configuredOutputFile;
+  }
+
   static function generate(api: JSGenApi) {
     validateOutputOverrideTiming();
     #if genes_generation_floor
