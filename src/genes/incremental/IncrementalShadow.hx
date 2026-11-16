@@ -33,9 +33,16 @@ enum IncrementalPhase {
  * The module clocks of one generator stage, by the state of the module.
  *
  * Why: the time of a stage that is outside these clocks is fixed cost, which
- * a replay of clean modules does not remove. The stage timers of
- * `haxe --times` (for example `genes.plan.reachability`) give the stage
- * total; the total minus the three sums here is that fixed cost.
+ * a replay of clean modules does not remove. Every clock of this report,
+ * `generationMs` included, reads `haxe.Timer.stamp()`, which is `Sys.time()`
+ * in the macro interpreter: wall-clock seconds. `generationMs` minus the
+ * module clocks is that fixed cost.
+ *
+ * Do not subtract these sums from the stage rows of `haxe --times` (for
+ * example `genes.plan.reachability`) without scaling them first: on macOS,
+ * Haxe 4.3.7 prints raw Mach clock units there, 41.67 times too small on
+ * Apple Silicon (see "`--times` shows a few seconds" in
+ * `docs/TROUBLESHOOTING.md`). The rows remain good shares of one run.
  */
 typedef ShadowStageReport = {
   /** `inventory`, `reachability`, `validation` or `emit`. */
