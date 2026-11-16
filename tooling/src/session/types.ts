@@ -513,6 +513,18 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
     | PreparationResult<Diagnostic>
     | Promise<PreparationResult<Diagnostic>>;
 
+  /**
+   * Returns the Haxe invocation: executable, working directory, top-level
+   * HXML files, environment overrides, and compatibility facts.
+   *
+   * The session calls it at startup and again only when a plan input
+   * changes: an HXML or library provenance file, the process environment, or
+   * an extra input with `reinventory` or `restartCompiler`. It is not called
+   * for an ordinary source edit, because a call can be slow (Caffeine hashes
+   * the compiler binary here). Declare every other file that this callback
+   * reads, such as the compiler binary or `.haxerc`, as such an extra input,
+   * or the session keeps using the older invocation.
+   */
   resolveInvocation(context: {
     readonly signal: AbortSignal;
   }): HaxeInvocation | Promise<HaxeInvocation>;

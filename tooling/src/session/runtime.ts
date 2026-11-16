@@ -5,6 +5,7 @@ import {
   mkdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -127,6 +128,12 @@ interface BuildCause {
   readonly reinventory: boolean;
   readonly restartCompiler: boolean;
   readonly rebuild: boolean;
+  /**
+   * The next request needs an empty Haxe cache: a source file was created or
+   * removed, or a watched input that is not a `.hx` file changed. See
+   * `#observe`.
+   */
+  readonly freshCache: boolean;
 }
 
 interface SessionDependencies<Diagnostic extends JsonValue> {
@@ -304,6 +311,24 @@ function ambientEnvironmentKey(): string {
   );
 }
 
+/**
+ * Returns the whole-second file time of a changed source file, the precision
+ * at which Haxe 4.3.7 compares file times.
+ *
+ * Haxe reads a file again only when this second differs from the one it
+ * recorded. It recorded a time no later than the end of the request that read
+ * the file, so a file whose second is after that end needs no
+ * `server/invalidate` (each costs about 60 ms). A file that cannot be read
+ * answers -1, so it is always invalidated.
+ */
+function fileSeconds(file: string): number {
+  try {
+    return Math.floor(statSync(file).mtimeMs / 1000);
+  } catch {
+    return -1;
+  }
+}
+
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
   return Object.freeze({
     revision: Math.max(left.revision, right.revision),
@@ -311,6 +336,7 @@ function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
     reinventory: left.reinventory || right.reinventory,
     restartCompiler: left.restartCompiler || right.restartCompiler,
     rebuild: left.rebuild || right.rebuild,
+    freshCache: left.freshCache || right.freshCache,
   });
 }
 
@@ -354,10 +380,17 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   readonly #startupAbort = new AbortController();
   #startupReady = false;
   #compilerEpoch = 0;
-  /** The process environment at the last plan resolution (`ambientEnvironmentKey`). */
-  #resolvedAmbientEnvironment = "";
-  /** Changes of watched non-`.hx` inputs (`INPUT_EPOCH_DEFINE`). */
-  #inputEpoch = 0;
+  /**
+   * The process environment (`ambientEnvironmentKey`) that each resolved plan
+   * was made from. A plan that failed is never in use, so its key is unused.
+   */
+  readonly #planEnvironments = new WeakMap<EffectiveHaxeInvocationPlan, string>();
+  /**
+   * The highest whole-second file time that the Haxe server may have recorded
+   * for a source file: the second in which the last request ended, or a later
+   * file time that it read. See `#needsInvalidation`.
+   */
+  #lastRequestStampSeconds = 0;
   /** Changed `.hx` files that the next Haxe request must invalidate. */
   readonly #pendingInvalidations = new Set<string>();
   #publishedManifestDigest: string | null = null;
@@ -506,6 +539,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           reinventory: false,
           restartCompiler: false,
           rebuild: true,
+          freshCache: false,
         }),
       );
     } catch (error) {
@@ -1127,7 +1161,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         }),
         onChange: (change) => {
           if (this.#acceptWatchChanges) {
-            this.#observe(change.path, change.cause);
+            this.#observe(change.path, change.cause, change.existence);
           } else {
             this.#startupInputChanged = true;
           }
@@ -1235,6 +1269,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     return Object.freeze(inputs);
   }
 
+  /**
+   * Records one changed input and requests a build.
+   *
+   * `existence` says how the path changed (`unknown` when a host reported it
+   * through `invalidate`). Only a content edit of an existing `.hx` file can
+   * keep the warm Haxe cache: the session then sends `server/invalidate` for
+   * it. Every other change asks for an empty cache (`freshCache`):
+   *
+   * - a created or removed `.hx` file can change a name lookup in a file that
+   *   did not change. Haxe 4.3.7 remembers a failed lookup, for example a
+   *   missing `import.hx` or a top-level `TopThing` that a new
+   *   `servercase/TopThing.hx` now shadows, without a dependency edge, so
+   *   the unchanged module would keep its old meaning;
+   * - a macro may read any other file without telling Haxe.
+   */
   #observe(
     absolutePath: string,
     impact: {
@@ -1242,6 +1291,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       readonly restartCompiler: boolean;
       readonly rebuild: boolean;
     },
+    existence: "created" | "deleted" | "modified" | "unknown" = "unknown",
   ): void {
     if (this.#closing !== null) return;
     const inventory = this.#inventory;
@@ -1264,12 +1314,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (impact.rebuild) {
       this.#newestRebuildRevision = this.#newestRevision;
     }
-    if (absolutePath.endsWith(".hx")) {
+    const contentEdit = absolutePath.endsWith(".hx") && existence === "modified";
+    if (contentEdit) {
       this.#pendingInvalidations.add(absolutePath);
-    } else {
-      // A macro may read this file without telling Haxe; see
-      // `INPUT_EPOCH_DEFINE`. The next request starts a new cache.
-      this.#inputEpoch += 1;
     }
     const relative = this.#logicalInputPath(inventory, absolutePath);
     this.#emit({
@@ -1283,6 +1330,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         revision: this.#newestRevision,
         paths: Object.freeze([relative]),
         ...impact,
+        freshCache: impact.rebuild && !contentEdit,
       }),
     );
   }
@@ -1353,7 +1401,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         if (this.#closing !== null || abort.signal.aborted) return;
         failurePhase = "compile";
       }
-      if (cause.restartCompiler) this.#compilerEpoch += 1;
+      // A new compiler epoch changes the compatibility digest, so the owned
+      // server is stopped and a new one starts with an empty cache. That
+      // costs the same full typing as a new cache in the old server, and it
+      // frees the old cache instead of keeping it until the session ends.
+      if (cause.restartCompiler || cause.freshCache) this.#compilerEpoch += 1;
       const retainedPlan = this.#effectivePlan;
       if (retainedPlan === null) {
         throw new Error("effective Haxe invocation is unavailable");
@@ -1369,7 +1421,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       // again just before Haxe starts. A reinventory has just confirmed the
       // plan in `#replanGapSafe`.
       const planInputsCurrent = (plan: EffectiveHaxeInvocationPlan): boolean =>
-        ambientEnvironmentKey() === this.#resolvedAmbientEnvironment &&
+        ambientEnvironmentKey() === this.#planEnvironments.get(plan) &&
         planInputFilesUnchanged(plan);
       const planInputChanged =
         cause.reinventory ||
@@ -1392,6 +1444,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         });
         return;
       }
+      // An equal identity means an equal plan. Keep the newer object, so the
+      // environment it was made from is the one compared next time.
+      this.#effectivePlan = executionPlan;
       const compatibilityDigest = this.#compatibilityDigest(executionPlan);
       candidateStageRelative = `${this.#layout.candidatesRelative}/revision-${cause.revision}-${this.#dependencies.nonce()}`;
       const candidateStageRoot = path.join(
@@ -1450,7 +1505,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         candidateStageRoot,
         candidateOutputFile,
         requestRoot,
-        this.#inputEpoch,
         stagedCompilerData?.descriptorPath,
       );
       for (const input of boundInvocation.privateArgumentFiles) {
@@ -1477,11 +1531,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (this.#closing !== null || abort.signal.aborted) return;
       // Haxe compares file times in whole seconds, so a second save within
       // the same second as the last build looks unchanged to it. The
-      // compiler tells the server about each changed source file directly.
-      // The list is taken now and given back when the request fails, so a
-      // later build still reports those files.
-      const invalidatedFiles = bytewise(this.#pendingInvalidations);
+      // compiler tells the server about such a file directly. The list is
+      // taken now and given back when the request fails, so a later build
+      // still reports those files.
+      const changedFiles = bytewise(this.#pendingInvalidations);
       this.#pendingInvalidations.clear();
+      const changedSeconds = changedFiles.map((file) => fileSeconds(file));
+      const invalidatedFiles = changedFiles.filter(
+        (_file, index) =>
+          changedSeconds[index]! <= this.#lastRequestStampSeconds,
+      );
       let compiler: CompilerResult;
       try {
         compiler = await this.#compiler.compile(
@@ -1511,10 +1570,17 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           invalidatedFiles,
         );
       } catch (error) {
-        for (const file of invalidatedFiles) {
+        for (const file of changedFiles) {
           this.#pendingInvalidations.add(file);
         }
         throw error;
+      } finally {
+        this.#lastRequestStampSeconds = Math.max(
+          this.#lastRequestStampSeconds,
+          // File times are wall-clock times, so this is the wall clock too.
+          Math.floor(Date.now() / 1000),
+          ...changedSeconds,
+        );
       }
       if (this.#closing !== null || abort.signal.aborted) return;
       const candidate = readGenesOutput(
@@ -1762,7 +1828,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   async #resolveEffectivePlan(
     signal: AbortSignal,
   ): Promise<EffectiveHaxeInvocationPlan> {
-    this.#resolvedAmbientEnvironment = ambientEnvironmentKey();
+    const environmentKey = ambientEnvironmentKey();
     const invocation = snapshotHaxeInvocation(
       await this.#options.resolveInvocation({ signal }),
     );
@@ -1782,6 +1848,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         ),
       );
     }
+    this.#planEnvironments.set(plan, environmentKey);
     return plan;
   }
 

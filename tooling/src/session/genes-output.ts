@@ -145,7 +145,10 @@ export function readGenesOutput(
   if (!existsSync(manifestPath)) {
     if (required) {
       throw new Error(
-        `Genes did not produce its ownership manifest for ${ownerIdentity}`,
+        `Genes did not produce its ownership manifest for ${ownerIdentity}. ` +
+          "If the Genes Haxe library is older than this tooling, it does not " +
+          "read -D genes.output_descriptor; use the same genes-ts commit for " +
+          "both.",
       );
     }
     return null;

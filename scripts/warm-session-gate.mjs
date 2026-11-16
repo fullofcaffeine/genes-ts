@@ -139,7 +139,7 @@ const serverCaches = async () => {
   const { port } = lease();
   const answer = await sendHaxeServerRequest(
     { host: "127.0.0.1", port, argument: `127.0.0.1:${port}` },
-    projectRoot, "server/contexts", {}, 60_000);
+    projectRoot, "server/contexts", {}, { timeoutMs: 60_000 });
   return JSON.parse(answer.slice(answer.indexOf("{"))).result.result
     .map((context) => `${context.platform} ${context.desc} ${context.signature}`).sort();
 };

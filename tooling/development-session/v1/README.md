@@ -454,8 +454,11 @@ a DevelopmentSession feature. The standalone HXML inventory rejects the form
 because its returned arguments are safe to pass directly to Haxe and it does
 not own a private build directory.
 
-The host may supply environment overrides with the Haxe invocation. For each
-revision, the session combines them with the current Node process environment,
+The host may supply environment overrides with the Haxe invocation. Whenever
+it resolves the plan (at startup, and when an HXML or library provenance file,
+the process environment, or an extra input with `reinventory` or
+`restartCompiler` changes), the session combines them with the current Node
+process environment,
 copies the complete result, includes it in the compiler-server identity, and
 passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
 `HAXE_STD_PATH` change therefore starts a compatible server instead of silently

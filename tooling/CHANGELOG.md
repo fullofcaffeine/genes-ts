@@ -16,12 +16,16 @@ it.
   the output descriptor (`-D genes.output_descriptor`), the incremental
   descriptor (`-D genes.dev_incremental`, mode `measure`, so Genes keeps its
   plain records but still does all work), and the compiler-data descriptor.
-  The session also tells a warm server about each changed `.hx` file with
-  `server/invalidate`, so two saves within one second are both built. A
-  change of any other watched input (for example a JSON or CSS file that a
-  macro reads without telling Haxe) increments
-  `-D genes.tooling.input_epoch`, so that request starts a new, empty cache
-  and types everything, as a cold build does. It
+  Only a content edit of an existing `.hx` file keeps the warm cache; when its
+  whole-second file time may equal the one Haxe recorded, the session first
+  sends `server/invalidate`, so two saves within one second are both built.
+  A created or removed `.hx` file (which can change a name lookup in an
+  unchanged module, for example a new `import.hx`) and a change of any other
+  watched input (a file that a macro may read without telling Haxe) restart
+  the owned server, so that request types everything from an empty cache, as
+  a cold build does. An invalidation that fails or waits more than two
+  minutes replaces the server instead of failing the build. Watch changes now
+  report `existence`: `created`, `deleted`, or `modified`. It
   resolves the invocation plan (host callback plus HXML and library
   inventory) only at startup and when a plan input changes, not twice per
   build. A plan input is an HXML or library provenance file, an extra input
@@ -35,7 +39,8 @@ it.
   read `-D genes.output_descriptor`. `session-warm-server-test` drives the
   real session over the compiler-server fixture and fails when a build adds
   a cache signature, keeps no record, misses a same-second save, differs
-  from a cold build, or grows server memory.
+  from a cold build, grows server memory, or keeps the server across a new
+  `import.hx` or a new module that shadows a top-level name.
 - Add explicit development-session admission for a complete generated tree
   installed while the session is stopped. The host supplies the exact prior
   acceptance digest and replacement file inventory. Genes validates the tree

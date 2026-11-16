@@ -13,7 +13,6 @@ import type { SessionLayout } from "./layout.js";
 import {
   GENES_DEV_INCREMENTAL_DEFINE,
   GENES_OUTPUT_DESCRIPTOR_DEFINE,
-  INPUT_EPOCH_DEFINE,
   HAXE_4_3_7_DEVELOPMENT_JS_POLICY,
   type BoundHaxeInvocation,
 } from "./effective-invocation.js";
@@ -74,6 +73,29 @@ interface ActiveRequest {
   readonly assertInvocationCurrent?: () => void | Promise<void>;
   readonly prepared?: PreparedCompilerRequest;
   readonly invalidatedFiles: readonly string[];
+  /** False when the server was just started: its cache holds no old module. */
+  invalidate: boolean;
+}
+
+/**
+ * The longest wait for one `server/invalidate` answer. Haxe 4.3.7 runs a full
+ * garbage collection or compaction every 10 requests, and an invalidation
+ * counts as a request; on a server with a cache of several gigabytes that can
+ * take seconds. A longer wait ends in a new server instead of a failed build.
+ */
+export const HAXE_SERVER_INVALIDATE_TIMEOUT_MS = 120_000;
+
+/**
+ * A `server/invalidate` request failed or timed out. The compiler then starts
+ * a new server, whose cache is empty, instead of failing the build.
+ */
+class HaxeInvalidationError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Haxe server/invalidate failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = "HaxeInvalidationError";
+  }
 }
 
 class HaxeCommandError extends Error {
@@ -158,7 +180,6 @@ function validateInvocation(invocation: HaxeInvocation): void {
     "genes.output",
     GENES_OUTPUT_DESCRIPTOR_DEFINE,
     GENES_DEV_INCREMENTAL_DEFINE,
-    INPUT_EPOCH_DEFINE,
     COMPILER_DATA_DEFINE,
   ];
   for (const reserved of reservedDefines) {
@@ -234,18 +255,20 @@ function commandArgs(
  * a zero byte.
  *
  * Example: `sendHaxeServerRequest(endpoint, "/project", "server/invalidate",
- * { file: "/project/src/App.hx" }, 2000)`.
+ * { file: "/project/src/App.hx" }, { signal, timeoutMs: 120_000 })`.
  *
- * It rejects when the server cannot be reached, does not answer before the
- * timeout, or answers with a JSON-RPC error.
+ * It rejects when the server cannot be reached, when `signal` aborts, when
+ * the server does not answer within `timeoutMs` of silence, or when it
+ * answers with a JSON-RPC error.
  */
 export function sendHaxeServerRequest(
   endpoint: HaxeWaitEndpoint,
   cwd: string,
   method: string,
   params: Readonly<Record<string, string>>,
-  timeoutMs: number,
+  options: { readonly signal?: AbortSignal; readonly timeoutMs: number },
 ): Promise<string> {
+  const { signal, timeoutMs } = options;
   const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
   const payload = `${["--cwd", cwd, "--display", request]
     .map((line) => `${line}\n`)
@@ -257,9 +280,11 @@ export function sendHaxeServerRequest(
     });
     let answer = "";
     let settled = false;
+    const abort = (): void => finish(new Error(`Haxe server ${method} was cancelled`));
     const finish = (error: Error | null): void => {
       if (settled) return;
       settled = true;
+      signal?.removeEventListener("abort", abort);
       socket.destroy();
       if (error !== null) {
         reject(error);
@@ -269,6 +294,11 @@ export function sendHaxeServerRequest(
         resolve(answer);
       }
     };
+    if (signal?.aborted === true) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
     socket.setTimeout(timeoutMs, () =>
       finish(new Error(`Haxe server ${method} timed out`)),
     );
@@ -402,6 +432,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
   readonly #server: OwnedHaxeWaitServer<CompilerResult>;
   readonly #shutdownTimeoutMs: number;
   #request: ActiveRequest | null = null;
+  #freshServers = 0;
 
   constructor(
     layout: SessionLayout,
@@ -444,19 +475,46 @@ export class HaxeSessionCompiler implements SessionCompiler {
     prepared?: PreparedCompilerRequest,
     invalidatedFiles: readonly string[] = [],
   ): Promise<CompilerResult> {
-    this.#request = {
+    const request: ActiveRequest = {
       invocation,
       signal,
       assertInvocationCurrent,
       prepared,
       invalidatedFiles: Object.freeze([...invalidatedFiles]),
+      invalidate: true,
     };
+    this.#request = request;
     try {
-      await this.#server.ensure(compatibilityDigest);
-      return await this.#server.compile(compatibilityDigest);
+      let digest = this.#serverDigest(compatibilityDigest);
+      request.invalidate = !(await this.#server.ensure(digest)).newlyStarted;
+      try {
+        return await this.#server.compile(digest);
+      } catch (error) {
+        if (!(error instanceof HaxeInvalidationError) || signal.aborted) {
+          throw error;
+        }
+        // The old server could not take the invalidation. A new server has
+        // an empty cache, so it needs none and gives the cold result.
+        this.#freshServers += 1;
+        digest = this.#serverDigest(compatibilityDigest);
+        request.invalidate = false;
+        await this.#server.ensure(digest);
+        return await this.#server.compile(digest);
+      }
     } finally {
       this.#request = null;
     }
+  }
+
+  /**
+   * Returns the digest that selects the owned server. It is the session's
+   * compatibility digest, plus a counter of the servers replaced after a
+   * failed invalidation, so that such a replacement stays in use.
+   */
+  #serverDigest(compatibilityDigest: string): string {
+    return this.#freshServers === 0
+      ? compatibilityDigest
+      : `${compatibilityDigest}:fresh-${this.#freshServers}`;
   }
 
   async close(): Promise<void> {
@@ -516,17 +574,27 @@ export class HaxeSessionCompiler implements SessionCompiler {
 
   async #compileConnected(endpoint: HaxeWaitEndpoint): Promise<CompilerResult> {
     const request = this.#current();
-    for (const file of request.invalidatedFiles) {
+    for (const file of request.invalidate ? request.invalidatedFiles : []) {
       if (request.signal.aborted) {
         throw new Error("Haxe compilation was cancelled");
       }
-      await sendHaxeServerRequest(
-        endpoint,
-        request.invocation.cwd,
-        "server/invalidate",
-        { file },
-        this.#shutdownTimeoutMs,
-      );
+      try {
+        await sendHaxeServerRequest(
+          endpoint,
+          request.invocation.cwd,
+          "server/invalidate",
+          { file },
+          {
+            signal: request.signal,
+            timeoutMs: HAXE_SERVER_INVALIDATE_TIMEOUT_MS,
+          },
+        );
+      } catch (error) {
+        if (request.signal.aborted) {
+          throw new Error("Haxe compilation was cancelled");
+        }
+        throw new HaxeInvalidationError(error);
+      }
     }
     return await this.#run(endpoint, "connected");
   }

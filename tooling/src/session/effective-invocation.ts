@@ -35,18 +35,6 @@ export const GENES_OUTPUT_DESCRIPTOR_DEFINE = "genes.output_descriptor";
  */
 export const GENES_DEV_INCREMENTAL_DEFINE = "genes.dev_incremental";
 
-/**
- * Counts the changes of watched inputs that are not Haxe source files.
- *
- * Why: a macro may read any file, for example a JSON or CSS file, without
- * telling Haxe. A warm cache would then keep the typed result of the old file.
- * Haxe 4.3.7 has no request that drops one macro's result, so a change of such
- * an input gives the next request a new define value, and with it a new, empty
- * cache: the same full typing as a cold build. A `.hx` edit keeps the value
- * and the warm cache (the session sends `server/invalidate` instead).
- */
-export const INPUT_EPOCH_DEFINE = "genes.tooling.input_epoch";
-
 /** File names inside the session's fixed request folder. */
 export const OUTPUT_DESCRIPTOR_FILE = "genes-output.descriptor";
 export const INCREMENTAL_DESCRIPTOR_FILE = "incremental.json";
@@ -96,7 +84,6 @@ const FORBIDDEN_DEFINES = Object.freeze([
   "genes.output",
   GENES_OUTPUT_DESCRIPTOR_DEFINE,
   GENES_DEV_INCREMENTAL_DEFINE,
-  INPUT_EPOCH_DEFINE,
   COMPILER_DATA_DEFINE,
   "genes.tooling.prepared",
   "gen_hx_classes",
@@ -294,9 +281,7 @@ export async function buildEffectiveHaxeInvocationPlan<
  * type the whole program again for every build. The Genes output path of
  * this revision is therefore in a descriptor file at a fixed path in
  * `requestRoot`, and the define names that fixed path. The incremental
- * descriptor and the compiler-data descriptor follow the same rule. The one
- * deliberate exception is `inputEpoch` (see `INPUT_EPOCH_DEFINE`): it changes
- * only when a watched input that is not a `.hx` file changes.
+ * descriptor and the compiler-data descriptor follow the same rule.
  *
  * Example: `-D genes.output_descriptor=<project>/.genes/dev/haxe-request/genes-output.descriptor`
  * for every build, while the file names
@@ -307,7 +292,6 @@ export function bindHaxeInvocation(
   candidateStageRoot: string,
   candidateOutputFile: string,
   requestRoot: string,
-  inputEpoch: number,
   compilerDataDescriptorPath?: string,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
@@ -365,8 +349,6 @@ export function bindHaxeInvocation(
       `${GENES_OUTPUT_DESCRIPTOR_DEFINE}=${outputDescriptor}`,
       "-D",
       `${GENES_DEV_INCREMENTAL_DEFINE}=${incrementalDescriptor}`,
-      "-D",
-      `${INPUT_EPOCH_DEFINE}=${inputEpoch}`,
       ...(compilerDataDescriptorPath === undefined
         ? []
         : ["-D", `${COMPILER_DATA_DEFINE}=${compilerDataDescriptorPath}`]),

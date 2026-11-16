@@ -328,7 +328,13 @@ function changed<Cause>(
             : after === undefined
               ? before.cause
               : merge(before.cause, after.cause);
-        return [Object.freeze({ path: candidate, cause, origin })];
+        const existence: ReconciledWatchChange<Cause>["existence"] =
+          before === undefined
+            ? "created"
+            : after === undefined
+              ? "deleted"
+              : "modified";
+        return [Object.freeze({ path: candidate, cause, origin, existence })];
       },
     ),
   );

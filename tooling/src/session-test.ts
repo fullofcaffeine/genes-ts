@@ -13,8 +13,10 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
+import { createServer, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +47,7 @@ import {
 } from "./watch/index.js";
 import {
   HaxeSessionCompiler,
+  sendHaxeServerRequest,
   snapshotHaxeInvocation,
   type PreparedCompilerRequest,
   type SessionCompiler,
@@ -272,6 +275,7 @@ class FakeCompiler implements SessionCompiler {
   readonly compatibilityDigests: string[] = [];
   readonly invocations: Parameters<SessionCompiler["compile"]>[0][] = [];
   readonly preparedRequests: PreparedCompilerRequest[] = [];
+  readonly invalidations: (readonly string[])[] = [];
   calls = 0;
   closed = 0;
 
@@ -281,9 +285,11 @@ class FakeCompiler implements SessionCompiler {
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
     prepared?: PreparedCompilerRequest,
+    invalidatedFiles: readonly string[] = [],
   ): Promise<{ readonly mode: "connected" | "direct" }> {
     const { candidateOutputFile } = _invocation;
     this.calls += 1;
+    this.invalidations.push([...invalidatedFiles]);
     this.invocations.push(_invocation);
     if (prepared !== undefined) {
       this.preparedRequests.push(prepared);
@@ -390,7 +396,10 @@ class FakeWatch<Cause> implements ReconciledWatchSession {
     options.onRegistered?.();
   }
 
-  change(absolutePath: string): void {
+  change(
+    absolutePath: string,
+    existence: ReconciledWatchChange<Cause>["existence"] = "modified",
+  ): void {
     const input = this.options.inputs.find((candidate) =>
       matches(candidate, absolutePath),
     );
@@ -399,6 +408,7 @@ class FakeWatch<Cause> implements ReconciledWatchSession {
       path: absolutePath,
       cause: input!.cause,
       origin: "native",
+      existence,
     };
     this.options.onChange(change);
   }
@@ -7106,4 +7116,100 @@ for (const checkpoint of [
     } finally { await second.session.close(); }
   });
 }
+// Which changes keep the warm Haxe cache: only a content edit of an existing
+// `.hx` file. It is sent for invalidation only when its whole-second file time
+// is not after the last request, and it is given back when the request fails.
+await withHarness("invalidation-only-for-same-second-edits", async (harness) => {
+  harness.compiler.steps.push(
+    { content: "export const value = 1;\n" },
+    { content: "export const value = 2;\n" },
+    { fail: "fake Haxe failure" },
+    { content: "export const value = 3;\n" },
+    { content: "export const value = 4;\n" },
+  );
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  const epochs = (): number => new Set(harness.compiler.compatibilityDigests).size;
+  // A save whose second is later than the last request needs no invalidation.
+  writeFileSync(harness.source, "class Main { static function main() {} }\n", "utf8");
+  const later = Math.floor(Date.now() / 1000) + 5;
+  utimesSync(harness.source, later, later);
+  currentWatch(harness).change(harness.source);
+  await harness.session.waitForIdle();
+  assert.deepEqual(harness.compiler.invalidations.at(-1), []);
+  assert.equal(epochs(), 1, "a content edit keeps the warm server");
+  // The same second again: Haxe would keep the old module, so it is sent.
+  writeFileSync(harness.source, "class Main { static function main() { trace(1); } }\n", "utf8");
+  utimesSync(harness.source, later, later);
+  currentWatch(harness).change(harness.source);
+  await harness.session.waitForIdle();
+  assert.deepEqual(harness.compiler.invalidations.at(-1), [harness.source]);
+  assert.equal(harness.session.state.kind, "degraded");
+  // The failed request gives the file back to the next one.
+  harness.session.invalidate({ path: "src/data.json", impact: { rebuild: true } });
+  await harness.session.waitForIdle();
+  assert.deepEqual(harness.compiler.invalidations.at(-1), [harness.source]);
+  assert.equal(epochs(), 2, "a non-source input starts a new server");
+  // A created source file starts a new server too; it is never invalidated.
+  const created = path.join(harness.root, "src", "Created.hx");
+  writeFileSync(created, "class Created {}\n", "utf8");
+  currentWatch(harness).change(created, "created");
+  await harness.session.waitForIdle();
+  assert.deepEqual(harness.compiler.invalidations.at(-1), []);
+  assert.equal(epochs(), 3, "a created source file starts a new server");
+  assert.equal(harness.session.state.kind, "ready");
+});
+
+// `server/invalidate` waits as long as the server needs (Haxe can pause for a
+// full garbage collection), is ended by the build's abort signal, and reports
+// a server that closes without an answer.
+{
+  const sockets = new Set<Socket>();
+  let behavior: "slow" | "silent-close" = "slow";
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    let request = "";
+    socket.on("data", (chunk: Buffer) => {
+      request += chunk.toString();
+      if (!request.includes("\0")) return;
+      if (behavior === "silent-close") {
+        socket.end();
+        return;
+      }
+      setTimeout(() => {
+        if (!socket.destroyed) {
+          socket.end('{"jsonrpc":"2.0","id":1,"result":{"result":null}}\n');
+        }
+      }, 2_500);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { readonly port: number }).port;
+  const endpoint = { host: "127.0.0.1" as const, port, argument: `127.0.0.1:${port}` };
+  try {
+    const started = Date.now();
+    const answer = await sendHaxeServerRequest(endpoint, "/project", "server/invalidate",
+      { file: "/project/src/Main.hx" }, { timeoutMs: 60_000 });
+    assert.equal(answer.includes('"result"'), true);
+    assert.equal(Date.now() - started >= 2_400, true,
+      "a slow answer is awaited past the 2 s shutdown timeout");
+    const abort = new AbortController();
+    const aborted = sendHaxeServerRequest(endpoint, "/project", "server/invalidate",
+      { file: "/project/src/Main.hx" }, { signal: abort.signal, timeoutMs: 60_000 });
+    setTimeout(() => abort.abort(), 100);
+    const abortStarted = Date.now();
+    await assert.rejects(aborted, /cancelled/u);
+    assert.equal(Date.now() - abortStarted < 2_000, true, "abort ends the wait");
+    behavior = "silent-close";
+    await assert.rejects(
+      sendHaxeServerRequest(endpoint, "/project", "server/invalidate",
+        { file: "/project/src/Main.hx" }, { timeoutMs: 60_000 }),
+      /server\/invalidate failed/u,
+    );
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 console.log("genes tooling development session runtime: ok");

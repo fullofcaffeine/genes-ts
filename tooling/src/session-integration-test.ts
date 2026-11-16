@@ -748,8 +748,8 @@ try {
           event.event.kind === "compiler-lifecycle" &&
           event.event.event.kind === "started",
       ).length,
-      1,
-      "the unchanged second build must reuse the owned Haxe server",
+      2,
+      "a changed input that is not a .hx file must start a new Haxe server, because a macro may read it without telling Haxe",
     );
     writeFileSync(
       path.join(sourceOnlyClassPath, "SourceOnly.hx"),
@@ -892,8 +892,8 @@ try {
           event.event.kind === "compiler-lifecycle" &&
           event.event.event.kind === "started",
       ).length,
-      1,
-      "the classic warm rebuild must reuse one owned Haxe server",
+      2,
+      "the classic rebuild after a changed JSON input must start a new Haxe server",
     );
   } finally {
     await classicSession.close();

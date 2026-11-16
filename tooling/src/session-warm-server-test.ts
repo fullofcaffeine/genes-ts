@@ -21,7 +21,10 @@
  * - two saves with the same whole-second file time are both built (the
  *   second one through `server/invalidate`);
  * - the public tree equals a cold build in a new Haxe process, byte for byte;
- * - the server memory stays roughly flat.
+ * - the server memory stays roughly flat;
+ * - a structure change (a new module, a new `import.hx`, a new module that
+ *   shadows a top-level name, a removed module) starts a new server, a
+ *   content edit between them does not, and each tree equals cold.
  *
  * Timings are printed, not judged: a timing claim needs a quiet machine.
  */
@@ -30,6 +33,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -269,7 +273,7 @@ try {
       projectRoot,
       method,
       {},
-      30_000,
+      { timeoutMs: 30_000 },
     );
     const start = answer.indexOf("{");
     assert.notEqual(start, -1, `${method} gave no JSON: ${answer}`);
@@ -310,7 +314,12 @@ try {
   // Every later build must reuse exactly these.
   let firstCaches: readonly string[] | null = null;
   const memory: number[] = [];
-  const observe = async (generation: number, label: string, ms: number): Promise<void> => {
+  const observe = async (
+    generation: number,
+    label: string,
+    ms: number,
+    freshServer = false,
+  ): Promise<void> => {
     const current = await serverCaches();
     assert.equal(
       current.some((cache) => cache.startsWith("js ")),
@@ -324,7 +333,7 @@ try {
       `${label}: a new Haxe cache signature appeared; a define changes between session builds`,
     );
     const kept = keptRecords(label);
-    if (generation > 1) {
+    if (generation > 1 && !freshServer) {
       assert.equal(kept > 0, true, `${label}: Genes kept no record across requests`);
     }
     memory.push(residentKilobytes(lease().serverPid));
@@ -400,15 +409,13 @@ try {
     );
 
     assert.deepEqual(publicTree(), coldTree("after the edits"), "after the edits: tree differs from cold");
-    assert.equal(
+    const serverStarts = (): number =>
       events.filter(
         (event) =>
           event.event.kind === "compiler-lifecycle" &&
           event.event.event.kind === "started",
-      ).length,
-      1,
-      "the session must reuse one owned Haxe server",
-    );
+      ).length;
+    assert.equal(serverStarts(), 1, "the session must reuse one owned Haxe server");
     // Roughly flat. With a new cache per build the process grew from about
     // 250 MB to 675 MB over these five warm builds of the fixture (2.7x);
     // with one cache it stays near its size after the first two builds. The
@@ -422,6 +429,77 @@ try {
       true,
       `server memory grew from ${base} KiB to ${peak} KiB over ${memory.length - 2} warm builds`,
     );
+
+    // Structure changes. Haxe 4.3.7 remembers a failed name lookup without a
+    // dependency edge, so a created or removed `.hx` file can change the
+    // meaning of a module that did not change. Each such change must start a
+    // new server, and the tree must equal cold.
+    const writeSource = (relative: string, text: string): void => {
+      writeFileSync(path.join(projectRoot, "src", relative), text, "utf8");
+    };
+    const structureSteps: readonly {
+      readonly label: string;
+      readonly apply: () => void;
+      readonly expect?: () => void;
+    }[] = [
+      {
+        label: "new unused module other.Extra",
+        apply: () => {
+          mkdirSync(path.join(projectRoot, "src", "other"));
+          writeSource(
+            "other/Extra.hx",
+            'package other;\n\nclass Extra {\n  public static function value(): String {\n    return "extra-other";\n  }\n}\n',
+          );
+        },
+      },
+      {
+        label: "new import.hx that imports other.Extra",
+        apply: () => writeSource("servercase/import.hx", "import other.Extra;\n"),
+        expect: () =>
+          assert.equal(/other\/Extra/u.test(published("servercase/Main.ts")), true),
+      },
+      {
+        label: "new top-level TopThing",
+        apply: () =>
+          writeSource(
+            "TopThing.hx",
+            'class TopThing {\n  public static function value(): String {\n    return "top-level";\n  }\n}\n',
+          ),
+      },
+      {
+        label: "leaf uses TopThing (content edit)",
+        apply: () => {
+          edit("servercase/UnimportedLeaf.hx", '"leaf-v5-same-second"', '"leaf-" + TopThing.value()');
+        },
+      },
+      {
+        label: "new servercase.TopThing shadows the top-level one",
+        apply: () =>
+          writeSource(
+            "servercase/TopThing.hx",
+            'package servercase;\n\nclass TopThing {\n  public static function value(): String {\n    return "same-package";\n  }\n}\n',
+          ),
+      },
+      {
+        label: "servercase.TopThing removed",
+        apply: () => rmSync(path.join(projectRoot, "src", "servercase/TopThing.hx")),
+      },
+    ];
+    for (const step of structureSteps) {
+      const startsBefore = serverStarts();
+      step.apply();
+      generation += 1;
+      const ms = await waitForGeneration(generation, step.label);
+      const contentEdit = step.label.includes("content edit");
+      await observe(generation, step.label, ms, !contentEdit);
+      assert.equal(
+        serverStarts(),
+        startsBefore + (contentEdit ? 0 : 1),
+        `${step.label}: ${contentEdit ? "a content edit must keep" : "a structure change must replace"} the server`,
+      );
+      step.expect?.();
+      assert.deepEqual(publicTree(), coldTree(step.label), `${step.label}: tree differs from cold`);
+    }
   } finally {
     await session.close();
   }

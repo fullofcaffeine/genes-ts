@@ -26,6 +26,13 @@ export interface ReconciledWatchChange<Cause> {
   readonly path: string;
   readonly cause: Cause;
   readonly origin: "native" | "poll" | "registration";
+  /**
+   * How the path changed between two snapshots: it appeared (`created`), it
+   * disappeared (`deleted`), or it was there before and after with another
+   * fingerprint (`modified`). A compiler host needs this because a new or
+   * removed source file can change name lookups in files that did not change.
+   */
+  readonly existence: "created" | "deleted" | "modified";
 }
 
 export interface ReconciledWatchOptions<Cause> {

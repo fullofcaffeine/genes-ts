@@ -661,13 +661,17 @@ rolled back, the other output can start normally.
   again for every build. The incremental descriptor
   (`-D genes.dev_incremental`, mode `measure`) and the compiler-data
   descriptor are also fixed files in `haxe-request/` that the session
-  rewrites before each request. Before each warm request the session sends
-  `server/invalidate` for each changed `.hx` file, because Haxe compares file
-  times in whole seconds. A change of any other watched input increments the
-  one deliberately changing define, `-D genes.tooling.input_epoch`: a macro
-  may read such a file without telling Haxe, so that request starts a new
-  cache and types the whole program, as before. Each such cache stays in the
-  server until it restarts. It resolves the invocation plan at startup and again
+  rewrites before each request. Only a content edit of an existing `.hx` file keeps
+  the warm cache. When the edit has the same whole-second file time that Haxe
+  may already have recorded, the session sends `server/invalidate` for it
+  first, because Haxe compares file times in whole seconds. A created or
+  removed `.hx` file can change a name lookup in an unchanged module (Haxe
+  remembers failed lookups such as a missing `import.hx` without a
+  dependency), and a macro may read any other watched file without telling
+  Haxe. Such a change restarts the owned server, so that request types the
+  whole program from an empty cache, as a cold build does. An invalidation
+  that fails or waits more than two minutes also replaces the server instead
+  of failing the build. It resolves the invocation plan at startup and again
   only when a plan input changes: an HXML or library provenance file (their
   bytes are compared before each build and just before Haxe starts), the
   process environment, or an extra input with `reinventory` or
@@ -678,7 +682,6 @@ rolled back, the other output can start normally.
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
   `genes.output_descriptor`, `genes.dev_incremental`,
-  `genes.tooling.input_epoch`,
   `genes.tooling.prepared`, `genes.tooling.compiler-data`, `--next`, and
   `--each` flags because two lifecycle owners or several output compilations
   would be ambiguous. When
@@ -739,8 +742,10 @@ rolled back, the other output can start normally.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
-- `resolveInvocation` is copied whenever the session seals or rechecks the
-  effective plan for a revision. Its ordered HXML entries, working directory,
+- `resolveInvocation` is called when the session starts and again only when a
+  plan input changes (an HXML or library provenance file, the process
+  environment, or an extra input with `reinventory` or `restartCompiler`); an
+  ordinary source edit reuses the sealed plan. Each result is copied. Its ordered HXML entries, working directory,
   and environment are the only authority for HXML interpretation and Haxe
   execution; `hxml` configuration cannot supply competing values. Optional
   `env` values override the current Node process environment. The session then

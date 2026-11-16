@@ -339,8 +339,9 @@ yarn test:tooling-package
 - `session-integration-test` uses the selected Haxe 4.3.7 compiler for both
   TypeScript and classic JavaScript output. A real module-level Haxe macro
   writes declared JSON during typing. The host validates and publishes those
-  bytes with each generated tree. Warm edits reuse one owned Haxe server in
-  each profile. The authored program uses two distinct libraries outside the
+  bytes with each generated tree. A change of that JSON input restarts the
+  owned Haxe server, because the macro reads it without telling Haxe; a
+  source edit reuses the server. The authored program uses two distinct libraries outside the
   project folder, and an edit to one library triggers a real warm rebuild.
   Direct Haxe cases also reject a missing session declaration,
   an unknown ID, a duplicate write, and an oversized value at the macro call.
@@ -354,7 +355,9 @@ yarn test:tooling-package
   first build, and the Genes incremental report must keep records. Two saves
   with the same whole-second file time must both be built (through
   `server/invalidate`), the public tree must equal a cold build byte for byte,
-  and the server process must not grow. The fixture compiler-server gates
+  and the server process must not grow. Structure steps follow: a new module,
+  a new `import.hx`, and a new module that shadows a top-level name must each
+  restart the server and equal cold; a content edit between them must not. The fixture compiler-server gates
   drive Haxe with stable arguments, so only this test can see a define that
   the session changes per build.
 
