@@ -328,7 +328,15 @@ function changed<Cause>(
             : after === undefined
               ? before.cause
               : merge(before.cause, after.cause);
-        return [Object.freeze({ path: candidate, cause, origin })];
+        // An absent exact input or tree root keeps a placeholder entry, so
+        // that its later creation is still a change; it is not a file.
+        const absent = (entry: SnapshotEntry<Cause> | undefined): boolean =>
+          entry === undefined ||
+          entry.fingerprint === "missing" ||
+          entry.fingerprint === "missing-tree";
+        const existence: ReconciledWatchChange<Cause>["existence"] =
+          absent(before) ? "created" : absent(after) ? "deleted" : "modified";
+        return [Object.freeze({ path: candidate, cause, origin, existence })];
       },
     ),
   );

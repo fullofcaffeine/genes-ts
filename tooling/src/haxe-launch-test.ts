@@ -88,6 +88,7 @@ function compilerInvocation(
     environment,
     arguments: Object.freeze([]),
     privateArgumentFiles: Object.freeze([]),
+    requestFiles: Object.freeze([]),
     candidateRoot: path.join(root, "candidate"),
     candidateOutputFile: path.join(root, "candidate", "app.js"),
   });

@@ -6,6 +6,45 @@ it.
 
 ## Unreleased
 
+- Keep one warm Haxe compiler-server cache for the whole development session.
+  Haxe 4.3.7 selects its cache by the values of all defines, and the session
+  used to name each new private candidate folder in `-D genes.output`. So
+  every build started a new cache: Haxe typed the whole program again, the
+  kept state of Genes started again, and server memory grew. Now each define
+  has the same value in every build. The session writes small request files
+  at fixed paths in `<stateDirectory>/haxe-request/` before each request:
+  the output descriptor (`-D genes.output_descriptor`), the incremental
+  descriptor (`-D genes.dev_incremental`, mode `measure`, so Genes keeps its
+  plain records but still does all work), and the compiler-data descriptor.
+  Only a content edit of an existing `.hx` file on a class path keeps the warm
+  cache; when its whole-second file time may equal the one Haxe recorded
+  (the session tracks the end of each request and the second it saw for each
+  changed file, and treats a time ahead of the clock as unsafe), the session
+  first sends `server/invalidate`, so two saves within one second are both
+  built. A `.hx` file in another declared input is an ordinary input. A macro
+  that reads the source text of a class-path `.hx` file is not supported.
+  A created or removed `.hx` file (which can change a name lookup in an
+  unchanged module, for example a new `import.hx`) and a change of any other
+  watched input (a file that a macro may read without telling Haxe) restart
+  the owned server, so that request types everything from an empty cache, as
+  a cold build does. An invalidation that fails or waits more than two
+  minutes replaces the server instead of failing the build. Watch changes now
+  report `existence`: `created`, `deleted`, or `modified`. It
+  resolves the invocation plan (host callback plus HXML and library
+  inventory) only at startup and when a plan input changes, not twice per
+  build. A plan input is an HXML or library provenance file, an extra input
+  with `reinventory` or `restartCompiler`, or the process environment; before
+  each build and again just before Haxe starts, the session compares the
+  environment and the bytes of the HXML and provenance files, which takes
+  about a millisecond. A change that only the host callback can see now needs
+  a declared extra input. A server that the session starts
+  gets `OCAMLRUNPARAM=s=4M` unless the environment sets it. Requires the
+  Genes library at the same commit or later, because older Genes does not
+  read `-D genes.output_descriptor`. `session-warm-server-test` drives the
+  real session over the compiler-server fixture and fails when a build adds
+  a cache signature, keeps no record, misses a same-second save, differs
+  from a cold build, grows server memory, or keeps the server across a new
+  `import.hx` or a new module that shadows a top-level name.
 - Add explicit development-session admission for a complete generated tree
   installed while the session is stopped. The host supplies the exact prior
   acceptance digest and replacement file inventory. Genes validates the tree

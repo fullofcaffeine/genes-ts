@@ -648,14 +648,45 @@ rolled back, the other output can start normally.
   Entry and occurrence order are retained. A linked entry, class path, or
   library proof fails before compilation.
 - Authored HXML is deliberately targetless. The session appends exactly one
-  private ordinary Haxe `--js` target and one private
-  `-D genes.output=<entry>` target. This matters when Genes is missing or
-  fails to activate: ordinary Haxe may still generate JavaScript, but those
-  bytes remain disposable and cannot touch public output before admission.
+  private ordinary Haxe `--js` target and one private Genes target. The Genes
+  target is a descriptor file at a fixed path,
+  `-D genes.output_descriptor=<stateDirectory>/haxe-request/genes-output.descriptor`,
+  which names the entry in the private candidate of this build. This matters
+  when Genes is missing or fails to activate: ordinary Haxe may still
+  generate JavaScript, but those bytes remain disposable and cannot touch
+  public output before admission.
+- Every define that the session adds has the same value in each build.
+  Haxe 4.3.7 selects its compiler-server cache by all define values, so a
+  define that named the new candidate folder made Haxe type the whole program
+  again for every build. The incremental descriptor
+  (`-D genes.dev_incremental`, mode `measure`) and the compiler-data
+  descriptor are also fixed files in `haxe-request/` that the session
+  rewrites before each request. Only a content edit of an existing `.hx` file on a
+  class path keeps the warm cache; a `.hx` file in another declared input is
+  an ordinary input. When the edit's whole-second file time may equal the one
+  Haxe recorded (it is not after the end of the last request, not after the
+  second recorded for that file, or it is ahead of the clock), the session
+  sends `server/invalidate` for it first, because Haxe compares file times in
+  whole seconds. Two assumptions remain: no macro reads the source text of a
+  class-path `.hx` file, and a file that the session never saw change was not
+  dated ahead of the clock when Haxe read it. A created or
+  removed `.hx` file can change a name lookup in an unchanged module (Haxe
+  remembers failed lookups such as a missing `import.hx` without a
+  dependency), and a macro may read any other watched file without telling
+  Haxe. Such a change restarts the owned server, so that request types the
+  whole program from an empty cache, as a cold build does. An invalidation
+  that fails or waits more than two minutes also replaces the server instead
+  of failing the build. It resolves the invocation plan at startup and again
+  only when a plan input changes: an HXML or library provenance file (their
+  bytes are compared before each build and just before Haxe starts), the
+  process environment, or an extra input with `reinventory` or
+  `restartCompiler`. A host must therefore declare every other input of
+  `resolveInvocation`, such as the compiler binary, as such an extra input.
   The versioned Haxe 4.3.7 policy classifies every compiler option spelling and
   rejects every authored target selector,
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
+  `genes.output_descriptor`, `genes.dev_incremental`,
   `genes.tooling.prepared`, `genes.tooling.compiler-data`, `--next`, and
   `--each` flags because two lifecycle owners or several output compilations
   would be ambiguous. When
@@ -716,8 +747,10 @@ rolled back, the other output can start normally.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
-- `resolveInvocation` is copied whenever the session seals or rechecks the
-  effective plan for a revision. Its ordered HXML entries, working directory,
+- `resolveInvocation` is called when the session starts and again only when a
+  plan input changes (an HXML or library provenance file, the process
+  environment, or an extra input with `reinventory` or `restartCompiler`); an
+  ordinary source edit reuses the sealed plan. Each result is copied. Its ordered HXML entries, working directory,
   and environment are the only authority for HXML interpretation and Haxe
   execution; `hxml` configuration cannot supply competing values. Optional
   `env` values override the current Node process environment. The session then

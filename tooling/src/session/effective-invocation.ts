@@ -22,6 +22,26 @@ import { COMPILER_DATA_DEFINE } from "./compiler-data.js";
 export const HAXE_4_3_7_DEVELOPMENT_JS_POLICY =
   "haxe-4.3.7-development-js-v1" as const;
 
+/**
+ * Names the fixed file that tells Genes where this request writes its
+ * private candidate tree (see `genes.Generator.OUTPUT_DESCRIPTOR_DEFINE`).
+ */
+export const GENES_OUTPUT_DESCRIPTOR_DEFINE = "genes.output_descriptor";
+
+/**
+ * Names the fixed request descriptor of the Genes incremental path (see
+ * `genes.incremental.IncrementalRequest`). Genes keeps plain records between
+ * requests only while this define is present.
+ */
+export const GENES_DEV_INCREMENTAL_DEFINE = "genes.dev_incremental";
+
+/** File names inside the session's fixed request folder. */
+export const OUTPUT_DESCRIPTOR_FILE = "genes-output.descriptor";
+export const INCREMENTAL_DESCRIPTOR_FILE = "incremental.json";
+export const COMPILER_DATA_DESCRIPTOR_FILE = "compiler-data-v1.descriptor";
+
+const OUTPUT_DESCRIPTOR_HEADER = "genes.output-descriptor-v1";
+
 const ALLOWED_OPTIONS = new Set([
   "-p",
   "--class-path",
@@ -62,6 +82,8 @@ const FORBIDDEN_DEFINES = Object.freeze([
   "dump-dependencies",
   "dump-path",
   "genes.output",
+  GENES_OUTPUT_DESCRIPTOR_DEFINE,
+  GENES_DEV_INCREMENTAL_DEFINE,
   COMPILER_DATA_DEFINE,
   "genes.tooling.prepared",
   "gen_hx_classes",
@@ -78,6 +100,37 @@ export interface EffectiveHaxeInvocationPlan {
   readonly inventory: HxmlInventory;
   readonly ioPolicyId: HaxeInvocation["ioPolicy"];
   readonly identity: string;
+  /**
+   * The digest of each HXML and library provenance file that the identity
+   * covers. `planInputFilesUnchanged` compares them again before a build.
+   */
+  readonly inputFileDigests: readonly {
+    readonly file: string;
+    readonly digest: string;
+  }[];
+}
+
+/**
+ * Returns true when every HXML and library provenance file of the plan still
+ * has the bytes that the plan was built from.
+ *
+ * Why: resolving the plan again runs the host callback and the library
+ * resolver, which can take seconds. Before each ordinary build the session
+ * needs only to know whether these files changed since the plan was made;
+ * reading a few small files answers that in about a millisecond. When the
+ * answer is false, the session resolves the plan again and compares the
+ * identity, as before. A file that cannot be read counts as changed.
+ */
+export function planInputFilesUnchanged(
+  plan: EffectiveHaxeInvocationPlan,
+): boolean {
+  return plan.inputFileDigests.every(({ file, digest }) => {
+    try {
+      return canonicalDigest(readFileSync(file, "utf8")) === digest;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export interface BoundHaxeInvocation {
@@ -95,6 +148,15 @@ export interface BoundHaxeInvocation {
    * arguments are build files, so the original value stays ordinary data.
    */
   readonly privateArgumentFiles: readonly {
+    readonly path: string;
+    readonly contents: string;
+  }[];
+  /**
+   * Request files at fixed paths that the session writes before each
+   * request. The defines name only these fixed paths, so their values, and
+   * with them Haxe's compiler-server cache, stay the same between builds.
+   */
+  readonly requestFiles: readonly {
     readonly path: string;
     readonly contents: string;
   }[];
@@ -159,6 +221,12 @@ export async function buildEffectiveHaxeInvocationPlan<
     argumentPolicy: mergedPolicy(hxml.argumentPolicy),
   });
   const closure = await inventory(options);
+  const digestOf = (file: string) => ({
+    file,
+    digest: canonicalDigest(readFileSync(file, "utf8")),
+  });
+  const hxmlFileDigests = closure.hxmlFiles.map(digestOf);
+  const provenanceFileDigests = closure.libraryProvenanceFiles.map(digestOf);
   const identity = canonicalDigest({
     protocol: "genes.tooling.effective-haxe-invocation.v1",
     executable: invocation.executable,
@@ -173,14 +241,8 @@ export async function buildEffectiveHaxeInvocationPlan<
       file: occurrence.file,
       workingDirectory: occurrence.workingDirectory,
     })),
-    hxmlFiles: closure.hxmlFiles.map((file) => ({
-      file,
-      digest: canonicalDigest(readFileSync(file, "utf8")),
-    })),
-    libraryProvenanceFiles: closure.libraryProvenanceFiles.map((file) => ({
-      file,
-      digest: canonicalDigest(readFileSync(file, "utf8")),
-    })),
+    hxmlFiles: hxmlFileDigests,
+    libraryProvenanceFiles: provenanceFileDigests,
     classPaths: closure.classPaths,
     resourceInputs: closure.resourceInputs,
     effectiveArguments: closure.effectiveArguments,
@@ -198,6 +260,11 @@ export async function buildEffectiveHaxeInvocationPlan<
     inventory: closure,
     ioPolicyId: invocation.ioPolicy,
     identity,
+    inputFileDigests: Object.freeze(
+      [...hxmlFileDigests, ...provenanceFileDigests].map((entry) =>
+        Object.freeze(entry),
+      ),
+    ),
   });
 }
 
@@ -207,14 +274,32 @@ export async function buildEffectiveHaxeInvocationPlan<
  * The ordinary JavaScript target is deliberately outside the Genes ownership
  * root but inside the disposable candidate stage. If Genes does not activate,
  * Haxe can create that private file but cannot mutate the public output tree.
+ *
+ * Every define that this function adds has the same value in each build of
+ * the session. Haxe 4.3.7 selects its compiler-server cache by all define
+ * values, so a define that names the new candidate folder would make Haxe
+ * type the whole program again for every build. The Genes output path of
+ * this revision is therefore in a descriptor file at a fixed path in
+ * `requestRoot`, and the define names that fixed path. The incremental
+ * descriptor and the compiler-data descriptor follow the same rule.
+ *
+ * Example: `-D genes.output_descriptor=<project>/.genes/dev/haxe-request/genes-output.descriptor`
+ * for every build, while the file names
+ * `.genes/dev/candidates/revision-3-ab/output/index.tsx` in build 3.
  */
 export function bindHaxeInvocation(
   plan: EffectiveHaxeInvocationPlan,
   candidateStageRoot: string,
   candidateOutputFile: string,
+  requestRoot: string,
   compilerDataDescriptorPath?: string,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
+  const outputDescriptor = path.join(requestRoot, OUTPUT_DESCRIPTOR_FILE);
+  const incrementalDescriptor = path.join(
+    requestRoot,
+    INCREMENTAL_DESCRIPTOR_FILE,
+  );
   const environment: Record<string, string> = {
     ...(plan.invocation.env ?? {}),
   };
@@ -261,12 +346,32 @@ export function bindHaxeInvocation(
       "--js",
       haxeTarget,
       "-D",
-      `genes.output=${candidateOutputFile}`,
+      `${GENES_OUTPUT_DESCRIPTOR_DEFINE}=${outputDescriptor}`,
+      "-D",
+      `${GENES_DEV_INCREMENTAL_DEFINE}=${incrementalDescriptor}`,
       ...(compilerDataDescriptorPath === undefined
         ? []
         : ["-D", `${COMPILER_DATA_DEFINE}=${compilerDataDescriptorPath}`]),
     ]),
     privateArgumentFiles: Object.freeze(privateArgumentFiles),
+    requestFiles: Object.freeze([
+      Object.freeze({
+        path: outputDescriptor,
+        contents: `${OUTPUT_DESCRIPTOR_HEADER}\n${Buffer.from(candidateOutputFile, "utf8").toString("base64")}\n`,
+      }),
+      Object.freeze({
+        path: incrementalDescriptor,
+        // `measure`: Genes stamps declarations and keeps its plain records,
+        // but every pass still does its full work. The output equals a
+        // build without the define. A mode that skips work is a later step.
+        contents: `${JSON.stringify({
+          format: 1,
+          programDigest: plan.identity,
+          kind: "full",
+          afterTyping: "measure",
+        })}\n`,
+      }),
+    ]),
     candidateRoot: candidateStageRoot,
     candidateOutputFile,
   });

@@ -8,8 +8,8 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
+import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { sha256Bytes } from "../artifacts/index.js";
@@ -42,6 +42,8 @@ interface CompilerDataSlot {
 
 export interface StagedCompilerData {
   readonly descriptorPath: string;
+  /** The descriptor bytes; the caller writes them with `replaceRequestFile`. */
+  readonly descriptorContents: string;
   readonly root: string;
   readonly slots: readonly CompilerDataSlot[];
 }
@@ -105,16 +107,21 @@ export function snapshotCompilerDataDeclarations(
 /**
  * Allocates opaque private slots and one descriptor for the current request.
  * The descriptor is a compiler input. It is never part of generated output.
+ *
+ * The slots are in the candidate folder of this revision. The descriptor
+ * belongs at `descriptorPath`, a fixed path that the session reuses for every
+ * request, so that the define which names it keeps one value and Haxe keeps
+ * one compiler-server cache. The caller writes it with `replaceRequestFile`
+ * together with the other request files.
  */
 export function stageCompilerData(
   candidateRoot: string,
   declarations: readonly CompilerDataDeclaration[],
+  descriptorPath: string,
 ): StagedCompilerData | null {
   if (declarations.length === 0) return null;
   const root = path.join(candidateRoot, "compiler-data");
-  const inputRoot = path.join(candidateRoot, "haxe-input");
   mkdirSync(root, { recursive: true, mode: 0o700 });
-  mkdirSync(inputRoot, { recursive: true, mode: 0o700 });
   const slots = declarations.map((declaration, index) => {
     const name = `slot-${index.toString().padStart(4, "0")}.data`;
     return Object.freeze({
@@ -124,7 +131,6 @@ export function stageCompilerData(
       absolutePath: path.join(root, name),
     });
   });
-  const descriptorPath = path.join(inputRoot, "compiler-data-v1.descriptor");
   const descriptor = [
     `${DESCRIPTOR_PROTOCOL}-v${DESCRIPTOR_VERSION}`,
     ...slots.map((slot) =>
@@ -136,16 +142,34 @@ export function stageCompilerData(
     ),
     "",
   ].join("\n");
-  writeFileSync(descriptorPath, descriptor, {
+  return Object.freeze({
+    descriptorPath,
+    descriptorContents: descriptor,
+    root,
+    slots: Object.freeze(slots),
+  });
+}
+
+/**
+ * Replaces one small request file at a fixed path with an atomic rename.
+ *
+ * The session writes the same request files before every Haxe request (see
+ * `bindHaxeInvocation`). A new private file is created exclusively beside the
+ * target and then renamed over it, so Haxe never reads a half-written file
+ * and a planted symbolic link at the target is replaced, not followed.
+ */
+export async function replaceRequestFile(
+  target: string,
+  contents: string,
+): Promise<void> {
+  const temporary = `${target}.${process.pid}.tmp`;
+  await rm(temporary, { force: true });
+  await writeFile(temporary, contents, {
     encoding: "utf8",
     flag: "wx",
     mode: 0o600,
   });
-  return Object.freeze({
-    descriptorPath,
-    root,
-    slots: Object.freeze(slots),
-  });
+  await rename(temporary, target);
 }
 
 function sameFile(

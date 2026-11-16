@@ -229,6 +229,7 @@ class VectorWatch<Cause> implements ReconciledWatchSession {
       path: absolute,
       cause: input!.cause,
       origin: "native",
+      existence: "modified",
     });
   }
 
@@ -960,6 +961,7 @@ try {
           "src-gen",
           "index.ts",
         ),
+        path.join(reservedEnvironmentRoot, "request"),
       ),
     /reserved key GENES_TOOLING_HXML_OPTION_VALUE_0/u,
   );

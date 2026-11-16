@@ -5,6 +5,7 @@ import {
   mkdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -34,15 +35,19 @@ import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
 import {
   HaxeSessionCompiler,
   snapshotHaxeInvocation,
+  type CompilerResult,
   type SessionCompiler,
 } from "./haxe-driver.js";
 import {
   bindHaxeInvocation,
   buildEffectiveHaxeInvocationPlan,
+  COMPILER_DATA_DESCRIPTOR_FILE,
+  planInputFilesUnchanged,
   type EffectiveHaxeInvocationPlan,
 } from "./effective-invocation.js";
 import {
   captureCompilerData,
+  replaceRequestFile,
   snapshotCompilerDataDeclarations,
   stageCompilerData,
 } from "./compiler-data.js";
@@ -123,6 +128,12 @@ interface BuildCause {
   readonly reinventory: boolean;
   readonly restartCompiler: boolean;
   readonly rebuild: boolean;
+  /**
+   * The next request needs an empty Haxe cache: a source file was created or
+   * removed, or a watched input that is not a `.hx` file changed. See
+   * `#observe`.
+   */
+  readonly freshCache: boolean;
 }
 
 interface SessionDependencies<Diagnostic extends JsonValue> {
@@ -284,6 +295,40 @@ function assertRealPath(root: string, candidate: string, label: string): void {
   }
 }
 
+/**
+ * Returns a text that changes whenever the process environment changes.
+ *
+ * The Haxe invocation inherits `process.env` (see `snapshotHaxeInvocation`),
+ * so the environment is an input of the invocation plan. A build compares
+ * this text with the one taken at the last plan resolution, and resolves the
+ * plan again only when it differs.
+ */
+function ambientEnvironmentKey(): string {
+  return JSON.stringify(
+    Object.entries(process.env)
+      .filter((entry): entry is [string, string] => entry[1] !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
+  );
+}
+
+/**
+ * Returns the whole-second file time of a changed source file, the precision
+ * at which Haxe 4.3.7 compares file times.
+ *
+ * Haxe reads a file again only when this second differs from the one it
+ * recorded. It recorded a time no later than the end of the request that read
+ * the file, so a file whose second is after that end needs no
+ * `server/invalidate` (each costs about 60 ms). A file that cannot be read
+ * answers -1, so it is always invalidated.
+ */
+function fileSeconds(file: string): number {
+  try {
+    return Math.floor(statSync(file).mtimeMs / 1000);
+  } catch {
+    return -1;
+  }
+}
+
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
   return Object.freeze({
     revision: Math.max(left.revision, right.revision),
@@ -291,6 +336,7 @@ function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
     reinventory: left.reinventory || right.reinventory,
     restartCompiler: left.restartCompiler || right.restartCompiler,
     rebuild: left.rebuild || right.rebuild,
+    freshCache: left.freshCache || right.freshCache,
   });
 }
 
@@ -334,6 +380,27 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   readonly #startupAbort = new AbortController();
   #startupReady = false;
   #compilerEpoch = 0;
+  /**
+   * The process environment (`ambientEnvironmentKey`) that each resolved plan
+   * was made from. A plan that failed is never in use, so its key is unused.
+   */
+  readonly #planEnvironments = new WeakMap<EffectiveHaxeInvocationPlan, string>();
+  /**
+   * The highest whole-second file time that the Haxe server may have recorded
+   * for a source file: the second in which the last request ended, or a later
+   * file time that it read. See `#needsInvalidation`.
+   */
+  #lastRequestStampSeconds = 0;
+  /**
+   * The whole-second file time of each changed source file at the last
+   * request that could read it. A later edit with the same or an earlier
+   * second must be invalidated, even when that second is ahead of the clock.
+   */
+  readonly #seenSourceSeconds = new Map<string, number>();
+  /** Changed source files (created or edited) whose time the next request records. */
+  readonly #pendingSourceTimes = new Set<string>();
+  /** Changed `.hx` files that the next Haxe request must invalidate. */
+  readonly #pendingInvalidations = new Set<string>();
   #publishedManifestDigest: string | null = null;
   #publishedMarkerState: ExpectedFileState = ABSENT_FILE_STATE;
   #publishedSupplementalFiles: readonly PublishedSupplementalFile[] = Object.freeze([]);
@@ -480,6 +547,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           reinventory: false,
           restartCompiler: false,
           rebuild: true,
+          freshCache: false,
         }),
       );
     } catch (error) {
@@ -1101,7 +1169,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         }),
         onChange: (change) => {
           if (this.#acceptWatchChanges) {
-            this.#observe(change.path, change.cause);
+            this.#observe(change.path, change.cause, change.existence);
           } else {
             this.#startupInputChanged = true;
           }
@@ -1209,6 +1277,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     return Object.freeze(inputs);
   }
 
+  /**
+   * Records one changed input and requests a build.
+   *
+   * `existence` says how the path changed (`unknown` when a host reported it
+   * through `invalidate`). Only a content edit of an existing `.hx` file can
+   * keep the warm Haxe cache: the session then sends `server/invalidate` for
+   * it. Every other change asks for an empty cache (`freshCache`):
+   *
+   * - a created or removed `.hx` file can change a name lookup in a file that
+   *   did not change. Haxe 4.3.7 remembers a failed lookup, for example a
+   *   missing `import.hx` or a top-level `TopThing` that a new
+   *   `servercase/TopThing.hx` now shadows, without a dependency edge, so
+   *   the unchanged module would keep its old meaning;
+   * - a macro may read any other file without telling Haxe.
+   */
   #observe(
     absolutePath: string,
     impact: {
@@ -1216,6 +1299,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       readonly restartCompiler: boolean;
       readonly rebuild: boolean;
     },
+    existence: "created" | "deleted" | "modified" | "unknown" = "unknown",
   ): void {
     if (this.#closing !== null) return;
     const inventory = this.#inventory;
@@ -1238,6 +1322,19 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (impact.rebuild) {
       this.#newestRebuildRevision = this.#newestRevision;
     }
+    // Only a module file on a class path can keep the cache. A `.hx` file in
+    // another declared input (for example `data/snippet.hx` that a macro
+    // reads) is an ordinary input.
+    const sourceFile =
+      absolutePath.endsWith(".hx") &&
+      inventory.classPaths.some((classPath) => containedBy(classPath, absolutePath));
+    const contentEdit = sourceFile && existence === "modified";
+    if (contentEdit) {
+      this.#pendingInvalidations.add(absolutePath);
+    }
+    if (sourceFile) {
+      this.#pendingSourceTimes.add(absolutePath);
+    }
     const relative = this.#logicalInputPath(inventory, absolutePath);
     this.#emit({
       kind: "inputs-changed",
@@ -1250,6 +1347,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         revision: this.#newestRevision,
         paths: Object.freeze([relative]),
         ...impact,
+        freshCache: impact.rebuild && !contentEdit,
       }),
     );
   }
@@ -1320,12 +1418,35 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         if (this.#closing !== null || abort.signal.aborted) return;
         failurePhase = "compile";
       }
-      if (cause.restartCompiler) this.#compilerEpoch += 1;
+      // A new compiler epoch changes the compatibility digest, so the owned
+      // server is stopped and a new one starts with an empty cache. That
+      // costs the same full typing as a new cache in the old server, and it
+      // frees the old cache instead of keeping it until the session ends.
+      if (cause.restartCompiler || cause.freshCache) this.#compilerEpoch += 1;
       const retainedPlan = this.#effectivePlan;
       if (retainedPlan === null) {
         throw new Error("effective Haxe invocation is unavailable");
       }
-      const executionPlan = await this.#resolveEffectivePlan(abort.signal);
+      // Resolve the invocation plan only when one of its inputs changed.
+      // Resolution runs the host callback (which may hash the compiler
+      // binary) and the HXML and library inventory (which may start Lix), so
+      // doing it twice for each source edit cost seconds. A plan input has
+      // changed when the cause says so (HXML, library provenance, or an
+      // extra input with `reinventory` or `restartCompiler`), when the
+      // process environment differs, or when an HXML or provenance file has
+      // other bytes. The last two checks take about a millisecond and run
+      // again just before Haxe starts. A reinventory has just confirmed the
+      // plan in `#replanGapSafe`.
+      const planInputsCurrent = (plan: EffectiveHaxeInvocationPlan): boolean =>
+        ambientEnvironmentKey() === this.#planEnvironments.get(plan) &&
+        planInputFilesUnchanged(plan);
+      const planInputChanged =
+        cause.reinventory ||
+        cause.restartCompiler ||
+        !planInputsCurrent(retainedPlan);
+      const executionPlan = planInputChanged && !cause.reinventory
+        ? await this.#resolveEffectivePlan(abort.signal)
+        : retainedPlan;
       if (this.#closing !== null || abort.signal.aborted) return;
       if (retainedPlan.identity !== executionPlan.identity) {
         this.#observe(executionPlan.inventory.entryHxmlFiles[0]!, {
@@ -1340,6 +1461,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         });
         return;
       }
+      // An equal identity means an equal plan. Keep the newer object, so the
+      // environment it was made from is the one compared next time.
+      this.#effectivePlan = executionPlan;
       const compatibilityDigest = this.#compatibilityDigest(executionPlan);
       candidateStageRelative = `${this.#layout.candidatesRelative}/revision-${cause.revision}-${this.#dependencies.nonce()}`;
       const candidateStageRoot = path.join(
@@ -1351,9 +1475,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         "output",
       );
       const candidateOutputFile = path.join(outputRoot, this.#layout.outputIdentity);
+      const requestRoot = path.join(
+        this.#layout.projectRoot,
+        ...this.#layout.requestRelative.split("/"),
+      );
       const stagedCompilerData = stageCompilerData(
         candidateStageRoot,
         this.#compilerDataDeclarations,
+        path.join(requestRoot, COMPILER_DATA_DESCRIPTOR_FILE),
       );
       if (this.#options.prepareRevision !== undefined) {
         const preparation = await this.#options.prepareRevision({
@@ -1392,6 +1521,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         executionPlan,
         candidateStageRoot,
         candidateOutputFile,
+        requestRoot,
         stagedCompilerData?.descriptorPath,
       );
       for (const input of boundInvocation.privateArgumentFiles) {
@@ -1402,30 +1532,88 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           mode: 0o600,
         });
       }
-      const compiler = await this.#compiler.compile(
-        boundInvocation,
-        compatibilityDigest,
-        abort.signal,
-        async () => {
-          const finalPlan = await this.#resolveEffectivePlan(abort.signal);
-          if (executionPlan.identity !== finalPlan.identity) {
-            this.#observe(finalPlan.inventory.entryHxmlFiles[0]!, {
-              reinventory: true,
-              restartCompiler: true,
-              rebuild: true,
-            });
-            throw new Error(
-              "HXML input changed after invocation validation and before execution",
-            );
-          }
-        },
-        stagedPrepared === null
-          ? undefined
-          : Object.freeze({
-              classPaths: stagedPrepared.classPaths,
-              digest: stagedPrepared.digest,
-            }),
-      );
+      for (const input of [
+        ...boundInvocation.requestFiles,
+        ...(stagedCompilerData === null
+          ? []
+          : [
+              {
+                path: stagedCompilerData.descriptorPath,
+                contents: stagedCompilerData.descriptorContents,
+              },
+            ]),
+      ]) {
+        await replaceRequestFile(input.path, input.contents);
+      }
+      if (this.#closing !== null || abort.signal.aborted) return;
+      // Haxe compares file times in whole seconds, so a second save within
+      // the same second as the last build looks unchanged to it. The
+      // compiler tells the server about such a file directly. The list is
+      // taken now and given back when the request fails, so a later build
+      // still reports those files.
+      const changedFiles = bytewise(this.#pendingInvalidations);
+      this.#pendingInvalidations.clear();
+      const changedSeconds = changedFiles.map((file) => fileSeconds(file));
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      // Haxe reads the file again by itself only when its second is later
+      // than every second Haxe can have recorded for it: not at or before the
+      // end of the last request, not at or before a second recorded for this
+      // file, and not ahead of the clock (a later request may have read it).
+      const invalidatedFiles = changedFiles.filter((file, index) => {
+        const seconds = changedSeconds[index]!;
+        return (
+          seconds <= this.#lastRequestStampSeconds ||
+          seconds <= (this.#seenSourceSeconds.get(file) ?? -1) ||
+          seconds > nowSeconds
+        );
+      });
+      const recordedFiles = bytewise(this.#pendingSourceTimes);
+      this.#pendingSourceTimes.clear();
+      let compiler: CompilerResult;
+      try {
+        compiler = await this.#compiler.compile(
+          boundInvocation,
+          compatibilityDigest,
+          abort.signal,
+          async () => {
+            if (!planInputChanged && planInputsCurrent(executionPlan)) return;
+            const finalPlan = await this.#resolveEffectivePlan(abort.signal);
+            if (executionPlan.identity !== finalPlan.identity) {
+              this.#observe(finalPlan.inventory.entryHxmlFiles[0]!, {
+                reinventory: true,
+                restartCompiler: true,
+                rebuild: true,
+              });
+              throw new Error(
+                "HXML input changed after invocation validation and before execution",
+              );
+            }
+          },
+          stagedPrepared === null
+            ? undefined
+            : Object.freeze({
+                classPaths: stagedPrepared.classPaths,
+                digest: stagedPrepared.digest,
+              }),
+          invalidatedFiles,
+        );
+      } catch (error) {
+        for (const file of changedFiles) {
+          this.#pendingInvalidations.add(file);
+        }
+        throw error;
+      } finally {
+        // File times are wall-clock times, so this is the wall clock too.
+        this.#lastRequestStampSeconds = Math.max(
+          this.#lastRequestStampSeconds,
+          Math.floor(Date.now() / 1000),
+        );
+        for (const file of recordedFiles) {
+          const seconds = fileSeconds(file);
+          if (seconds < 0) this.#seenSourceSeconds.delete(file);
+          else this.#seenSourceSeconds.set(file, Math.max(seconds, this.#seenSourceSeconds.get(file) ?? -1));
+        }
+      }
       if (this.#closing !== null || abort.signal.aborted) return;
       const candidate = readGenesOutput(
         outputRoot,
@@ -1672,6 +1860,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   async #resolveEffectivePlan(
     signal: AbortSignal,
   ): Promise<EffectiveHaxeInvocationPlan> {
+    const environmentKey = ambientEnvironmentKey();
     const invocation = snapshotHaxeInvocation(
       await this.#options.resolveInvocation({ signal }),
     );
@@ -1691,6 +1880,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         ),
       );
     }
+    this.#planEnvironments.set(plan, environmentKey);
     return plan;
   }
 

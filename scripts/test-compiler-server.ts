@@ -1262,6 +1262,26 @@ async function assertInvalidOutputOverride(
   const invalidOutput = path.join(tempRoot, "invalid-output", "index.js");
   const uppercaseOutput = path.join(tempRoot, "uppercase-output", "index.MJS");
   const lateOutput = path.join(tempRoot, "late-output", "index.ts");
+  // `-D genes.output_descriptor` names a file that holds the output path.
+  // A request with both output defines, or with a descriptor that does not
+  // exist, must fail before anything is written.
+  const descriptorOutput = path.join(tempRoot, "descriptor-output", "index.ts");
+  const descriptorFile = path.join(tempRoot, "descriptor", "genes-output.descriptor");
+  mkdirSync(path.dirname(descriptorFile), { recursive: true });
+  writeFileSync(
+    descriptorFile,
+    `genes.output-descriptor-v1\n${Buffer.from(descriptorOutput).toString("base64")}\n`
+  );
+  const missingDescriptor = path.join(tempRoot, "descriptor", "missing.descriptor");
+  const malformedDescriptor = path.join(tempRoot, "descriptor", "malformed.descriptor");
+  writeFileSync(malformedDescriptor, "genes.output-descriptor-v2\nnot base64\n");
+  // A valid descriptor whose `.js` path does not match `-D genes.ts`: the
+  // profile error must name the descriptor, not `-D genes.output`.
+  const mismatchedDescriptor = path.join(tempRoot, "descriptor", "mismatched.descriptor");
+  writeFileSync(
+    mismatchedDescriptor,
+    `genes.output-descriptor-v1\n${Buffer.from(invalidOutput).toString("base64")}\n`
+  );
   const failures = [
     {
       label: "valueless",
@@ -1299,6 +1319,45 @@ async function assertInvalidOutputOverride(
       },
       diagnostic: "GENES-OUTPUT-TARGET-002",
       selectedOutput: uppercaseOutput
+    },
+    {
+      label: "output and output descriptor",
+      scenario: {
+        ...baseline,
+        defines: [
+          `genes.output=${invalidOutput.replace(/\.js$/u, ".ts")}`,
+          `genes.output_descriptor=${descriptorFile}`
+        ]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-005",
+      selectedOutput: descriptorOutput
+    },
+    {
+      label: "missing output descriptor",
+      scenario: {
+        ...baseline,
+        defines: [`genes.output_descriptor=${missingDescriptor}`]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-005",
+      selectedOutput: null
+    },
+    {
+      label: "malformed output descriptor",
+      scenario: {
+        ...baseline,
+        defines: [`genes.output_descriptor=${malformedDescriptor}`]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-005",
+      selectedOutput: null
+    },
+    {
+      label: "output descriptor profile mismatch",
+      scenario: {
+        ...baseline,
+        defines: [`genes.output_descriptor=${mismatchedDescriptor}`]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-002] The path",
+      selectedOutput: invalidOutput
     },
     {
       label: "late macro mutation",

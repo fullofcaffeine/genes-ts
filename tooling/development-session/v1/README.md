@@ -406,7 +406,10 @@ Machine-local folders stay private.
 
 Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
 session rejects JavaScript and every alternate target selector, then appends
-one private `--js` target and one private `genes.output` target itself. If Genes
+one private `--js` target and one private Genes target itself. The Genes target
+is `-D genes.output_descriptor=<fixed path>`; the file at that path names the
+entry in the candidate of this build, so the define value, and with it the
+Haxe compiler-server cache, stays the same for every build. If Genes
 does not activate, ordinary Haxe output remains inside the disposable candidate
 stage and a missing Genes ownership manifest prevents publication.
 
@@ -451,8 +454,11 @@ a DevelopmentSession feature. The standalone HXML inventory rejects the form
 because its returned arguments are safe to pass directly to Haxe and it does
 not own a private build directory.
 
-The host may supply environment overrides with the Haxe invocation. For each
-revision, the session combines them with the current Node process environment,
+The host may supply environment overrides with the Haxe invocation. Whenever
+it resolves the plan (at startup, and when an HXML or library provenance file,
+the process environment, or an extra input with `reinventory` or
+`restartCompiler` changes), the session combines them with the current Node
+process environment,
 copies the complete result, includes it in the compiler-server identity, and
 passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
 `HAXE_STD_PATH` change therefore starts a compatible server instead of silently
