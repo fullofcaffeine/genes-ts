@@ -334,6 +334,8 @@ class GenerationChangeSet {
   static var complete = false;
   static var reportWarned = false;
   static var sameObjectTokens = 0;
+  static var objectProofs: Map<String, String> = new Map();
+  static var objectFailures: Map<String, Bool> = new Map();
 
   /**
    * Stamps one declaration list that Haxe gave to `onAfterTyping` and
@@ -593,6 +595,85 @@ class GenerationChangeSet {
       }
     old.meta.remove(SAME_OBJECT_META);
     return found;
+  }
+
+  /**
+   * Records the answer of one same-object test of a kept bucket in this
+   * request. `writtenIn` is the request that wrote the bucket.
+   *
+   * Why (item 1 of the review of #243, the copied-stamp hole): a macro can
+   * give a new declaration object the stamp of the old one, for example by
+   * defining the type again with the metadata of the earlier type. The
+   * epochs are then equal, but the declaration is another object, possibly
+   * with other content. Only the same-object test of a bucket sees that. The
+   * generation cache reads these records (`declarationProofs`,
+   * `sameObjectFailures`): a failed test makes the request fall back, and a
+   * module is clean only when every declaration has a proof.
+   */
+  public static function recordSameObject(key: String, same: Bool,
+      writtenIn: Int): Void {
+    if (!same) {
+      objectFailures.set(key, true);
+      objectProofs.remove(key);
+      return;
+    }
+    if (!objectFailures.exists(key))
+      objectProofs.set(key, Std.string(writtenIn));
+  }
+
+  /**
+   * Records that a pass wrote a new kept bucket for `key` in this request,
+   * from the declaration object of this request. That bucket is a proof for
+   * this request's object: a later request that tests the same bucket proves
+   * that it has the same object.
+   */
+  public static function recordBucketWritten(key: String): Void {
+    if (!objectFailures.exists(key))
+      objectProofs.set(key, Std.string(requestNumber));
+  }
+
+  /**
+   * Returns the same-object proofs of the declarations of one module, as one
+   * text: sorted `declaration key@request` lines, where `request` names the
+   * kept bucket that proved the object in this request. Returns `null` when
+   * a declaration of the module has no proof (no bucket was tested or
+   * written for it), or when the module has no observed declaration.
+   *
+   * Why: the generation cache stores this text with the output of a module.
+   * A later request in which the same buckets prove the objects again has
+   * the same declaration objects as the request that printed the stored
+   * output: each bucket holds the reference of the object that it was
+   * written from, and each test proves that the current object is that one.
+   * A bucket that was written again after the stored output (for example in
+   * a request without a `generation` value, after a macro replaced the
+   * object) has another request number, so the text differs.
+   */
+  public static function declarationProofs(module: String): Null<String> {
+    final list = moduleEpochs.get(module);
+    if (list == null || list.length == 0)
+      return null;
+    final lines = [];
+    for (entry in list) {
+      final at = entry.lastIndexOf('@');
+      final key = at < 0 ? entry : entry.substr(0, at);
+      final proof = objectProofs.get(key);
+      if (proof == null)
+        return null;
+      lines.push('$key@$proof');
+    }
+    lines.sort(compareStrings);
+    return lines.join('\n');
+  }
+
+  /**
+   * Returns the sorted declaration keys whose same-object test failed in
+   * this request: the declaration carries a stamp that names it, but it is
+   * not the object that the kept bucket was written from.
+   */
+  public static function sameObjectFailures(): Array<String> {
+    final keys = [for (key in objectFailures.keys()) key];
+    keys.sort(compareStrings);
+    return keys;
   }
 
   /** Returns what the passes do with a kept record in this request. */
@@ -874,8 +955,11 @@ class GenerationChangeSet {
    * Boundary: two output folders with equal lines give equal source-map
    * paths for every source that is not inside the folder where the two paths
    * part (`revision-3-ab` or `revision-4-cd` above). The relative path of
-   * such a source starts with the different folder name. A source there
-   * would have to sit inside a candidate folder of the session.
+   * such a source starts with the different folder name. The key does not
+   * show that case, so the generation cache checks it itself: it stores the
+   * absolute output folder and the sources that each stored map names by a
+   * relative path, and a module with such a source inside either parting
+   * folder is not clean (`GenerationCache.partingFolders`).
    *
    * How: `PathUtil.relative` is the function that source maps use. It is
    * asked for the way from the output file to a file of the same name in the

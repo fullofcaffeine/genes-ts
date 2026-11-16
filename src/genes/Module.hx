@@ -179,8 +179,12 @@ class Module {
    * prelude because another module activated its feature. Dependency planning
    * must observe the same request-local fact before import aliases are frozen.
    */
-  public inline function hasFeature(feature: String): Bool {
-    return context.hasFeature(feature);
+  public function hasFeature(feature: String): Bool {
+    final answer = context.hasFeature(feature);
+    // The incremental generator records the question for this module, so
+    // that a replay can check it (`IncrementalShadow`); otherwise a no-op.
+    genes.incremental.IncrementalShadow.recordFeature(module, feature, answer);
+    return answer;
   }
 
   function get_dependencyPlan(): DependencyPlan {
@@ -416,6 +420,8 @@ class Module {
     // marker, and `ref.get()` copies the complete class.
     final owner = ownerRef.get();
     final target = context.modules.get(owner.module);
+    genes.incremental.IncrementalShadow.recordModuleExists(module,
+      owner.module, target != null);
     if (target == null || owner.isExtern || owner.isInterface) {
       return ModuleFunctionRequestPlan.fromTypedField(ownerRef, fieldRef);
     }
@@ -586,8 +592,8 @@ class Module {
     return genes.util.PathUtil.relative(path, from.replace('.', '/'));
   }
 
-  public function isCyclic(test: String)
-    return switch cycleCache.get(test) {
+  public function isCyclic(test: String): Bool {
+    final answer = switch cycleCache.get(test) {
       case null:
         final endTimer = timer('isCyclic');
         final seen = new Set();
@@ -598,6 +604,12 @@ class Module {
         res;
       case v: v;
     }
+    // The answer depends on the imports of other modules. The incremental
+    // generator records it for this module so that a replay can check it
+    // (`IncrementalShadow.recordCycle`); without it this does nothing.
+    genes.incremental.IncrementalShadow.recordCycle(module, test, answer);
+    return answer;
+  }
 
   function testCycles(test: String, seen: Set<String>) {
     seen.add(test);
@@ -1013,11 +1025,24 @@ class Module {
       case ImportedAlias(_, fallbackName, _, _, _, _): fallbackName;
       case ImportedStaticField(_, fallbackName, _): fallbackName;
     }
+    final recorded = genes.incremental.IncrementalShadow.recording();
+    final owner = module;
     final context: genes.Context = {
       expr: api.generateStatement,
       value: api.generateValue,
-      hasFeature: api.hasFeature,
-      addFeature: api.addFeature,
+      // With an active incremental generator, the feature questions and
+      // additions of emission are recorded for this module, so that a later
+      // request can replay its stored output (`IncrementalShadow`).
+      hasFeature: recorded ? feature -> {
+        final answer = api.hasFeature(feature);
+        genes.incremental.IncrementalShadow.recordFeature(owner, feature,
+          answer);
+        answer;
+      } : api.hasFeature,
+      addFeature: recorded ? feature -> {
+        genes.incremental.IncrementalShadow.recordAddition(owner, feature);
+        api.addFeature(feature);
+      } : api.addFeature,
       typeAccessor: typeAccessor
     }
     api.setTypeAccessor(type -> context.typeAccessor(type));

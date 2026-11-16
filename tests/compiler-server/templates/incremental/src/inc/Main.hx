@@ -32,6 +32,18 @@ class Main {
       UsesA.value() + UsesB.value(),
       Std.string(Locals.compute(3)),
       Directive.value(),
+      GlobalUse.value(),
+      EnumCheck.value(Square),
+      BaseUser.run(),
+      Std.string(PropUser.run()),
+      Std.string(GenericMethodUse.run()),
+      parted.Parted.value(),
+      new CyChild().name(),
+      Std.string(Env.unwrap({
+        value: 1
+      })),
+      MetaTarget.value(),
+      ColorFacts.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

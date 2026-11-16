@@ -377,9 +377,13 @@ class SourceMapGenerator {
       final source = sources[sourceIndex];
       if (source == '?')
         continue;
-      if (PathUtil.isWithin(projectRoot(), source))
+      if (PathUtil.isWithin(projectRoot(), source)) {
         identities[sourceIndex] = PathUtil.relative(mapPath, source);
-      else
+        // A relative name depends on the output folder. The incremental
+        // generator stores such sources with the map (item 4 of the review
+        // of #243); without it this does nothing.
+        genes.incremental.IncrementalShadow.mapSource(source);
+      } else
         externalPlans.push({
           sourceIndex: sourceIndex,
           candidates: sourceIdentityCandidates(source)

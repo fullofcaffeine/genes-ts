@@ -628,10 +628,16 @@ yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
 yarn test:compiler-server:rollback # raw/structured post-staging recovery
 yarn test:compiler-server:kept-types # proof: typed values kept between requests
 yarn test:compiler-server:after-typing # keep rule gate: plain/measure/reuse/compare equal cold
+yarn test:compiler-server:shadow # incremental generation: compare and reuse (replayed modules) equal cold
 yarn test:null-safety # compiler scope, macro order, escape inventory, stable compile
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 yarn benchmark:compile-stages # machine-readable cold/warm compiler attribution
 ```
+
+`yarn test:compiler-server:shadow` is a local gate: no hosted job runs it,
+because both modes take longer than one acceptance shard allows. A pull
+request that changes Stage 3 incremental generation runs it locally in both
+modes and records the result; a trimmed hosted shard for it is a follow-up.
 
 Direct builds are the correctness baseline. They prove that a clean compiler
 process can type, plan, emit, publish, type-check, and run the requested

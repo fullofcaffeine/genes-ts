@@ -92,7 +92,11 @@ class Generator {
   /**
    * Returns the output file that this request publishes, as `use()` captured
    * it: the `-js` path, or the path that `-D genes.output` or
-   * `-D genes.output_descriptor` names. `null` before `use()`, or when the
+   * `-D genes.output_descriptor` names.
+   *
+   * Read it only after `use()` ran in this request. Before that, the value
+   * is not this request's path: it can be `null`, or, on a compiler server,
+   * the value that an earlier request left. It is also `null` when the
    * request has no output path.
    *
    * Why: after `use()`, Haxe's own output slot (`Compiler.getOutput()`) names
@@ -469,12 +473,45 @@ class Generator {
     implementationNames.sort(Reflect.compare);
     endReachabilityTimer();
 
+    // Stage 3, slice S1. With `generation: "reuse"` this returns the clean
+    // modules whose stored output this request stages instead of validating
+    // and printing them; otherwise (and without the define) it is empty. The
+    // checks run here, after the live walk and before the first module is
+    // printed, so a fallback is decided before any `api.addFeature`.
+    final replayed = IncrementalShadow.planReplay(implementationNames, name -> {
+      final module = modules.get(name);
+      final implementation = (tsMode && module.path != 'StdTypes'
+        && hasImplementation(module))
+        || (!tsMode && hasClassicImplementation(module));
+      final exposed = explicitlyExposedModules.exists(name);
+      {
+        emits: implementation,
+        members: genes.incremental.ModuleFingerprint.members(module.members),
+        rootFlags: IncrementalShadow.rootFlags(tsMode ? isTypedImplementationRoot(module,
+          exposed) : needsGen(module),
+          exposed, module.expose.length, implementation)
+      };
+    }, {
+      feature: api.hasFeature,
+      moduleExists: name -> modules.exists(name),
+      cycle: (asker, test) -> {
+        final module = modules.get(asker);
+        module != null
+        && module.isCyclic(test);
+      },
+      anonField: genes.ts.SignatureCache.anonFieldAnswer
+    });
+
     final endValidationTimer = timer('genes.validate.modules');
     final jsxCapability = JsxCapabilityPolicy.current();
     // Validate every reachable module before an emitter opens its buffered
     // writer. Capability failures therefore cannot leave a mixed output tree.
+    // A replayed module passed both loops in the request that printed it,
+    // with the same inputs (the clean rules and the checks of `planReplay`).
     final endJsxValidationTimer = timer('genes.validate.jsx');
     for (name in implementationNames) {
+      if (replayed.exists(name))
+        continue;
       IncrementalShadow.enter(name, Validation);
       final module = modules.get(name);
       jsxCapability.validate(module.jsxPlan);
@@ -492,6 +529,21 @@ class Generator {
     final endDirectBindingValidationTimer = timer('genes.validate.directBindings');
     final outputModule = modules.get(output);
     for (moduleName in implementationNames) {
+      if (replayed.exists(moduleName)) {
+        // The stored entries, in their stored order: the root module's export
+        // list is the same as in a full generation.
+        for (entry in IncrementalShadow.storedPublicEntries(moduleName)) {
+          final publicExport = {
+            name: entry.name,
+            pos: entry.pos,
+            isType: false,
+            module: moduleName
+          };
+          export(publicExport);
+          outputModule.expose.push(publicExport);
+        }
+        continue;
+      }
       IncrementalShadow.enter(moduleName, Validation);
       final module = modules.get(moduleName);
       for (entry in module.moduleFunctionPlan.rootPublicEntries()) {
@@ -504,6 +556,8 @@ class Generator {
           isType: false,
           module: moduleName
         };
+        IncrementalShadow.publicEntry(moduleName, publicName,
+          entry.requestedPos);
         export(publicExport);
         outputModule.expose.push(publicExport);
       }
@@ -522,6 +576,13 @@ class Generator {
         continue;
       if ((tsMode && hasImplementation(module))
         || (!tsMode && hasClassicImplementation(module))) {
+        if (replayed.exists(name)) {
+          // Stage the stored files, report the stored warnings and add the
+          // stored features at this module's place in the sorted order.
+          IncrementalShadow.replay(name, outputDir, outputTransaction,
+            api.hasFeature, api.addFeature);
+          continue;
+        }
         IncrementalShadow.enter(name, Emit);
         generateImplementation(api, module, outputDir, outputTransaction);
       }
@@ -578,8 +639,8 @@ class Generator {
     final endPublicationTimer = timer('genes.publish.transaction');
     outputTransaction.commit();
     endPublicationTimer();
-    // Slice 1 of Stage 3: compare and store only after the complete tree is
-    // public. The shadow never changes what this request published.
+    // Stage 3: compare and store only after the complete tree is public, so
+    // a failed request keeps the cache of the last successful generation.
     IncrementalShadow.committed();
   }
 

@@ -23,6 +23,13 @@ private typedef KeptBucket<T> = {
 
   /** The last request in which the declaration was in the program. */
   var seenIn: Int;
+
+  /**
+   * The request that wrote the bucket. The generation cache stores it as
+   * the same-object proof of the declaration (`GenerationChangeSet
+   * .declarationProofs`).
+   */
+  final writtenIn: Int;
 }
 
 /** A kept bucket that passed the keep rule in this request. */
@@ -144,8 +151,12 @@ class KeptBuckets<T> {
       records.decide(declaration, members);
       return null;
     }
-    return switch records.decide(declaration, members,
-      () -> GenerationChangeSet.sameObject(bucket.declaration, current)) {
+    return switch records.decide(declaration, members, () -> {
+      final same = GenerationChangeSet.sameObject(bucket.declaration, current);
+      GenerationChangeSet.recordSameObject(declaration.key, same,
+        bucket.writtenIn);
+      same;
+    }) {
       case Keep:
         bucket.seenIn = GenerationChangeSet.request();
         {value: bucket.value, firstRead: bucket.firstRead};
@@ -172,9 +183,11 @@ class KeptBuckets<T> {
       declaration: current,
       value: value,
       firstRead: declaration.arrival == TypedAgain,
-      seenIn: request
+      seenIn: request,
+      writtenIn: request
     });
     records.write(declaration, members, true);
+    GenerationChangeSet.recordBucketWritten(declaration.key);
   }
 
   /**

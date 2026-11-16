@@ -126,6 +126,46 @@ function ownerRoot(owner: string): string {
   return prefix.replace(/\/+$/, "") || ".";
 }
 
+/**
+ * Gates that no hosted job runs. The owning change runs each one locally
+ * before merge and records the result (see `docs/TESTING_STRATEGY.md`).
+ * Only these ids may have an empty `remoteJobs` list, and each of them must
+ * have one: a gate never names a hosted job that does not run it.
+ */
+const localOnlyGateIds: ReadonlySet<string> = new Set(["compiler-server-shadow"]);
+
+/** Fails when `remoteJobs` of gate `id` breaks the local-only allowlist. */
+function assertRemoteJobsPolicy(id: string, remoteJobs: ReadonlyArray<string>): void {
+  if (localOnlyGateIds.has(id))
+    assert(remoteJobs.length === 0,
+      `${id} is a local-only gate and must name no remote job`);
+  else
+    assert(remoteJobs.length > 0,
+      `${id}.remoteJobs is empty, but only the local-only gates `
+      + `(${[...localOnlyGateIds].join(", ")}) may run in no hosted job`);
+}
+
+/**
+ * Proves that the allowlist check fails for the cases it exists to reject:
+ * an empty list on another gate, and a remote job on a local-only gate.
+ */
+function assertRemoteJobsPolicyControls(): void {
+  const rejects = (id: string, remoteJobs: ReadonlyArray<string>): boolean => {
+    try {
+      assertRemoteJobsPolicy(id, remoteJobs);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  assert(rejects("compiler-server", []),
+    "remoteJobs control: an empty list on a gate that is not local-only must fail");
+  assert(rejects("compiler-server-shadow", ["genes-ts"]),
+    "remoteJobs control: a remote job on a local-only gate must fail");
+  assert(!rejects("compiler-server-shadow", []) && !rejects("compiler-server", ["genes-ts"]),
+    "remoteJobs control: the allowed cases must pass");
+}
+
 function sha256(file: string): string {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
@@ -144,6 +184,7 @@ function sha256(file: string): string {
  * gate. It does not execute those tests or replace their specialized runners.
  */
 function main(): void {
+  assertRemoteJobsPolicyControls();
   const manifest = record(
     JSON.parse(readFileSync(manifestPath, "utf8")) as unknown,
     "agent test-routing manifest"
@@ -343,7 +384,8 @@ function main(): void {
     ].join(" "),
       `${id}.command must remain locally reproducible from its package script`);
     stringArray(gate.artifacts, `${id}.artifacts`);
-    const remoteJobs = stringArray(gate.remoteJobs, `${id}.remoteJobs`);
+    const remoteJobs = stringArray(gate.remoteJobs, `${id}.remoteJobs`, true);
+    assertRemoteJobsPolicy(id, remoteJobs);
     enumValues(remoteJobs, validRemoteJobs, `${id}.remoteJobs`);
     text(gate.proves, `${id}.proves`);
     text(gate.doesNotProve, `${id}.doesNotProve`);

@@ -4,10 +4,15 @@ import genes.incremental.IncrementalRequest;
 import haxe.macro.Context;
 
 /**
- * Checks three rules of the incremental generation shadow on their own,
- * with made-up inputs: the output lines of the session key, the clean rule
- * for a module without a declaration stamp, and the refusal of
- * `"generation": "compare"` without `"afterTyping": "reuse"`.
+ * Checks rules of incremental generation on their own, with made-up inputs:
+ * the output lines of the session key, the clean rule for a module without a
+ * declaration stamp, the refusal of `"generation": "compare"` and `"reuse"`
+ * without `"afterTyping": "reuse"`, and the rules that slice S1 added before
+ * any replay (the items of the review of #243): same-object proofs (item 1),
+ * "left the program" from the current request (item 3), sources inside the
+ * folder where output paths part (item 4), rule 6 for modules without an
+ * output file (item 6), and no replay from a cache of afterTyping
+ * `"measure"` (item 7).
  *
  * Why: these are the three changes that the G2 design review requires
  * before stored output may be replayed. A request sequence shows only the
@@ -24,7 +29,24 @@ import haxe.macro.Context;
  * requires. It changes the generation cache of its own compiler process
  * only; run it with `--no-output` in a new process.
  */
+/** Optional inputs of `CleanRuleProbe.store`. */
+private typedef StoreOptions = {
+  final ?answers: Array<String>;
+  final ?mapSources: Array<String>;
+  final ?outputFolder: String;
+  final ?underReuse: Bool;
+}
+
+/** Optional inputs of `CleanRuleProbe.facts`. */
+private typedef FactOptions = {
+  final ?absent: Array<String>;
+  final ?proofs: Map<String, Null<String>>;
+  final ?failures: Array<String>;
+  final ?outputFolder: String;
+}
+
 class CleanRuleProbe {
+  static inline final OUTPUT = '/p/cand/rev-3/output';
   static inline final KEY = 'probe session key';
   static inline final DIGEST = 'probe reserved names';
   static var cases = 0;
@@ -33,6 +55,10 @@ class CleanRuleProbe {
     checkOutputLines();
     checkUnstamped();
     checkRefusal();
+    checkReplayRules();
+    checkEmissionFeatures();
+    checkExcludedMetadata();
+    checkMetadataFingerprint();
     Sys.println('clean-rule-probe:ok ($cases cases)');
   }
 
@@ -107,9 +133,10 @@ class CleanRuleProbe {
         fail('unstamped module with a changed fingerprint', 'Fallback',
           Std.string(other));
     }
-    // A module that had a stamp and has none now left the program (the
-    // last use of a type, a deleted module). It is dirty, and its changed
-    // fingerprint must not make the whole request fall back.
+    // A module that had a stamp, has none now and is absent from the
+    // generator list left the program (the last use of a type, a deleted
+    // module). It is dirty, and its changed fingerprint must not make the
+    // whole request fall back (item 3: decided from this request).
     final stored = epochs.copy();
     stored.set('app.Gone', 'class:app.Gone@n:1');
     final storedFingerprints = fingerprints.copy();
@@ -118,7 +145,7 @@ class CleanRuleProbe {
     switch GenerationCache.decide(facts(epochs, fingerprints)) {
       case Rules(clean, dirty):
         expectState('module that left the program', false, clean, dirty,
-          'app.Gone', 'no declaration stamp');
+          'app.Gone', 'left the program');
       case other:
         fail('module that left the program', 'Rules', Std.string(other));
     }
@@ -143,13 +170,293 @@ class CleanRuleProbe {
       CompareClean, Compare);
     expectRefusal('measure with measure', null, MeasureClean, Measure);
     expectRefusal('no generation value', null, Regenerate, Measure);
+    expectRefusal('reuse with reuse', null, ReuseClean, Reuse);
+    expectRefusal('reuse with measure', 'reuse-needs-after-typing-reuse',
+      ReuseClean, Measure);
+    expectRefusal('reuse with compare', 'reuse-needs-after-typing-reuse',
+      ReuseClean, Compare);
+  }
+
+  /**
+   * Every feature that a Genes emitter adds with a literal name
+   * (`addFeature("...")`) must be in `GenerationCache.EMISSION_FEATURES`.
+   *
+   * Why: the checks before emission compare a clean module's feature
+   * answers with the answers before the first module is printed. That is
+   * exact only for features that no printing adds; a module that asked for
+   * one of the others is never clean (rule 10). A new `addFeature` call that
+   * is missing from the list would make that check unsound, so this case
+   * reads the sources under `src/genes` and fails for it.
+   */
+  static function checkEmissionFeatures(): Void {
+    final generator = Context.resolvePath('genes/Generator.hx');
+    final root = haxe.io.Path.directory(sys.FileSystem.absolutePath(generator));
+    final call = ~/addFeature\(\s*["']([^"']+)["']\s*\)/;
+    var found = 0;
+    for (file in haxeFiles(root)) {
+      var text = sys.io.File.getContent(file);
+      while (call.match(text)) {
+        final feature = call.matched(1);
+        found++;
+        if (GenerationCache.EMISSION_FEATURES.indexOf(feature) < 0)
+          fail('emission feature list',
+            'addFeature("$feature") in $file to be ' +
+            'in GenerationCache.EMISSION_FEATURES',
+            'it is missing');
+        text = call.matchedRight();
+      }
+    }
+    cases++;
+    if (found == 0)
+      fail('emission feature list',
+        'at least one addFeature call under $root', 'none');
+  }
+
+  /**
+   * The metadata names that the fingerprint leaves out
+   * (`ModuleFingerprint.EXCLUDED_META`) must not be read by any Genes source
+   * outside `genes.incremental`, except by the readers that the reason
+   * names. Today only `:genes.generate` has one: `Generator.needsGen`, on the
+   * classic path, which incremental generation never serves.
+   *
+   * Why: a left-out name that an emitter reads would let a module's output
+   * change without a fingerprint change (review of #244, round 2, N1).
+   */
+  static function checkExcludedMetadata(): Void {
+    final allowed = [':genes.generate' => ['Generator.hx']];
+    final generator = Context.resolvePath('genes/Generator.hx');
+    final root = haxe.io.Path.directory(sys.FileSystem.absolutePath(generator));
+    for (name => reason in genes.incremental.ModuleFingerprint.EXCLUDED_META) {
+      cases++;
+      if (reason.length == 0)
+        fail('excluded metadata $name', 'a reason', 'none');
+      final readers = allowed.exists(name) ? allowed.get(name) : [];
+      for (file in haxeFiles(root)) {
+        if (file.indexOf('/incremental/') >= 0
+          || readers.indexOf(haxe.io.Path.withoutDirectory(file)) >= 0)
+          continue;
+        final text = sys.io.File.getContent(file);
+        if (text.indexOf("'" + name + "'") >= 0
+          || text.indexOf('"' + name + '"') >= 0)
+          fail('excluded metadata $name',
+            'no reader outside genes.incremental', 'a reader in $file');
+      }
+    }
+  }
+
+  /**
+   * Metadata with its arguments is part of the fingerprint
+   * (`ModuleFingerprint.metaText`), as a set: each change of a name or an
+   * argument on a field, a class, an enum constructor, an abstract or a
+   * typedef changes the text; an entry added twice, in another order, or a
+   * left-out name does not. The cases change the metadata of fixture types
+   * in this compiler process only (the probe runs with `--no-output`) and
+   * remove it again.
+   */
+  static function checkMetadataFingerprint(): Void {
+    final pos = Context.currentPos();
+    final arg = (text: String) -> [
+      {
+        expr: haxe.macro.Expr.ExprDef.EConst(CString(text, DoubleQuotes)),
+        pos: pos
+      }
+    ];
+    function cycle(name: String, type: haxe.macro.Type,
+        meta: haxe.macro.Type.MetaAccess): Void {
+      final print = () -> genes.incremental.ModuleFingerprint.of([type], [],
+        []);
+      final before = print();
+      meta.add(':probe.mark', arg('a'), pos);
+      final marked = print();
+      expectDifferent('$name: metadata added', before, marked);
+      meta.add(':probe.mark', arg('a'), pos);
+      expectText('$name: the same entry twice', marked, print());
+      meta.remove(':probe.mark');
+      meta.add(':probe.mark', arg('b'), pos);
+      expectDifferent('$name: another argument', marked, print());
+      meta.remove(':probe.mark');
+      meta.add(':used', [], pos);
+      expectText('$name: a left-out name', before, print());
+      meta.remove(':used');
+      expectText('$name: metadata removed again', before, print());
+    }
+    final target = Context.getType('inc.MetaTarget');
+    switch target {
+      case TInst(ref, _):
+        cycle('class', target, ref.get().meta);
+        for (field in ref.get().statics.get())
+          if (field.name == 'value')
+            cycle('static field', target, field.meta);
+      default:
+        fail('metadata fingerprint', 'class inc.MetaTarget',
+          Std.string(target));
+    }
+    final shape = Context.getType('inc.Shape');
+    switch shape {
+      case TEnum(ref, _):
+        cycle('enum', shape, ref.get().meta);
+        final circle = ref.get().constructs.get('Circle');
+        if (circle == null)
+          fail('metadata fingerprint', 'constructor inc.Shape.Circle', 'none');
+        else
+          cycle('enum constructor', shape, circle.meta);
+      default:
+        fail('metadata fingerprint', 'enum inc.Shape', Std.string(shape));
+    }
+    final color = Context.getType('inc.Color');
+    switch color {
+      case TAbstract(ref, _):
+        cycle('abstract', color, ref.get().meta);
+      default:
+        fail('metadata fingerprint', 'abstract inc.Color', Std.string(color));
+    }
+    final bag = Context.getType('inc.Env.Bag');
+    switch bag {
+      case TType(ref, _):
+        cycle('typedef', bag, ref.get().meta);
+      default:
+        fail('metadata fingerprint', 'typedef inc.Env.Bag', Std.string(bag));
+    }
+  }
+
+  /** Returns every `.hx` file below `folder`, sorted. */
+  static function haxeFiles(folder: String): Array<String> {
+    final result = [];
+    final entries = sys.FileSystem.readDirectory(folder);
+    entries.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    for (entry in entries) {
+      final path = haxe.io.Path.join([folder, entry]);
+      if (sys.FileSystem.isDirectory(path))
+        for (file in haxeFiles(path))
+          result.push(file);
+      else if (StringTools.endsWith(entry, '.hx'))
+        result.push(path);
+    }
+    return result;
+  }
+
+  /** The rules that slice S1 added before any replay (items of the review of #243). */
+  static function checkReplayRules(): Void {
+    final epochs = [
+      'app.Clean' => 'class:app.Clean@n:1',
+      'app.Index' => 'class:app.Index@n:1',
+      'app.Types' => 'typedef:app.Types@n:1'
+    ];
+    final fingerprints = ['app.Clean' => 'f-clean', 'app.Index' => 'f-index', 'app.Types' => 'f-types'];
+    // Item 1: a failed same-object test anywhere falls back.
+    store(epochs, fingerprints, [], []);
+    expectFallback('a failed same-object test',
+      GenerationCache.decide(facts(epochs, fingerprints, {
+        failures: ['class:app.Other']
+      })));
+    // Item 1: a declaration without a proof, or with another proof, is dirty.
+    expectDecision('a declaration without a same-object proof',
+      GenerationCache.decide(facts(epochs, fingerprints, {
+        proofs: ['app.Clean' => null]
+      })), 'app.Clean',
+      'a declaration has no same-object proof');
+    expectDecision('a bucket written after the stored output',
+      GenerationCache.decide(facts(epochs, fingerprints,
+        {
+          proofs: ['app.Clean' => 'class:app.Clean@7']
+        })),
+      'app.Clean',
+      'a declaration object differs from the one that printed the stored output');
+    expectDecision('equal proofs',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean', null);
+    // Item 3: no stamp, but present in the generator list with a changed
+    // fingerprint: nothing shows that Haxe kept it, so the request falls back.
+    final unstamped = epochs.copy();
+    unstamped.set('app.Clean', '');
+    final changed = fingerprints.copy();
+    changed.set('app.Clean', 'f-clean-2');
+    expectFallback('no stamp, present, changed fingerprint',
+      GenerationCache.decide(facts(unstamped, changed)));
+    expectDecision('no stamp, absent, changed fingerprint',
+      GenerationCache.decide(facts(unstamped, changed, {
+        absent: ['app.Clean']
+      })), 'app.Clean', 'left the program');
+    // Item 6: a module without an output file is in rule 6 too.
+    store(epochs, fingerprints, [], [], ['app.Types']);
+    final typesChanged = fingerprints.copy();
+    typesChanged.set('app.Types', 'f-types-2');
+    expectFallback('a module without an output file changed its fingerprint',
+      GenerationCache.decide(facts(epochs, typesChanged)));
+    // Item 4: a stored map source inside the folder where the paths part.
+    store(epochs, fingerprints, [], [], null,
+      {mapSources: ['/p/cand/rev-3/gen/app/Clean.hx']});
+    expectDecision('a map source inside the stored parting folder',
+      GenerationCache.decide(facts(epochs, fingerprints,
+        {
+          outputFolder: '/p/cand/rev-4/output'
+        })),
+      'app.Clean',
+      'a source of its source maps is inside the folder where the output paths ' +
+      'part: /p/cand/rev-3/gen/app/Clean.hx');
+    expectDecision('the same output folder',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean', null);
+    store(epochs, fingerprints, [], [], null,
+      {mapSources: ['/p/src/app/Clean.hx']});
+    expectDecision('a map source outside the parting folders',
+      GenerationCache.decide(facts(epochs, fingerprints, {
+        outputFolder: '/p/cand/rev-4/output'
+      })), 'app.Clean', null);
+    expectText('parting folders', '/p/cand/rev-3,/p/cand/rev-4',
+      GenerationCache.partingFolders('/p/cand/rev-3/output',
+        '/p/cand/rev-4/output')
+        .join(','));
+    // Rule 10: a module that asked for a feature that emission adds.
+    store(epochs, fingerprints, [], [], null, {
+      answers: [GenerationCache.answerLine('feature', 'use.' + '$' + 'bind',
+        '0')]
+    });
+    expectDecision('asked for a feature that emission adds',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean',
+      'asked for the feature use.' + '$' + 'bind, which emission can add');
+    // Item 7: compare and reuse do not use a cache of afterTyping measure.
+    store(epochs, fingerprints, [], [], null, {underReuse: false});
+    switch GenerationCache.decide(facts(epochs, fingerprints)) {
+      case NoCache(_):
+        cases++;
+      case other:
+        fail('a cache written with afterTyping measure', 'NoCache',
+          Std.string(other));
+    }
+    GenerationCache.drop();
+  }
+
+  static function expectFallback(name: String, decision: CacheDecision): Void {
+    switch decision {
+      case Fallback(_):
+        cases++;
+      default:
+        fail(name, 'Fallback', Std.string(decision));
+    }
+  }
+
+  static function expectDecision(name: String, decision: CacheDecision,
+      module: String, wantReason: Null<String>): Void {
+    switch decision {
+      case Rules(clean, dirty):
+        expectState(name, wantReason == null, clean, dirty, module, wantReason);
+      default:
+        fail(name, 'Rules', Std.string(decision));
+    }
   }
 
   static function store(epochs: Map<String, String>,
       fingerprints: Map<String, String>, globalReads: Array<String>,
-      reads: Map<String, Array<String>>): Void {
+      reads: Map<String, Array<String>>, ?inventoryOnly: Array<String>,
+      ?options: StoreOptions): Void {
     final modules = new Map<String, CachedModule>();
+    final others = new Map<String, CachedInventoryModule>();
+    final skip = inventoryOnly == null ? [] : inventoryOnly;
     for (module => text in epochs) {
+      if (skip.indexOf(module) >= 0) {
+        others.set(module,
+          {epochs: text, fingerprint: fingerprints.get(module)});
+        continue;
+      }
       final read = reads.get(module);
       modules.set(module, {
         epochs: text,
@@ -160,18 +467,48 @@ class CleanRuleProbe {
         ],
         usedHaxePrinter: false,
         files: [],
-        warnings: []
+        warnings: [],
+        proofs: proofOf(module),
+        members: '',
+        rootFlags: '',
+        answers: options != null
+        && options.answers != null ? options.answers : [],
+        additions: [],
+        publicEntries: [],
+        mapSources: options != null
+        && options.mapSources != null ? options.mapSources : []
       });
     }
     GenerationCache.commit(KEY, DIGEST, [
       for (name in globalReads)
         {module: name, epochs: epochs.get(name)}
-    ], modules);
+    ],
+      modules,
+      others, options != null && options.outputFolder != null ? options.outputFolder : OUTPUT, options == null
+      || options.underReuse != false);
+  }
+
+  /** The made-up same-object proof text of one module. */
+  static function proofOf(module: String): String {
+    return 'class:$module@1';
   }
 
   static function facts(epochs: Map<String, String>,
-      fingerprints: Map<String, String>): CacheRequestFacts {
+      fingerprints: Map<String, String>,
+      ?options: FactOptions): CacheRequestFacts {
+    final absent = options != null
+      && options.absent != null ? options.absent : [];
+    final proofs = options != null
+      && options.proofs != null ? options.proofs : new Map();
     return {
+      present: module -> epochs.exists(module) && absent.indexOf(module) < 0,
+      proofs: module ->
+        proofs.exists(module) ? proofs.get(module) : proofOf(module),
+      sameObjectFailures: options != null
+      && options.failures != null ? options.failures : [],
+      outputFolder: options != null
+      && options.outputFolder != null ? options.outputFolder : OUTPUT,
+      needsReuseCache: true,
       sessionKey: KEY,
       reservedNameDigest: DIGEST,
       rootModule: 'app.Index',
