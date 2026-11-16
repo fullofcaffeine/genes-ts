@@ -157,14 +157,31 @@ class HaxeDeclarationKey {
       base.pos);
   }
 
-  /** Returns null for compiler-created local aliases with no ModuleType owner. */
+  /**
+   * Returns null for compiler-created local aliases with no ModuleType owner.
+   *
+   * Cost: this runs for each type name that an emitter prints, and it reads
+   * the declarations of the module in order until one has the same name.
+   * `ref.get()` copies a complete declaration (about 10 microseconds), so
+   * the search first reads `ref.toString()`, the `pack` and `name` of the
+   * declaration joined with dots (exact, see `src/genes/AGENTS.md`). When
+   * that text does not end with the name that the search wants, the names
+   * differ and the declaration is skipped without the copy. The declaration
+   * that is copied is still compared field by field, so the answer does not
+   * change.
+   */
   public static function tryFromBaseType(base: BaseType): Null<HaxeDeclarationKey> {
+    final name = base.name;
     for (candidate in TypedModuleInventory.moduleTypes(base.module)) {
       final candidateKey = switch candidate {
-        case TInst(ref, _): fromBase(ClassDecl, ref.get());
-        case TEnum(ref, _): fromBase(EnumDecl, ref.get());
-        case TType(ref, _): fromBase(TypedefDecl, ref.get());
-        case TAbstract(ref, _): fromBase(AbstractDecl, ref.get());
+        case TInst(ref, _) if (mayHaveName(ref.toString(), name)):
+          fromBase(ClassDecl, ref.get());
+        case TEnum(ref, _) if (mayHaveName(ref.toString(), name)):
+          fromBase(EnumDecl, ref.get());
+        case TType(ref, _) if (mayHaveName(ref.toString(), name)):
+          fromBase(TypedefDecl, ref.get());
+        case TAbstract(ref, _) if (mayHaveName(ref.toString(), name)):
+          fromBase(AbstractDecl, ref.get());
         default: null;
       }
       if (candidateKey != null && candidateKey.module == base.module
@@ -172,6 +189,18 @@ class HaxeDeclarationKey {
         return candidateKey;
     }
     return null;
+  }
+
+  /**
+   * Returns false only when a declaration whose reference text is `text`
+   * cannot have the name `name`.
+   *
+   * The text is `pack` and `name` joined with dots, for example
+   * `app.model.User`, or `User` without a package. A declaration named
+   * `User` therefore has a text that is `User` or ends with `.User`.
+   */
+  static inline function mayHaveName(text: String, name: String): Bool {
+    return text == name || StringTools.endsWith(text, '.' + name);
   }
 
   static function fromBase(kind: HaxeDeclarationKind,

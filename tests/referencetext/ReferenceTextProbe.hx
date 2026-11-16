@@ -1,6 +1,8 @@
 package tests.referencetext;
 
 #if macro
+import genes.BindingIdentity.HaxeDeclarationKey;
+import genes.BindingIdentity.HaxeDeclarationKind;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -26,6 +28,11 @@ import haxe.macro.Type;
  *   the same answer at the same moment, also for a renamed class.
  * - For a static field, an instance field, and a closure of a method, the
  *   text of the field reference equals the field name.
+ * - `HaxeDeclarationKey.tryFromBaseType` uses the text only to skip a
+ *   declaration whose name differs. After generation, for every declaration,
+ *   it must still find one of the same kind, module, and name. (A search that
+ *   skipped too much returns no key, which the emitted code does not always
+ *   show.)
  *
  * `test.hxml` installs this probe, so `yarn test` fails when a case fails.
  */
@@ -77,7 +84,48 @@ class ReferenceTextProbe {
         'Probe setup: expected the declarations of the test program after generation');
       require(renamed > 0,
         'Probe setup: expected at least one class that Haxe renamed for @:native');
+      checkDeclarationKeys(generated);
     });
+  }
+
+  /**
+   * Requires that `HaxeDeclarationKey.tryFromBaseType` finds each generated
+   * declaration: a key with the kind, module, and name of that declaration.
+   */
+  static function checkDeclarationKeys(types: Array<Type>): Void {
+    var checked = 0;
+    for (type in types) {
+      final found = switch type {
+        case TInst(ref, _):
+          sameKey(ClassDecl, ref.get());
+        case TEnum(ref, _):
+          sameKey(EnumDecl, ref.get());
+        case TType(ref, _):
+          sameKey(TypedefDecl, ref.get());
+        case TAbstract(ref, _):
+          sameKey(AbstractDecl, ref.get());
+        default:
+          continue;
+      }
+      checked++;
+      if (found != null)
+        require(false, found);
+    }
+    require(checked > 100,
+      'Probe setup: expected the declarations of the test program for tryFromBaseType');
+  }
+
+  /** Returns null when the search finds the key of `declaration`, else a message. */
+  static function sameKey(kind: HaxeDeclarationKind,
+      declaration: BaseType): Null<String> {
+    final expected = new HaxeDeclarationKey(kind, declaration.module,
+      declaration.name);
+    final key = HaxeDeclarationKey.tryFromBaseType(declaration);
+    return key != null
+      && key.equals(expected) ? null : 'tryFromBaseType of '
+        + expected.describe()
+        + ' gave '
+        + (key == null ? 'no key' : key.describe());
   }
 
   /** Requires that the text of one reference is `pack` and `name`. */

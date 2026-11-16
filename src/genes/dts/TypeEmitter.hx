@@ -455,7 +455,10 @@ class TypeEmitter {
         write('InstanceType<typeof ');
         write(writer.typeAccessor(cl));
         write('>');
-      case TInst(_.get().meta => meta, params)
+      // Each class pattern here reads the class with the same `_.get()`
+      // extractor, so Haxe copies the declaration once for all of them.
+      // (`_.get().meta` would be a second extractor and a second copy.)
+      case TInst(_.get() => {meta: meta}, params)
         if (meta.has(':ts.type') || meta.has(':genes.type')):
         final tsOverride = switch meta.extract(':ts.type') {
           case [{params: [{expr: EConst(CString(type))}]}]: type;
@@ -569,7 +572,8 @@ class TypeEmitter {
             includeType(TInst(ref, params));
             emitBaseType(writer, cl, params);
         }
-      case TAbstract(_.get().meta => meta, params)
+      // One `_.get()` extractor for both abstract patterns; see above.
+      case TAbstract(_.get() => {meta: meta}, params)
         if (meta.has(':ts.type') || meta.has(':genes.type')):
         final tsOverride = switch meta.extract(':ts.type') {
           case [{params: [{expr: EConst(CString(type))}]}]: type;

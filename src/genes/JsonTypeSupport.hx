@@ -37,13 +37,20 @@ class JsonTypeSupport {
     writeLine('type JsonNonNullValue = Exclude<JsonValue, null>');
   }
 
-  /** Returns whether executable or declaration members require JSON aliases. */
-  public static function moduleUsesJsonTypes(module: Module): Bool {
+  /**
+   * Returns whether executable or declaration members require JSON aliases.
+   *
+   * `answers` keeps the completed answers for abstracts and typedefs of one
+   * generation, so that the next module does not search the same declaration
+   * again. Without it, the query keeps them for this module only.
+   */
+  public static function moduleUsesJsonTypes(module: Module,
+      ?answers: JsonTypeDefinitionAnswers): Bool {
     if (module.module != null && module.module.startsWith('genes.ts.Json'))
       return true;
 
     var found = false;
-    final query = new JsonTypeQuery();
+    final query = new JsonTypeQuery(answers);
     function visitType(type: Type): Void {
       if (!found && type != null)
         found = query.uses(type);
@@ -102,9 +109,14 @@ class JsonTypeSupport {
     return false;
   }
 
-  /** Returns whether a typed Haxe type projects through the JSON helper family. */
-  public static function typeUsesJsonTypes(type: Type): Bool {
-    return new JsonTypeQuery().uses(type);
+  /**
+   * Returns whether a typed Haxe type projects through the JSON helper family.
+   *
+   * `answers` has the same meaning as for `moduleUsesJsonTypes`.
+   */
+  public static function typeUsesJsonTypes(type: Type,
+      ?answers: JsonTypeDefinitionAnswers): Bool {
+    return new JsonTypeQuery(answers).uses(type);
   }
 
   /**
@@ -122,7 +134,45 @@ class JsonTypeSupport {
 }
 
 /**
- * Reuses completed declaration searches during one module inventory scan.
+ * Keeps, for one generation, whether the underlying type of each abstract and
+ * typedef uses a JSON helper.
+ *
+ * Why: `JsonTypeSupport.moduleUsesJsonTypes` searches the types of every
+ * expression of a module, and with them the underlying types of the
+ * abstracts and typedefs that those types name. Most modules name the same
+ * standard and application declarations. A search that keeps its answers
+ * for one module only reads each declaration again in the next module: on an
+ * application with 1,100 modules, about 100,000 copies of a declaration
+ * (`ref.get()`) and their searches in each generation.
+ *
+ * What: two maps from the dotted path of a declaration (`ref.toString()`)
+ * to the answer: one for abstracts, one for typedefs. Haxe allows one
+ * declaration for each path, and does not rename abstracts or typedefs, so
+ * the path names one declaration. Only completed answers are stored: a
+ * "yes" at any depth, and a "no" only after a search that started at that
+ * declaration (see `JsonTypeQuery.searchDefinition`). Such an answer does
+ * not depend on the module that asked.
+ *
+ * How: `Generator` creates one for each `generate` call and gives it to its
+ * modules through `ModuleContext`, like `JsxProviderSchemaCatalog`. Nothing
+ * is static, so a warm compiler server starts every request with empty maps.
+ * During generation the underlying type of a declaration does not change.
+ * `tests.generationcaches.GenerationCachesProbe` compares shared answers
+ * with new searches, in both orders, on a cycle of two typedefs.
+ */
+class JsonTypeDefinitionAnswers {
+  /** Answers for abstracts, by the dotted path of the abstract. */
+  public final abstracts = new Map<String, Bool>();
+
+  /** Answers for typedefs, by the dotted path of the typedef. */
+  public final typedefs = new Map<String, Bool>();
+
+  public function new() {}
+}
+
+/**
+ * Reuses completed declaration searches during one module inventory scan,
+ * or during one generation when the caller gives shared answers.
  *
  * Why: many expressions repeat the same standard abstracts and typedefs. Each
  * application still owns its generic arguments, but the declaration's
@@ -154,11 +204,14 @@ private class JsonTypeQuery {
    */
   static inline final JSON_HELPER_PACKAGE = 'genes.ts.';
 
-  final completedDefinitions = new Map<String, Bool>();
-  final activeDefinitions = new Map<String, Bool>();
+  final completed: JsonTypeDefinitionAnswers;
+  final activeAbstracts = new Map<String, Bool>();
+  final activeTypedefs = new Map<String, Bool>();
   var activeDefinitionCount = 0;
 
-  public function new() {}
+  public function new(?answers: JsonTypeDefinitionAnswers) {
+    completed = answers != null ? answers : new JsonTypeDefinitionAnswers();
+  }
 
   public function uses(type: Type): Bool {
     return search(type);
@@ -170,8 +223,8 @@ private class JsonTypeQuery {
     return switch type {
       case TAbstract(ref, params): final path = ref.toString(); (mayBeInJsonHelperModule(path)
           && JsonTypeSupport.isJsonTypeModule(ref.get()
-            .module)) || searchTypes(params) || searchDefinition('abstract:$path',
-          () -> ref.get()
+            .module)) || searchTypes(params) || searchDefinition(completed.abstracts,
+          activeAbstracts, path, () -> ref.get()
           .type);
       case TInst(ref, params): (mayBeInJsonHelperModule(ref.toString())
           && JsonTypeSupport.isJsonTypeModule(ref.get()
@@ -181,8 +234,8 @@ private class JsonTypeQuery {
             .module)) || searchTypes(params);
       case TType(ref, params): final path = ref.toString(); (mayBeInJsonHelperModule(path)
           && JsonTypeSupport.isJsonTypeModule(ref.get()
-            .module)) || searchTypes(params) || searchDefinition('typedef:$path',
-          () -> ref.get()
+            .module)) || searchTypes(params) || searchDefinition(completed.typedefs,
+          activeTypedefs, path, () -> ref.get()
           .type);
       case TAnonymous(_.get() => anonymous):
         searchFields(anonymous.fields);
@@ -259,27 +312,30 @@ private class JsonTypeQuery {
    * Returns whether the underlying type of one abstract or typedef uses a
    * JSON helper, and keeps each safe result.
    *
-   * `key` is the kind and the dotted path of the declaration. Haxe allows one
-   * abstract and one typedef for each path, so two declarations never share a
-   * key. `underlyingType` reads the type from the declaration. It is called
-   * only when no result is kept and the declaration is not already on the
-   * search path, because that read is the expensive step.
+   * `completedAnswers` and `activePaths` are the maps for the kind of the
+   * declaration (abstract or typedef); `path` is its dotted path. Haxe
+   * allows one abstract and one typedef for each path, so two declarations
+   * never share a key. `underlyingType` reads the type from the declaration.
+   * It is called only when no result is kept and the declaration is not
+   * already on the search path, because that read is the expensive step.
    */
-  function searchDefinition(key: String, underlyingType: () -> Type): Bool {
-    final cached = completedDefinitions.get(key);
+  function searchDefinition(completedAnswers: Map<String, Bool>,
+      activePaths: Map<String, Bool>, path: String,
+      underlyingType: () -> Type): Bool {
+    final cached = completedAnswers.get(path);
     if (cached != null)
       return cached;
-    if (activeDefinitions.exists(key))
+    if (activePaths.exists(path))
       return false;
 
     final root = activeDefinitionCount == 0;
     activeDefinitionCount++;
-    activeDefinitions.set(key, true);
+    activePaths.set(path, true);
     final found = search(underlyingType());
-    activeDefinitions.remove(key);
+    activePaths.remove(path);
     activeDefinitionCount--;
     if (found || root)
-      completedDefinitions.set(key, found);
+      completedAnswers.set(path, found);
     return found;
   }
 }

@@ -79,57 +79,15 @@ class TypeReferenceCollector {
 
   function collectInner(type: Type, rule: String, pos: Position): Void {
     switch type {
-      case TInst(_.get() => cl, _):
-        ExternTypeContract.validateBuiltInNativeType(cl);
-      default:
-    }
+      case TInst(ref, params):
+        // One copy of the class for every check: `ref.get()` copies the
+        // complete declaration, and the separate patterns that read it
+        // before made three copies for each class type.
+        collectClass(ref, ref.get(), params, rule, pos);
 
-    switch type {
-      case TInst(ref = _.get() => cl, params)
-        if (ExternTypeContract.usesImportedInstanceType(cl)):
-        // Haxe can rewrite an extern whose native JavaScript name is
-        // `String` or `RegExp` to look like that built-in later in code
-        // generation. The explicit instance-type contract still means the
-        // public API names the package constructor, so retain its typed import
-        // before the built-in spelling rules below can discard it.
-        ExternTypeContract.validateImportedInstanceType(cl, params);
-        includeType(TClassDecl(ref), '$rule.imported-instance', cl.pos);
-
-      case TInst(_.get().meta => meta, params) if (hasTypeOverride(meta)):
-        collectOverride(meta, params, '$rule.type-override', pos);
-
-      case TInst(ref = _.get() => cl, params):
-        switch [cl, params] {
-          case [{module: "js.node.Fs", name: "FsPath"}, _] |
-            [{name: "RegExpMatch"}, _] | [{pack: [], name: "String"}, _] |
-            [{module: "js.lib.Symbol", name: "Symbol"}, _]:
-            // Projected to a target/global type with no Haxe import.
-          case [host, arguments] if (TypeAccessor.hostGlobalName(host) != null):
-            // Host constructors are already available through `globalThis`;
-            // only their generic arguments can contribute dependencies.
-            collectParams(arguments, false, '$rule.host-global-arguments',
-              host.pos);
-          case [{name: name}, _] if (name.indexOf('<') > -1):
-          case [{kind: KTypeParameter(_)}, _]:
-          case [{module: moduleName}, _]
-            if (moduleName != null && moduleName.startsWith('haxe.macro')):
-          case [{meta: meta}, _] if (isGlobalBuffer(meta)):
-          case [{meta: meta}, _] if (isNativeRegExp(meta)):
-          case [{module: "js.lib.Set", name: "Set"}, [element]] |
-            [{module: "js.lib.Iterator", name: "Iterator"}, [element]] |
-            [{module: "js.lib.Iterator", name: "AsyncIterator"}, [element]] |
-            [{pack: [], name: "Array"}, [element]]:
-            collect(element, '$rule.element', cl.pos);
-          case [{module: "js.lib.Map", name: "Map"}, [key, value]]:
-            collect(key, '$rule.key', cl.pos);
-            collect(value, '$rule.value', cl.pos);
-          default:
-            includeType(TClassDecl(ref), '$rule.named-class', cl.pos);
-            collectParams(params, false, '$rule.class-arguments', cl.pos);
-        }
-
-      case TAbstract(_.get().meta => meta, params) if (hasTypeOverride(meta)):
-        collectOverride(meta, params, '$rule.type-override', pos);
+      case TAbstract(_.get() => abstractType, params)
+        if (hasTypeOverride(abstractType.meta)):
+        collectOverride(abstractType.meta, params, '$rule.type-override', pos);
 
       case TAbstract(_.get() => abstractType, params):
         if (Context.defined('genes.ts')
@@ -246,6 +204,54 @@ class TypeReferenceCollector {
         // Monomorphs, lazies, untyped Dynamic, and unsupported target types
         // currently project to `any` and therefore carry no named dependency.
     }
+  }
+
+  /**
+   * Collects the declarations named by one class type. `cl` is the one copy
+   * of the class that `collectInner` read; the checks keep their old order.
+   */
+  function collectClass(ref: Ref<ClassType>, cl: ClassType,
+      params: Array<Type>, rule: String, pos: Position): Void {
+    ExternTypeContract.validateBuiltInNativeType(cl);
+    if (ExternTypeContract.usesImportedInstanceType(cl)) {
+      // Haxe can rewrite an extern whose native JavaScript name is
+      // `String` or `RegExp` to look like that built-in later in code
+      // generation. The explicit instance-type contract still means the
+      // public API names the package constructor, so retain its typed import
+      // before the built-in spelling rules below can discard it.
+      ExternTypeContract.validateImportedInstanceType(cl, params);
+      includeType(TClassDecl(ref), '$rule.imported-instance', cl.pos);
+    } else if (hasTypeOverride(cl.meta))
+      collectOverride(cl.meta, params, '$rule.type-override', pos);
+    else
+      switch [cl, params] {
+        case [{module: "js.node.Fs", name: "FsPath"}, _] |
+          [{name: "RegExpMatch"}, _] | [{pack: [], name: "String"}, _] |
+          [{module: "js.lib.Symbol", name: "Symbol"}, _]:
+          // Projected to a target/global type with no Haxe import.
+        case [host, arguments] if (TypeAccessor.hostGlobalName(host) != null):
+          // Host constructors are already available through `globalThis`;
+          // only their generic arguments can contribute dependencies.
+          collectParams(arguments, false, '$rule.host-global-arguments',
+            host.pos);
+        case [{name: name}, _] if (name.indexOf('<') > -1):
+        case [{kind: KTypeParameter(_)}, _]:
+        case [{module: moduleName}, _]
+          if (moduleName != null && moduleName.startsWith('haxe.macro')):
+        case [{meta: meta}, _] if (isGlobalBuffer(meta)):
+        case [{meta: meta}, _] if (isNativeRegExp(meta)):
+        case [{module: "js.lib.Set", name: "Set"}, [element]] |
+          [{module: "js.lib.Iterator", name: "Iterator"}, [element]] |
+          [{module: "js.lib.Iterator", name: "AsyncIterator"}, [element]] |
+          [{pack: [], name: "Array"}, [element]]:
+          collect(element, '$rule.element', cl.pos);
+        case [{module: "js.lib.Map", name: "Map"}, [key, value]]:
+          collect(key, '$rule.key', cl.pos);
+          collect(value, '$rule.value', cl.pos);
+        default:
+          includeType(TClassDecl(ref), '$rule.named-class', cl.pos);
+          collectParams(params, false, '$rule.class-arguments', cl.pos);
+      }
   }
 
   static function hasTypeOverride(meta: MetaAccess): Bool {

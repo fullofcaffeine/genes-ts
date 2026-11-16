@@ -6,6 +6,7 @@ import haxe.io.Bytes;
 import haxe.io.Path;
 import sys.FileSystem;
 import sys.io.File;
+import genes.util.PathUtil;
 
 using StringTools;
 
@@ -462,7 +463,7 @@ class OutputTransaction {
   }
 
   static function absolutePath(path: String): String {
-    return Path.normalize(FileSystem.absolutePath(path)).replace('\\', '/');
+    return PathUtil.normalize(FileSystem.absolutePath(path)).replace('\\', '/');
   }
 
   static function safeScope(value: String): String {

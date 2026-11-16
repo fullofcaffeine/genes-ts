@@ -216,7 +216,9 @@ class Generator {
       // One catalog for this request only; see JsxProviderSchemaCatalog.
       jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog(),
       // One catalog for this request only; see the class comment.
-      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations()
+      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations(),
+      // One set of answers for this request only; see the class comment.
+      jsonTypeDefinitions: new genes.JsonTypeSupport.JsonTypeDefinitionAnswers()
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)
