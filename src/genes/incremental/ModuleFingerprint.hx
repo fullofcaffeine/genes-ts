@@ -1,6 +1,8 @@
 package genes.incremental;
 
 #if macro
+import haxe.macro.Expr.MetadataEntry;
+import haxe.macro.ExprTools;
 import haxe.macro.Type;
 import genes.util.TypeUtil;
 
@@ -18,15 +20,28 @@ import genes.util.TypeUtil;
  *
  * - the declaration key;
  * - a class: parent class and interface names, `extern`, `interface`, whether
- *   `__init__` and a constructor exist, and for each kept field its name, its
- *   full kind (read access, write access, method kind; dead-code elimination
- *   changes the access kind of a property when it removes an accessor) and
- *   whether it is public;
- * - an enum: the constructor names in order;
- * - a typedef or abstract: the key only;
- * - the metadata names of the declaration, without the Genes stamps and
- *   without the marks that dead-code elimination adds (`:used`,
- *   `:directlyUsed`, `:maybeUsed`), which change when other modules change.
+ *   `__init__` exists, the constructor with its metadata, and for each kept
+ *   field its name, its full kind (read access, write access, method kind;
+ *   dead-code elimination changes the access kind of a property when it
+ *   removes an accessor), whether it is public, its metadata, and the
+ *   metadata of each overload signature;
+ * - an enum: the constructor names in order, each with its metadata;
+ * - a typedef or abstract: the key;
+ * - the metadata of the declaration.
+ *
+ * Metadata always means every entry with its arguments (`metaText`): a
+ * sorted set of `@name(arguments)` texts, printed without positions, with
+ * duplicates collapsed. Only `EXCLUDED_META` is left out.
+ *
+ * Why metadata with arguments (review of #244, round 2, N1): a macro of
+ * another module can add metadata to a declaration that Haxe does not type
+ * again. Example: an expression macro called from `inc.Leaf2` adds
+ * `@:ts.returnType("string | null")` to `inc.MetaTarget.value`; the
+ * TypeScript return type follows it. An init macro that reads the program
+ * after typing can do the same in every request. Field metadata is read by
+ * the emitters under many names (`:ts.*`, `:genes.*`, `:native`, `:keep`,
+ * `:expose` and others), so the fingerprint holds all of it rather than a
+ * hand-kept list that can miss a reader.
  *
  * The caller adds the module directives and the module's part of the
  * `@:expose` list.
@@ -37,12 +52,31 @@ import genes.util.TypeUtil;
  * body in the macro interpreter, and only a new typing changes it.
  */
 class ModuleFingerprint {
-  static final IGNORED_META = [
-    ':genes.generate' => true,
-    GenerationChangeSet.EPOCH_META => true,
-    ':used' => true,
-    ':directlyUsed' => true,
-    ':maybeUsed' => true
+  /**
+   * The metadata names that the fingerprint leaves out, each with the reason.
+   * Each one changes between requests without a change of the module's
+   * output on the TypeScript path, which is the only path of incremental
+   * generation. `CleanRuleProbe` checks that no Genes source outside the
+   * incremental owner reads one of them, except the readers that the
+   * reason names.
+   */
+  public static final EXCLUDED_META: Map<String, String> = [
+    ':genes.generate' => 'the request number of `Generator.use()` ' +
+    '(`onGenerate`); read only by `Generator.needsGen`, which the classic ' +
+    'profile uses and the TypeScript profile does not',
+    GenerationChangeSet.EPOCH_META => 'the declaration stamp of ' +
+      '`GenerationChangeSet`; the epochs compare it already',
+    GenerationChangeSet.SAME_OBJECT_META =>
+      'a token that the same-object test ' +
+      'adds and removes within one call',
+    ':used' =>
+    'a mark of dead-code elimination; it changes when other modules ' +
+    'change, and no Genes source reads it',
+    ':directlyUsed' =>
+    'a mark of dead-code elimination; it changes when other ' +
+    'modules change, and no Genes source reads it',
+    ':maybeUsed' => 'a mark of dead-code elimination; it changes when other ' +
+    'modules change, and no Genes source reads it'
   ];
 
   /** Returns the fingerprint text of one module's declarations. */
@@ -62,7 +96,9 @@ class ModuleFingerprint {
           buffer.add(cls.isExtern ? ' extern' : '');
           buffer.add(cls.isInterface ? ' interface' : '');
           buffer.add(cls.init != null ? ' init' : '');
-          buffer.add(cls.constructor != null ? ' new' : '');
+          final constructor = cls.constructor;
+          if (constructor != null)
+            buffer.add(' new' + metaText(constructor.get().meta));
           addMeta(buffer, cls.meta);
           for (field in cls.fields.get())
             addField(buffer, 'field', field);
@@ -70,8 +106,13 @@ class ModuleFingerprint {
             addField(buffer, 'static', field);
         case TEnum(ref, _):
           final enm = ref.get();
-          buffer.add('enum ${TypeUtil.baseTypeFullName(enm)} ${enm.names.join(',')}');
+          buffer.add('enum ${TypeUtil.baseTypeFullName(enm)}');
           addMeta(buffer, enm.meta);
+          for (name in enm.names) {
+            final construct = enm.constructs.get(name);
+            buffer.add('\n  constructor $name'
+              + (construct == null ? '' : metaText(construct.meta)));
+          }
         case TType(ref, _):
           final def = ref.get();
           buffer.add('typedef ${TypeUtil.baseTypeFullName(def)}');
@@ -135,15 +176,69 @@ class ModuleFingerprint {
     // or `FMethod(MethInline)`. It is deterministic for these constructors.
     buffer.add(Std.string(field.kind));
     buffer.add(field.isPublic ? ' public' : '');
+    buffer.add(metaText(field.meta));
+    for (signature in field.overloads.get())
+      buffer.add(' overload' + metaText(signature.meta));
+  }
+
+  /**
+   * Returns the fingerprint of a module whose declarations are all extern
+   * classes: the key and the metadata of each class, without its fields.
+   *
+   * Why: such a module gets no output file, but other modules print what its
+   * class metadata says (`@:jsRequire`, `@:native`), and a macro of another
+   * module can change that without typing it again. Its fields are left out:
+   * reading the field lists of the `js.*` externs was most of the cost of the
+   * fingerprints, so a field metadata change of an extern is a limit.
+   */
+  public static function ofExtern(types: Array<Type>): String {
+    final buffer = new StringBuf();
+    for (type in types) {
+      switch type {
+        case TInst(ref, _):
+          final cls = ref.get();
+          buffer.add('extern ${TypeUtil.baseTypeFullName(cls)}');
+          addMeta(buffer, cls.meta);
+        default:
+          buffer.add('other');
+      }
+      buffer.add('\n');
+    }
+    return buffer.toString();
   }
 
   static function addMeta(buffer: StringBuf, meta: MetaAccess): Void {
-    final names = [];
+    buffer.add(metaText(meta));
+  }
+
+  /**
+   * Returns the metadata of one declaration, field or enum constructor as
+   * one text: ` @name(arguments)` for each entry that `EXCLUDED_META` does
+   * not name, sorted, with duplicates collapsed. Empty without such entries.
+   *
+   * The arguments are printed by `ExprTools.toString`, which prints no
+   * position. The set form keeps the text stable when Haxe adds an entry
+   * twice or in another order between requests (for example `@:keep`).
+   * Example: ` @:keep @:ts.returnType("string | null")`.
+   */
+  public static function metaText(meta: MetaAccess): String {
+    final entries = new Map<String, Bool>();
     for (entry in meta.get())
-      if (!IGNORED_META.exists(entry.name))
-        names.push(entry.name);
-    if (names.length > 0)
-      buffer.add(' @' + names.join(' @'));
+      if (!EXCLUDED_META.exists(entry.name))
+        entries.set(metaEntryText(entry), true);
+    final texts = [for (text in entries.keys()) text];
+    if (texts.length == 0)
+      return '';
+    texts.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    return ' ' + texts.join(' ');
+  }
+
+  static function metaEntryText(entry: MetadataEntry): String {
+    final params = entry.params;
+    if (params == null || params.length == 0)
+      return '@${entry.name}';
+    return
+      '@${entry.name}(${[for (param in params) ExprTools.toString(param)].join(', ')})';
   }
 }
 #end

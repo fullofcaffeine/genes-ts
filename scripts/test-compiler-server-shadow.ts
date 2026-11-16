@@ -907,6 +907,55 @@ const edits: ReadonlyArray<Edit> = [
     }
   },
   {
+    // N1 of the review of #244, round 2: an expression macro in inc.Leaf2
+    // adds `@:ts.returnType("string | null")` to inc.MetaTarget.value while
+    // Haxe types inc.Leaf2. inc.MetaTarget is not typed again, so only its
+    // field metadata (now in the fingerprint) shows the change.
+    id: "a macro of another module adds metadata to a field of a module that Haxe does not type again",
+    apply: () => edit("inc/Leaf2.hx", "/*LEAF2_USE*/",
+      '+ inc.MetaMacro.mark("string | null") /*LEAF2_USE*/')
+  },
+  {
+    // A request with no edit here would publish a warm tree that differs
+    // from the cold one also without the define: Haxe gives the cached
+    // inc.MetaTarget its saved metadata back, and only a cold build runs the
+    // macro again. That defect of a warm server is reported, not tested, so
+    // the next row removes the macro call.
+    id: "that macro call removed",
+    apply: () => edit("inc/Leaf2.hx",
+      '+ inc.MetaMacro.mark("string | null") /*LEAF2_USE*/', "/*LEAF2_USE*/")
+  },
+  {
+    // N1, second form: the after-typing macro inc.MarkMacro marks the same
+    // field in every request while inc.Leaf2 has a static `marker`.
+    id: "an after-typing macro marks a field of a module that Haxe does not type again",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var marker = 1;\n")
+  },
+  {
+    id: "no edit after the after-typing mark",
+    apply: () => {}
+  },
+  {
+    id: "the after-typing mark removed",
+    apply: () => edit("inc/Leaf2.hx",
+      "class Leaf2 {\n  public static var marker = 1;\n", "class Leaf2 {")
+  },
+  {
+    // genes-f8vc.9.22: inc.ColorFacts extends inc.Env.Bag<Array<inc.Color>>.
+    // The printed inc.Env reads inc.Color by name to spell the values, but
+    // the recorded signature-fact answer (`Array<inc.Color>`) stays the
+    // same text. Only rule 7 (the witness inc.Color) makes inc.Env dirty.
+    id: "an enum abstract value changes; a fact of another module names it",
+    apply: () => edit("inc/Color.hx", '"red-v2"', '"red-v3"'),
+    dirtyModules: ["inc.Env"]
+  },
+  {
+    id: "that enum abstract value restored",
+    apply: () => edit("inc/Color.hx", '"red-v3"', '"red-v2"'),
+    dirtyModules: ["inc.Env"]
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -935,6 +984,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.LateMacro.install()",
     "--macro", "inc.CloneMacro.install()",
     "--macro", "inc.FailMacro.install()",
+    "--macro", "inc.MarkMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,

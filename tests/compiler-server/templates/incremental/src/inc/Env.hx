@@ -10,6 +10,11 @@ typedef Envelope<T> = {
   final value: T;
 }
 
+/** A second generic structure, extended by `inc.ColorFacts`. */
+typedef Bag<T> = {
+  final items: T;
+}
+
 class Env {
   public static function unwrap<T>(envelope: Envelope<T>): T {
     return envelope.value;

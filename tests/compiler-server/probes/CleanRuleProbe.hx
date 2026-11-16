@@ -57,6 +57,8 @@ class CleanRuleProbe {
     checkRefusal();
     checkReplayRules();
     checkEmissionFeatures();
+    checkExcludedMetadata();
+    checkMetadataFingerprint();
     Sys.println('clean-rule-probe:ok ($cases cases)');
   }
 
@@ -208,6 +210,113 @@ class CleanRuleProbe {
     if (found == 0)
       fail('emission feature list',
         'at least one addFeature call under $root', 'none');
+  }
+
+  /**
+   * The metadata names that the fingerprint leaves out
+   * (`ModuleFingerprint.EXCLUDED_META`) must not be read by any Genes source
+   * outside `genes.incremental`, except by the readers that the reason
+   * names. Today only `:genes.generate` has one: `Generator.needsGen`, on the
+   * classic path, which incremental generation never serves.
+   *
+   * Why: a left-out name that an emitter reads would let a module's output
+   * change without a fingerprint change (review of #244, round 2, N1).
+   */
+  static function checkExcludedMetadata(): Void {
+    final allowed = [':genes.generate' => ['Generator.hx']];
+    final generator = Context.resolvePath('genes/Generator.hx');
+    final root = haxe.io.Path.directory(sys.FileSystem.absolutePath(generator));
+    for (name => reason in genes.incremental.ModuleFingerprint.EXCLUDED_META) {
+      cases++;
+      if (reason.length == 0)
+        fail('excluded metadata $name', 'a reason', 'none');
+      final readers = allowed.exists(name) ? allowed.get(name) : [];
+      for (file in haxeFiles(root)) {
+        if (file.indexOf('/incremental/') >= 0
+          || readers.indexOf(haxe.io.Path.withoutDirectory(file)) >= 0)
+          continue;
+        final text = sys.io.File.getContent(file);
+        if (text.indexOf("'" + name + "'") >= 0
+          || text.indexOf('"' + name + '"') >= 0)
+          fail('excluded metadata $name',
+            'no reader outside genes.incremental', 'a reader in $file');
+      }
+    }
+  }
+
+  /**
+   * Metadata with its arguments is part of the fingerprint
+   * (`ModuleFingerprint.metaText`), as a set: each change of a name or an
+   * argument on a field, a class, an enum constructor, an abstract or a
+   * typedef changes the text; an entry added twice, in another order, or a
+   * left-out name does not. The cases change the metadata of fixture types
+   * in this compiler process only (the probe runs with `--no-output`) and
+   * remove it again.
+   */
+  static function checkMetadataFingerprint(): Void {
+    final pos = Context.currentPos();
+    final arg = (text: String) -> [
+      {
+        expr: haxe.macro.Expr.ExprDef.EConst(CString(text, DoubleQuotes)),
+        pos: pos
+      }
+    ];
+    function cycle(name: String, type: haxe.macro.Type,
+        meta: haxe.macro.Type.MetaAccess): Void {
+      final print = () -> genes.incremental.ModuleFingerprint.of([type], [],
+        []);
+      final before = print();
+      meta.add(':probe.mark', arg('a'), pos);
+      final marked = print();
+      expectDifferent('$name: metadata added', before, marked);
+      meta.add(':probe.mark', arg('a'), pos);
+      expectText('$name: the same entry twice', marked, print());
+      meta.remove(':probe.mark');
+      meta.add(':probe.mark', arg('b'), pos);
+      expectDifferent('$name: another argument', marked, print());
+      meta.remove(':probe.mark');
+      meta.add(':used', [], pos);
+      expectText('$name: a left-out name', before, print());
+      meta.remove(':used');
+      expectText('$name: metadata removed again', before, print());
+    }
+    final target = Context.getType('inc.MetaTarget');
+    switch target {
+      case TInst(ref, _):
+        cycle('class', target, ref.get().meta);
+        for (field in ref.get().statics.get())
+          if (field.name == 'value')
+            cycle('static field', target, field.meta);
+      default:
+        fail('metadata fingerprint', 'class inc.MetaTarget',
+          Std.string(target));
+    }
+    final shape = Context.getType('inc.Shape');
+    switch shape {
+      case TEnum(ref, _):
+        cycle('enum', shape, ref.get().meta);
+        final circle = ref.get().constructs.get('Circle');
+        if (circle == null)
+          fail('metadata fingerprint', 'constructor inc.Shape.Circle', 'none');
+        else
+          cycle('enum constructor', shape, circle.meta);
+      default:
+        fail('metadata fingerprint', 'enum inc.Shape', Std.string(shape));
+    }
+    final color = Context.getType('inc.Color');
+    switch color {
+      case TAbstract(ref, _):
+        cycle('abstract', color, ref.get().meta);
+      default:
+        fail('metadata fingerprint', 'abstract inc.Color', Std.string(color));
+    }
+    final bag = Context.getType('inc.Env.Bag');
+    switch bag {
+      case TType(ref, _):
+        cycle('typedef', bag, ref.get().meta);
+      default:
+        fail('metadata fingerprint', 'typedef inc.Env.Bag', Std.string(bag));
+    }
   }
 
   /** Returns every `.hx` file below `folder`, sorted. */

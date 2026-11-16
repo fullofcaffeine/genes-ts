@@ -644,11 +644,17 @@ class IncrementalShadow {
     }
     for (module in order) {
       final list = grouped.get(module);
-      // A module of extern classes only (most of the `js.*` standard
-      // library) never gets an output file, so no clean rule reads its
-      // fingerprint. Reading their field lists was most of the cost.
-      if (list == null || list.foreach(isExternClass))
+      if (list == null)
         continue;
+      // A module of extern classes only (most of the `js.*` standard
+      // library) never gets an output file. Other modules print what its
+      // class metadata says, so rule 6 reads that metadata; reading the
+      // field lists of these externs was most of the cost, so they are left
+      // out (`ModuleFingerprint.ofExtern`).
+      if (list.foreach(isExternClass)) {
+        shadow.fingerprints.set(module, ModuleFingerprint.ofExtern(list));
+        continue;
+      }
       shadow.fingerprints.set(module, fingerprintOf(module, list, exposed));
     }
     shadow.fingerprintSeconds = haxe.Timer.stamp() - fingerprintStart;

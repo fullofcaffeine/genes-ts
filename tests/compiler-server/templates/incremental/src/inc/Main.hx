@@ -42,6 +42,8 @@ class Main {
       Std.string(Env.unwrap({
         value: 1
       })),
+      MetaTarget.value(),
+      ColorFacts.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));
