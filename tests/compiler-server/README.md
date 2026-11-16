@@ -248,7 +248,11 @@ dynamic iterator, the first use of `js.Lib.global` and of `js.Boot.isEnum`
 of a module that is never clean that closes an import cycle (`inc.CyHub`,
 `inc.CyBase`, `inc.CyChild`), another module that extends the generic
 structure `inc.Env.Envelope` and so writes the signature fact of its field
-(both directions), private types
+(both directions), a macro of another module and an after-typing macro
+(`inc.MetaMacro`, `inc.MarkMacro`) that add `@:ts.returnType` to a field of
+`inc.MetaTarget`, which Haxe does not type again, and a value of the enum
+abstract `inc.Color` that `inc.Env` spells through a fact that
+`inc.ColorFacts` writes (only rule 7, the witness, makes `inc.Env` dirty), private types
 with one name, enum abstract values, new, edited, deleted and renamed
 declarations, type errors, a generation diagnostic, a failure in
 `onGenerate` and one after the commit (`inc.FailMacro` and flag files), a
@@ -324,6 +328,13 @@ before stored output may be replayed, each case with made-up inputs:
    module that asked for a feature that emission can add is never clean; and
    compare and reuse do not use a cache that afterTyping `"measure"` wrote
    (item 7).
+5. Metadata with its arguments is part of the fingerprint, as a set
+   (review of #244, round 2): a new entry or argument on a class, a static
+   field, an enum, an enum constructor, an abstract or a typedef changes it;
+   a duplicate entry or an excluded name does not. No Genes source outside
+   `genes.incremental` reads an excluded name, except `Generator.needsGen`
+   for `:genes.generate` on the classic path. Every literal
+   `addFeature("...")` of the Genes sources is in `EMISSION_FEATURES`.
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the

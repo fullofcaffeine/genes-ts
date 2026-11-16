@@ -146,6 +146,7 @@ type ShadowReport = {
   readonly generationMs: number;
   readonly projectedGenerationMs: number;
   readonly cacheBytes: number;
+  readonly cacheAnswerBytes: number;
   readonly replayable: number;
   readonly replayed: number;
   readonly replayedFiles: number;
@@ -1099,6 +1100,7 @@ type Row = {
   readonly projectedMs: number;
   readonly overheadMs: number;
   readonly cacheBytes: number;
+  readonly cacheAnswerBytes: number;
   readonly replayed: number;
   readonly reason: string;
 };
@@ -1263,7 +1265,7 @@ async function runPass(
           id: step.id, result: report === null ? "failed before generation" : "failed",
           typedAgain: 0, emitted: 0, clean: 0, mismatches: 0,
           fallbackLookups: 0, generationMs: 0, projectedMs: 0, overheadMs: 0,
-          cacheBytes: 0, replayed: 0, reason: ""
+          cacheBytes: 0, cacheAnswerBytes: 0, replayed: 0, reason: ""
         });
         continue;
       }
@@ -1433,14 +1435,15 @@ async function runPass(
   }
   process.stdout.write(
     `[${mode}] edit | result | typed again | emitted | clean | replayed | `
-    + "mismatches | generation ms | projected ms | overhead ms | cache bytes\n"
+    + "mismatches | generation ms | projected ms | overhead ms | cache bytes "
+    + "| answer bytes\n"
   );
   for (const entry of rows) {
     process.stdout.write(
       `${entry.id} | ${entry.result} | ${entry.typedAgain} | ${entry.emitted} `
       + `| ${entry.clean} | ${entry.replayed} | ${entry.mismatches} `
       + `| ${entry.generationMs} | ${entry.projectedMs} | ${entry.overheadMs} `
-      + `| ${entry.cacheBytes}`
+      + `| ${entry.cacheBytes} | ${entry.cacheAnswerBytes}`
       + (entry.reason.length > 0 ? ` | ${entry.reason}` : "")
       + "\n"
     );
@@ -1494,6 +1497,7 @@ function row(id: string, report: ShadowReport): Row {
     projectedMs: report.projectedGenerationMs,
     overheadMs: report.overhead.totalMs,
     cacheBytes: report.cacheBytes,
+    cacheAnswerBytes: report.cacheAnswerBytes ?? 0,
     replayed: report.replayed ?? 0,
     reason: (report.reason ?? "")
       + (report.reservedNamesChanged ? " (reserved names changed)" : "")

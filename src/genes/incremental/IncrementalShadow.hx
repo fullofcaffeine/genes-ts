@@ -220,6 +220,10 @@ typedef ShadowReport = {
 
   final projectedGenerationMs: Float;
   final cacheBytes: Int;
+
+  /** The part of `cacheBytes` that the stored answers use. */
+  final cacheAnswerBytes: Int;
+
   final cacheEntries: Int;
   final cacheStored: Bool;
   final stages: Array<ShadowStageReport>;
@@ -1174,6 +1178,7 @@ class IncrementalShadow {
         - cleanPlan
         - cleanEmit),
       cacheBytes: GenerationCache.bytes(),
+      cacheAnswerBytes: GenerationCache.answerBytes(),
       cacheEntries: GenerationCache.storedModules().length,
       cacheStored: stored,
       stages: stageReports,

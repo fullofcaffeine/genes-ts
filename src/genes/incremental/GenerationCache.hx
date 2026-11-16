@@ -300,6 +300,7 @@ class GenerationCache {
   @:persistent static var storedOutputFolder = '';
   @:persistent static var storedUnderReuse = false;
   @:persistent static var storedBytes = 0;
+  @:persistent static var storedAnswerBytes = 0;
 
   /** Returns the stored entry of one module, or `null`. */
   public static function entry(module: String): Null<CachedModule> {
@@ -322,6 +323,14 @@ class GenerationCache {
     final names = [for (name in entries.keys()) name];
     names.sort(compareStrings);
     return names;
+  }
+
+  /**
+   * Returns the part of `bytes()` that the stored answers use (module and
+   * request answers). They hold source paths, so they can be a large share.
+   */
+  public static function answerBytes(): Int {
+    return storedKey == null ? 0 : storedAnswerBytes;
   }
 
   /** Returns the size of the stored cache in string characters. */
@@ -524,8 +533,9 @@ class GenerationCache {
     final others = inventoryModules == null ? new Map() : inventoryModules;
     final asked = globalAnswers == null ? [] : globalAnswers;
     var size = sessionKey.length + reservedNameDigest.length;
+    var answerSize = 0;
     for (answer in asked)
-      size += answer.length;
+      answerSize += answer.length;
     for (witness in globalWitnesses)
       size += witness.module.length + witness.epochs.length;
     for (name => module in others)
@@ -544,7 +554,7 @@ class GenerationCache {
           + Std.string(warning.min).length
           + Std.string(warning.max).length;
       for (answer in module.answers)
-        size += answer.length;
+        answerSize += answer.length;
       for (feature in module.additions)
         size += feature.length;
       for (entry in module.publicEntries)
@@ -555,6 +565,7 @@ class GenerationCache {
       for (source in module.mapSources)
         size += source.length;
     }
+    size += answerSize;
     if (size > BYTE_BUDGET) {
       drop();
       return false;
@@ -568,6 +579,7 @@ class GenerationCache {
     storedOutputFolder = outputFolder;
     storedUnderReuse = underReuse;
     storedBytes = size;
+    storedAnswerBytes = answerSize;
     return true;
   }
 
@@ -582,6 +594,7 @@ class GenerationCache {
     storedOutputFolder = '';
     storedUnderReuse = false;
     storedBytes = 0;
+    storedAnswerBytes = 0;
   }
 
   static function changedWitness(stored: CachedModule,
