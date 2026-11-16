@@ -1,10 +1,12 @@
 # The passes after typing on a warm compiler server (design and proof)
 
 Status: design note and proof for step 3 of task `genes-d5uv`. An
-independent design review accepted the direction with changes. Section 10
-says what is implemented: the keep rule and the plain record of the React
-audit, off by default. Nothing in `src/genes` keeps a typed value between
-requests.
+independent design review accepted the direction with changes. Sections 10
+and 11 say what is implemented, all off by default: the keep rule, the plain
+record of the React audit, and the kept buckets of `SignatureCache`. Those
+buckets are the only typed values that `src/genes` keeps between requests,
+in one owner, `genes.incremental.KeptBuckets`. `PublicSurface` still reads
+every declaration on every request.
 
 ## 1. Practical result
 
@@ -168,9 +170,11 @@ Facts of Haxe 4.3.7 that explain the results (read in the source at tag
    needed for correctness, not only for memory: some entries are found by
    source position or by local id, and a stale entry could answer for a new
    declaration at the same position.
-5. **No commit step.** A pass may replace a bucket in a request that fails
-   later. Rule 2 rejects that bucket in the next request (table: failed
-   requests).
+5. **Commit step.** A bucket counts only when its request reached the end of
+   generation. Rule 2 rejects a bucket of a failed request only for a
+   declaration that the failed request typed (table: failed requests). A
+   failed request can also replace the bucket of a declaration that it did
+   not type (case F2 in section 11).
 6. **Kept values are read-only.** Never write metadata through a kept value;
    read a new copy of the declaration first. A read through a kept `meta`
    gives the metadata of the request that made the bucket.
@@ -389,8 +393,205 @@ request gets the warning `GENES-INCREMENTAL-REPORT-001` and goes on.
 Not supported, by contract: the `Retype` and `NoCheckDependencies` module
 check policies, and a server that other clients share. With `Retype` Haxe
 types a module again in place; probe row E3 asserts that no stamp shows it.
+The new body then has new local ids, which the compare mode of slice 2
+counts as explained differences (section 11): this contract, not the
+compare mode, covers that case.
 
 Not in this slice: `SignatureCache` and `PublicSurface` still read every
-class on every request. A changed argument list drops the records but does
-not ask for a compiler restart. Records of classes that left the program
-have no age limit.
+class on every request (section 11 changes that for `SignatureCache`). A
+changed argument list drops the records but does not ask for a compiler
+restart. Records of classes that left the program have no age limit.
+
+## 11. Slice 2: the kept buckets of `SignatureCache`
+
+The owner decided on 2026-11-15 that slice 2 may change the rule "never
+persist typed compiler objects", narrowly: typed values are kept only in one
+shared container, under the keep rule. `src/genes/AGENTS.md` and the
+state-owner ledger of `docs/ARCHITECTURE.md` have the new text.
+
+### What is kept
+
+`SignatureCache` reads each declaration into a list of facts
+(`genes.ts.SignatureFact`). One fact is one entry of one map, for example
+"the field `app.View::I:phase` has the literal spelling `"a" | "b"`" or "the
+local variable 7539 has the declared type `Phase`". The list is the bucket
+of that declaration. `genes.incremental.KeptBuckets` holds, for each
+declaration key, the bucket and the declaration reference that Haxe gave in
+the request that made the bucket. `KeptRecords` holds the stamp and the
+member list beside it.
+
+The maps that the generator reads are a result of each request, as the
+review required (change 7). A request starts with empty maps. It reads the
+declarations in Haxe's order, classes first, as before. For each declaration
+it either captures the facts or puts the facts of the kept bucket back
+(`SignatureFacts.put` in both cases). So a later fact replaces an earlier
+fact with the same key exactly as in a capture of everything. A bucket of a
+declaration that is not in the request is not put back; it stays for 8
+requests and is then removed (`KeptBuckets.ABSENT_REQUEST_LIMIT`).
+
+`SignatureCache.declarationAnswers` stays request-local.
+
+### The keep rule, all six conditions
+
+A bucket is put back only when `KeptBuckets.kept` returns it:
+
+| Condition | Rejects, as the report names it |
+| --- | --- |
+| 1. The request is eligible. | Nothing is read or written. |
+| 2. The session key is the same. | Every bucket is dropped. |
+| 3. The stamp names this declaration. | `typedAgain`, `stampNamesOtherDeclaration` |
+| 4. The stamp equals the stamp of the bucket. | `stampDiffers`, `noRecord` |
+| 5. The same-object test passes. | `otherObject` |
+| 6. For a class, the member list is the same. | `membersChanged` |
+
+The same-object test (`GenerationChangeSet.sameObject`) adds one metadata
+entry through the kept declaration reference, looks for it through the
+reference of this request, and removes it through the copy that added it.
+It runs only when conditions 3 and 4 hold, so it never writes to a
+declaration that Haxe typed again. It is the only write through a kept
+value.
+
+The gate has one request in which only this test rejects a bucket: the
+build macro of `kepttypes.Twinner` defines `kepttypes.Twin` again with the
+stamp of the earlier `Twin`, the same member list and another field type.
+That is the case that section 10 calls "a case that five conditions cannot
+reject". The plain record of the React audit has no same-object test (owner
+decision) and is kept for that class.
+
+### The depth limit of the enum-abstract walk
+
+The answers of `declarationAnswers` are filled in the order of the
+captures. With reuse on, an edited declaration is captured when the answers
+of the kept declarations are not there. That changes no result while every
+walk stays inside the limit of 64 levels, because each stored answer is then
+a fact of its declaration. A walk that reaches the limit can answer
+differently (section 8). So:
+
+- a capture that reached the limit writes no bucket;
+- when such a capture happens in a request that put buckets back, the
+  request drops its facts and captures every declaration again, in the order
+  of a request without reuse. The report says so (`fullWork`).
+
+A program with such a type gets no saving from `SignatureCache` buckets. It
+gets the same output as with reuse off.
+
+### The three modes
+
+- `measure` (default): every declaration is captured. The keep rule is
+  decided and counted. A bucket is written only for a declaration without a
+  kept bucket, so a kept bucket stays the read of the request that made it.
+- `reuse`: a declaration with a kept bucket is not read.
+- `compare`: every declaration is captured and the output uses that capture,
+  as in `measure`. A second set of maps holds what `reuse` would answer. For
+  each question of the generator (once for each key) both answers are
+  compared; two types are equal when Haxe prints the same text for them. A
+  difference is a failure: it goes to `compareFailures` of the report and
+  the request gets the warning `GENES-INCREMENTAL-COMPARE-001`.
+
+One kind of difference has a known cause and is counted as explained, not as
+a failure. All three conditions must hold (`SignatureComparison.locals`):
+
+- the question is about a local variable;
+- the kept answer is `none` and the new capture has an answer;
+- the kept bucket of the declaration that owns the local is a first read:
+  it was made in the earlier request that typed the declaration.
+
+Haxe changes the typed bodies after the after-typing callbacks (section 3,
+"a new read after typing differs between requests"). The first read is the
+body before that change, the same read as a build in a new compiler process.
+The new capture of a later request reads the changed body, which can have
+more locals. Example (gate lane `explained`): with an inline constructor,
+`final phases = new Phases([Draft, Done])` becomes the local
+`phases_all: Array<Phase>`. Every other shape is a failure: kept `T1` and
+new `T2`, a kept answer with no new answer, and any difference for a bucket
+that is not a first read. `KeepRuleProbe` checks each shape directly.
+
+An explained difference is not a stale bucket. It shows a difference
+between the warm build of today and a cold build: the warm build reads the
+changed body. In the lane `explained`, the plain warm tree (no define)
+prints `("done" | "draft")[]` for `phases_all` and the cold tree prints
+`string[]`. With reuse on, the kept first read gives the cold answer, so the
+`reuse` tree equals the cold tree there.
+
+The `Retype` module check policy also gives this shape: Haxe types a module
+again in the same class object, the stamp stays, and the new body has new
+local ids. The new ids have no kept answer, so compare counts them as
+explained. That case is carried by the contract "`Retype` is unsupported"
+(section 10), not by the compare mode.
+
+A bucket is not always the first read. After a changed session key, or for a
+declaration whose bucket was removed, the new bucket is made from the
+declaration that Haxe already saved. It then holds what a request with reuse
+off reads for that declaration in every later request.
+
+### Requests that fail: the commit step
+
+A request that fails can still run the after-typing callbacks: a type error
+is reported, typing goes on, and the passes run before Haxe stops. Haxe
+then keeps no module of that request. For a declaration that the failed
+request typed, the next request types it again, and the bucket is rejected
+(`typedAgain`). That is not true for every bucket.
+
+Case F2 (gate lane `late-facts`): `PhaseMaker` uses `GenericOwner.make`
+with `Phase` for the first time, in a request with a type error in `Lone`.
+Haxe adds the member `make_kepttypes_Phase` to `GenericOwner` without typing
+the class again, and the pass writes a new bucket for `GenericOwner`
+(`membersChanged`). In the repaired request Haxe makes the member again,
+with new local ids, and `GenericOwner` keeps its stamp and member list.
+Without a commit step, `reuse` kept the bucket of the failed request and
+printed `string[]` for the local `list` of `make_kepttypes_Phase`; the cold
+build prints `("done" | "draft")[]`. `compare` reported one failure.
+
+So `KeptRecords` has a commit step. `write` puts the key on a pending list
+when the record changes (always for a bucket of `KeptBuckets`, because the
+bucket holds values of this request). An `onAfterGenerate` callback of the
+request empties the list. At the start of the next request, each key that is
+still pending belongs to a request that did not reach the end of
+generation: its record is removed, and `KeptBuckets.kept` then rejects the
+bucket (`noRecord`) and removes it. The report counts these records as
+`uncommitted`. An unchanged record of the React audit, which `measure`
+writes again for each kept class, does not wait for the commit, so a failed
+request does not make the next request audit every class.
+
+### Proof
+
+`yarn test:compiler-server:after-typing` (see
+`tests/compiler-server/README.md`): every warm tree equals the cold tree in
+`plain`, `measure`, `reuse` and `compare`, over the edit lists of project A
+and of `templates/kept-types`, from a new server and after changed session
+keys. In each request with no edit, the kept buckets, the same-object tests,
+the skipped captures (`reuse`) and the compared answers (`compare`) are
+above 0. The compare failures are 0. The buckets of `GenericOwner` (E1,
+member list), `Clone` (E2, copied stamp) and `Twin` (another object) are
+rejected. The lane `explained` reaches the explained differences; the lane
+`late-facts` has the cases F2 (the commit step) and F1 (open types, below).
+Mutation checks by hand (`tests/compiler-server/README.md`): without the
+commit step, F2 fails in `reuse` and `compare`; with the old, broad
+explained class, `KeepRuleProbe` fails on "kept T1, new T2".
+
+### Limits
+
+- The compare mode cannot show the effect of the capture order on
+  `declarationAnswers`: it captures every declaration. The depth-limit rule
+  above closes that case by construction, and the `reuse` trees are compared
+  with cold.
+- Two types are compared by the text that Haxe prints. Two different types
+  with the same text would count as equal.
+- The session, not Genes, must restart the compiler after a changed argument
+  list or class path. Genes drops the buckets.
+- `PublicSurface` has no buckets yet. It still reads the public members of
+  every class, including their typed bodies, on every request.
+- Case F1, open types: a kept class has a declaration without a written
+  type (`static var items = [];`, `function keep(value)`), and an edit of
+  another module fixes that type later (to `Phase` in lane `late-facts`).
+  Haxe does not type the class again. The warm build of today (no define)
+  then prints `any` for these declarations, where a cold build prints the
+  `Phase` literals. A new capture of the class in that request reads the
+  same open types as the kept bucket, so `measure`, `reuse` and `compare`
+  equal the plain warm tree and compare finds no failure. The difference to
+  cold is a difference of today's warm build, not of the buckets; the rows
+  require it, so that a repair of it is noticed.
+- The commit step runs in an `onAfterGenerate` callback that is registered
+  at the start of the incremental path of the request. A failure in an
+  `onAfterGenerate` callback that runs after it is not seen.
+- Not measured on a real application in this change.
