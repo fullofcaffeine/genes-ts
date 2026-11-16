@@ -204,10 +204,14 @@ class GenerationCache {
       final unstamped = epochs.length == 0;
       final sameEpochs = !unstamped && epochs == stored.epochs;
       final sameFingerprint = facts.fingerprint(module) == stored.fingerprint;
-      // Rule 6 needs to know that Haxe did not type the module again. An
-      // unstamped module gives no such answer, so a changed fingerprint
-      // there falls back too.
-      if ((sameEpochs || unstamped) && !sameFingerprint)
+      // Rule 6 needs to know that Haxe did not type the module again. A
+      // module without a stamp now and in the stored entry gives no such
+      // answer, so a changed fingerprint there falls back, as it did when
+      // two empty lists counted as equal. A module that had a stamp and has
+      // none now left the program (or lost its declarations): no fallback,
+      // as for a module that Haxe typed again.
+      if ((sameEpochs || (unstamped && stored.epochs.length == 0))
+        && !sameFingerprint)
         changedFingerprints.push(module);
       final reason = if (module == facts.rootModule) 'root module' else
         if (unstamped) 'no declaration stamp' else if (!sameEpochs)

@@ -107,6 +107,21 @@ class CleanRuleProbe {
         fail('unstamped module with a changed fingerprint', 'Fallback',
           Std.string(other));
     }
+    // A module that had a stamp and has none now left the program (the
+    // last use of a type, a deleted module). It is dirty, and its changed
+    // fingerprint must not make the whole request fall back.
+    final stored = epochs.copy();
+    stored.set('app.Gone', 'class:app.Gone@n:1');
+    final storedFingerprints = fingerprints.copy();
+    storedFingerprints.set('app.Gone', 'f-gone');
+    store(stored, storedFingerprints, [], []);
+    switch GenerationCache.decide(facts(epochs, fingerprints)) {
+      case Rules(clean, dirty):
+        expectState('module that left the program', false, clean, dirty,
+          'app.Gone', 'no declaration stamp');
+      case other:
+        fail('module that left the program', 'Rules', Std.string(other));
+    }
     // A read outside any module, of a module without a stamp.
     store(epochs, fingerprints, ['app.Unstamped'], []);
     switch GenerationCache.decide(facts(epochs, fingerprints)) {
