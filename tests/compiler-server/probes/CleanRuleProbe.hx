@@ -252,7 +252,11 @@ class CleanRuleProbe {
    * left-out name does not. The same holds for the fields of an extern-only
    * module (`ModuleFingerprint.ofExtern`, L1 of genes-f8vc.9.24) and for the
    * fields of anonymous structures in a typedef body and in class field
-   * types (`ModuleFingerprint.anonymousText`, L2). The cases change the
+   * types (`ModuleFingerprint.anonymousText`, L2), for the fields of
+   * anonymous structures in type-parameter constraints
+   * (`ModuleFingerprint.constraintText`, L5 of genes-f8vc.9.26), and for a
+   * member that the walk adds late, in the final member list
+   * (`ModuleFingerprint.members`, L6). The cases change the
    * metadata of fixture types
    * in this compiler process only (the probe runs with `--no-output`) and
    * remove it again.
@@ -265,11 +269,8 @@ class CleanRuleProbe {
         pos: pos
       }
     ];
-    function cycle(name: String, type: haxe.macro.Type,
-        meta: haxe.macro.Type.MetaAccess, ?externOnly: Bool): Void {
-      final print = () ->
-        externOnly == true ? genes.incremental.ModuleFingerprint.ofExtern([type]) : genes.incremental.ModuleFingerprint.of([type],
-          [], []);
+    function cycleText(name: String, print: () -> String,
+        meta: haxe.macro.Type.MetaAccess): Void {
       final before = print();
       meta.add(':probe.mark', arg('a'), pos);
       final marked = print();
@@ -284,6 +285,19 @@ class CleanRuleProbe {
       expectText('$name: a left-out name', before, print());
       meta.remove(':used');
       expectText('$name: metadata removed again', before, print());
+    }
+    function cycle(name: String, type: haxe.macro.Type,
+        meta: haxe.macro.Type.MetaAccess, ?externOnly: Bool): Void {
+      cycleText(name,
+        () ->
+          externOnly == true ? genes.incremental.ModuleFingerprint.ofExtern([
+          switch type {
+            case TInst(ref, _):
+              ref.get();
+            default:
+              throw 'an extern-only module holds classes only';
+          }
+        ]) : genes.incremental.ModuleFingerprint.of([type], [], []), meta);
     }
     final target = Context.getType('inc.MetaTarget');
     switch target {
@@ -393,6 +407,148 @@ class CleanRuleProbe {
           }
       default:
         fail('metadata fingerprint', 'class inc.AnonSig', Std.string(anonSig));
+    }
+    // genes-f8vc.9.26, L5: the fields of anonymous structures in
+    // type-parameter constraints, at each place that declares type
+    // parameters. `rank` and `order` name their own parameter in the
+    // constraint; each `print` must end.
+    function constraintField(params: Array<haxe.macro.Type.TypeParameter>,
+        name: String): Null<haxe.macro.Type.ClassField> {
+      var found: Null<haxe.macro.Type.ClassField> = null;
+      for (param in params)
+        switch param.t {
+          case TInst(ref, _):
+            switch ref.get().kind {
+              case KTypeParameter(constraints):
+                for (constraint in constraints)
+                  if (found == null)
+                    found = anonymousField('constraint', constraint, name);
+              default:
+            }
+          default:
+        }
+      return found;
+    }
+    function constraintCycle(label: String, print: () -> String,
+        params: Array<haxe.macro.Type.TypeParameter>, name: String): Void {
+      final field = constraintField(params, name);
+      if (field == null)
+        fail('metadata fingerprint', '$label: constraint field $name', 'none');
+      else
+        cycleText(label, print, field.meta);
+    }
+    function ofType(type: haxe.macro.Type): () -> String
+      return () -> genes.incremental.ModuleFingerprint.of([type], [], []);
+    final constrained = Context.getType('inc.Constrained');
+    switch constrained {
+      case TInst(ref, _):
+        for (field in ref.get().statics.get())
+          switch field.name {
+            case 'pick':
+              constraintCycle('constraint of a method type parameter',
+                ofType(constrained), field.params, 'v');
+            case 'rank':
+              constraintCycle('constraint that names its own parameter',
+                ofType(constrained), field.params, 'r');
+            default:
+          }
+      default:
+        fail('metadata fingerprint', 'class inc.Constrained',
+          Std.string(constrained));
+    }
+    final box = Context.getType('inc.Constrained.ConstrainedBox');
+    switch box {
+      case TInst(ref, _):
+        constraintCycle('constraint of a class type parameter', ofType(box),
+          ref.get().params, 'c');
+      default:
+        fail('metadata fingerprint', 'class inc.Constrained.ConstrainedBox',
+          Std.string(box));
+    }
+    final def = Context.getType('inc.Constrained.ConstrainedDef');
+    switch def {
+      case TType(ref, _):
+        constraintCycle('constraint of a typedef type parameter', ofType(def),
+          ref.get().params, 'd');
+      default:
+        fail('metadata fingerprint', 'typedef inc.Constrained.ConstrainedDef',
+          Std.string(def));
+    }
+    final abs = Context.getType('inc.Constrained.ConstrainedAbs');
+    switch abs {
+      case TAbstract(ref, _):
+        constraintCycle('constraint of an abstract type parameter',
+          ofType(abs), ref.get().params, 'a');
+      default:
+        fail('metadata fingerprint',
+          'abstract inc.Constrained.ConstrainedAbs', Std.string(abs));
+    }
+    final held = Context.getType('inc.Constrained.ConstrainedEnum');
+    switch held {
+      case TEnum(ref, _):
+        final hold = ref.get().constructs.get('Hold');
+        if (hold == null)
+          fail('metadata fingerprint', 'constructor ConstrainedEnum.Hold',
+            'none');
+        else
+          constraintCycle('constraint of an enum constructor type parameter',
+            ofType(held), hold.params, 'e');
+      default:
+        fail('metadata fingerprint', 'enum inc.Constrained.ConstrainedEnum',
+          Std.string(held));
+    }
+    // genes-f8vc.9.26, L6: a member that the walk adds late (not in the
+    // generator's list) carries its declaration text in the final member
+    // list; a listed member does not, because its fingerprint holds it.
+    function lateCycle(label: String, member: genes.Module.Member,
+        meta: haxe.macro.Type.MetaAccess): Void {
+      cycleText('late $label',
+        () -> genes.incremental.ModuleFingerprint.members([member], _ -> false),
+        meta);
+      final listed = () ->
+        genes.incremental.ModuleFingerprint.members([member], _ -> true);
+      final before = listed();
+      meta.add(':probe.mark', arg('a'), pos);
+      expectText('listed $label: no declaration text', before, listed());
+      meta.remove(':probe.mark');
+    }
+    final late = Context.getType('inc.LateEnum');
+    switch late {
+      case TEnum(ref, _):
+        final enm = ref.get();
+        lateCycle('enum', genes.Module.Member.MEnum(enm, []), enm.meta);
+        final item = enm.constructs.get('Item');
+        if (item == null)
+          fail('metadata fingerprint', 'constructor inc.LateEnum.Item', 'none');
+        else {
+          lateCycle('enum constructor', genes.Module.Member.MEnum(enm, []),
+            item.meta);
+          final field = anonymousField('late enum', item.type, 'q');
+          if (field == null)
+            fail('metadata fingerprint', 'late enum: anonymous field q',
+              'none');
+          else
+            lateCycle('enum anonymous field',
+              genes.Module.Member.MEnum(enm, []), field.meta);
+        }
+      default:
+        fail('metadata fingerprint', 'enum inc.LateEnum', Std.string(late));
+    }
+    final lateBox = Context.getType('inc.LateEnum.LateBox');
+    switch lateBox {
+      case TInst(ref, _):
+        final cls = ref.get();
+        lateCycle('class', genes.Module.Member.MClass(cls, [], []), cls.meta);
+        final field = constraintField(cls.params, 'lb');
+        if (field == null)
+          fail('metadata fingerprint', 'late class: constraint field lb',
+            'none');
+        else
+          lateCycle('class constraint field',
+            genes.Module.Member.MClass(cls, [], []), field.meta);
+      default:
+        fail('metadata fingerprint', 'class inc.LateEnum.LateBox',
+          Std.string(lateBox));
     }
   }
 
