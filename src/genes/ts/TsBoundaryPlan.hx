@@ -1712,6 +1712,15 @@ private class TsBoundaryPlanBuilder {
     if (expectedNullish.preservesUndefined && !actualNullish.haxeAllowsNull)
       return true;
 
+    // Preserve a named record before `resolve` follows its anonymous body.
+    // The boundary comparator can prove the same typedef and parameters;
+    // it deliberately cannot prove arbitrary anonymous structure equality.
+    final expectedShell = resolveBoundaryShell(expected);
+    final expectedShellInner = expectedShell == null ? null : nullableInner(expectedShell);
+    if (expectedShellInner != null
+      && compareBoundaryTypes(expectedShellInner, actual) == Identical)
+      return true;
+
     var expectedInner = resolve(expected);
     var actualInner = resolve(actual);
     if (expectedInner == null || actualInner == null)
