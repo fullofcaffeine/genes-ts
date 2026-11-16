@@ -880,6 +880,11 @@ class GenerationChangeSet {
    * How: `PathUtil.relative` is the function that source maps use. It is
    * asked for the way from the output file to a file of the same name in the
    * project root; the folder part of the answer is the way back to the root.
+   *
+   * Keep it in step with `SourceMapGenerator.sourceIdentities`: when source
+   * maps name their sources from another folder (genes-f8vc.16 may make
+   * them relative to the published location instead of the candidate
+   * folder), these lines must describe that folder.
    */
   public static function outputKeyLines(output: String,
       projectRoot: String): String {
