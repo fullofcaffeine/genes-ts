@@ -1139,6 +1139,7 @@ layer when a change affects more than one contract.
 | String literal code units and escaping | `tests/string-literals/` | `yarn test:string-literals` |
 | Reusable package surface | `tests/library-profile/` | `yarn test:library-profile` |
 | Module directive prologues | `tests/module-directives/` | `yarn test:module-directives` |
+| React Fast Refresh module split | `tests/react-refresh-modules/` | `yarn test:react-refresh-modules` |
 | ESM/CommonJS/package import shape | `tests/genes-ts/package-shapes/` | `yarn test:interop:module-shapes` |
 | Source-map contract | Existing source-map fixture | `yarn test:genes-ts:sourcemaps` |
 | Determinism, size, modules, or temporaries | Curated compiler fixtures | `yarn test:output-quality` |

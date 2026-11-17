@@ -41,6 +41,7 @@ import genes.ts.TsIndexedAccessPlan.TsIndexedReadProjection;
 import genes.ts.TsIndexedAccessPlan.TsIndexedTargetProjection;
 import genes.ts.TsIndexedAccessPlan.TsIndexedTargetWrapper;
 import genes.react.ReactStateInitializationPlan;
+import genes.ReactRefreshModulePlan;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -66,6 +67,74 @@ typedef PrivateMethodCall = {
  */
 class TsModuleEmitter extends JsModuleEmitter {
   var emitTsMemberSourcePositions = true;
+
+  /**
+   * Which part of a module this emitter writes (`ReactRefreshModulePlan`).
+   * `Whole` keeps the ordinary single-file output.
+   */
+  var refreshPart: ReactRefreshPart = Whole;
+
+  /** Top-level bindings that the `Fields` part declared, in emitted order. */
+  final refreshBindings: Array<ReactRefreshBinding> = [];
+
+  final refreshBindingNames: Map<String, Bool> = [];
+
+  /**
+   * Returns the top-level bindings that this emitter declared while it wrote
+   * the `Fields` part of a split React module. The `Components` part imports
+   * them all and re-exports the ones that one ordinary file exports.
+   */
+  public function reactRefreshBindings(): Array<ReactRefreshBinding> {
+    return refreshBindings.copy();
+  }
+
+  /**
+   * Records one top-level declaration of the `Fields` part.
+   *
+   * A declaration can be written in several pieces (an enum is a namespace,
+   * a type and a function); only the first piece is recorded.
+   */
+  override function noteTopLevelBinding(name: String, isType: Bool,
+      exported: Bool): Void {
+    if (!refreshPart.match(Fields) || refreshBindingNames.exists(name))
+      return;
+    refreshBindingNames.set(name, true);
+    refreshBindings.push(new ReactRefreshBinding(name, isType, exported));
+  }
+
+  /**
+   * In the sibling of a split React module, prints a same-module component as
+   * a read of its `Owner.field` slot (`ReactRefreshModulePlan.readsThroughSlot`).
+   *
+   * The owner is a class of this same file, so its name is printed directly;
+   * the planned expression bindings still name the direct function, which this
+   * file does not declare.
+   */
+  override function emitModuleFunctionSlotRead(owner: ClassType,
+      field: ClassField): Bool {
+    if (!refreshPart.match(Fields) || moduleFunctionPlan == null
+      || !ReactRefreshModulePlan.readsThroughSlot(owner, field, currentModule))
+      return false;
+    for (entry in moduleFunctionPlan.entriesFor(owner))
+      if (entry.field.name == field.name) {
+        emitIdent(TypeUtil.className(owner));
+        emitField(entry.classPropertyName);
+        return true;
+      }
+    return false;
+  }
+
+  /**
+   * Writes `export ` before one top-level declaration when the module
+   * exports it, or when it is in the sibling of a split React module: the
+   * component file must be able to import every declaration.
+   */
+  function writeTopLevelExport(name: String, isType: Bool,
+      exported: Bool): Void {
+    noteTopLevelBinding(name, isType, exported);
+    if (exported || refreshPart.match(Fields))
+      write('export ');
+  }
 
   /**
    * Applies the shared compiler-internal provenance projection in TS mode.
@@ -216,8 +285,18 @@ class TsModuleEmitter extends JsModuleEmitter {
       && !destination.haxeAllowsNull && !destination.preservesUndefined;
   }
 
-  public function emitTsModule(module: Module, importExtension: Null<String>) {
+  /**
+   * Writes one generated TypeScript module, or one part of a module that
+   * `ReactRefreshModulePlan` splits for React Fast Refresh.
+   *
+   * `part` is `Whole` for ordinary output. For a split module, Generator
+   * first writes `Fields` (every declaration except the components) and
+   * then `Components` with the bindings that `Fields` declared.
+   */
+  public function emitTsModule(module: Module, importExtension: Null<String>,
+      part: ReactRefreshPart = Whole) {
     final endTimer = timer('emitTsModule');
+    refreshPart = part;
     moduleFunctionPlan = module.moduleFunctionPlan;
     moduleValuePlan = module.moduleValuePlan;
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
@@ -280,6 +359,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitTsImports(where, [for (binding in requestPlan.bindings) binding],
           importExtension, declaration.typeOnly);
     }
+    emitReactRefreshPartImports(module, importExtension);
     endImportTimer();
 
     if (module.usesJsonTypes || JsonTypeSupport.dependenciesUseJsonTypes(deps)) {
@@ -311,6 +391,19 @@ class TsModuleEmitter extends JsModuleEmitter {
         continue;
       final previousSourcePositions = emitTsMemberSourcePositions;
       emitTsMemberSourcePositions = memberProjection.emitSourcePosition;
+      if (refreshPart.match(Components(_))) {
+        // The component part holds only the component functions.
+        switch member {
+          case MClass(cl, _, fields) if (!cl.isInterface):
+            emitTsModuleFunctions(cl);
+            if (!DirectModuleBinding.canOmitSyntheticOwner(cl,
+              Module.emittableFields(fields)))
+              emitTsModuleFunctionBindings(cl);
+          default:
+        }
+        emitTsMemberSourcePositions = previousSourcePositions;
+        continue;
+      }
       switch member {
         case MClass(cl, params, _) if (cl.isInterface):
           emitTsInterface(cl, params, memberProjection.exportImplementation);
@@ -345,6 +438,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitTsMemberSourcePositions = previousSourcePositions;
     }
 
+    emitReactRefreshReexports();
+
     for (export in module.expose)
       emitExport(export, module.toPath(export.module), importExtension,
         export.isType);
@@ -375,6 +470,70 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     }
     return e;
+  }
+
+  /**
+   * Writes the import from the sibling into the component file of a split
+   * React module.
+   *
+   * The `Components` part imports every binding that `Fields` declared, so
+   * the component bodies can use any declaration of their Haxe module. The
+   * import comes after the ordinary imports, so the load order of other
+   * modules does not change. The sibling never imports the component file
+   * (see `ReactRefreshModulePlan.readsThroughSlot`).
+   */
+  function emitReactRefreshPartImports(module: Module,
+      extension: Null<String>): Void {
+    switch refreshPart {
+      case Whole | Fields:
+      case Components(bindings):
+        final where = ReactRefreshModulePlan.siblingSpecifier(module, true);
+        final values = [for (binding in bindings) if (!binding.isType) binding.name];
+        final types = [for (binding in bindings) if (binding.isType) binding.name];
+        if (values.length > 0)
+          emitReactRefreshPartImport(values, where, extension, false);
+        if (types.length > 0)
+          emitReactRefreshPartImport(types, where, extension, true);
+    }
+  }
+
+  function emitReactRefreshPartImport(names: Array<String>, where: String,
+      extension: Null<String>, typeOnly: Bool): Void {
+    write(typeOnly ? 'import type {' : 'import {');
+    write(names.join(', '));
+    write('} from ');
+    emitString(extension != null ? where + extension : where);
+    writeNewline();
+  }
+
+  /**
+   * Re-exports, from the `Components` part, every `Fields` binding that the
+   * ordinary single file exports. Importers keep their import path, and the
+   * values stay the same objects while only the component part changes.
+   */
+  function emitReactRefreshReexports(): Void {
+    switch refreshPart {
+      case Components(bindings):
+        final values = [
+          for (binding in bindings)
+            if (!binding.isType && binding.wasExported) binding.name
+        ];
+        final types = [
+          for (binding in bindings)
+            if (binding.isType && binding.wasExported) binding.name
+        ];
+        if (values.length > 0 || types.length > 0)
+          writeNewline();
+        if (values.length > 0) {
+          write('export {' + values.join(', ') + '}');
+          writeNewline();
+        }
+        if (types.length > 0) {
+          write('export type {' + types.join(', ') + '}');
+          writeNewline();
+        }
+      default:
+    }
   }
 
   function emitTsImports(where: String,
@@ -1123,8 +1282,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
-    if (export)
-      write('export ');
+    writeTopLevelExport(TypeUtil.className(cl), false, export);
     write('class ');
     write(TypeUtil.className(cl));
     if (cl.params != null && cl.params.length > 0)
@@ -1663,6 +1821,15 @@ class TsModuleEmitter extends JsModuleEmitter {
     final previousClass = currentClass;
     currentClass = cl;
     for (entry in moduleFunctionPlan.entriesFor(cl)) {
+      switch refreshPart {
+        case Whole:
+        case Components(_):
+          if (!ReactRefreshModulePlan.isComponent(entry))
+            continue;
+        case Fields:
+          if (ReactRefreshModulePlan.isComponent(entry))
+            continue;
+      }
       switch entry.field.expr {
         case {expr: TFunction(functionBody)}:
           writeNewline();
@@ -1670,8 +1837,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           final isAsync = entry.field.meta != null
             && (entry.field.meta.has(':jsAsync')
               || entry.field.meta.has('jsAsync'));
-          if (entry.publicExportName != null)
-            write('export ');
+          writeTopLevelExport(entry.requestedName, false,
+            entry.publicExportName != null);
           if (isAsync)
             write('async ');
           write('function ');
@@ -1701,6 +1868,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(entry.field.doc);
       emitPos(entry.field.pos);
+      noteTopLevelBinding(entry.requestedName, false, true);
       write('export const ');
       write(entry.requestedName);
       write(': ');
@@ -1785,11 +1953,25 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  /** Installs the exact module function before helpers, registration, or init. */
+  /**
+   * Installs the exact module function before helpers, registration, or init.
+   *
+   * In a split React module the component file installs the components, after
+   * the sibling has loaded (see `ReactRefreshModulePlan.readsThroughSlot`).
+   */
   function emitTsModuleFunctionBindings(cl: ClassType): Void {
     if (moduleFunctionPlan == null)
       return;
     for (entry in moduleFunctionPlan.entriesFor(cl)) {
+      final component = ReactRefreshModulePlan.isComponent(entry);
+      switch refreshPart {
+        case Whole:
+        case Fields if (component):
+          continue;
+        case Components(_) if (!component):
+          continue;
+        default:
+      }
       writeNewline();
       emitIdent(TypeUtil.className(cl));
       emitField(entry.classPropertyName);
@@ -1818,10 +2000,11 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitPos(field.pos);
           final isAsync = field.meta != null
             && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
+          final helperName = privateMethodHelperName(cl, field.name);
+          writeTopLevelExport(helperName, false, false);
           if (isAsync)
             write('async ');
           write('function ');
-          final helperName = privateMethodHelperName(cl, field.name);
           write(helperName);
           emitMethodTypeParams(field);
           write('(');
@@ -4448,8 +4631,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
-    if (export)
-      write('export ');
+    // The runtime marker below gives the interface name a value too.
+    writeTopLevelExport(TypeUtil.className(cl), false, export);
     write('interface ');
     write(TypeUtil.className(cl));
     if (params.length > 0)
@@ -4516,8 +4699,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     // Runtime marker (Genes runtime compatibility).
-    if (export)
-      write('export ');
+    writeTopLevelExport(TypeUtil.className(cl), false, export);
     write('const ');
     write(TypeUtil.className(cl));
     write(' = function() {};');
@@ -4569,8 +4751,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // `export declare namespace EnumName` (duplicate identifier). A function
     // works as the runtime enum container while still allowing type namespace
     // merging.
-    if (export)
-      write('export ');
+    writeTopLevelExport(et.name, false, export);
     write('declare namespace ');
     write(et.name);
     write(' {');
@@ -4698,8 +4879,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
-    if (export)
-      write('export ');
+    writeTopLevelExport(et.name, false, export);
     write('type ');
     write(et.name);
     emitTypeParamDecls(enumParams, true);
@@ -4720,8 +4900,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     emitPos(et.pos);
-    if (export)
-      write('export ');
+    writeTopLevelExport(et.name, false, export);
     write('function ');
     write(et.name);
     write('() {}');
@@ -4860,7 +5039,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitComment(def.doc);
           emitPos(def.pos);
-          emitTsTypeDeclarationPrefix(export);
+          emitTsTypeDeclarationPrefix(export, def);
           TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PromiseSettledResult<');
           emitType(params[0]);
@@ -4871,7 +5050,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitComment(def.doc);
           emitPos(def.pos);
-          emitTsTypeDeclarationPrefix(export);
+          emitTsTypeDeclarationPrefix(export, def);
           TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PromiseLike<');
           emitType(params[0]);
@@ -4891,7 +5070,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
-      emitTsTypeDeclarationPrefix(export);
+      emitTsTypeDeclarationPrefix(export, def);
       TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       write(' = IterableIterator<[string, string]>');
       writeNewline();
@@ -4902,7 +5081,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
-      emitTsTypeDeclarationPrefix(export);
+      emitTsTypeDeclarationPrefix(export, def);
       TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       write(' = IterableIterator<[string, string]>');
       writeNewline();
@@ -4913,7 +5092,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
-      emitTsTypeDeclarationPrefix(export);
+      emitTsTypeDeclarationPrefix(export, def);
       TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       // TS DOM lib provides `FormDataEntryValue = File | string`.
       write(' = IterableIterator<[string, FormDataEntryValue]>');
@@ -4926,7 +5105,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitComment(def.doc);
           emitPos(def.pos);
-          emitTsTypeDeclarationPrefix(export);
+          emitTsTypeDeclarationPrefix(export, def);
           TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PropertyDescriptor');
           writeNewline();
@@ -4938,7 +5117,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(def.doc);
     emitPos(def.pos);
-    emitTsTypeDeclarationPrefix(export);
+    emitTsTypeDeclarationPrefix(export, def);
     TypeEmitter.emitDeclarationBaseType(this, def, params, true);
     write(' = ');
     final typeOverride = switch def.meta.extract(':ts.type') {
@@ -4963,9 +5142,9 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /** Writes one module-level type alias prefix with projected ESM visibility. */
-  function emitTsTypeDeclarationPrefix(export: Bool): Void {
-    if (export)
-      write('export ');
+  function emitTsTypeDeclarationPrefix(export: Bool, def: DefType): Void {
+    // `emitDeclarationBaseType` prints the same accessor as the type name.
+    writeTopLevelExport(typeAccessor(def), true, export);
     write('type ');
   }
 
