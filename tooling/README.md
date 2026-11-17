@@ -682,9 +682,10 @@ rolled back, the other output can start normally.
   the request, so a new companion already selects a separate Haxe cache.
   `keepCache` never covers a `.hx` file: Haxe 4.3.7 always searches its
   working directory as a class path, even without `-cp .`, so a `.hx` file in
-  any declared input can be a module. It also never covers a directory, or a
-  path that a host invalidation names and that no longer exists, because a
-  module may have been created or removed below it. It cannot be combined
+  any declared input can be a module. It covers only regular files: never a
+  directory or a link, and never a path that a host invalidation names and
+  that no longer exists, because a module may have been created or removed
+  below it. It cannot be combined
   with `restartCompiler`. "Read" includes reading the bytes, checking that
   the file exists, listing its folder, and starting a tool that does any of
   these. If a macro does read an input declared with `keepCache`, the next

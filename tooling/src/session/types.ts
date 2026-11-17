@@ -472,9 +472,10 @@ export interface ChangeImpact {
    *
    * `keepCache` never covers a `.hx` file (Haxe always searches its working
    * directory as a class path, so a `.hx` file in any declared input can be a
-   * module), a directory, or a path that a host invalidation names and that
-   * no longer exists. Those changes still restart the server. It cannot be
-   * combined with `restartCompiler`.
+   * module), anything that is not a regular file (a directory or a link), or
+   * a path that a host invalidation names and that no longer exists. Those
+   * changes still restart the server. It cannot be combined with
+   * `restartCompiler`.
    */
   readonly keepCache?: boolean;
 }

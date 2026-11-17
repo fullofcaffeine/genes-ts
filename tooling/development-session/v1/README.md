@@ -91,8 +91,8 @@ tool that does any of these. If a macro does read a `keepCache` input, later
 builds keep the macro's old result, and the published output can differ from
 a cold build until the session restarts; the session cannot detect this.
 `keepCache` never covers a `.hx` file (Haxe always searches its working
-directory as a class path), a directory, or a path that a host invalidation
-names and that no longer exists.
+directory as a class path), anything but a regular file (a directory or a
+link), or a path that a host invalidation names and that no longer exists.
 
 ## States a host presents
 

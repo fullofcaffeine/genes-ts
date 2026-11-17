@@ -189,8 +189,9 @@ function observedImpact(impact: ChangeImpact, subject: string): ObservedImpact {
  *   be a module that the session's list of `-cp` entries does not show. A
  *   new `servercase/TopThing.hx` there changes which `TopThing` an unchanged
  *   module uses;
- * - a directory. A host invalidation or an exact input reports only the
- *   directory, not a module created or removed below it (a tree input
+ * - anything that is not a regular file: a directory, or a link (which may
+ *   point to a directory). A host invalidation or an exact input reports
+ *   only that path, not a module created or removed below it (a tree input
  *   reports each file below it separately);
  * - a path that a host invalidation names and that no longer exists: it may
  *   have been such a directory.
@@ -204,7 +205,7 @@ function keepCacheCovers(
 ): boolean {
   if (absolutePath.endsWith(".hx")) return false;
   try {
-    return !lstatSync(absolutePath).isDirectory();
+    return lstatSync(absolutePath).isFile();
   } catch {
     return existence !== "unknown";
   }

@@ -7400,9 +7400,10 @@ await withHarness(
 );
 
 // A host invalidation names one path, and the session cannot see what
-// changed below it. `keepCache` therefore applies only to an existing file
-// there: a directory such as `src` may hold a created or removed module, and
-// a path that no longer exists may have been such a directory.
+// changed below it. `keepCache` therefore applies only to an existing regular
+// file there: a directory such as `src`, or a link to one, may hold a created
+// or removed module, and a path that no longer exists may have been such a
+// directory.
 await withHarness(
   "keep-cache-host-invalidation-needs-an-existing-file",
   async (harness) => {
@@ -7425,11 +7426,15 @@ await withHarness(
     assert.equal(servers(), 3, "any directory starts a new server");
     await invalidate("styles/removed.module.css");
     assert.equal(servers(), 4, "a path that no longer exists starts a new server");
+    await invalidate("link");
+    assert.equal(servers(), 5, "a link to a directory starts a new server");
   },
   undefined,
   (options, root) => {
     mkdirSync(path.join(root, "styles"));
     writeFileSync(path.join(root, "styles", "card.module.css"), ".card {}\n", "utf8");
+    // A link is not a directory to `lstat`, but it may point to one.
+    symlinkSync(path.join(root, "src"), path.join(root, "link"), "dir");
     return options;
   },
 );

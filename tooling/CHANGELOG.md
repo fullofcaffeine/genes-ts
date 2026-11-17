@@ -16,9 +16,9 @@ it.
   of the request, so a new companion already selects a separate Haxe cache.
   Inputs without the flag keep the old behavior, because a macro may read
   them. `keepCache` never covers a `.hx` file (Haxe always searches its
-  working directory as a class path, so such a file can be a module), a
-  directory, or a path that a host invalidation names and that no longer
-  exists. A declaration with both `keepCache` and `restartCompiler` is
+  working directory as a class path, so such a file can be a module),
+  anything but a regular file (a directory or a link), or a path that a host
+  invalidation names and that no longer exists. A declaration with both `keepCache` and `restartCompiler` is
   rejected. If a macro does read a `keepCache` input, later builds keep the
   macro's old result. With `prepareRevision`, each new prepared digest still
   types the whole program again and adds about three Haxe caches that stay
