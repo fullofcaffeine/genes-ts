@@ -224,6 +224,42 @@ class TypedModuleInventory {
     return Context.getType(path);
   }
 
+  /**
+   * Returns the declaration of `module` whose `DependencyPlan.moduleTypeKey`
+   * is `key`, applied to its own type parameters, or `null` when the
+   * inventory has no such declaration. It never looks a module up by name
+   * and records no witness.
+   *
+   * Why: the walk with stored edges of Stage 3, slice S2 must add a
+   * declaration that a stored step names, for example
+   * `class:inc.Den.DenNote`, which dead-code elimination removed from the
+   * generator's list. The live walk takes that declaration from a typed ref
+   * of the visiting module, not by name, so this answer is no read by name
+   * either: the caller first checks that the declaration's stamp equals the
+   * recorded one (`GenerationChangeSet.stampOf`), so it is the object that
+   * the typed ref holds. A `null` answer makes the caller leave the stored
+   * walk; there is no `Context.getType` fallback.
+   */
+  public static function declarationByKey(module: String,
+      key: String): Null<Type> {
+    final indexed = known(module);
+    if (indexed == null)
+      return null;
+    for (candidate in indexed) {
+      final declaration: Null<ModuleType> = switch candidate {
+        case TInst(ref, _): TClassDecl(ref);
+        case TEnum(ref, _): TEnumDecl(ref);
+        case TType(ref, _): TTypeDecl(ref);
+        case TAbstract(ref, _): TAbstract(ref);
+        default: null;
+      }
+      if (declaration != null
+        && DependencyPlan.moduleTypeKey(declaration) == key)
+        return candidate;
+    }
+    return null;
+  }
+
   static function known(module: String): Null<Array<Type>> {
     // A request that did not install Genes has no inventory of its own. The
     // arrays could then still hold declarations of an earlier request on the

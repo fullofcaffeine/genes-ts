@@ -18,6 +18,8 @@ class Main {
       A.run(),
       B.run(),
       C.run(),
+      Den.value() + Pair.value() + PairEnd.run() + PairStart.run() +
+      Tinted.value() + GhostUser.run(),
       Ui.render("main") != null ? "ui" : "none",
       User.describe(),
       ChainUser.read({

@@ -357,6 +357,38 @@ runs no shadow and writes no shadow report. `"generation": "measure"`
 applies the clean rules, stores the files and reports the clean share
 without comparing or replaying.
 
+Stage 3, slice S2 (stored edges). A request with a usable cache does not
+build the dependency plan of a clean module during the reachability walk.
+Each live visit of a module records its steps, keyed by the module's member
+list when the visit starts; a clean module takes the steps recorded for its
+member list now, and answers import-cycle questions from its stored runtime
+requests. The walk with stored edges leaves the recorded path when the record
+has no visit with that member list, when a stored step adds a declaration
+whose stamp changed, or when a check before emission fails. Then the request
+runs again from the inventory with live edges and no clean module, before any
+`api.addFeature`. The report's `walk` object says what happened (`verdict`:
+`none`, `on-path`, `left` or `drift`; `drift` always fails the gate).
+`--modes=measure` walks live only and reports how often the stored walk would
+leave the recorded path (the go/no-go line `walk with stored edges: X of Y`);
+in compare, the stored walk and the live walk run in one request and any
+difference of their results is a mismatch. The edits whose ids start with
+`S2` cover the order-sensitive cases:
+
+- a type-only use (through a typedef field: a local variable type makes
+  dead-code elimination keep the class) of a class that dead-code
+  elimination removed (`inc.Den.DenNote`), in a module that stays clean,
+  first and last; with no edit between them `inc.Den` has two recorded
+  member lists, and only the visit with `DenNote` creates `inc.DenDeep`, its
+  superclass;
+- two sources (`inc.PairWayA`, `inc.PairWayB`) that add late members to one
+  clean module (`inc.Pair`), with their visit order flipped and back;
+- a typedef (`inc.Tinted.TintAlias`) whose class `inc.Tint` becomes concrete
+  and stops being concrete;
+- the import cycle through a third module (`inc.CyHub` rows) with no edit,
+  so that clean modules answer the cycle question from stored requests;
+- a module that only the walk creates (`inc.Ghost`), made by a stored step
+  of the clean typedef module `inc.GhostHint`.
+
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic
 unless the 1-minute load stays at 2.0 or less.

@@ -553,7 +553,9 @@ class CleanRuleProbe {
         additions: [],
         publicEntries: [],
         mapSources: options != null
-        && options.mapSources != null ? options.mapSources : []
+        && options.mapSources != null ? options.mapSources : [],
+        visits: [],
+        runtimeRequests: null
       });
     }
     GenerationCache.commit(KEY, DIGEST, [

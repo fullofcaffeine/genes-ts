@@ -42,6 +42,19 @@
  * run with a guard switched off by hand, whose probe case would fail first).
  * Each of them ends with a `partial` line.
  *
+ * Stage 3, slice S2 (stored edges): with a usable cache, compare and reuse
+ * walk clean modules with the steps recorded for their member lists, and
+ * fall back to a live walk in the same request when a stored step cannot be
+ * taken as recorded. Every request reports a walk verdict; `drift` (stored
+ * steps that differ from the live plan, or two walks of compare with other
+ * results) fails the gate, and a request with no edit must stay on the
+ * recorded path (reuse: without building the plan of a clean module). The
+ * edits whose ids start with `S2` cover the order-sensitive cases of the
+ * walk. `--modes=measure` runs the same edit list with `"generation":
+ * "measure"` and prints how often a walk with stored edges would leave the
+ * recorded path: the go/no-go number of slice S2. It is not part of the
+ * default gate.
+ *
  * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
  * the output lines of the session key (no absolute output path), the clean
  * rule for a module without a declaration stamp, and the refusal of compare
@@ -92,7 +105,7 @@ const genesVersion = (
 type Mode = "cold" | "plain" | "shadow";
 
 /** The `generation` value that one pass over the edit list uses. */
-type GenerationMode = "compare" | "reuse";
+type GenerationMode = "measure" | "compare" | "reuse";
 
 /** Command-line options; see the file comment. */
 const options = (() => {
@@ -104,7 +117,8 @@ const options = (() => {
   const modes = (value("modes") ?? "compare,reuse").split(",")
     .map((mode) => mode.trim());
   for (const mode of modes)
-    ok(mode === "compare" || mode === "reuse", `unknown mode ${mode}`);
+    ok(mode === "measure" || mode === "compare" || mode === "reuse",
+      `unknown mode ${mode}`);
   // `--only` is a list of edit ids separated by "|"; an entry matches an id
   // that contains it, or, with a leading "=", the id that equals it. Plain
   // text matching: the value never becomes a regular expression.
@@ -162,6 +176,21 @@ type ShadowReport = {
     readonly module: string;
     readonly state: string;
   }>;
+  /** The reachability walk with stored edges (slice S2; report format 4). */
+  readonly walk: {
+    readonly pass: string;
+    readonly verdict: string;
+    readonly left: string | null;
+    readonly storedVisits: number;
+    readonly liveVisits: number;
+    readonly checkedVisits: number;
+    readonly missing: number;
+    readonly differs: number;
+    readonly stale: number;
+    readonly walksDiffer: string | null;
+    readonly storedMs: number;
+    readonly liveMs: number;
+  };
 };
 
 /**
@@ -217,6 +246,17 @@ type Edit = {
    * Haxe's cache, for example after the macro interpreter was reset.
    */
   readonly settled?: boolean;
+  /**
+   * The verdict of the walk with stored edges (slice S2) that the edit
+   * expects in every mode: `on-path` or `left` (`ShadowWalkReport`).
+   */
+  readonly walk?: string;
+  /**
+   * True for an edit whose expected result depends on compare or reuse
+   * needing afterTyping reuse: the `measure` pass skips its result,
+   * reason, mode and refusal checks.
+   */
+  readonly notMeasured?: boolean;
 };
 
 /** Program arguments that an edit can change, as a session would. */
@@ -822,7 +862,8 @@ const edits: ReadonlyArray<Edit> = [
       request.afterTyping = "measure";
     },
     results: ["off"],
-    refusal: "needs-after-typing-reuse"
+    refusal: "needs-after-typing-reuse",
+    notMeasured: true
   },
   {
     id: "generation measure with afterTyping measure: clean rules without a comparison",
@@ -842,7 +883,8 @@ const edits: ReadonlyArray<Edit> = [
     },
     results: ["full"],
     reason: "afterTyping",
-    mode: "current"
+    mode: "current",
+    notMeasured: true
   },
   {
     id: "no edit after the measure cache",
@@ -875,6 +917,15 @@ const edits: ReadonlyArray<Edit> = [
     }
   },
   {
+    // Stage 3, slice S2: the same import cycle, with no edit. inc.CyChild is
+    // clean and asks whether inc.CyBase is in a cycle with it; inc.CyBase is
+    // clean too, so the answer reads its stored runtime requests.
+    id: "S2 no edit while the import cycle through a third module stands",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
     id: "that type position removed: the import cycle opens again",
     apply: () => {
       edit("inc/Leaf2.hx",
@@ -883,6 +934,116 @@ const edits: ReadonlyArray<Edit> = [
       edit("inc/Leaf2.hx", "value(): String {\n    final hint: Null<Leaf2Hint> = null;",
         "value(): String {");
     }
+  },
+  {
+    // Stage 3, slice S2, row 1: inc.Leaf2 names inc.Den.DenNote, which
+    // dead-code elimination removed, in a type position. The walk adds it
+    // to inc.Den, which stays clean; inc.Den is then visited with a
+    // member list that the record does not have.
+    id: "S2 first type-only use of a removed class in a clean module",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef DenHint = {\n  final ?note: inc.Den.DenNote;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final denHint: Null<DenHint> = null;");
+    },
+    walk: "left"
+  },
+  {
+    // inc.Den now has two recorded member lists. Only the visit with
+    // DenNote reaches inc.DenDeep, a module that only the walk creates.
+    id: "S2 no edit after that first use: two recorded member lists",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 last type-only use of that removed class",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef DenHint = {\n  final ?note: inc.Den.DenNote;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final denHint: Null<DenHint> = null;",
+        "value(): String {");
+    },
+    walk: "left"
+  },
+  {
+    id: "S2 no edit after that last use",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // Row 5: inc.GhostUser starts to name inc.GhostHint, whose typedef field
+    // names inc.Ghost; dead-code elimination removed that class, so only
+    // the walk creates the module inc.Ghost.
+    id: "S2 first use of a typedef that reaches a module only the walk creates",
+    apply: () => edit("inc/GhostUser.hx", "/*GHOST_USE*/",
+      "final hint: Null<GhostHint> = null; /*GHOST_USE*/")
+  },
+  {
+    // inc.GhostUser and inc.GhostHint are clean: a stored step of
+    // inc.GhostHint creates the module inc.Ghost.
+    id: "S2 no edit: a stored step creates the module inc.Ghost",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 last use of that typedef",
+    apply: () => edit("inc/GhostUser.hx",
+      "final hint: Null<GhostHint> = null; /*GHOST_USE*/", "/*GHOST_USE*/")
+  },
+  {
+    // Row 2: inc.PairWayA and inc.PairWayB add PairA and PairB to the clean
+    // module inc.Pair late, in the order of their visits. inc.Leaf2 names
+    // inc.PairWayB, so the walk visits it first: the order flips.
+    id: "S2 two sources add late members to one clean module; their visit order flips",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;"),
+    walk: "left"
+  },
+  {
+    id: "S2 no edit after the flipped order",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 the visit order flips back",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;",
+      "value(): String {"),
+    walk: "left"
+  },
+  {
+    // Row 3: inc.Leaf2 uses inc.Tint at run time, so the class is concrete
+    // and the generator adds the typedef inc.Tinted.TintAlias to the clean
+    // module inc.Tinted.
+    id: "S2 a typedef whose class becomes concrete",
+    apply: () => edit("inc/Leaf2.hx", "/*LEAF2_USE*/",
+      "+ Std.string(new inc.Tint().shade) /*LEAF2_USE*/"),
+    walk: "left"
+  },
+  {
+    id: "S2 no edit after the typedef was added",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // The class leaves the generator's list while Haxe does not type its
+    // module again: rule 6 makes the whole request fall back.
+    id: "S2 the class of the typedef stops being concrete",
+    apply: () => edit("inc/Leaf2.hx",
+      "+ Std.string(new inc.Tint().shade) /*LEAF2_USE*/", "/*LEAF2_USE*/")
+  },
+  {
+    id: "S2 no edit after the typedef was removed",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
   },
   {
     // M2 of the review of #244: the capture of a typedef in `inc.Leaf2`
@@ -1149,6 +1310,12 @@ type Row = {
   readonly cacheAnswerBytes: number;
   readonly replayed: number;
   readonly reason: string;
+  /** The walk verdict, why it left, and its pass and times (slice S2). */
+  readonly walk: string;
+  readonly walkLeft: string;
+  readonly walkPass: string;
+  readonly storedWalkMs: number;
+  readonly liveWalkMs: number;
 };
 
 /** Runs one read-only Git command in the repository and returns its output. */
@@ -1253,6 +1420,21 @@ function printTimeComparison(results: ReadonlyArray<PassResult>): void {
   if (counted > 0)
     process.stdout.write(`mean generation time saved on ${counted} replaying `
       + `edits: ${(saved / counted).toFixed(1)} ms (diagnostic)\n`);
+  // Slice S2: the walk time of the compare pass (its live walk) against
+  // the reuse pass that kept the walk with stored edges.
+  let walkSaved = 0;
+  let walkCounted = 0;
+  for (const row of reuse.rows) {
+    const other = compare.rows.find((entry) => entry.id === row.id);
+    if (other === undefined || row.walkPass !== "stored")
+      continue;
+    walkSaved += other.liveWalkMs - row.storedWalkMs - row.liveWalkMs;
+    walkCounted++;
+  }
+  if (walkCounted > 0)
+    process.stdout.write(`mean reachability time saved on ${walkCounted} `
+      + `edits that kept the walk with stored edges: `
+      + `${(walkSaved / walkCounted).toFixed(1)} ms (diagnostic)\n`);
 }
 
 /** Runs the edit list once with one `generation` value. */
@@ -1311,7 +1493,9 @@ async function runPass(
           id: step.id, result: report === null ? "failed before generation" : "failed",
           typedAgain: 0, emitted: 0, clean: 0, mismatches: 0,
           fallbackLookups: 0, generationMs: 0, projectedMs: 0, overheadMs: 0,
-          cacheBytes: 0, cacheAnswerBytes: 0, replayed: 0, reason: ""
+          cacheBytes: 0, cacheAnswerBytes: 0, replayed: 0, reason: "",
+          walk: "failed", walkLeft: "", walkPass: "", storedWalkMs: 0,
+          liveWalkMs: 0
         });
         continue;
       }
@@ -1404,25 +1588,26 @@ async function runPass(
         ok(readStampCount(shadowProbe) > 0,
           `${label}: the shadow request added no epoch stamp`);
       }
-      if (step.results !== undefined) {
+      const measured = !(mode === "measure" && step.notMeasured === true);
+      if (step.results !== undefined && measured) {
         ok(
           step.results.includes(report.result),
           `${label}: shadow result ${report.result} (${String(report.reason)}); `
           + `expected ${step.results.join(" or ")}`
         );
       }
-      if (step.reason !== undefined) {
+      if (step.reason !== undefined && measured) {
         ok(
           (report.reason ?? "").includes(step.reason),
           `${label}: shadow reason ${String(report.reason)}; expected it to `
           + `contain ${JSON.stringify(step.reason)}`
         );
       }
-      if (step.mode !== undefined) {
+      if (step.mode !== undefined && measured) {
         strictEqual(report.mode, step.mode === "current" ? mode : step.mode,
           `${label}: shadow mode`);
       }
-      if (step.refusal !== undefined) {
+      if (step.refusal !== undefined && measured) {
         strictEqual(report.refusal, `${mode}-${step.refusal}`,
           `${label}: refusal code`);
         strictEqual(report.mismatches.length, 0,
@@ -1468,6 +1653,26 @@ async function runPass(
           strictEqual(report.replayed, report.clean,
             `${label}: a clean module was not replayed`);
         }
+        // Slice S2: with no edit the walk with stored edges stays on the
+        // recorded path; reuse keeps it and builds no plan of a clean module.
+        strictEqual(report.walk.verdict, "on-path",
+          `${label}: the walk left the recorded path with no edit `
+          + `(${String(report.walk.left)})`);
+        if (mode === "reuse")
+          ok(report.walk.pass === "stored" && report.walk.storedVisits > 0,
+            `${label}: reuse did not keep the walk with stored edges `
+            + `(${report.walk.pass}, ${report.walk.storedVisits} stored visits)`);
+      }
+      if (report.result !== "off") {
+        // Slice S2: a recorded member list never has other steps than the
+        // live plan, and the two walks of compare never differ.
+        ok(report.walk.verdict !== "drift",
+          `${label}: the walk with stored edges drifts from the live walk: `
+          + `${String(report.walk.left)} ${String(report.walk.walksDiffer)}`);
+      }
+      if (step.walk !== undefined) {
+        strictEqual(report.walk.verdict, step.walk,
+          `${label}: walk verdict (${String(report.walk.left)})`);
       }
       replayedTotal += report.replayed;
       rows.push(row(step.id, report));
@@ -1482,18 +1687,32 @@ async function runPass(
   process.stdout.write(
     `[${mode}] edit | result | typed again | emitted | clean | replayed | `
     + "mismatches | generation ms | projected ms | overhead ms | cache bytes "
-    + "| answer bytes\n"
+    + "| answer bytes | walk | walk pass | stored walk ms | live walk ms\n"
   );
   for (const entry of rows) {
     process.stdout.write(
       `${entry.id} | ${entry.result} | ${entry.typedAgain} | ${entry.emitted} `
       + `| ${entry.clean} | ${entry.replayed} | ${entry.mismatches} `
       + `| ${entry.generationMs} | ${entry.projectedMs} | ${entry.overheadMs} `
-      + `| ${entry.cacheBytes} | ${entry.cacheAnswerBytes}`
+      + `| ${entry.cacheBytes} | ${entry.cacheAnswerBytes} | ${entry.walk} `
+      + `| ${entry.walkPass} | ${entry.storedWalkMs} | ${entry.liveWalkMs}`
       + (entry.reason.length > 0 ? ` | ${entry.reason}` : "")
+      + (entry.walkLeft.length > 0 ? ` | walk: ${entry.walkLeft}` : "")
       + "\n"
     );
   }
+  // Slice S2, the go/no-go number: of the requests whose walk visited a
+  // clean module, how many left (or, in measure, would leave) the
+  // recorded path.
+  const judged = rows.filter((entry) => entry.walk === "on-path"
+    || entry.walk === "left");
+  const left = judged.filter((entry) => entry.walk === "left");
+  const walkLeftEarly = left.filter((entry) =>
+    !entry.walkLeft.startsWith("checks before emission"));
+  process.stdout.write(`[${mode}] walk with stored edges: ${left.length} of `
+    + `${judged.length} requests with a clean module left the recorded path `
+    + `(${walkLeftEarly.length} during the walk, `
+    + `${left.length - walkLeftEarly.length} at the checks before emission)\n`);
   ok(
     g1Failures.length === 0,
     `G1 failed (${mode}): modules that reuse would replay changed:\n`
@@ -1546,7 +1765,12 @@ function row(id: string, report: ShadowReport): Row {
     cacheAnswerBytes: report.cacheAnswerBytes ?? 0,
     replayed: report.replayed ?? 0,
     reason: (report.reason ?? "")
-      + (report.reservedNamesChanged ? " (reserved names changed)" : "")
+      + (report.reservedNamesChanged ? " (reserved names changed)" : ""),
+    walk: report.walk?.verdict ?? "none",
+    walkLeft: report.walk?.left ?? "",
+    walkPass: report.walk?.pass ?? "",
+    storedWalkMs: report.walk?.storedMs ?? 0,
+    liveWalkMs: report.walk?.liveMs ?? 0
   };
 }
 
