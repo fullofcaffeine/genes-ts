@@ -10,7 +10,9 @@ package inc;
  * Each structure is in the constraint of another kind of type parameter: a
  * method, a class, a typedef, an abstract and an enum constructor. `rank`
  * and `order` have constraints that name their own parameter, so the
- * fingerprint must not walk a constraint from inside a type.
+ * fingerprint must not walk a constraint from inside a type. `tag` and
+ * `ConstrainedBox` also get `@:ts.type` on the type parameter itself
+ * (round 2 of the review of genes-ts #246, M1).
  */
 class Constrained {
   public static var hold: ConstrainedEnum = Hold({e: 5});
@@ -27,6 +29,11 @@ class Constrained {
     return left.compareTo(right);
   }
 
+  /** A method type parameter without a constraint; `inc.Mark3Macro` can mark `T` itself. */
+  public static function tag<T>(item: T): T {
+    return item;
+  }
+
   public static function value(): String {
     final box = new ConstrainedBox({c: 2});
     final def: ConstrainedDef<{d: Int}> = {item: {d: 3}};
@@ -41,7 +48,8 @@ class Constrained {
       + def.item.d
       + abs.get().a
       + held
-      + order(new Score(7), new Score(8)));
+      + order(new Score(7), new Score(8))
+      + tag(9));
   }
 }
 

@@ -254,7 +254,9 @@ class CleanRuleProbe {
    * fields of anonymous structures in a typedef body and in class field
    * types (`ModuleFingerprint.anonymousText`, L2), for the fields of
    * anonymous structures in type-parameter constraints
-   * (`ModuleFingerprint.constraintText`, L5 of genes-f8vc.9.26), and for a
+   * and for the metadata of a type parameter itself
+   * (`ModuleFingerprint.constraintText`, L5 of genes-f8vc.9.26 and M1 of
+   * the review of #246), and for a
    * member that the walk adds late, in the final member list
    * (`ModuleFingerprint.members`, L6). The cases change the
    * metadata of fixture types
@@ -437,6 +439,22 @@ class CleanRuleProbe {
       else
         cycleText(label, print, field.meta);
     }
+    // Round 2 of the review of #246, M1: metadata on a type parameter
+    // itself (`@:ts.type` on `T`), which the TypeScript printer reads where
+    // `T` is used.
+    function parameterCycle(label: String, print: () -> String,
+        params: Array<haxe.macro.Type.TypeParameter>): Void {
+      if (params.length == 0)
+        fail('metadata fingerprint', '$label: a type parameter', 'none');
+      else
+        switch params[0].t {
+          case TInst(ref, _):
+            cycleText(label, print, ref.get().meta);
+          default:
+            fail('metadata fingerprint', '$label: a type parameter',
+              Std.string(params[0].t));
+        }
+    }
     function ofType(type: haxe.macro.Type): () -> String
       return () -> genes.incremental.ModuleFingerprint.of([type], [], []);
     final constrained = Context.getType('inc.Constrained');
@@ -450,6 +468,9 @@ class CleanRuleProbe {
             case 'rank':
               constraintCycle('constraint that names its own parameter',
                 ofType(constrained), field.params, 'r');
+            case 'tag':
+              parameterCycle('metadata of a method type parameter',
+                ofType(constrained), field.params);
             default:
           }
       default:
@@ -461,6 +482,8 @@ class CleanRuleProbe {
       case TInst(ref, _):
         constraintCycle('constraint of a class type parameter', ofType(box),
           ref.get().params, 'c');
+        parameterCycle('metadata of a class type parameter', ofType(box),
+          ref.get().params);
       default:
         fail('metadata fingerprint', 'class inc.Constrained.ConstrainedBox',
           Std.string(box));
@@ -546,6 +569,17 @@ class CleanRuleProbe {
         else
           lateCycle('class constraint field',
             genes.Module.Member.MClass(cls, [], []), field.meta);
+        if (cls.params.length == 0)
+          fail('metadata fingerprint', 'late class: a type parameter', 'none');
+        else
+          switch cls.params[0].t {
+            case TInst(param, _):
+              lateCycle('class type parameter metadata',
+                genes.Module.Member.MClass(cls, [], []), param.get().meta);
+            default:
+              fail('metadata fingerprint', 'late class: a type parameter',
+                Std.string(cls.params[0].t));
+          }
       default:
         fail('metadata fingerprint', 'class inc.LateEnum.LateBox',
           Std.string(lateBox));

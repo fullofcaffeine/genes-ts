@@ -34,10 +34,10 @@ import genes.util.TypeUtil;
  *   type of a field, constructor, overload signature or enum constructor,
  *   and in the type arguments of a parent class or interface
  *   (`anonymousText`);
- * - the same for each structure in a type-parameter constraint, at every
- *   place that declares type parameters: a class, field, constructor,
- *   overload signature, typedef, abstract, enum and enum constructor
- *   (`constraintText`).
+ * - the metadata of each type parameter and the same structure metadata
+ *   for each structure in its constraints, at every place that declares
+ *   type parameters: a class, field, constructor, overload signature,
+ *   typedef, abstract, enum and enum constructor (`constraintText`).
  *
  * Metadata always means every entry with its arguments (`metaText`): a
  * sorted set of `@name(arguments)` texts, printed without positions, with
@@ -62,6 +62,12 @@ import genes.util.TypeUtil;
  * A class or enum that dead-code elimination removed is not in the
  * generator's list, so no fingerprint holds it. The walk of reachability
  * can still add it to a module; `members` then holds the same text for it.
+ * An emitter can also print a removed declaration without adding it as a
+ * member, for example the `@:ts.type` of a removed class at a use site
+ * (`TypeReferenceCollector`), or the `:value` metadata of the removed
+ * statics of an enum abstract (`TypeEmitter.enumAbstractLiteralUnion`).
+ * Neither the fingerprint nor the member list holds those (limits M2a and
+ * M2b of the review of genes-ts #246).
  *
  * Not in the fingerprint: field types (except the metadata of their
  * anonymous structures), bodies and positions. They change only when Haxe
@@ -264,9 +270,9 @@ class ModuleFingerprint {
   }
 
   /**
-   * Returns the field metadata of each anonymous structure in the
-   * constraints of `params`, as one text, or an empty text when no such
-   * field has metadata.
+   * Returns the metadata of each type parameter in `params` and the field
+   * metadata of each anonymous structure in their constraints, as one text,
+   * or an empty text when there is no such metadata.
    *
    * Why (L5 of the review of genes-ts #245): the TypeScript output prints a
    * constraint, for example `pick<T extends {v: number}>`. A macro of
@@ -274,8 +280,15 @@ class ModuleFingerprint {
    * constraint follows it. Haxe does not type the owning module again, and
    * `anonymousText` does not enter constraints.
    *
-   * What: for constraint number `n` of the parameter `T` whose
-   * `anonymousText` is not empty, ` <T.n` and that text. Example:
+   * The same holds for metadata on the type parameter itself (M1 of the
+   * review of genes-ts #246): `TypeEmitter.emitType` prints the
+   * `@:ts.type` of `T`'s own class wherever `T` is used, so a macro that
+   * adds `@:ts.type("string")` to `T` of `tag<T>` changes `tag<T>` into
+   * `tag<string>`.
+   *
+   * What: for a parameter `T` with metadata, ` <T` and its `metaText`; then
+   * for constraint number `n` of `T` whose `anonymousText` is not empty,
+   * ` <T.n` and that text. Example: ` <T @:ts.type("string")` or
    * ` <T.0 0.v @:ts.type("string")`.
    *
    * The constraints are read here, where a declaration lists its type
@@ -291,7 +304,11 @@ class ModuleFingerprint {
     for (param in params)
       switch param.t {
         case TInst(ref, _):
-          switch ref.get().kind {
+          final declaration = ref.get();
+          final own = metaText(declaration.meta);
+          if (own.length > 0)
+            buffer.add(' <${param.name}$own');
+          switch declaration.kind {
             case KTypeParameter(constraints):
               for (index in 0...constraints.length) {
                 final text = anonymousText(constraints[index]);

@@ -1062,6 +1062,36 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var markLateBox = 1;\n")
   },
   {
+    // Round 2 of the review of #246, M1: inc.Mark3Macro adds
+    // `@:ts.type("string")` to the type parameter T of inc.Constrained.tag
+    // itself. The TypeScript printer reads it where T is used
+    // (`TypeEmitter.emitType`), so cold prints `tag<string>`.
+    id: "after-typing macro sets the type of a method type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markTpMeta = 1;\n")
+  },
+  {
+    // M1 on the type parameter of the class inc.Constrained.ConstrainedBox.
+    id: "after-typing macro sets the type of a class type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markBoxTpMeta = 1;\n")
+  },
+  {
+    // M1 on the type parameter of the late class inc.LateEnum.LateBox: only
+    // the late text of the final member list shows it.
+    id: "after-typing macro sets the type of a type parameter of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateTpMeta = 1;\n")
+  },
+  {
+    // S2: `@:ts.type("string")` on the late class inc.LateEnum.LateBox
+    // itself; the late text of the final member list holds the class
+    // metadata, so the request falls back.
+    id: "after-typing macro sets the type of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],

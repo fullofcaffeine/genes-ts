@@ -21,13 +21,21 @@ import haxe.macro.Type;
  * - L6, a declaration that the generator adds late in `inc.LateEnum`:
  *   `markLateEnum` (field `q` of the constructor `Item`) and `markLateBox`
  *   (field `lb` in the constraint of the class `LateBox`).
+ *
+ * Round 2 of the review of genes-ts #246 adds metadata on a type parameter
+ * itself and on a late declaration: `markTpMeta`, `markBoxTpMeta` and
+ * `markLateTpMeta` write `@:ts.type("string")` on the type parameter `T` of
+ * `inc.Constrained.tag`, of the class `ConstrainedBox` and of the late class
+ * `LateBox`; `markLateClassMeta` writes it on the late class `LateBox`.
  */
 class Mark3Macro {
   public static function install(): Void {
     Context.onAfterTyping(types -> {
       final marks = new Map<String, Bool>();
       final constraints = new Map<String, Array<Type>>();
+      final ownParams = new Map<String, ClassType>();
       var late: Null<Type> = null;
+      var lateBox: Null<ClassType> = null;
       function keep(name: String, params: Array<TypeParameter>): Void {
         final found = [];
         for (param in params)
@@ -42,6 +50,12 @@ class Mark3Macro {
             default:
           }
         constraints.set(name, found);
+        if (params.length > 0)
+          switch params[0].t {
+            case TInst(owner, _):
+              ownParams.set(name, owner.get());
+            default:
+          }
       }
       for (type in types)
         switch type {
@@ -55,8 +69,10 @@ class Mark3Macro {
                 keep(field.name, field.params);
             if (cls.module == 'inc.Constrained' && cls.name == 'ConstrainedBox')
               keep('box', cls.params);
-            if (cls.module == 'inc.LateEnum' && cls.name == 'LateBox')
+            if (cls.module == 'inc.LateEnum' && cls.name == 'LateBox') {
               keep('lateBox', cls.params);
+              lateBox = cls;
+            }
           case TTypeDecl(ref):
             final def = ref.get();
             if (def.module == 'inc.Constrained' && def.name == 'ConstrainedDef')
@@ -120,6 +136,24 @@ class Mark3Macro {
         mark(late, 'q');
       if (marks.exists('markLateBox'))
         markConstraint('lateBox', 'lb');
+      function markOwn(meta: MetaAccess): Void {
+        meta.remove(':ts.type');
+        meta.add(':ts.type', [macro "string"], pos);
+      }
+      function markParam(key: String): Void {
+        final param = ownParams.get(key);
+        if (param != null)
+          markOwn(param.meta);
+      }
+      if (marks.exists('markTpMeta'))
+        markParam('tag');
+      if (marks.exists('markBoxTpMeta'))
+        markParam('box');
+      if (marks.exists('markLateTpMeta'))
+        markParam('lateBox');
+      final box = lateBox;
+      if (marks.exists('markLateClassMeta') && box != null)
+        markOwn(box.meta);
     });
   }
 }
