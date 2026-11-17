@@ -33,7 +33,14 @@ import genes.util.TypeUtil;
  *   writes inline: in a typedef body, the type behind an abstract, or the
  *   type of a field, constructor, overload signature or enum constructor,
  *   and in the type arguments of a parent class or interface
- *   (`anonymousText`).
+ *   (`anonymousText`);
+ * - the metadata of each type parameter and the same structure metadata
+ *   for each structure in its constraints, where a class, field,
+ *   constructor, overload signature, typedef, abstract, enum, enum
+ *   constructor or field of an anonymous structure declares type
+ *   parameters (`constraintText`). A type parameter that only a typed body
+ *   declares, such as one of a local function, is not covered (limit S3 of
+ *   the review of genes-ts #246).
  *
  * Metadata always means every entry with its arguments (`metaText`): a
  * sorted set of `@name(arguments)` texts, printed without positions, with
@@ -54,6 +61,16 @@ import genes.util.TypeUtil;
  *
  * A module of extern classes only gets `ofExtern`, a shorter text with the
  * same metadata.
+ *
+ * A class or enum that dead-code elimination removed is not in the
+ * generator's list, so no fingerprint holds it. The walk of reachability
+ * can still add it to a module; `members` then holds the same text for it.
+ * An emitter can also print a removed declaration without adding it as a
+ * member, for example the `@:ts.type` of a removed class at a use site
+ * (`TypeReferenceCollector`), or the `:value` metadata of the removed
+ * statics of an enum abstract (`TypeEmitter.enumAbstractLiteralUnion`).
+ * Neither the fingerprint nor the member list holds those (limits M2a and
+ * M2b of the review of genes-ts #246).
  *
  * Not in the fingerprint: field types (except the metadata of their
  * anonymous structures), bodies and positions. They change only when Haxe
@@ -96,54 +113,16 @@ class ModuleFingerprint {
     for (type in types) {
       switch type {
         case TInst(ref, _):
-          final cls = ref.get();
-          buffer.add('class ${TypeUtil.baseTypeFullName(cls)}');
-          final parent = cls.superClass;
-          if (parent != null) {
-            buffer.add(' extends ${TypeUtil.baseTypeFullName(parent.t.get())}');
-            // One walk over all type arguments, so the structure numbers
-            // are unique within the list.
-            buffer.add(anonymousText(TInst(parent.t, parent.params)));
-          }
-          for (item in cls.interfaces) {
-            buffer.add(' implements ${TypeUtil.baseTypeFullName(item.t.get())}');
-            buffer.add(anonymousText(TInst(item.t, item.params)));
-          }
-          buffer.add(cls.isExtern ? ' extern' : '');
-          buffer.add(cls.isInterface ? ' interface' : '');
-          buffer.add(cls.init != null ? ' init' : '');
-          final constructor = cls.constructor;
-          if (constructor != null) {
-            final made = constructor.get();
-            buffer.add(' new' + metaText(made.meta));
-            buffer.add(anonymousText(made.type));
-          }
-          addMeta(buffer, cls.meta);
-          for (field in cls.fields.get())
-            addField(buffer, 'field', field);
-          for (field in cls.statics.get())
-            addField(buffer, 'static', field);
+          addClass(buffer, ref.get());
         case TEnum(ref, _):
-          final enm = ref.get();
-          buffer.add('enum ${TypeUtil.baseTypeFullName(enm)}');
-          addMeta(buffer, enm.meta);
-          for (name in enm.names) {
-            final construct = enm.constructs.get(name);
-            buffer.add('\n  constructor $name');
-            if (construct != null) {
-              buffer.add(metaText(construct.meta));
-              buffer.add(anonymousText(construct.type));
-            }
-          }
+          addEnum(buffer, ref.get());
         case TType(ref, _):
-          final def = ref.get();
-          buffer.add('typedef ${TypeUtil.baseTypeFullName(def)}');
-          addMeta(buffer, def.meta);
-          buffer.add(anonymousText(def.type));
+          addTypedef(buffer, ref.get());
         case TAbstract(ref, _):
           final abs = ref.get();
           buffer.add('abstract ${TypeUtil.baseTypeFullName(abs)}');
           addMeta(buffer, abs.meta);
+          buffer.add(constraintText(abs.params));
           buffer.add(anonymousText(abs.type));
         default:
           buffer.add('other');
@@ -153,6 +132,62 @@ class ModuleFingerprint {
     buffer.add('directives ${directives.join('\x01')}\n');
     buffer.add('expose ${exposed.join(',')}\n');
     return buffer.toString();
+  }
+
+  /** Adds the text of one class, as `of` describes it. */
+  static function addClass(buffer: StringBuf, cls: ClassType): Void {
+    buffer.add('class ${TypeUtil.baseTypeFullName(cls)}');
+    final parent = cls.superClass;
+    if (parent != null) {
+      buffer.add(' extends ${TypeUtil.baseTypeFullName(parent.t.get())}');
+      // One walk over all type arguments, so the structure numbers
+      // are unique within the list.
+      buffer.add(anonymousText(TInst(parent.t, parent.params)));
+    }
+    for (item in cls.interfaces) {
+      buffer.add(' implements ${TypeUtil.baseTypeFullName(item.t.get())}');
+      buffer.add(anonymousText(TInst(item.t, item.params)));
+    }
+    buffer.add(cls.isExtern ? ' extern' : '');
+    buffer.add(cls.isInterface ? ' interface' : '');
+    buffer.add(cls.init != null ? ' init' : '');
+    final constructor = cls.constructor;
+    if (constructor != null) {
+      final made = constructor.get();
+      buffer.add(' new' + metaText(made.meta));
+      buffer.add(constraintText(made.params));
+      buffer.add(anonymousText(made.type));
+    }
+    addMeta(buffer, cls.meta);
+    buffer.add(constraintText(cls.params));
+    for (field in cls.fields.get())
+      addField(buffer, 'field', field);
+    for (field in cls.statics.get())
+      addField(buffer, 'static', field);
+  }
+
+  /** Adds the text of one enum, as `of` describes it. */
+  static function addEnum(buffer: StringBuf, enm: EnumType): Void {
+    buffer.add('enum ${TypeUtil.baseTypeFullName(enm)}');
+    addMeta(buffer, enm.meta);
+    buffer.add(constraintText(enm.params));
+    for (name in enm.names) {
+      final construct = enm.constructs.get(name);
+      buffer.add('\n  constructor $name');
+      if (construct != null) {
+        buffer.add(metaText(construct.meta));
+        buffer.add(constraintText(construct.params));
+        buffer.add(anonymousText(construct.type));
+      }
+    }
+  }
+
+  /** Adds the text of one typedef, as `of` describes it. */
+  static function addTypedef(buffer: StringBuf, def: DefType): Void {
+    buffer.add('typedef ${TypeUtil.baseTypeFullName(def)}');
+    addMeta(buffer, def.meta);
+    buffer.add(constraintText(def.params));
+    buffer.add(anonymousText(def.type));
   }
 
   /**
@@ -170,8 +205,23 @@ class ModuleFingerprint {
    * flag and whether it keeps a native getter or setter (dead-code
    * elimination can remove an accessor). Example line:
    * `class inc.Box 0 s:make i:item`.
+   *
+   * A member that is not in the generator's list (`listed` returns false)
+   * also gets ` late` and the text that `of` gives a declaration: its
+   * metadata, the metadata of its constructors and fields, its
+   * type-parameter constraints and the metadata of its anonymous structures
+   * (L6 of the review of genes-ts #245). Dead-code elimination removed such
+   * a class or enum, so no fingerprint holds it, but a macro of another
+   * module can still write metadata on it. Example: the walk adds
+   * `enum inc.LateEnum { Item(data: {q: Int}); }` because a typedef field
+   * names it, and an after-typing macro adds `@:ts.type("string")` to `q`.
+   * Only this text shows that change; the check of
+   * `IncrementalShadow.planReplay` then falls back. A listed member leaves
+   * that part out, because its module's fingerprint holds it, and the cache
+   * stays small.
    */
-  public static function members(members: Array<genes.Module.Member>): String {
+  public static function members(members: Array<genes.Module.Member>,
+      listed: BaseType->Bool): String {
     final buffer = new StringBuf();
     for (member in members) {
       switch member {
@@ -181,10 +231,22 @@ class ModuleFingerprint {
             buffer.add(' ${field.isStatic ? 's' : 'i'}:${field.name}'
               + (field.getter ? '+get' : '')
               + (field.setter ? '+set' : ''));
+          if (!listed(type)) {
+            buffer.add(' late ');
+            addClass(buffer, type);
+          }
         case MEnum(type, params):
           buffer.add('enum ${TypeUtil.baseTypeFullName(type)} ${params.length}');
+          if (!listed(type)) {
+            buffer.add(' late ');
+            addEnum(buffer, type);
+          }
         case MType(type, params):
           buffer.add('typedef ${TypeUtil.baseTypeFullName(type)} ${params.length}');
+          if (!listed(type)) {
+            buffer.add(' late ');
+            addTypedef(buffer, type);
+          }
         case MMain(_):
           buffer.add('main');
       }
@@ -201,11 +263,67 @@ class ModuleFingerprint {
     buffer.add(Std.string(field.kind));
     buffer.add(field.isPublic ? ' public' : '');
     buffer.add(metaText(field.meta));
+    buffer.add(constraintText(field.params));
     buffer.add(anonymousText(field.type));
     for (signature in field.overloads.get())
       buffer.add(' overload'
         + metaText(signature.meta)
+        + constraintText(signature.params)
         + anonymousText(signature.type));
+  }
+
+  /**
+   * Returns the metadata of each type parameter in `params` and the field
+   * metadata of each anonymous structure in their constraints, as one text,
+   * or an empty text when there is no such metadata.
+   *
+   * Why (L5 of the review of genes-ts #245): the TypeScript output prints a
+   * constraint, for example `pick<T extends {v: number}>`. A macro of
+   * another module can add `@:ts.type("string")` to `v`, and the printed
+   * constraint follows it. Haxe does not type the owning module again, and
+   * `anonymousText` does not enter constraints.
+   *
+   * The same holds for metadata on the type parameter itself (M1 of the
+   * review of genes-ts #246): `TypeEmitter.emitType` prints the
+   * `@:ts.type` of `T`'s own class wherever `T` is used, so a macro that
+   * adds `@:ts.type("string")` to `T` of `tag<T>` changes `tag<T>` into
+   * `tag<string>`.
+   *
+   * What: for a parameter `T` with metadata, ` <T` and its `metaText`; then
+   * for constraint number `n` of `T` whose `anonymousText` is not empty,
+   * ` <T.n` and that text. Example: ` <T @:ts.type("string")` or
+   * ` <T.0 0.v @:ts.type("string")`.
+   *
+   * The constraints are read here, where a declaration or a structure
+   * field lists its type parameters, never from a use of a type parameter
+   * inside the walk of `anonymousText`. So a
+   * constraint that names its own parameter (`T: Ordered<T>` or
+   * `T: {r: Int, ?next: T}`) cannot make the walk go round: the walk meets
+   * `T` again as a type without arguments and stops there.
+   */
+  public static function constraintText(params: Array<TypeParameter>): String {
+    if (params.length == 0)
+      return '';
+    final buffer = new StringBuf();
+    for (param in params)
+      switch param.t {
+        case TInst(ref, _):
+          final declaration = ref.get();
+          final own = metaText(declaration.meta);
+          if (own.length > 0)
+            buffer.add(' <${param.name}$own');
+          switch declaration.kind {
+            case KTypeParameter(constraints):
+              for (index in 0...constraints.length) {
+                final text = anonymousText(constraints[index]);
+                if (text.length > 0)
+                  buffer.add(' <${param.name}.$index$text');
+              }
+            default:
+          }
+        default:
+      }
+    return buffer.toString();
   }
 
   /**
@@ -227,7 +345,12 @@ class ModuleFingerprint {
    * field of a structure (sorted by name) that has metadata, it adds
    * ` <number>.<name>` and the field's `metaText`. Example:
    * ` 0.x @:ts.type("string")`. The number makes metadata that moves from
-   * one structure to another change the text.
+   * one structure to another change the text. A field can also declare
+   * type parameters of its own, as in `{function pick<T>(item: T): T;}`
+   * (M3 of the cross-model review of genes-ts #246). TypeScript prints
+   * them, with their metadata and constraints, so the walk adds
+   * ` <number>.<name>` and the field's `constraintText` too. Example:
+   * ` 0.pick <T @:ts.type("string")`.
    *
    * The walk enters the fields of a structure, the type arguments of named
    * types, the arguments and result of functions, bound monomorphs and lazy
@@ -235,7 +358,9 @@ class ModuleFingerprint {
    * the module of its declaration, whose own fingerprint holds it (rule 6
    * falls back for every module when one of them changes). For the same
    * reason it skips the structure that holds the statics of a class, enum or
-   * abstract.
+   * abstract. It does not enter the constraints of a type parameter from a
+   * use of that parameter either: `constraintText` reads them where they
+   * are declared, which for a structure field is this walk.
    */
   public static function anonymousText(type: Null<Type>): String {
     final buffer = new StringBuf();
@@ -260,6 +385,9 @@ class ModuleFingerprint {
             final meta = metaText(field.meta);
             if (meta.length > 0)
               buffer.add(' $index.${field.name}$meta');
+            final declared = constraintText(field.params);
+            if (declared.length > 0)
+              buffer.add(' $index.${field.name}$declared');
             walk(field.type);
           }
         case TInst(_, params) | TEnum(_, params) | TType(_, params) |
@@ -295,14 +423,26 @@ class ModuleFingerprint {
    * `@:native("parseFloat")` to `inc.ExtApi.parseInt`, and the module that
    * calls it must print `globalThis.parseFloat`.
    *
-   * What it leaves out, unlike `of`: the kind and access of each field. Only
-   * dead-code elimination changes them without a new typing, and it keeps
-   * every field of an extern class. A field without metadata and without
-   * metadata in a structure of its type adds nothing. The field part of a
+   * What it leaves out, unlike `of`: the kind and access of each field, and
+   * the metadata and constraints of the type parameters that the class and
+   * its fields declare. Dead-code elimination keeps every extern
+   * class whole, except `Math` and `Array` on JavaScript (`keep_whole_class`
+   * in Haxe's `dce.ml`). In those two it removes the fields that nothing
+   * uses, but it changes the kind of no field that it keeps: neither class
+   * has a property with an accessor method. An extern class gets no output
+   * file, and no Genes printer of another module was found that prints the
+   * constraint or the metadata of a type parameter that an extern
+   * declaration declares. (A type parameter of a structure field in the
+   * type of an extern field is in `anonymousText`, so it is in.)
+   * A field without metadata and without metadata in a structure of its
+   * type adds nothing. The field part of a
    * class is stored as a digest (`Context.signature`), so the large `js.*`
    * externs add about 40 characters each to the cache, not their full
    * metadata text. Example line:
    * `extern inc.ExtApi @:native("globalThis") fields 0f3c...`.
+   *
+   * The caller passes the classes that it read to find that the module holds
+   * extern classes only, so each class is read once.
    *
    * Cost: Haxe copies every field of every extern class into the macro
    * interpreter to give this text. On the shadow fixture (318 extern-only
@@ -313,28 +453,22 @@ class ModuleFingerprint {
    * extern type adds no dependency edge), and a missed extern would be a
    * stale replay, so every extern-only module is read.
    */
-  public static function ofExtern(types: Array<Type>): String {
+  public static function ofExtern(classes: Array<ClassType>): String {
     final buffer = new StringBuf();
-    for (type in types) {
-      switch type {
-        case TInst(ref, _):
-          final cls = ref.get();
-          buffer.add('extern ${TypeUtil.baseTypeFullName(cls)}');
-          addMeta(buffer, cls.meta);
-          final fields = new StringBuf();
-          final constructor = cls.constructor;
-          if (constructor != null)
-            addExternField(fields, 'new', constructor.get());
-          for (field in cls.fields.get())
-            addExternField(fields, 'i', field);
-          for (field in cls.statics.get())
-            addExternField(fields, 's', field);
-          final text = fields.toString();
-          if (text.length > 0)
-            buffer.add(' fields ' + Context.signature(text));
-        default:
-          buffer.add('other');
-      }
+    for (cls in classes) {
+      buffer.add('extern ${TypeUtil.baseTypeFullName(cls)}');
+      addMeta(buffer, cls.meta);
+      final fields = new StringBuf();
+      final constructor = cls.constructor;
+      if (constructor != null)
+        addExternField(fields, 'new', constructor.get());
+      for (field in cls.fields.get())
+        addExternField(fields, 'i', field);
+      for (field in cls.statics.get())
+        addExternField(fields, 's', field);
+      final text = fields.toString();
+      if (text.length > 0)
+        buffer.add(' fields ' + Context.signature(text));
       buffer.add('\n');
     }
     return buffer.toString();
