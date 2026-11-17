@@ -15,6 +15,7 @@ import genes.util.PathUtil;
 import genes.util.TypeUtil;
 
 using Lambda;
+using haxe.macro.TypeTools;
 
 /**
  * The facts of one module that a module request compares with the last full
@@ -219,8 +220,9 @@ typedef ModuleRecordsReport = {
  *   (`source-changed`);
  * - the module uses exactly what it used: its signature (every declaration
  *   and field, private ones included, with kinds, types and metadata;
- *   `signature-changed`) and the use skeleton of its kept bodies (the typed
- *   tree with every node's type, without literal values and positions;
+ *   `signature-changed`) and the use skeleton of its kept bodies (the printed
+ *   code without literal values and positions, and the declarations that
+ *   dead-code elimination marks for the types of its nodes;
  *   `uses-changed`) are the stored ones, and it has no `@:ifFeature` field;
  * - the kept declarations and fields, the final member list, the root
  *   flags and the uses of other modules are the stored ones;
@@ -1570,10 +1572,11 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the use skeleton of one typed body: Haxe's printed typed tree
-   * of the body (after its filters), with the type of every node, without
-   * local variable numbers, and with the value of every literal constant
-   * replaced by a placeholder of the same kind (`0`, `0.0`, `""`). The
+   * Returns the use skeleton of one typed body: Haxe's printed code of the
+   * body (after its filters), without local variable numbers and with the
+   * value of every literal constant replaced by a placeholder of the same
+   * kind (`0`, `0.0`, `""`), followed by the declarations that dead-code
+   * elimination marks for the types of its nodes and locals (`#marks`). The
    * argument of `__define_feature__` stays, because dead-code elimination
    * reads it.
    *
@@ -1585,7 +1588,52 @@ class ModuleRequest {
    * `return label() + helper();` and `return label();` do not.
    */
   public static function skeletonOf(body: TypedExpr): String {
+    final marks = new Map<String, Bool>();
+    // The declarations that dead-code elimination marks for a type
+    // (`mark_t` in Haxe's `dce.ml`): after `follow`, a class, an enum or an
+    // abstract with their type arguments, the arguments and result of a
+    // function type, and the type behind an abstract that is not a core
+    // type. Anonymous structures and `Dynamic` mark nothing. A core-type
+    // abstract (`Null`, `Int`) is left out: it has no implementation to keep.
+    function mark(value: Type, depth: Int): Void {
+      if (depth > 8)
+        return;
+      switch Context.follow(value) {
+        case TInst(owner, params):
+          final cls = owner.get();
+          if (!cls.kind.match(KTypeParameter(_)))
+            marks.set(TypeUtil.baseTypeFullName(cls), true);
+          for (param in params)
+            mark(param, depth + 1);
+        case TEnum(owner, params):
+          marks.set(TypeUtil.baseTypeFullName(owner.get()), true);
+          for (param in params)
+            mark(param, depth + 1);
+        case TFun(args, result):
+          for (arg in args)
+            mark(arg.t, depth + 1);
+          mark(result, depth + 1);
+        case TAbstract(owner, params):
+          final abs = owner.get();
+          for (param in params)
+            mark(param, depth + 1);
+          if (!abs.meta.has(':coreType')) {
+            marks.set(TypeUtil.baseTypeFullName(abs), true);
+            mark(abs.type.applyTypeParameters(abs.params, params), depth + 1);
+          }
+        default:
+      }
+    }
     function blank(expression: TypedExpr): TypedExpr {
+      mark(expression.t, 0);
+      switch expression.expr {
+        case TVar(variable, _):
+          mark(variable.t, 0);
+        case TTry(_, catches):
+          for (item in catches)
+            mark(item.v.t, 0);
+        default:
+      }
       return switch expression.expr {
         case TConst(TInt(_)):
           {expr: TConst(TInt(0)), t: expression.t, pos: expression.pos};
@@ -1599,11 +1647,12 @@ class ModuleRequest {
           TypedExprTools.map(expression, blank);
       }
     }
-    // The typed tree with the type of every node (`pretty = false`), as
-    // dead-code elimination sees it, without the local variable numbers,
-    // which a new typing assigns again.
-    return VARIABLE_NUMBER.replace(TypedExprTools.toString(blank(body),
-      false), '$1()');
+    final code = TypedExprTools.toString(blank(body), true);
+    final names = [for (name in marks.keys()) name];
+    names.sort(compareStrings);
+    return VARIABLE_NUMBER.replace(code, '$1()')
+      + '\n#marks '
+      + names.join(' ');
   }
 
   /** A local variable with its number in Haxe's typed-tree printout, for example `count(512)`. */
