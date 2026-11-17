@@ -7236,4 +7236,127 @@ await withHarness("invalidation-only-for-same-second-edits", async (harness) => 
   }
 }
 
+// `keepCache`: a host may declare that Haxe and its macros never read an
+// input, for example a stylesheet that reaches Haxe only as a
+// `prepareRevision` companion. Its changes keep the owned server (the same
+// compatibility digest). An undeclared input that a macro may read still
+// starts a new server, and so does a created or removed class-path module,
+// whatever the host declared for it.
+await withHarness(
+  "keep-cache-extra-input-keeps-the-server",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    const servers = (): number => new Set(harness.compiler.compatibilityDigests).size;
+    const build = async (change: () => void): Promise<void> => {
+      const calls = harness.compiler.calls;
+      change();
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "ready");
+      assert.equal(harness.compiler.calls, calls + 1, "each change runs one Haxe request");
+    };
+    const css = path.join(harness.root, "styles", "card.module.css");
+    await build(() => {
+      writeFileSync(css, ".card { color: blue; }\n", "utf8");
+      currentWatch(harness).change(css);
+    });
+    assert.equal(servers(), 1, "an edited keepCache input keeps the server");
+    assert.deepEqual(harness.compiler.invalidations.at(-1), []);
+    const created = path.join(harness.root, "styles", "list.module.css");
+    await build(() => {
+      writeFileSync(created, ".list { color: red; }\n", "utf8");
+      currentWatch(harness).change(created, "created");
+    });
+    await build(() => {
+      rmSync(created);
+      currentWatch(harness).change(created, "deleted");
+    });
+    await build(() =>
+      harness.session.invalidate({
+        path: "styles/card.module.css",
+        impact: { rebuild: true, keepCache: true },
+      }),
+    );
+    assert.equal(
+      servers(),
+      1,
+      "created, removed, and host-reported keepCache inputs keep the server",
+    );
+
+    // A file that a macro may read: a warm cache would keep the macro's old
+    // result, so the next request gets a new server.
+    const macroRead = path.join(harness.root, "data", "snippet.txt");
+    await build(() => {
+      writeFileSync(macroRead, "snippet-v2\n", "utf8");
+      currentWatch(harness).change(macroRead);
+    });
+    assert.equal(servers(), 2, "an input without keepCache starts a new server");
+
+    // `keepCache` does not cover class-path modules: a created module can
+    // change a remembered failed lookup in an unchanged module.
+    await build(() => {
+      writeFileSync(path.join(harness.root, "src", "Extra.hx"), "class Extra {}\n", "utf8");
+      harness.session.invalidate({
+        path: "src/Extra.hx",
+        impact: { rebuild: true, keepCache: true },
+      });
+    });
+    assert.equal(
+      servers(),
+      3,
+      "a class-path module reported without an edit starts a new server",
+    );
+
+    assert.throws(
+      () =>
+        harness.session.invalidate({
+          path: "styles/card.module.css",
+          impact: { keepCache: true, restartCompiler: true },
+        }),
+      /cannot declare both keepCache and restartCompiler/u,
+    );
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "styles"));
+    writeFileSync(path.join(root, "styles", "card.module.css"), ".card {}\n", "utf8");
+    mkdirSync(path.join(root, "data"));
+    writeFileSync(path.join(root, "data", "snippet.txt"), "snippet-v1\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        { kind: "tree", path: "styles", impact: { rebuild: true, keepCache: true } },
+        { kind: "tree", path: "data", impact: { rebuild: true } },
+      ],
+    };
+  },
+);
+
+// `keepCache` asks to keep the server and `restartCompiler` asks for a new
+// one, so a declaration with both fails before Haxe runs.
+await withHarness(
+  "keep-cache-extra-input-rejects-restart-compiler",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    assert.equal(harness.compiler.calls, 0);
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(
+      JSON.stringify(failed),
+      /cannot declare both keepCache and restartCompiler/u,
+    );
+  },
+  undefined,
+  (options, root) => {
+    writeFileSync(path.join(root, "toolchain.json"), "{}\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        { path: "toolchain.json", impact: { keepCache: true, restartCompiler: true } },
+      ],
+    };
+  },
+);
+
 console.log("genes tooling development session runtime: ok");

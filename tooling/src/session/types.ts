@@ -447,6 +447,24 @@ export interface ChangeImpact {
   readonly reinventory?: boolean;
   readonly restartCompiler?: boolean;
   readonly revalidate?: boolean;
+  /**
+   * Set this to `true` when Haxe and its macros never read this input
+   * directly. The session then keeps the owned Haxe server and its cache when
+   * the input changes, instead of starting a new server with an empty cache.
+   *
+   * By default, a change to a watched file that is not a `.hx` module on a
+   * class path restarts the server: a macro may read any file without telling
+   * Haxe, and a warm cache would keep the macro's old result.
+   *
+   * Use it for an input that reaches Haxe only through the files that
+   * `prepareRevision` writes (for example a stylesheet that the host turns
+   * into a Haxe companion; the digest of the prepared files already selects a
+   * separate Haxe cache), or for an input that only a validator or another
+   * tool reads. It does not change how `.hx` modules on a class path are
+   * handled: a created or removed module still restarts the server. It cannot
+   * be combined with `restartCompiler`.
+   */
+  readonly keepCache?: boolean;
 }
 
 /** A host-owned input invalidation delivered to an existing session. */

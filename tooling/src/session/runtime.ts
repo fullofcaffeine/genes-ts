@@ -104,6 +104,7 @@ import {
   DEVELOPMENT_SESSION_EVENT_VERSION,
   type AcceptedGeneration,
   type AdmissionResult,
+  type ChangeImpact,
   type DevelopmentEvent,
   type DevelopmentEventBody,
   type DevelopmentSession,
@@ -130,10 +131,82 @@ interface BuildCause {
   readonly rebuild: boolean;
   /**
    * The next request needs an empty Haxe cache: a source file was created or
-   * removed, or a watched input that is not a `.hx` file changed. See
-   * `#observe`.
+   * removed, or a watched input that is not a `.hx` module changed and was
+   * not declared with `keepCache`. See `#observe`.
    */
   readonly freshCache: boolean;
+}
+
+/**
+ * What one watched input or host invalidation asks of the next build: the
+ * public `ChangeImpact` with every flag resolved to a boolean.
+ */
+interface ObservedImpact {
+  readonly reinventory: boolean;
+  readonly restartCompiler: boolean;
+  readonly rebuild: boolean;
+  /** The host declared that Haxe and its macros never read this input. */
+  readonly keepCache: boolean;
+}
+
+/**
+ * Resolves a host-declared impact to the flags that the session uses.
+ *
+ * Every input rebuilds unless it says `rebuild: false` and asks for nothing
+ * else. `keepCache` only removes the reason "a macro may read this file", so
+ * it cannot be combined with `restartCompiler`, which asks for a new server.
+ *
+ * Example: `{ rebuild: true, keepCache: true }` for a stylesheet that the
+ * host turns into a Haxe companion in `prepareRevision`.
+ */
+function observedImpact(impact: ChangeImpact, subject: string): ObservedImpact {
+  const keepCache = impact.keepCache === true;
+  const restartCompiler = impact.restartCompiler === true;
+  if (keepCache && restartCompiler) {
+    throw new Error(`${subject} cannot declare both keepCache and restartCompiler`);
+  }
+  return Object.freeze({
+    reinventory: impact.reinventory === true,
+    restartCompiler,
+    rebuild:
+      impact.rebuild !== false ||
+      impact.revalidate === true ||
+      impact.reinventory === true ||
+      restartCompiler,
+    keepCache,
+  });
+}
+
+/** An HXML or library provenance file: the plan and the server are renewed. */
+const PLAN_INPUT_IMPACT: ObservedImpact = Object.freeze({
+  reinventory: true,
+  restartCompiler: true,
+  rebuild: true,
+  keepCache: false,
+});
+
+/** A class-path module or a resource file that Haxe reads itself. */
+const COMPILER_INPUT_IMPACT: ObservedImpact = Object.freeze({
+  reinventory: false,
+  restartCompiler: false,
+  rebuild: true,
+  keepCache: false,
+});
+
+/**
+ * Combines two impacts reported for the same path. A flag that asks for more
+ * work wins; the cache is kept only when both inputs declared `keepCache`.
+ */
+function mergeObservedImpact(
+  left: ObservedImpact,
+  right: ObservedImpact,
+): ObservedImpact {
+  return Object.freeze({
+    reinventory: left.reinventory || right.reinventory,
+    restartCompiler: left.restartCompiler || right.restartCompiler,
+    rebuild: left.rebuild || right.rebuild,
+    keepCache: left.keepCache && right.keepCache,
+  });
 }
 
 interface SessionDependencies<Diagnostic extends JsonValue> {
@@ -892,15 +965,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (!containedBy(this.#layout.projectRoot, absolute)) {
       throw new Error("external invalidation path escapes projectRoot");
     }
-    this.#observe(absolute, {
-      reinventory: change.impact.reinventory === true,
-      restartCompiler: change.impact.restartCompiler === true,
-      rebuild:
-        change.impact.rebuild !== false ||
-        change.impact.revalidate === true ||
-        change.impact.reinventory === true ||
-        change.impact.restartCompiler === true,
-    });
+    this.#observe(
+      absolute,
+      observedImpact(change.impact, "external invalidation"),
+    );
   }
 
   reconcile(): ReturnType<ReconciledWatchSession["reconcile"]> {
@@ -1156,17 +1224,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #replaceWatch(inventory: HxmlInventory): void {
     let next: ReconciledWatchSession;
     try {
-      next = this.#dependencies.watch<{
-        readonly reinventory: boolean;
-        readonly restartCompiler: boolean;
-        readonly rebuild: boolean;
-      }>({
+      next = this.#dependencies.watch<ObservedImpact>({
         inputs: this.#watchInputs(inventory),
-        merge: (left, right) => ({
-          reinventory: left.reinventory || right.reinventory,
-          restartCompiler: left.restartCompiler || right.restartCompiler,
-          rebuild: left.rebuild || right.rebuild,
-        }),
+        merge: mergeObservedImpact,
         onChange: (change) => {
           if (this.#acceptWatchChanges) {
             this.#observe(change.path, change.cause, change.existence);
@@ -1207,28 +1267,20 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
 
   #watchInputs(
     inventory: HxmlInventory,
-  ): readonly WatchInput<{
-    readonly reinventory: boolean;
-    readonly restartCompiler: boolean;
-    readonly rebuild: boolean;
-  }>[] {
-    const inputs: WatchInput<{
-      readonly reinventory: boolean;
-      readonly restartCompiler: boolean;
-      readonly rebuild: boolean;
-    }>[] = [];
+  ): readonly WatchInput<ObservedImpact>[] {
+    const inputs: WatchInput<ObservedImpact>[] = [];
     for (const hxml of inventory.hxmlFiles) {
       inputs.push({
         kind: "exact",
         path: hxml,
-        cause: { reinventory: true, restartCompiler: true, rebuild: true },
+        cause: PLAN_INPUT_IMPACT,
       });
     }
     for (const provenance of inventory.libraryProvenanceFiles) {
       inputs.push({
         kind: "exact",
         path: provenance,
-        cause: { reinventory: true, restartCompiler: true, rebuild: true },
+        cause: PLAN_INPUT_IMPACT,
       });
     }
     for (const classPath of inventory.classPaths) {
@@ -1237,14 +1289,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         path: classPath,
         include: (relative) => relative.endsWith(".hx"),
         rejectSymlinks: true,
-        cause: { reinventory: false, restartCompiler: false, rebuild: true },
+        cause: COMPILER_INPUT_IMPACT,
       });
     }
     for (const resource of inventory.resourceInputs) {
       inputs.push({
         kind: "exact",
         path: resource,
-        cause: { reinventory: false, restartCompiler: false, rebuild: true },
+        cause: COMPILER_INPUT_IMPACT,
       });
     }
     for (const extra of this.#options.extraInputs ?? []) {
@@ -1253,15 +1305,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (kind !== "exact" && kind !== "tree") {
         throw new Error(`development-session extra input has an invalid kind: ${String(kind)}`);
       }
-      const cause = {
-        reinventory: extra.impact.reinventory === true,
-        restartCompiler: extra.impact.restartCompiler === true,
-        rebuild:
-          extra.impact.rebuild !== false ||
-          extra.impact.revalidate === true ||
-          extra.impact.reinventory === true ||
-          extra.impact.restartCompiler === true,
-      };
+      const cause = observedImpact(
+        extra.impact,
+        `development-session extra input ${extra.path}`,
+      );
       if (kind === "tree") {
         inputs.push({
           kind: "tree",
@@ -1281,24 +1328,30 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    * Records one changed input and requests a build.
    *
    * `existence` says how the path changed (`unknown` when a host reported it
-   * through `invalidate`). Only a content edit of an existing `.hx` file can
-   * keep the warm Haxe cache: the session then sends `server/invalidate` for
-   * it. Every other change asks for an empty cache (`freshCache`):
+   * through `invalidate`). Two kinds of change keep the warm Haxe cache:
    *
-   * - a created or removed `.hx` file can change a name lookup in a file that
-   *   did not change. Haxe 4.3.7 remembers a failed lookup, for example a
-   *   missing `import.hx` or a top-level `TopThing` that a new
+   * - a content edit of an existing `.hx` module on a class path. The
+   *   session sends `server/invalidate` for it when Haxe could miss it;
+   * - a change to any other file whose input the host declared with
+   *   `keepCache` (Haxe and its macros never read it directly). For example
+   *   a stylesheet that reaches Haxe only as a `prepareRevision` companion:
+   *   the digest of the prepared files is a define, so a new companion
+   *   already selects a separate Haxe cache.
+   *
+   * Every other change asks for an empty cache (`freshCache`):
+   *
+   * - a created or removed `.hx` module can change a name lookup in a file
+   *   that did not change. Haxe 4.3.7 remembers a failed lookup, for example
+   *   a missing `import.hx` or a top-level `TopThing` that a new
    *   `servercase/TopThing.hx` now shadows, without a dependency edge, so
-   *   the unchanged module would keep its old meaning;
-   * - a macro may read any other file without telling Haxe.
+   *   the unchanged module would keep its old meaning. `keepCache` does not
+   *   change this;
+   * - a macro may read any other file without telling Haxe, and a warm cache
+   *   would keep the macro's old result.
    */
   #observe(
     absolutePath: string,
-    impact: {
-      readonly reinventory: boolean;
-      readonly restartCompiler: boolean;
-      readonly rebuild: boolean;
-    },
+    impact: ObservedImpact,
     existence: "created" | "deleted" | "modified" | "unknown" = "unknown",
   ): void {
     if (this.#closing !== null) return;
@@ -1346,8 +1399,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       Object.freeze({
         revision: this.#newestRevision,
         paths: Object.freeze([relative]),
-        ...impact,
-        freshCache: impact.rebuild && !contentEdit,
+        reinventory: impact.reinventory,
+        restartCompiler: impact.restartCompiler,
+        rebuild: impact.rebuild,
+        freshCache:
+          impact.rebuild && !contentEdit && (sourceFile || !impact.keepCache),
       }),
     );
   }
@@ -1449,11 +1505,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         : retainedPlan;
       if (this.#closing !== null || abort.signal.aborted) return;
       if (retainedPlan.identity !== executionPlan.identity) {
-        this.#observe(executionPlan.inventory.entryHxmlFiles[0]!, {
-          reinventory: true,
-          restartCompiler: true,
-          rebuild: true,
-        });
+        this.#observe(
+          executionPlan.inventory.entryHxmlFiles[0]!,
+          PLAN_INPUT_IMPACT,
+        );
         this.#emit({
           kind: "candidate-superseded",
           revision: cause.revision,
@@ -1579,11 +1634,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             if (!planInputChanged && planInputsCurrent(executionPlan)) return;
             const finalPlan = await this.#resolveEffectivePlan(abort.signal);
             if (executionPlan.identity !== finalPlan.identity) {
-              this.#observe(finalPlan.inventory.entryHxmlFiles[0]!, {
-                reinventory: true,
-                restartCompiler: true,
-                rebuild: true,
-              });
+              this.#observe(
+                finalPlan.inventory.entryHxmlFiles[0]!,
+                PLAN_INPUT_IMPACT,
+              );
               throw new Error(
                 "HXML input changed after invocation validation and before execution",
               );

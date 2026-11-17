@@ -429,6 +429,10 @@ safe warm edit loop.
 Genes still does not provide automatic processor discovery or decide a host's
 watch list. The host must watch the authored stylesheet, binding data,
 processor configuration, lock identity, and every processor-reported input.
+Declare such an input with `impact: { rebuild: true, keepCache: true }` when
+it reaches Haxe only through the prepared companion and no macro reads it.
+Then a stylesheet edit reuses the one owned Haxe server; without the flag,
+each edit starts a new server.
 Direct editor navigation from a Haxe field to the CSS selector is also not yet
 promised. Published generated Haxe companions do keep a stable source-map path
 when the host uses the same private and public relative path.

@@ -81,6 +81,12 @@ This includes empty descendant directories, because a Haxe macro can inspect
 folder structure. The session rejects a link before Haxe can read the tree.
 It does not use globs or guess which parts of a larger directory are relevant.
 
+A change to an extra input starts a new owned Haxe server with an empty
+cache, because a macro may read the file without telling Haxe. A host marks
+an input with `keepCache: true` when Haxe and its macros never read it
+directly, for example a stylesheet that reaches Haxe only as a
+`prepareRevision` companion. A change to that input keeps the server.
+
 ## States a host presents
 
 - `opening`: recovery and input registration have not completed.

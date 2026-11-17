@@ -674,7 +674,15 @@ rolled back, the other output can start normally.
   remembers failed lookups such as a missing `import.hx` without a
   dependency), and a macro may read any other watched file without telling
   Haxe. Such a change restarts the owned server, so that request types the
-  whole program from an empty cache, as a cold build does. An invalidation
+  whole program from an empty cache, as a cold build does. A host that knows
+  Haxe and its macros never read an extra input declares it with
+  `impact.keepCache: true`; a change to it then keeps the server and its
+  cache. A stylesheet that reaches Haxe only as a `prepareRevision`
+  companion is the usual case: the digest of the prepared files is part of
+  the request, so a new companion already selects a separate Haxe cache.
+  `keepCache` does not cover `.hx` modules on a class path, and it cannot be
+  combined with `restartCompiler`. If a macro does read the input, the warm
+  cache keeps the macro's old result, so leave `keepCache` off. An invalidation
   that fails or waits more than two minutes also replaces the server instead
   of failing the build. It resolves the invocation plan at startup and again
   only when a plan input changes: an HXML or library provenance file (their
@@ -789,6 +797,18 @@ rolled back, the other output can start normally.
 
   The tree form intentionally has no glob language. Declare a narrower root
   when only one subtree belongs to the build.
+
+  By default a change to an extra input restarts the owned Haxe server,
+  because a macro may read the file. Add `keepCache: true` when Haxe and its
+  macros never read it, for example a stylesheet that `prepareRevision` turns
+  into a Haxe companion:
+
+  ```ts
+  extraInputs: [{
+    path: "styles/card.module.css",
+    impact: { rebuild: true, keepCache: true },
+  }]
+  ```
 - `resolveInvocation().executable` is an absolute native Haxe compiler binary
   that supports `--server-listen` and `--connect`, not a shell command string.
   On POSIX, tooling starts a trusted Node handoff with no inherited environment,

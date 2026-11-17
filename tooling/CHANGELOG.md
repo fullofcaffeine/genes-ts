@@ -6,6 +6,17 @@ it.
 
 ## Unreleased
 
+- Add `impact.keepCache` for an extra input that Haxe and its macros never
+  read directly. A change to such an input keeps the owned Haxe server and
+  its cache. Before, every change to an extra input that is not a class-path
+  `.hx` module started a new server with an empty cache, so a warm CSS Module
+  session started one server for each stylesheet edit instead of one for the
+  whole session. A stylesheet that reaches Haxe only as a `prepareRevision`
+  companion can declare it safely: the digest of the prepared files is part
+  of the request, so a new companion already selects a separate Haxe cache.
+  Inputs without the flag keep the old behavior, because a macro may read
+  them. `keepCache` does not change how class-path `.hx` modules are handled,
+  and a declaration with both `keepCache` and `restartCompiler` is rejected.
 - Keep one warm Haxe compiler-server cache for the whole development session.
   Haxe 4.3.7 selects its cache by the values of all defines, and the session
   used to name each new private candidate folder in `-D genes.output`. So
