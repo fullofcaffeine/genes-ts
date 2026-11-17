@@ -141,7 +141,7 @@ enum GenerationRefusal {
  * `programDigest` is the digest of the full request that it previews, not of
  * its own argument list: the session key must stay the key of that program
  * (see `ModuleRequest`). `moduleRecords` is read only on a full request.
- * *
+ *
  * `"generation": "compare"` and `"reuse"` need `"afterTyping": "reuse"`;
  * with another `afterTyping` value the generator refuses them
  * (`generationRefusal`).

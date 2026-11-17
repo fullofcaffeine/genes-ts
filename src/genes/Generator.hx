@@ -169,6 +169,9 @@ class Generator {
       output: String, outputTransaction: OutputTransaction): Void {
     // A module request (G3) prints one module; see `generateModuleRequest`.
     final previewed = ModuleRequest.requestedTarget();
+    final wrongDescriptor = previewed == null ? ModuleRequest.fullRequestRefusal(api.main != null) : null;
+    if (wrongDescriptor != null)
+      CompilerDiagnostic.fail(wrongDescriptor, Context.currentPos());
     if (previewed != null) {
       generateModuleRequest(api, outputFile, output, outputTransaction,
         previewed);
@@ -652,7 +655,7 @@ class Generator {
     IncrementalShadow.committed();
     // With `"moduleRecords": true`, keep the facts that a later module
     // request checks (G3); otherwise this returns at once.
-    ModuleRequest.programCommitted(api.types, outputFile);
+    ModuleRequest.programCommitted(api.types, api.main, outputFile);
   }
 
   /**
@@ -874,6 +877,12 @@ class Generator {
     final kept = ModuleRequest.keptLines(declarations).length;
     if (refusal != null) {
       outputTransaction.abort();
+      // Leave no file of an earlier preview in the folder: publish an empty
+      // tree, but only into a folder that is not the program's.
+      if (ModuleRequest.mayEmptyFolder(ModuleRequest.absoluteFolder(outputFile),
+        api.main != null))
+        new OutputTransaction(Path.directory(outputFile),
+          Path.withoutDirectory(Path.normalize(outputFile))).commit();
       IncrementalShadow.committed();
       ModuleRequest.writeReport(target,
         refusal.code == 'off' ? 'off' : 'refused', refusal, [], kept,

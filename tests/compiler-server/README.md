@@ -370,13 +370,25 @@ After each scripted edit, a module request names the edited module as the only
 root (no `--main`) and writes into its own sibling folder. The gate requires:
 
 - the expected result for each edit: `preview`, or a refusal code such as
-  `reference-lost` (the only call of a private helper was removed, so a full
-  build drops the helper) or `public-shape-changed` (an inline constant
-  changed, so importing modules print another value);
+  `kept-changed` (the only call of a private helper was removed, so a full
+  build drops the helper, and nothing roots it) or
+  `public-shape-changed` (an inline constant changed, so importing modules
+  print another value);
 - for a preview, only the module's files in the folder, each byte-identical to
-  the same file of a cold build of the edited program;
+  the same file of a cold build of the edited program; for a refusal, no
+  module file in the folder (an earlier preview there is retired);
 - after each module request, a full request whose tree equals the cold tree, so
   a module request leaves nothing behind in Haxe's cache.
+
+After the base list, each review scenario of PR #250 runs as its own group
+(its own server and copy, with extra source files): types and `Std.string`
+that keep a declaration (s02, s03b, s08), edits outside the module's imports
+(s05, s12, s14), a feature that only the edited module defined (s10), field
+types that another module's use decides (s09), a request that fails after
+Genes added its roots (s18), descriptors written for another request (S2,
+s14) and a stale preview folder (s19). `--only=<text>` runs the groups whose
+name contains the text; `GENES_TEST_SOURCE=<folder>` runs them against
+another Genes source folder (for example an older commit, where they fail).
 
 `--keep-control` also roots one module request with `--macro keep(<module>)`
 instead and prints whether the next full request differs from cold (it does:

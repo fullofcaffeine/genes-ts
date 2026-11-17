@@ -275,6 +275,9 @@ class AfterTypingPasses {
           if (current.stamp != null && !ModuleRequest.skipsMemberRead(current))
             GenerationChangeSet.readMembers(current.memberList);
           if (classSeconds == null) {
+            // Without the incremental path no request is a module request,
+            // so no pass is skipped (`ModuleRequest.skipsClassPass` would
+            // answer false); this branch reads no clock.
             for (visit in classPasses)
               visit(current);
           } else {

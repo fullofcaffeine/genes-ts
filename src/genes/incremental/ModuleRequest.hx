@@ -34,17 +34,19 @@ typedef ModuleRecord = {
   final kept: Array<String>;
 
   /**
-   * The references between kept fields of the module, as sorted
-   * `referrer\ttarget` lines (`references`). Example:
-   * `app.Button i:render\tapp.Button i:label`.
-   */
-  final internalEdges: Array<String>;
-
-  /**
    * What the kept fields of the module use from other modules, sorted:
-   * `field <type> <s|i>:<name>`, `type <type>` and `anon <name>` lines.
+   * `field <type> <s|i>:<name>`, `type <type>` and `anon <name>` lines, and
+   * `define <feature>` for each `__define_feature__` call in its kept
+   * bodies (for example in the inlined getter of `js.Lib.global`).
    */
   final foreignRefs: Array<String>;
+
+  /**
+   * The declarations of other modules that the signatures of its kept
+   * fields name (`type <type>` lines, sorted). Dead-code elimination keeps
+   * them for this module; `addRoots` reads them as uses.
+   */
+  final mentions: Array<String>;
 
   /**
    * The public shape of the module before dead-code elimination
@@ -69,7 +71,7 @@ typedef ModuleRequestFacts = {
   final allTypes: Array<Type>;
 
   /** `referencesOf` the module, read once by the generator. */
-  final references: {internal: Array<String>, foreign: Array<String>, modules: Array<String>};
+  final references: ModuleReferences;
 
   /** `ModuleFingerprint.members` of the module's final member list. */
   final members: String;
@@ -88,6 +90,18 @@ typedef ModuleRequestFacts = {
 
   /** True when the request has a `--main` expression. */
   final hasMain: Bool;
+}
+
+/** What `ModuleRequest.referencesOf` reads from the kept bodies of one module. */
+typedef ModuleReferences = {
+  /** See `ModuleRecord.foreignRefs`. */
+  final foreign: Array<String>;
+
+  /** See `ModuleRecord.mentions`. */
+  final mentions: Array<String>;
+
+  /** The other modules that `foreign` names. */
+  final modules: Array<String>;
 }
 
 /** The report of one module request, written beside the request descriptor. */
@@ -166,10 +180,10 @@ typedef ModuleRecordsReport = {
  *    request. The output folder must be a sibling of the program's output
  *    folder (same depth from the project root), so that the session key and
  *    the source-map paths are the program's.
- * 3. Genes roots dead-code elimination at the fields that the full request
- *    kept for the module (`afterSave`), prints the module into the
- *    request's output folder, and runs `decide`. When every check holds, it
- *    publishes the module's files (`result: "preview"`); otherwise it
+ * 3. Genes roots dead-code elimination at the uses of the module that the
+ *    full request saw in other modules (`afterSave`), prints the module into
+ *    the request's output folder, and runs `decide`. When every check holds,
+ *    it publishes the module's files (`result: "preview"`); otherwise it
  *    publishes nothing (`result: "refused"` with a code and a reason).
  * 4. The session runs the full request afterwards; it remains the authority
  *    for the published tree.
@@ -197,10 +211,13 @@ typedef ModuleRecordsReport = {
  *   positions of inline fields) is the stored one, and the module defines
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
+ * - no source file of the stored program other than the module's own
+ *   changed since the full request (time and size), so an edit outside the
+ *   module's imports is a refusal too (`source-changed`);
  * - the kept declarations and fields, the final member list and the root
- *   flags are the stored ones;
- * - every stored reference between kept fields of the module still exists,
- *   and the references to other modules are the stored ones (see below);
+ *   flags are the stored ones, and the uses of other modules are the stored
+ *   ones (so the files of other modules that are already published still
+ *   fit this module);
  * - every question that planning and printing of the module asked
  *   (features, module map, import cycles, signature facts) got the answer
  *   of a full build (`featureAnswer`, `wrongAnswer`), and no question names
@@ -210,31 +227,49 @@ typedef ModuleRecordsReport = {
  *   its maps is inside a folder where the program and preview output paths
  *   part.
  *
- * Why the reference checks prove the kept fields (dead-code elimination):
- * a field of the module stays in a full build when a chain of uses reaches
- * it from a root. Other modules did not change (only this module was typed
- * again). So a chain of the last full build still exists when each of its
- * steps inside the module still exists (the stored internal references
- * remain) and its steps out of the module and back are unchanged (equal
- * references to other modules). The request roots every stored kept field,
- * so it keeps at least the fields that the full build keeps; equal kept
- * lines then show that it keeps no more. Example: an edit removes the only
- * call of a private helper. The full build drops the helper, but the
- * request keeps it as a root. The stored reference `render -> helper` is
- * gone, so the request is refused.
+ * Why the kept fields are the full build's (dead-code elimination): the
+ * request roots only declarations and fields with a reason that holds in the
+ * full build after the edit: a use that the stored full request saw in a
+ * module outside this request's program (so its liveness cannot depend on
+ * the edited module) whose classes do not extend a class of the module. A
+ * field that overrides such a used parent field gets `@:maybeUsed`, so it
+ * stays only when its class stays, as Haxe decides. Everything else is
+ * left to Haxe's own dead-code elimination over the new code, whatever it
+ * follows (fields, types of parameters, `toString` through `Std.string`).
+ * Call the result K. Each root is a root of the full build, and the request
+ * holds a part of the full program, so the full build keeps all of K. The
+ * full build reaches the module first through a chain that does not pass
+ * the module, which existed in the stored build, so it reaches a stored
+ * kept line first; when K holds every stored kept line, Haxe's closure from
+ * those lines lies in K, so the full build keeps nothing outside K. The
+ * check "kept lines equal" therefore proves that K is the full build's set.
+ * Example: an edit removes the only call of a private helper. No reason
+ * roots the helper, Haxe drops it, and its stored kept line is missing:
+ * `kept-changed`.
  *
- * Limits: the reference lines name the field and type uses that Haxe's
- * dead-code elimination follows, but not the type of every expression. A
- * change that keeps a type alive only through the type of an expression in
- * another module can still differ; the full request then publishes the
- * right file, and the session compares bytes. Import-cycle answers are
- * computed from the modules of this request only, so an edit inside an
- * import cycle is usually refused.
+ * Limits: a use through reflection, a dynamic or anonymous-structure field
+ * name, or an `@:ifFeature` field of a module outside the request can keep a
+ * field of the module in a full build that this request does not see; such
+ * a field is then missing here and the request is refused, or (for a field
+ * that the edit makes newly reachable that way) the preview can differ. A
+ * class kept only because another module names it as a type, or an override
+ * reached only through a parent type (s04b, s06), has no reason here, so
+ * such modules are refused. Import-cycle answers are computed from the
+ * modules of this request only, so an edit inside an import cycle is
+ * usually refused.
  *
- * Effects on the compiler server: the roots are `@:keep` entries that Genes
- * adds after Haxe saved the class state and removes before printing, so they
- * never reach Haxe's cache (unlike `--macro keep(...)`). A module request
- * stores nothing in the generation cache and keeps no records of its own.
+ * Effects on the compiler server: the roots are `@:keep` and `@:maybeUsed`
+ * entries with the argument `"genes.moduleRequest"`, which Genes adds after
+ * Haxe saved the class state and removes before printing, so they never
+ * reach Haxe's cache (unlike `--macro keep(...)`). A request that fails
+ * before the generator runs leaves them; the next request removes them
+ * before dead-code elimination (`leftoverRoots`). When Haxe typed the
+ * module in this request, Genes marks it for a new typing
+ * (`retypeLater`), so that the next full request types
+ * it again with the whole program: a type that another module's use decides,
+ * such as `static final items = []`, would otherwise stay as typed alone. A
+ * module request stores nothing in the generation cache and keeps no records
+ * of its own.
  *
  * Without `-D genes.dev_incremental` nothing here runs.
  */
@@ -280,6 +315,26 @@ class ModuleRequest {
    */
   @:persistent static var externalUses: Map<String, Bool> = new Map();
 
+  /**
+   * For each use line (`field <type> <s|i>:<name>` or `type <type>`) that a
+   * module of the stored full request makes of another module, the modules
+   * that make it.
+   */
+  @:persistent static var usersByRef: Map<String, Array<String>> = new Map();
+
+  /** For each module of the stored program, the modules of the parents and interfaces of its classes. */
+  @:persistent static var ancestorModules: Map<String, Map<String,
+    Bool>> = new Map();
+
+  /** The time and size (`stampOf`) of each source file of the stored program. */
+  @:persistent static var storedFiles: Map<String, String> = new Map();
+
+  /**
+   * Modules whose roots a request added and did not remove (it failed
+   * before the generator ran). The next request removes them.
+   */
+  @:persistent static var leftoverRoots: Array<String> = [];
+
   /** `GenerationChangeSet.epochs` of every module that the stored full request saw. */
   @:persistent static var storedEpochs: Map<String, String> = new Map();
 
@@ -297,6 +352,8 @@ class ModuleRequest {
   static var rootSeconds = 0.0;
   static var requestShape: Null<String> = null;
   static var addedRoots: Array<MetaAccess> = [];
+  static var moduleFiles: Map<String, String> = new Map();
+  static var loadedModules: Map<String, Bool> = new Map();
   static var surfaceOwners: Null<Map<String, Bool>> = null;
 
   /**
@@ -311,6 +368,8 @@ class ModuleRequest {
     rootSeconds = 0.0;
     requestShape = null;
     addedRoots = [];
+    moduleFiles = new Map();
+    loadedModules = new Map();
     surfaceOwners = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
@@ -434,26 +493,50 @@ class ModuleRequest {
   /**
    * Runs after Haxe saved the class state and before dead-code elimination.
    *
-   * In a module request: computes the requested module's public shape, and
-   * adds `@:keep` to each field that the stored record calls kept (the
-   * roots of dead-code elimination; the request has no `--main`). In a
-   * full request with `"moduleRecords": true`: computes the public shape of
-   * each module that Haxe typed in this request.
+   * Every request with the define first removes roots that an earlier
+   * request left (`leftoverRoots`) and notes the source file of each module.
+   * In a module request it then computes the requested module's public
+   * shape, marks it for a new typing in the next full request when Haxe typed
+   * it in this request (`retypeLater`), and adds
+   * the roots of `addRoots` (the request has no `--main`). In a full request
+   * with `"moduleRecords": true` it computes the public shape of each module
+   * that Haxe typed again.
    */
   static function afterSave(types: Array<Type>): Void {
+    removeLeftoverRoots(types);
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
       return;
     final started = haxe.Timer.stamp();
+    final grouped = new Map<String, Array<Type>>();
+    for (type in types) {
+      final module = moduleOf(type);
+      if (module == null)
+        continue;
+      final list = grouped.get(module);
+      if (list == null) {
+        grouped.set(module, [type]);
+        loadedModules.set(module, true);
+        final pos = positionOf(type);
+        if (pos != null)
+          moduleFiles.set(module, Context.getPosInfos(pos).file);
+      } else {
+        list.push(type);
+      }
+    }
     switch descriptor.kind {
       case Module(module):
         final own = typesOf(types, module);
         requestShape = shapeOf(own);
         shapeSeconds += haxe.Timer.stamp() - started;
         final rootStart = haxe.Timer.stamp();
-        final record = records.get(module);
-        if (record != null)
-          addRoots(own, record.kept);
+        // Typed without the rest of the program, a type that another
+        // module's use decides (a monomorph, for example
+        // `static final items = []`) closes differently. The next full
+        // request must type every module that this request typed again.
+        retypeLater(GenerationChangeSet.retypedModules(), descriptor.path);
+        if (storedKey != null)
+          addRoots(module, own);
         rootSeconds += haxe.Timer.stamp() - rootStart;
       case Full:
         if (descriptor.moduleRecords != true)
@@ -464,17 +547,6 @@ class ModuleRequest {
         // never get an output file and are left out.
         if (storedKey == null || storedKey != GenerationChangeSet.sessionKey())
           shapeCache = new Map();
-        final grouped = new Map<String, Array<Type>>();
-        for (type in types) {
-          final module = moduleOf(type);
-          if (module == null)
-            continue;
-          final list = grouped.get(module);
-          if (list == null)
-            grouped.set(module, [type]);
-          else
-            list.push(type);
-        }
         for (module => list in grouped) {
           final epochs = GenerationChangeSet.epochs(module);
           final cached = shapeCache.get(module);
@@ -495,51 +567,188 @@ class ModuleRequest {
   }
 
   /**
-   * Adds `@:keep` to each declaration and field of `types` that `kept`
-   * names, unless it already has one, and remembers the metadata so that
-   * `removeRoots` can take the entry away again.
+   * Makes the next request type each of `modules` again: each gets a
+   * dependency on the file `<descriptor>.module-dep`, which does not exist
+   * when Haxe notes its time and exists afterwards. The server then finds
+   * the dependency changed and types the modules again, with the whole
+   * program in a full request. The dependency lives only on these typed
+   * module objects; the next typing drops it.
+   *
+   * Why not `CompilationServer.invalidateFiles`: during a request it marks
+   * only the cached copy from before; the module typed in this request
+   * enters the cache when the request ends.
    */
-  static function addRoots(types: Array<Type>, kept: Array<String>): Void {
-    final wanted = new Map<String, Bool>();
-    for (line in kept)
-      wanted.set(line, true);
+  static function retypeLater(modules: Array<String>,
+      descriptorPath: String): Void {
+    if (modules.length == 0)
+      return;
+    final dependency = descriptorPath + '.module-dep';
+    try {
+      if (FileSystem.exists(dependency))
+        FileSystem.deleteFile(dependency);
+      for (module in modules)
+        Context.registerModuleDependency(module, dependency);
+      File.saveContent(dependency, 'genes module request\n');
+    } catch (error:haxe.Exception) {
+      Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot mark '
+        + '${modules.join(', ')} for a new typing in the next full request '
+        + '(${error.message}); restart the compilation server before the next '
+        + 'full request.',
+        Context.currentPos());
+    }
+  }
+
+  /** The argument of the roots that Genes adds, so that it removes only its own. */
+  static inline final ROOT_MARK = 'genes.moduleRequest';
+
+  /**
+   * Adds the roots of dead-code elimination for `module` (`types` are its
+   * declarations before dead-code elimination), and remembers each metadata
+   * so that `removeRoots` can take the entry away again.
+   *
+   * A root needs a reason that holds in the full build after the edit: a use
+   * of the declaration or field that the stored full request saw in a module
+   * that is not in this request's program and that extends no class of the
+   * module (see the class comment). Such a use gets `@:keep`. An instance
+   * field whose parent class or interface field has such a use gets
+   * `@:maybeUsed` instead: Haxe then keeps it only when its class stays.
+   * An enum with such a use gets `@:keep` (Haxe keeps or drops an enum as a
+   * whole). Nothing else is rooted; Haxe's own entry points (`@:keep` in the
+   * source, `__init__`) still apply.
+   */
+  static function addRoots(module: String, types: Array<Type>): Void {
+    function used(line: String): Bool {
+      final users = usersByRef.get(line);
+      if (users == null)
+        return false;
+      for (user in users) {
+        if (user == module || loadedModules.exists(user))
+          continue;
+        final ancestors = ancestorModules.get(user);
+        if (ancestors != null && ancestors.exists(module))
+          continue;
+        return true;
+      }
+      return false;
+    }
     final pos = Context.currentPos();
-    function root(meta: MetaAccess): Void {
-      if (meta.has(':keep'))
+    final roots = [];
+    function root(meta: MetaAccess, name: String): Void {
+      if (meta.has(name))
         return;
-      meta.add(':keep', [], pos);
-      addedRoots.push(meta);
+      roots.push({meta: meta, name: name});
     }
     for (type in types)
       switch type {
         case TInst(reference, _):
           final cls = reference.get();
           final name = TypeUtil.baseTypeFullName(cls);
+          final ancestors = [];
+          function addAncestor(other: ClassType): Void {
+            final key = TypeUtil.baseTypeFullName(other);
+            if (ancestors.indexOf(key) >= 0)
+              return;
+            ancestors.push(key);
+            final parent = other.superClass;
+            if (parent != null)
+              addAncestor(parent.t.get());
+            for (item in other.interfaces)
+              addAncestor(item.t.get());
+          }
+          final parent = cls.superClass;
+          if (parent != null)
+            addAncestor(parent.t.get());
+          for (item in cls.interfaces)
+            addAncestor(item.t.get());
           for (field in cls.statics.get())
-            if (wanted.exists('class $name s:${field.name}'))
-              root(field.meta);
-          for (field in cls.fields.get())
-            if (wanted.exists('class $name i:${field.name}'))
-              root(field.meta);
+            if (used('field $name s:${field.name}'))
+              root(field.meta, ':keep');
+          for (field in cls.fields.get()) {
+            if (used('field $name i:${field.name}'))
+              root(field.meta, ':keep');
+            else if (ancestors.exists(other ->
+              used('field $other i:${field.name}')))
+              root(field.meta, ':maybeUsed');
+          }
           final constructor = cls.constructor;
-          if (constructor != null && wanted.exists('class $name new'))
-            root(constructor.get().meta);
+          if (constructor != null && used('field $name i:new'))
+            root(constructor.get().meta, ':keep');
         case TEnum(reference, _):
           final enm = reference.get();
-          if (wanted.exists('enum ${TypeUtil.baseTypeFullName(enm)}'))
-            root(enm.meta);
+          if (used('type ${TypeUtil.baseTypeFullName(enm)}'))
+            root(enm.meta, ':keep');
         default:
       }
+    if (roots.length == 0)
+      return;
+    // Noted before the first entry is added: a request that fails before
+    // `removeRoots` leaves them to the next request.
+    leftoverRoots = leftoverRoots.concat([module]);
+    for (item in roots) {
+      item.meta.add(item.name, [macro $v{ROOT_MARK}], pos);
+      addedRoots.push(item.meta);
+    }
   }
 
   /**
-   * Removes the `@:keep` entries that `afterSave` added. The generator calls
-   * it before it reads any declaration, so that no printer sees them.
+   * Removes the roots that `afterSave` added. The generator calls it before
+   * it reads any declaration, so that no printer sees them.
    */
   public static function removeRoots(): Void {
     for (meta in addedRoots)
-      meta.remove(':keep');
+      removeMarked(meta);
     addedRoots = [];
+    leftoverRoots = [];
+  }
+
+  /** Removes the `@:keep` and `@:maybeUsed` entries with `ROOT_MARK` from `meta`, and keeps the others. */
+  static function removeMarked(meta: MetaAccess): Void {
+    for (name in [':keep', ':maybeUsed']) {
+      final entries = meta.extract(name);
+      final own = entries.filter(entry -> switch entry.params {
+        case [{expr: EConst(CString(value, _))}] if (value == ROOT_MARK): true;
+        default: false;
+      });
+      if (own.length == 0)
+        continue;
+      meta.remove(name);
+      for (entry in entries)
+        if (own.indexOf(entry) < 0)
+          meta.add(entry.name, entry.params, entry.pos);
+    }
+  }
+
+  /**
+   * Removes roots that an earlier request added and did not remove, from the
+   * declarations of the modules in `leftoverRoots` that this request holds.
+   * A module that this request does not hold stays on the list.
+   */
+  static function removeLeftoverRoots(types: Array<Type>): Void {
+    if (leftoverRoots.length == 0)
+      return;
+    final pending = leftoverRoots.copy();
+    final cleaned = new Map<String, Bool>();
+    for (type in types) {
+      final module = moduleOf(type);
+      if (module == null || pending.indexOf(module) < 0)
+        continue;
+      cleaned.set(module, true);
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          for (field in cls.statics.get())
+            removeMarked(field.meta);
+          for (field in cls.fields.get())
+            removeMarked(field.meta);
+          final constructor = cls.constructor;
+          if (constructor != null)
+            removeMarked(constructor.get().meta);
+        case TEnum(reference, _):
+          removeMarked(reference.get().meta);
+        default:
+      }
+    }
+    leftoverRoots = [for (module in pending) if (!cleaned.exists(module)) module];
   }
 
   /**
@@ -557,7 +766,7 @@ class ModuleRequest {
    * is refused.
    */
   public static function programCommitted(types: Array<Type>,
-      outputFile: String): Void {
+      main: Null<TypedExpr>, outputFile: String): Void {
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null || descriptor.moduleRecords != true)
       return;
@@ -600,10 +809,10 @@ class ModuleRequest {
       final kept = keptLines(own);
       final earlier = storedKey == key ? records.get(module) : null;
       final sameEarlier = earlier != null && earlier.epochs == epochs;
-      final references = if (sameEarlier
+      final references: ModuleReferences = if (sameEarlier
         && earlier.kept.join('\n') == kept.join('\n')) {
-          internal: earlier.internalEdges,
           foreign: earlier.foreignRefs,
+          mentions: earlier.mentions,
           modules: []
         } else {
           walked++;
@@ -612,8 +821,8 @@ class ModuleRequest {
       made.set(module, {
         epochs: epochs,
         kept: kept,
-        internalEdges: references.internal,
         foreignRefs: references.foreign,
+        mentions: references.mentions,
         shape: shapes.get(module)
       });
     }
@@ -640,10 +849,115 @@ class ModuleRequest {
         default:
       }
     externalUses = uses;
+    final users = new Map<String, Array<String>>();
+    for (module => record in made)
+      for (line in record.foreignRefs.concat(record.mentions)) {
+        if (!StringTools.startsWith(line, 'field ')
+          && !StringTools.startsWith(line, 'type '))
+          continue;
+        final list = users.get(line);
+        if (list == null)
+          users.set(line, [module]);
+        else if (list.indexOf(module) < 0)
+          list.push(module);
+      }
+    // The `--main` call is a root of the full program that a module request
+    // does not have; it counts as a use by no module (the empty name).
+    if (main != null) {
+      function visitMain(expression: TypedExpr): Void {
+        switch expression.expr {
+          case TField(_, FStatic(owner, field)):
+            final line = 'field ${TypeUtil.baseTypeFullName(owner.get())} s:${field.get().name}';
+            final list = users.get(line);
+            if (list == null)
+              users.set(line, ['']);
+            else if (list.indexOf('') < 0)
+              list.push('');
+          default:
+        }
+        TypedExprTools.iter(expression, visitMain);
+      }
+      visitMain(main);
+    }
+    usersByRef = users;
+    final ancestors = new Map<String, Map<String, Bool>>();
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          var set = ancestors.get(cls.module);
+          if (set == null) {
+            set = new Map();
+            ancestors.set(cls.module, set);
+          }
+          final seen = new Map<String, Bool>();
+          final pending = [cls];
+          while (pending.length > 0) {
+            final current = pending.pop();
+            final parent = current.superClass;
+            final others = [for (item in current.interfaces) item.t.get()];
+            if (parent != null)
+              others.push(parent.t.get());
+            for (other in others) {
+              final name = TypeUtil.baseTypeFullName(other);
+              if (seen.exists(name))
+                continue;
+              seen.set(name, true);
+              if (other.module != cls.module)
+                set.set(other.module, true);
+              pending.push(other);
+            }
+          }
+        default:
+      }
+    ancestorModules = ancestors;
+    final files = new Map<String, String>();
+    for (module => file in moduleFiles)
+      if (!files.exists(file))
+        files.set(file, stampOf(file));
+    storedFiles = files;
     storedKey = key;
     storedOutputFolder = absoluteFolder(outputFile);
     records = made;
     writeRecordsReport(descriptor, true, null, walked, shapesComputed, started);
+  }
+
+  /**
+   * Returns why a full request must not run, or `null`: a full request with
+   * `"moduleRecords": true` and no `--main` is almost always a module
+   * request that read a full descriptor (the session wrote the one file too
+   * early). It would publish the module's program as the whole tree and
+   * store records of that part. The generator then stops before it writes
+   * anything.
+   */
+  public static function fullRequestRefusal(hasMain: Bool): Null<String> {
+    final descriptor = IncrementalRequest.descriptor();
+    if (descriptor == null || descriptor.moduleRecords != true || hasMain)
+      return null;
+    return switch descriptor.kind {
+      case Full:
+        '[GENES-MODULE-REQUEST-001] A full request with "moduleRecords": true '
+        + 'needs a --main. This request has none, so it is most likely a '
+        + 'module request that read a full request descriptor. Nothing was '
+        + 'published; write the descriptor only while no request is in flight.';
+      case Module(_): null;
+    }
+  }
+
+  /**
+   * Returns true when a refused module request may publish an empty tree
+   * into `outputFolder`, so that no file of an earlier preview stays there.
+   * Only a folder that is known not to be the full request's output folder
+   * qualifies: records exist, the folder differs from theirs, and the
+   * request has no `--main`. A session still reads the published files from
+   * the report (`files`).
+   */
+  public static function mayEmptyFolder(outputFolder: String,
+      hasMain: Bool): Bool {
+    return !hasMain
+      && storedKey != null
+      && storedOutputFolder != ''
+      && outputFolder != storedOutputFolder;
   }
 
   /** Forgets every record. */
@@ -653,7 +967,23 @@ class ModuleRequest {
     records = new Map();
     storedEpochs = new Map();
     externalUses = new Map();
+    usersByRef = new Map();
+    ancestorModules = new Map();
+    storedFiles = new Map();
     shapeCache = new Map();
+  }
+
+  /**
+   * Returns the time and size of a source file as one text, or `missing`.
+   * Haxe compares file times too when it decides to type a module again.
+   */
+  static function stampOf(file: String): String {
+    return try {
+      final status = FileSystem.stat(file);
+      '${status.mtime.getTime()} ${status.size}';
+    } catch (_:haxe.Exception) {
+      'missing';
+    }
   }
 
   /**
@@ -769,6 +1099,20 @@ class ModuleRequest {
           '$name is not the module of ' +
           'the last full request (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
     }
+    // Haxe checks only the files of the modules that this request loads. An
+    // edit of any other file of the stored program (a module that imports
+    // this one, for example) is invisible to it, so Genes checks those files.
+    final ownFile = moduleFiles.get(module);
+    final loadedFiles = new Map<String, Bool>();
+    for (name => file in moduleFiles)
+      if (name != module)
+        loadedFiles.set(file, true);
+    for (file => stamp in storedFiles)
+      if (file != ownFile && !loadedFiles.exists(file)
+        && stampOf(file) != stamp)
+        return refuse('source-changed',
+          '$file changed since the full request, and this request does not ' +
+          'type it');
     final failures = GenerationChangeSet.sameObjectFailures();
     if (failures.length > 0)
       return refuse('same-object-failure',
@@ -808,15 +1152,6 @@ class ModuleRequest {
     if (facts.rootFlags != entry.rootFlags)
       return refuse('root-flags-changed', 'the root flags of $module differ');
     final references = facts.references;
-    final now = new Map<String, Bool>();
-    for (edge in references.internal)
-      now.set(edge, true);
-    for (edge in record.internalEdges)
-      if (!now.exists(edge))
-        return refuse('reference-lost',
-          'a use inside $module is gone, so a ' +
-          'full build can drop a field that this request keeps: ' +
-          StringTools.replace(edge, '\t', ' -> '));
     if (references.foreign.join('\n') != record.foreignRefs.join('\n'))
       return refuse('foreign-references-changed',
         'what $module uses from ' +
@@ -899,6 +1234,11 @@ class ModuleRequest {
       return false;
     final dot = feature.lastIndexOf('.');
     if (dot <= 0 || dot == feature.length - 1)
+      return false;
+    // The module itself defined the feature (`__define_feature__` in a kept
+    // body, for example the inlined getter of `js.Lib.global`): the stored
+    // "yes" may have come from this module only.
+    if (record.foreignRefs.indexOf('define $feature') >= 0)
       return false;
     final name = feature.substr(dot + 1);
     for (line in record.kept.concat(record.foreignRefs))
@@ -996,7 +1336,8 @@ class ModuleRequest {
    * to write gives one warning; the request goes on.
    */
   public static function writeReport(module: String, result: String,
-      refusal: Null<{code: String,
+      refusal: Null<{
+      code: String,
       reason: String
     }>,
       files: Array<String>, kept: Int, generationSeconds: Float,
@@ -1085,25 +1426,22 @@ class ModuleRequest {
   }
 
   /**
-   * Reads the bodies of the kept fields of `module` (after dead-code
-   * elimination) and returns the uses that dead-code elimination follows:
-   * references between fields and declarations of the module
-   * (`referrer\ttarget`), and the fields, declarations and structure field
-   * names of other modules that the module uses. Both lists are sorted and
-   * unique.
+   * Reads the kept fields of `module` (after dead-code elimination) and
+   * returns what they use from other modules: the fields, declarations and
+   * structure field names that their bodies name (`foreign`, with the
+   * `toString` that `Std.string` and `trace` reach, and `define <feature>`
+   * for each `__define_feature__` call), and the declarations that their
+   * signatures name (`mentions`). Both lists are sorted and unique.
    *
    * Example: `render` of `app.Button` calls `Theme.color()` and its own
-   * `label()`: the internal line `app.Button i:render\tapp.Button i:label`
-   * and the foreign line `field app.Theme s:color`. `modules` lists the
-   * other modules that the foreign lines name (here `app.Theme`).
+   * `label()`: the foreign line `field app.Theme s:color` (the call of
+   * `label()` stays inside the module and is not listed). `modules` lists
+   * the other modules that `foreign` names (here `app.Theme`).
    */
-  public static function referencesOf(module: String, types: Array<Type>): {
-    internal: Array<String>,
-    foreign: Array<String>,
-    modules: Array<String>
-  } {
-    final internal = new Map<String, Bool>();
+  public static function referencesOf(module: String,
+      types: Array<Type>): ModuleReferences {
     final foreign = new Map<String, Bool>();
+    final mentions = new Map<String, Bool>();
     final modules = new Map<String, Bool>();
     final owners = new Map<String, {module: String, name: String}>();
     function classOf(reference: Ref<ClassType>): {module: String, name: String} {
@@ -1116,46 +1454,72 @@ class ModuleRequest {
       owners.set(key, found);
       return found;
     }
+    function use(targetModule: String, text: String): Void {
+      if (targetModule == module)
+        return;
+      foreign.set(text, true);
+      modules.set(targetModule, true);
+    }
+    function useField(owner: Ref<ClassType>, isStatic: Bool,
+        field: String): Void {
+      final found = classOf(owner);
+      use(found.module, 'field ${found.name} ${isStatic ? 's' : 'i'}:$field');
+      use(found.module, 'type ${found.name}');
+    }
+    function useType(declaration: ModuleType): Void {
+      final base = DependencyPlan.moduleTypeBase(declaration);
+      use(base.module, 'type ${TypeUtil.baseTypeFullName(base)}');
+    }
+    function useValueType(value: Type): Void {
+      switch Context.follow(value) {
+        case TInst(owner, _):
+          final found = classOf(owner);
+          use(found.module, 'type ${found.name}');
+        case TEnum(owner, _):
+          final enm = owner.get();
+          use(enm.module, 'type ${TypeUtil.baseTypeFullName(enm)}');
+        default:
+      }
+    }
+    // `Std.string(x)` and `trace(x)` keep `toString` of the class of `x`.
+    function useToString(value: Type): Void {
+      switch Context.follow(value) {
+        case TInst(owner, _):
+          useField(owner, false, 'toString');
+        default:
+      }
+    }
+    function mention(value: Type, depth: Int): Void {
+      if (depth > 6)
+        return;
+      switch Context.follow(value) {
+        case TInst(owner, params):
+          final found = classOf(owner);
+          if (found.module != module)
+            mentions.set('type ${found.name}', true);
+          for (param in params)
+            mention(param, depth + 1);
+        case TEnum(owner, params):
+          final enm = owner.get();
+          if (enm.module != module)
+            mentions.set('type ${TypeUtil.baseTypeFullName(enm)}', true);
+          for (param in params)
+            mention(param, depth + 1);
+        case TFun(args, result):
+          for (arg in args)
+            mention(arg.t, depth + 1);
+          mention(result, depth + 1);
+        case TAbstract(_, params):
+          for (param in params)
+            mention(param, depth + 1);
+        default:
+      }
+    }
     for (type in types)
       switch type {
         case TInst(reference, _):
           final cls = reference.get();
-          final name = TypeUtil.baseTypeFullName(cls);
           final parent = cls.superClass;
-          var referrer = '';
-          function use(target: String, targetModule: String,
-              foreignText: String): Void {
-            if (targetModule == module) {
-              internal.set('$referrer\t$target', true);
-            } else {
-              foreign.set(foreignText, true);
-              modules.set(targetModule, true);
-            }
-          }
-          function useField(owner: Ref<ClassType>, isStatic: Bool,
-              field: String): Void {
-            final found = classOf(owner);
-            final text = '${found.name} ${isStatic ? 's' : 'i'}:$field';
-            use(text, found.module, 'field $text');
-            use(found.name, found.module, 'type ${found.name}');
-          }
-          function useType(declaration: ModuleType): Void {
-            final base = DependencyPlan.moduleTypeBase(declaration);
-            final text = TypeUtil.baseTypeFullName(base);
-            use(text, base.module, 'type $text');
-          }
-          function useValueType(value: Type): Void {
-            switch Context.follow(value) {
-              case TInst(owner, _):
-                final found = classOf(owner);
-                use(found.name, found.module, 'type ${found.name}');
-              case TEnum(owner, _):
-                final enm = owner.get();
-                final text = TypeUtil.baseTypeFullName(enm);
-                use(text, enm.module, 'type $text');
-              default:
-            }
-          }
           function visit(expression: TypedExpr): Void {
             switch expression.expr {
               case TField(_, access):
@@ -1173,8 +1537,7 @@ class ModuleRequest {
                     foreign.set('anon $field', true);
                   case FEnum(owner, _):
                     final enm = owner.get();
-                    final text = TypeUtil.baseTypeFullName(enm);
-                    use(text, enm.module, 'type $text');
+                    use(enm.module, 'type ${TypeUtil.baseTypeFullName(enm)}');
                 }
               case TNew(owner, _, _):
                 useField(owner, false, 'new');
@@ -1189,12 +1552,22 @@ class ModuleRequest {
                   useValueType(item.v.t);
               case TCall({expr: TConst(TSuper)}, _) if (parent != null):
                 useField(parent.t, false, 'new');
+              case TCall({expr: TIdent('__define_feature__')},
+                [{expr: TConst(TString(feature))}, _]):
+                foreign.set('define $feature', true);
+              case TCall({expr: TField(_, FStatic(owner, field))}, [argument]) |
+                TCall({expr: TField(_, FStatic(owner, field))}, [argument, _])
+                if ((field.get().name == 'string'
+                  && classOf(owner).name == 'Std.Std')
+                  || (field.get().name == 'trace'
+                    && classOf(owner).name == 'haxe.Log.Log')):
+                useToString(argument.t);
               default:
             }
             TypedExprTools.iter(expression, visit);
           }
-          function walkField(label: String, field: ClassField): Void {
-            referrer = '$name $label';
+          function walkField(field: ClassField): Void {
+            mention(field.type, 0);
             final body = field.expr();
             if (body != null)
               visit(body);
@@ -1205,22 +1578,20 @@ class ModuleRequest {
             }
           }
           for (field in cls.statics.get())
-            walkField('s:${field.name}', field);
+            walkField(field);
           for (field in cls.fields.get())
-            walkField('i:${field.name}', field);
+            walkField(field);
           final constructor = cls.constructor;
           if (constructor != null)
-            walkField('new', constructor.get());
+            walkField(constructor.get());
           final init = cls.init;
-          if (init != null) {
-            referrer = '$name init';
+          if (init != null)
             visit(init);
-          }
         default:
       }
     return {
-      internal: sortedKeys(internal),
       foreign: sortedKeys(foreign),
+      mentions: sortedKeys(mentions),
       modules: sortedKeys(modules)
     };
   }
@@ -1418,23 +1789,6 @@ class ModuleRequest {
     final folder = Path.directory(outputFile);
     return
       PathUtil.normalize(FileSystem.absolutePath(folder.length == 0 ? '.' : folder));
-  }
-
-  /** Returns the first line of `stored` that `now` lacks, or of `now` that `stored` lacks. */
-  static function firstLine(stored: Array<String>, now: Array<String>): String {
-    final seen = new Map<String, Bool>();
-    for (line in now)
-      seen.set(line, true);
-    for (line in stored)
-      if (!seen.exists(line))
-        return line;
-    final had = new Map<String, Bool>();
-    for (line in stored)
-      had.set(line, true);
-    for (line in now)
-      if (!had.exists(line))
-        return line;
-    return '';
   }
 
   /** Returns the first differing line of two texts, clipped, for a reason. */

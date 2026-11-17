@@ -9,8 +9,8 @@
  * its files equal the files of a full build. This gate checks that claim on
  * real edits, and that the full path stays as it was.
  *
- * How: one source tree (`tests/compiler-server/templates/module-request`)
- * gets a fixed list of edits. One warm server serves the session:
+ * How: each group copies `tests/compiler-server/templates/module-request`
+ * (plus the group's own source files) and uses one warm server:
  *
  * 1. a full request (`--main mr.Main`) with `"moduleRecords": true` stores
  *    the records;
@@ -18,19 +18,26 @@
  *    no `--main`, its own sibling output folder) runs; its report must have
  *    the expected result. A `preview` must hold only the module's files,
  *    and each of them must be byte-identical to the same file of a cold
- *    build (a new Haxe process, no define) of the edited program;
+ *    build (a new Haxe process, no define) of the edited program. A refused
+ *    request must leave no module file in its folder;
  * 3. a full request then runs as the authority; its tree must equal the
  *    cold tree, so a module request leaves nothing behind in the server's
- *    cache (no `--macro keep(...)` metadata).
+ *    cache.
  *
- * At the end, a full request that reads a module descriptor (a session that
- * rewrote the one descriptor file while a request was queued) must be
- * refused with `has-main` and publish nothing.
+ * The first group is the base list. The other groups are the review
+ * scenarios of PR #250 (named after them): uses that dead-code elimination
+ * follows through types (s02, s08) and `Std.string` (s03b), edits outside
+ * the previewed module's imports (s05, s12, s14), a feature that only the
+ * edited module defined (s10), field types that another module's use
+ * decides (s09), a request that fails after the roots were added (s18),
+ * descriptors written for another request (S2, s14), and a refused request
+ * into a folder that holds an earlier preview (s19).
  *
  * `--keep-control` also runs the older way to root a module request,
- * `--macro keep(<module>)`, on a second server, and prints whether the next
- * full request then differs from cold (the measured cache pollution of
- * genes-f8vc.14.1). It is an observation, not a pass condition.
+ * `--macro keep(<module>)`, and prints whether the next full request then
+ * differs from cold (the measured cache pollution of genes-f8vc.14.1). It is
+ * an observation, not a pass condition. `--only=<text>` runs the groups
+ * whose name contains the text.
  *
  * Times are printed with the 1-minute load; they are diagnostic only.
  */
@@ -66,8 +73,17 @@ const tempRoot = path.join(fixtureRoot, ".tmp/module-request");
 const workspace = path.join(tempRoot, "workspace");
 const descriptorFile = path.join(tempRoot, "request.json");
 const reportFile = `${descriptorFile}.report.json`;
+const failFlag = path.join(tempRoot, "fail.flag");
 const timeoutMs = 180_000;
 const keepControl = process.argv.includes("--keep-control");
+const only = process.argv.find((argument) => argument.startsWith("--only="))
+  ?.slice("--only=".length);
+/**
+ * The Genes source folder under test. `GENES_TEST_SOURCE` points the gate
+ * at another copy, for example an older commit, to show that a group fails
+ * there.
+ */
+const genesSource = process.env.GENES_TEST_SOURCE ?? path.join(repoRoot, "src");
 const genesVersion = (
   JSON.parse(readFileSync(path.join(repoRoot, "haxelib.json"), "utf8")) as {
     readonly version: string;
@@ -91,13 +107,35 @@ type ModuleReport = {
 type Step = {
   readonly id: string;
   readonly apply: () => void;
-  readonly module: string;
-  /** `preview`, or the expected refusal code. */
-  readonly expect: string;
+  /** The module to preview; without it the step runs only the full request. */
+  readonly module?: string;
+  /** `preview`, or the expected refusal code; a list allows each of them. */
+  readonly expect?: string | ReadonlyArray<string>;
+  /**
+   * `full-descriptor`: the module request reads a full descriptor with
+   * `"moduleRecords": true` (S2) and must fail before it writes anything.
+   * `module-descriptor`: a full request reads a module descriptor and must
+   * be refused (`has-main`) without changing the program's tree.
+   */
+  readonly race?: "full-descriptor" | "module-descriptor";
+  /** Make a later after-save step of the module request fail (s18). */
+  readonly fails?: boolean;
+  /** Do not empty the preview folder before the request (s19). */
+  readonly keepFolder?: boolean;
   /** Write the preview into the full request's output folder (a session mistake). */
   readonly sameFolder?: boolean;
   /** Skip the full request after this step (the next step depends on it). */
   readonly skipProgram?: boolean;
+};
+
+/** A list of steps on its own server and its own copy of the template. */
+type Group = {
+  readonly name: string;
+  /** Source files (relative to `src/`) written over the template. */
+  readonly files?: Readonly<Record<string, string>>;
+  /** Extra Haxe arguments of every request of the group. */
+  readonly extraArgs?: ReadonlyArray<string>;
+  readonly steps: ReadonlyArray<Step>;
 };
 
 let clock = Math.floor(Date.now() / 1000);
@@ -119,7 +157,7 @@ function edit(relative: string, from: string, to: string): void {
   touch(file);
 }
 
-const steps: ReadonlyArray<Step> = [
+const baseSteps: ReadonlyArray<Step> = [
   {
     id: "no edit",
     apply: () => {},
@@ -167,7 +205,7 @@ const steps: ReadonlyArray<Step> = [
       "return label() + ':' + helper() + Theme.spacing();",
       "return label() + ':' + Theme.spacing();"),
     module: "mr.Button",
-    expect: "reference-lost"
+    expect: "kept-changed"
   },
   {
     id: "inline constant changed",
@@ -225,13 +263,305 @@ const steps: ReadonlyArray<Step> = [
     id: "second preview after another module request",
     apply: () => edit("Button.hx", "return 'Hold';", "return 'Push';"),
     module: "mr.Button",
-    expect: "other-modules-changed"
+    // The Theme request marked mr.Theme for a new typing, so Haxe types it
+    // again here; either way the request is refused.
+    expect: ["other-modules-typed", "other-modules-changed"]
   },
   {
     id: "no edit after the full request",
     apply: () => {},
     module: "mr.Button",
     expect: "preview"
+  },
+  {
+    id: "a full request reads a module descriptor (has-main)",
+    apply: () => {},
+    module: "mr.Button",
+    race: "module-descriptor",
+    expect: "has-main"
+  }
+];
+
+/** The main module of the review scenarios that add source files. */
+function mainWith(lines: ReadonlyArray<string>): string {
+  return `package mr;\nclass Main {\n  static function main() {\n`
+    + `    trace(Button.render());\n`
+    + lines.map((line) => `    ${line}\n`).join("")
+    + `  }\n}\n`;
+}
+
+const groups: ReadonlyArray<Group> = [
+  { name: "base", steps: baseSteps },
+  {
+    // M1: an enum kept only through the parameter type of a private function.
+    name: "s02-enum-by-param-type",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Modes.show());"]),
+      "mr/Modes.hx": `package mr;\n\nenum Mode {\n  Light;\n  Dark;\n}\n\n`
+        + `class Modes {\n  public static function show(): String {\n`
+        + `    return 'modes ' + pick(null);\n  }\n\n`
+        + `  static function pick(mode: Mode): String {\n    return 'none';\n  }\n}\n`
+    },
+    steps: [
+      { id: "no edit", apply: () => {}, module: "mr.Modes", expect: "preview" },
+      {
+        id: "private parameter type Mode -> Dynamic",
+        apply: () => edit("Modes.hx", "static function pick(mode: Mode): String {",
+          "static function pick(mode: Dynamic): String {"),
+        module: "mr.Modes",
+        expect: "kept-changed"
+      }
+    ]
+  },
+  {
+    // M1: toString kept only through Std.string of an instance.
+    name: "s03b-tostring",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Tags.show(Theme.size()));"]),
+      "mr/Tags.hx": `package mr;\n\nclass Tag {\n  public final text: String;\n\n`
+        + `  public function new(text: String) {\n    this.text = text;\n  }\n\n`
+        + `  public function toString(): String {\n    return '<' + text + '>';\n  }\n}\n\n`
+        + `class Tags {\n  public static function show(count: Int): String {\n`
+        + `    final tag = new Tag('a');\n    final other: Dynamic = count;\n`
+        + `    return 'tag ' + Std.string(tag) + Std.string(other);\n  }\n}\n`
+    },
+    steps: [
+      {
+        id: "Std.string(tag) -> tag.text",
+        apply: () => edit("Tags.hx", "Std.string(tag) + Std.string(other)",
+          "tag.text + Std.string(other)"),
+        module: "mr.Tags",
+        expect: "kept-changed"
+      }
+    ]
+  },
+  {
+    // M1: enums kept only through type mentions.
+    name: "s08-enum-type-mentions",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Sidebar.render());", "trace(Lists.count());",
+        "trace(Calls.run());"]),
+      "mr/Sidebar.hx": `package mr;\n\nenum Tab {\n  Notes;\n  Graph;\n}\n\n`
+        + `class Sidebar {\n  static var current: Null<Tab> = null;\n\n`
+        + `  public static function render(): String {\n`
+        + `    return current == null ? 'no tab' : 'tab';\n  }\n}\n`,
+      "mr/Lists.hx": `package mr;\n\nenum Row {\n  Plain;\n  Bold;\n}\n\n`
+        + `class Lists {\n  public static function count(): Int {\n`
+        + `    final rows: Array<Row> = [];\n    final ints: Array<Int> = [];\n`
+        + `    return rows.length + ints.length;\n  }\n}\n`,
+      "mr/Calls.hx": `package mr;\n\nenum Signal {\n  On;\n  Off;\n}\n\n`
+        + `class Calls {\n  public static function run(): String {\n`
+        + `    final handler: Signal -> String = _ -> 'handled';\n`
+        + `    final other: Int -> String = _ -> 'int';\n`
+        + `    return handler == null ? 'none' : other(1);\n  }\n}\n`
+    },
+    steps: [
+      {
+        id: "static var Null<Tab> -> Null<String>",
+        apply: () => edit("Sidebar.hx", "static var current: Null<Tab> = null;",
+          "static var current: Null<String> = null;"),
+        module: "mr.Sidebar",
+        expect: "kept-changed"
+      },
+      {
+        id: "local Array<Row> -> Array<Int>",
+        apply: () => edit("Lists.hx", "final rows: Array<Row> = [];",
+          "final rows: Array<Int> = [];"),
+        module: "mr.Lists",
+        expect: ["preview", "kept-changed"]
+      },
+      {
+        id: "local Signal -> String becomes Int -> String",
+        apply: () => edit("Calls.hx",
+          "final handler: Signal -> String = _ -> 'handled';",
+          "final handler: Int -> String = _ -> 'handled';"),
+        module: "mr.Calls",
+        expect: "kept-changed"
+      }
+    ]
+  },
+  {
+    // M2: the other edited file (Main) imports the previewed module.
+    name: "s05-outside-closure",
+    steps: [
+      {
+        id: "Theme body edit + Main stops calling Theme.size()",
+        apply: () => {
+          edit("Theme.hx", "return 'blue';", "return 'green';");
+          edit("Main.hx", "    trace(Theme.size());\n", "");
+        },
+        module: "mr.Theme",
+        expect: "source-changed"
+      }
+    ]
+  },
+  {
+    // M2: previews in a row without a full request between them.
+    name: "s12-repeat-previews",
+    steps: [
+      {
+        id: "Button edit 1",
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+        module: "mr.Button",
+        expect: "preview",
+        skipProgram: true
+      },
+      {
+        id: "Button edit 2 (same module again)",
+        apply: () => edit("Button.hx", "return 'Store';", "return 'Keep';"),
+        module: "mr.Button",
+        expect: "preview",
+        skipProgram: true
+      },
+      {
+        id: "Theme edit while Button (which imports Theme) is dirty",
+        apply: () => edit("Theme.hx", "return 'blue';", "return 'green';"),
+        module: "mr.Theme",
+        expect: "source-changed"
+      }
+    ]
+  },
+  {
+    // M2 and the descriptor races (S2, s14).
+    name: "s14-descriptor-races",
+    steps: [
+      {
+        id: "module arguments read a full descriptor",
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+        module: "mr.Button",
+        race: "full-descriptor"
+      },
+      {
+        id: "a full request with pending edits in Main and Theme reads a module descriptor",
+        apply: () => {
+          edit("Main.hx", "    trace(Theme.size());\n", "");
+          edit("Theme.hx", "return 'blue';", "return 'red';");
+        },
+        module: "mr.Theme",
+        race: "module-descriptor",
+        expect: "has-main",
+        skipProgram: true
+      },
+      {
+        id: "module request right after the refused full request",
+        apply: () => {},
+        module: "mr.Theme",
+        expect: ["source-changed", "other-modules-changed"]
+      }
+    ]
+  },
+  {
+    // M3: only the edited module used js.Lib.global.
+    name: "s10-feature-global",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Globals.read());",
+        "trace(Leaf.kindName(Leaf.Kind.Small));"]),
+      "mr/Globals.hx": `package mr;\n\nclass Globals {\n`
+        + `  public static function read(): String {\n`
+        + `    final host: Dynamic = js.Lib.global;\n`
+        + `    final kind: String = js.Syntax.code("typeof {0}", host);\n`
+        + `    return 'global ' + kind;\n  }\n}\n`
+    },
+    steps: [
+      { id: "no edit Leaf", apply: () => {}, module: "mr.Leaf", expect: "preview" },
+      {
+        id: "js.Lib.global -> null",
+        apply: () => edit("Globals.hx", "final host: Dynamic = js.Lib.global;",
+          "final host: Dynamic = null;"),
+        module: "mr.Globals",
+        expect: ["foreign-references-changed", "answers-changed"]
+      },
+      {
+        id: "after: Leaf body edit",
+        apply: () => edit("Leaf.hx", "case Small: 'small';", "case Small: 'tiny';"),
+        module: "mr.Leaf",
+        expect: "preview"
+      }
+    ]
+  },
+  {
+    // M4: field and parameter types that another module's use decides.
+    name: "s09-monomorph",
+    files: {
+      "mr/Main.hx": mainWith(["Registry.items.push('first');",
+        "trace(Registry.describe());", "trace(Loose.echo('text'));"]),
+      "mr/Registry.hx": `package mr;\n\nclass Registry {\n`
+        + `  public static final items = [];\n\n`
+        + `  public static function describe(): String {\n`
+        + `    return 'registry ' + items.length;\n  }\n}\n`,
+      "mr/Loose.hx": `package mr;\n\nclass Loose {\n`
+        + `  public static function echo(value) {\n    return value;\n  }\n\n`
+        + `  public static function label(): String {\n    return 'loose';\n  }\n}\n`
+    },
+    steps: [
+      { id: "no edit Registry", apply: () => {}, module: "mr.Registry", expect: "preview" },
+      {
+        id: "Registry body edit",
+        apply: () => edit("Registry.hx", "return 'registry ' + items.length;",
+          "return 'registry: ' + items.length;"),
+        module: "mr.Registry",
+        expect: "public-shape-changed"
+      },
+      {
+        id: "Loose body edit",
+        apply: () => edit("Loose.hx", "return 'loose';", "return 'loose!';"),
+        module: "mr.Loose",
+        expect: "public-shape-changed"
+      }
+    ]
+  },
+  {
+    // S1: a request fails after the roots were added.
+    name: "s18-keep-leak",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Leaf.kindName(Leaf.Kind.Small));",
+        "trace(Leaf.other());"]),
+      "mr/Leaf.hx": `package mr;\n\nenum Kind {\n  Small;\n  Large;\n}\n\n`
+        + `class Leaf {\n  public static function kindName(kind: Kind): String {\n`
+        + `    return switch kind {\n      case Small: 'small';\n`
+        + `      case Large: 'large';\n    }\n  }\n\n`
+        + `  public static function other(): String {\n    return 'other';\n  }\n}\n`,
+      "mr/Fail.hx": `package mr;\n\nimport haxe.macro.Context;\n\nclass Fail {\n`
+        + `  public static function install(flag: String): Void {\n`
+        + `    Context.onGenerate(_ -> {\n      if (sys.FileSystem.exists(flag))\n`
+        + `        Context.error('a later step of this request fails', Context.currentPos());\n`
+        + `    }, false);\n  }\n}\n`
+    },
+    extraArgs: ["--macro", `mr.Fail.install(${JSON.stringify(failFlag)})`],
+    steps: [
+      {
+        id: "module request that fails after the roots",
+        apply: () => {},
+        module: "mr.Leaf",
+        fails: true,
+        skipProgram: true
+      },
+      {
+        id: "Main stops using the enum (Leaf is not typed again)",
+        apply: () => edit("Main.hx", "    trace(Leaf.kindName(Leaf.Kind.Small));\n", "")
+      }
+    ]
+  },
+  {
+    // S3: a refused request into a folder that holds an earlier preview.
+    name: "s19-stale-preview-folder",
+    steps: [
+      {
+        id: "admitted preview",
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+        module: "mr.Button",
+        expect: "preview",
+        skipProgram: true
+      },
+      {
+        id: "refused request into the same folder",
+        apply: () => edit("Button.hx", "return label() + ':' + helper();",
+          "return label() + ':';"),
+        module: "mr.Button",
+        expect: "kept-changed",
+        keepFolder: true
+      }
+    ]
   }
 ];
 
@@ -239,10 +569,12 @@ function folder(name: string): string {
   return path.join(tempRoot, "out", name);
 }
 
+let groupArgs: ReadonlyArray<string> = [];
+
 /** Arguments shared by every request: the defines of the session. */
 function commonArguments(): string[] {
   return [
-    "-cp", path.join(repoRoot, "src"),
+    "-cp", genesSource,
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
     "--macro", "genes.Generator.use()",
@@ -251,7 +583,8 @@ function commonArguments(): string[] {
     "-dce", "full",
     "-debug",
     "-D", "genes.ts",
-    "-D", `genes.source_map_root=${tempRoot}`
+    "-D", `genes.source_map_root=${tempRoot}`,
+    ...groupArgs
   ];
 }
 
@@ -315,11 +648,18 @@ function readReport(): ModuleReport {
   return JSON.parse(readFileSync(reportFile, "utf8")) as ModuleReport;
 }
 
+/** The files of a folder without the Genes manifest. */
+function publishedFiles(root: string): ReadonlyArray<string> {
+  return hashTree(root).map((entry) => entry.path)
+    .filter((file) => !file.startsWith(".genes-output-")).sort();
+}
+
 function loadPerCpu(): number {
   return (loadavg()[0] ?? 0) / Math.max(1, cpus().length);
 }
 
 type Row = {
+  readonly group: string;
   readonly id: string;
   readonly result: string;
   readonly typedAgain: string;
@@ -361,115 +701,177 @@ async function programRequest(server: OwnedHaxeCompilerServer,
   return elapsed;
 }
 
-async function main(): Promise<void> {
+/** Prepares a new workspace for one group: the template and the group's files. */
+function prepare(group: Group): void {
   rmSync(tempRoot, { recursive: true, force: true });
   mkdirSync(tempRoot, { recursive: true });
   cpSync(template, workspace, { recursive: true });
-  const compiler = selectedHaxeCompiler(repoRoot);
+  for (const [relative, text] of Object.entries(group.files ?? {})) {
+    const file = path.join(workspace, "src", relative);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, text);
+    touch(file);
+  }
+  groupArgs = group.extraArgs ?? [];
+}
+
+/** Runs the module request of one step and checks its output; returns the outcome. */
+async function moduleStep(server: OwnedHaxeCompilerServer,
+    compiler: ReturnType<typeof selectedHaxeCompiler>, step: Step,
+    label: string): Promise<{ outcome: string, ms: number, report: ModuleReport | null }> {
+  const module = step.module ?? "";
+  const previewFolder = step.sameFolder === true ? folder("program") : folder("preview");
+  const programBefore = hashTree(folder("program"));
+  if (step.sameFolder !== true && step.keepFolder !== true)
+    rmSync(previewFolder, { recursive: true, force: true });
+  rmSync(reportFile, { force: true });
+  if (step.race === "full-descriptor") {
+    // S2: the session wrote the full descriptor before this module request ran.
+    writeDescriptor({ kind: "full", moduleRecords: true });
+    const result = await server.compile(incremental(moduleArguments(module, previewFolder)),
+      `Raced module ${label}`, timeoutMs, workspace);
+    ok(result.code !== 0, `${label}: a module request that reads a full descriptor must fail`);
+    ok(`${result.stdout}\n${result.stderr}`.includes("GENES-MODULE-REQUEST-001"),
+      `${label}: the failure must name GENES-MODULE-REQUEST-001\n${describe(result)}`);
+    deepStrictEqual(publishedFiles(previewFolder), [],
+      `${label}: a module request that read a full descriptor published files`);
+    return { outcome: "failed", ms: 0, report: null };
+  }
+  if (step.race === "module-descriptor") {
+    // s14: a full request reads the module descriptor of another request.
+    writeDescriptor({ kind: "module", module });
+    const result = await server.compile(incremental(programArguments(folder("program"))),
+      `Raced full ${label}`, timeoutMs, workspace);
+    ok(result.code === 0, `${label}: full request with a module descriptor failed\n${describe(result)}`);
+    const report = readReport();
+    deepStrictEqual(hashTree(folder("program")), programBefore,
+      `${label}: a full request that read a module descriptor changed the program tree`);
+    return { outcome: report.refusal ?? report.result, ms: 0, report };
+  }
+  if (step.fails === true)
+    writeFileSync(failFlag, "fail\n");
+  writeDescriptor({ kind: "module", module });
+  const started = performance.now();
+  const result = await server.compile(incremental(moduleArguments(module, previewFolder)),
+    `Module ${label}`, timeoutMs, workspace);
+  const ms = performance.now() - started;
+  if (step.fails === true) {
+    rmSync(failFlag, { force: true });
+    ok(result.code !== 0, `${label}: the module request must fail`);
+    return { outcome: "failed", ms, report: null };
+  }
+  ok(result.code === 0, `${label}: module request failed\n${describe(result)}`);
+  const report = readReport();
+  strictEqual(report.kind, "module", `${label}: report kind`);
+  strictEqual(report.module, module, `${label}: report module`);
+  const outcome = report.result === "preview" ? "preview" : report.refusal ?? report.result;
+  if (report.result === "preview") {
+    await coldBuild(compiler, label);
+    // The preview holds the module's files and the manifest, nothing else.
+    const published = publishedFiles(previewFolder);
+    deepStrictEqual(published, [...report.files].sort(),
+      `${label}: the preview folder holds other files than the report names`);
+    ok(published.length > 0, `${label}: the preview published no file`);
+    const prefix = module.split(".").join("/");
+    for (const file of published) {
+      ok(file === `${prefix}.ts` || file.startsWith(`${prefix}.`),
+        `${label}: ${file} is not a file of ${module}`);
+      const coldFile = path.join(folder("cold"), file);
+      ok(existsSync(coldFile), `${label}: the cold build has no ${file}`);
+      ok(readFileSync(path.join(previewFolder, file)).equals(readFileSync(coldFile)),
+        `${label}: ${file} of the preview differs from the cold build`);
+    }
+  } else if (step.sameFolder === true) {
+    deepStrictEqual(hashTree(folder("program")), programBefore,
+      `${label}: a refused module request changed the full request's tree`);
+  } else {
+    deepStrictEqual(publishedFiles(previewFolder), [],
+      `${label}: a refused module request left module files in its folder`);
+  }
+  return { outcome, ms, report };
+}
+
+async function runGroup(group: Group,
+    compiler: ReturnType<typeof selectedHaxeCompiler>,
+    rows: Row[]): Promise<{ previews: number, refusals: number }> {
+  prepare(group);
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
-  const rows: Row[] = [];
   let previews = 0;
   let refusals = 0;
   try {
-    await programRequest(server, "first");
-    for (const [index, step] of steps.entries()) {
-      const label = `[${index + 1}/${steps.length}] ${step.id}`;
+    await programRequest(server, `${group.name} first`);
+    for (const [index, step] of group.steps.entries()) {
+      const label = `[${group.name} ${index + 1}/${group.steps.length}] ${step.id}`;
       step.apply();
-      const previewFolder = step.sameFolder === true ? folder("program") : folder("preview");
-      const programBefore = hashTree(folder("program"));
-      if (step.sameFolder !== true)
-        rmSync(previewFolder, { recursive: true, force: true });
-      rmSync(reportFile, { force: true });
-      writeDescriptor({ kind: "module", module: step.module });
       const load = loadPerCpu();
-      const started = performance.now();
-      const result = await server.compile(
-        incremental(moduleArguments(step.module, previewFolder)),
-        `Module ${label}`, timeoutMs, workspace);
-      const moduleMs = performance.now() - started;
-      ok(result.code === 0, `${label}: module request failed\n${describe(result)}`);
-      const report = readReport();
-      strictEqual(report.kind, "module", `${label}: report kind`);
-      strictEqual(report.module, step.module, `${label}: report module`);
-      const outcome = report.result === "preview" ? "preview" : report.refusal ?? report.result;
-      strictEqual(outcome, step.expect,
-        `${label}: expected ${step.expect}, got ${outcome} (${String(report.reason)})`);
-      const coldTree = await coldBuild(compiler, label);
-      if (report.result === "preview") {
-        previews++;
-        // The preview holds the module's files and the manifest, nothing else.
-        const previewTree = hashTree(previewFolder);
-        const published = previewTree.map((entry) => entry.path)
-          .filter((file) => !file.startsWith(".genes-output-")).sort();
-        deepStrictEqual(published, [...report.files].sort(),
-          `${label}: the preview folder holds other files than the report names`);
-        ok(published.length > 0, `${label}: the preview published no file`);
-        const prefix = step.module.split(".").join("/");
-        for (const file of published) {
-          ok(file === `${prefix}.ts` || file.startsWith(`${prefix}.`),
-            `${label}: ${file} is not a file of ${step.module}`);
-          const previewBytes = readFileSync(path.join(previewFolder, file));
-          const coldFile = path.join(folder("cold"), file);
-          ok(existsSync(coldFile), `${label}: the cold build has no ${file}`);
-          ok(previewBytes.equals(readFileSync(coldFile)),
-            `${label}: ${file} of the preview differs from the cold build`);
+      let outcome = "-";
+      let moduleMs = 0;
+      let report: ModuleReport | null = null;
+      if (step.module !== undefined) {
+        const done = await moduleStep(server, compiler, step, label);
+        outcome = done.outcome;
+        moduleMs = done.ms;
+        report = done.report;
+        if (step.expect !== undefined) {
+          const allowed = typeof step.expect === "string" ? [step.expect] : step.expect;
+          ok(allowed.includes(outcome),
+            `${label}: expected ${allowed.join(" or ")}, got ${outcome} (${String(report?.reason)})`);
         }
-      } else {
-        refusals++;
-        if (step.sameFolder === true) {
-          deepStrictEqual(hashTree(folder("program")), programBefore,
-            `${label}: a refused module request changed the full request's tree`);
-        } else {
-          deepStrictEqual(hashTree(previewFolder), [],
-            `${label}: a refused module request published files`);
-        }
+        if (outcome === "preview")
+          previews++;
+        else
+          refusals++;
       }
       let programMs = 0;
       if (step.skipProgram !== true) {
+        const coldTree = await coldBuild(compiler, label);
         programMs = await programRequest(server, label);
         const difference = treeDifference(hashTree(folder("program")), coldTree);
         deepStrictEqual(difference, [],
-          `${label}: the full request after the module request differs from `
-          + `the cold build:\n${difference.join("\n")}`);
+          `${label}: the full request after the step differs from the cold build:\n`
+          + difference.join("\n"));
       }
       rows.push({
+        group: group.name,
         id: step.id,
         result: outcome,
-        typedAgain: report.typedAgainModules.join(" "),
+        typedAgain: report === null ? "" : report.typedAgainModules.join(" "),
         moduleMs: Math.round(moduleMs),
-        genesMs: report.generationMs,
+        genesMs: report === null ? 0 : report.generationMs,
         programMs: Math.round(programMs),
         load: Number(load.toFixed(2))
       });
     }
-    // A queued full request that reads a module descriptor (the session
-    // rewrote the one descriptor file too early) publishes nothing.
-    rmSync(reportFile, { force: true });
-    rmSync(folder("race"), { recursive: true, force: true });
-    writeDescriptor({ kind: "module", module: "mr.Button" });
-    const raced = await server.compile(incremental(programArguments(folder("race"))),
-      "Full request with a module descriptor", timeoutMs, workspace);
-    ok(raced.code === 0, `full request with a module descriptor failed\n${describe(raced)}`);
-    strictEqual(readReport().refusal, "has-main",
-      "a full request that reads a module descriptor must be refused");
-    deepStrictEqual(hashTree(folder("race")), [],
-      "a refused full request with a module descriptor published files");
-    refusals++;
   } finally {
     await server.stop();
   }
-  process.stdout.write("step | result | typed again | module request ms | "
+  return { previews, refusals };
+}
+
+async function main(): Promise<void> {
+  const compiler = selectedHaxeCompiler(repoRoot);
+  const rows: Row[] = [];
+  let previews = 0;
+  let refusals = 0;
+  const selectedGroups = groups.filter((group) => only === undefined
+    || group.name.includes(only));
+  for (const group of selectedGroups) {
+    const counts = await runGroup(group, compiler, rows);
+    previews += counts.previews;
+    refusals += counts.refusals;
+  }
+  process.stdout.write("group | step | result | typed again | module request ms | "
     + "Genes ms | full request ms | load per CPU\n");
   for (const row of rows)
-    process.stdout.write(`${row.id} | ${row.result} | ${row.typedAgain} | `
+    process.stdout.write(`${row.group} | ${row.id} | ${row.result} | ${row.typedAgain} | `
       + `${row.moduleMs} | ${row.genesMs} | ${row.programMs} | ${row.load}\n`);
   let control = "keep control skipped";
   if (keepControl)
     control = await runKeepControl(compiler);
-  process.stdout.write(`compiler-server-module:ok (Haxe ${compiler.version}; `
-    + `${previews} previews byte-identical to cold, ${refusals} refusals as `
-    + `expected, every full request after a module request equal to cold; `
-    + `${control})\n`);
+  process.stdout.write(`compiler-server-module:${only === undefined ? "ok" : "partial"} `
+    + `(Haxe ${compiler.version}; ${selectedGroups.length} groups; ${previews} `
+    + `previews byte-identical to cold, ${refusals} refused or failed as expected, `
+    + `every full request after a step equal to cold; ${control})\n`);
 }
 
 /**
@@ -480,15 +882,15 @@ async function main(): Promise<void> {
 async function runKeepControl(
   compiler: ReturnType<typeof selectedHaxeCompiler>
 ): Promise<string> {
-  rmSync(workspace, { recursive: true, force: true });
-  cpSync(template, workspace, { recursive: true });
+  prepare({ name: "keep-control", steps: [] });
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   try {
     await programRequest(server, "keep control first");
     edit("Button.hx", "return 'Save';", "return 'Store';");
     // A full request of the module's program, as genes-f8vc.14.1 measured
     // it: Genes adds no roots, keep() does. Same define, so the same Haxe
-    // cache as the session.
+    // cache as the session. It has no --main, so it asks for no module
+    // records (`GENES-MODULE-REQUEST-001`).
     writeDescriptor({ kind: "full", generation: undefined });
     rmSync(folder("keep"), { recursive: true, force: true });
     const result = await server.compile(
