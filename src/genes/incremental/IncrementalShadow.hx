@@ -1454,8 +1454,22 @@ class IncrementalShadow {
   /**
    * Starts the live pass after a pass with stored edges: forgets what that
    * pass recorded for modules, because the live pass makes new `Module`
-   * values and records again. Witnesses and lookups by name stay: they only
-   * add reads.
+   * values and records again. The witnesses and the failed lookups by name
+   * of the first pass stay. They can only add reads: a witness that only the
+   * first pass recorded makes its module dirty for more edits, and a failed
+   * lookup keeps the old cache.
+   *
+   * The live pass must also record every read of its own, so `Generator`
+   * starts the name memo of `TypeUtil.baseTypeName` again for it. Example:
+   * in the first pass, the dirty module `inc.A` is the first to ask for a
+   * name of `inc.Pair`, because the clean module `inc.B` builds no plan.
+   * With the memo of that pass, the live pass would not search again when
+   * `inc.B` asks, and `inc.B` would miss the witness of `inc.Pair` that a
+   * generation without the first pass gives it.
+   *
+   * A stored pass that is kept has the same shift: a dirty module can record
+   * a witness that a live generation gives to a clean module. The clean
+   * module keeps its stored witnesses, so this also only adds reads.
    */
   function startRerun(): Void {
     stopClock();

@@ -211,10 +211,14 @@ class Generator {
     }
     final endInventoryTimer = planTimer('genes.plan.inventory');
     // Typing and Haxe's filters are complete: declaration names are final.
-    if (!rerun) {
-      TypeUtil.startGenerationNames();
+    // The live pass after a pass with stored edges starts the name memo
+    // again: with the memo of the first pass, a name that pass already found
+    // is not searched again, so a module that asks for it first in the live
+    // pass records no witness of the module that holds it (see
+    // `IncrementalShadow.startRerun`).
+    TypeUtil.startGenerationNames();
+    if (!rerun)
       ModuleDirectivePlan.validate();
-    }
     // With `-D genes.compile_stage_profile`, `haxe --times` splits the
     // inventory stage into its whole-program loops (types, exports), the
     // `Module` values (modules) and the incremental shadow (shadow). A request

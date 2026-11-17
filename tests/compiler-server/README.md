@@ -407,6 +407,11 @@ difference of their results is a mismatch. The edits whose ids start with
   member of a clean module that closes an import cycle through two clean
   modules, a generic instance named in a type position and then used at
   run time, and a late member that is renamed;
+- an HXX error in the only dirty module (`FB3`: an unknown attribute on an
+  intrinsic element; `FB4`: an unknown prop of a component), so that the
+  error comes inside a request whose walk takes stored edges: the shadow
+  and plain warm requests must print exactly the errors of the cold build
+  (`sameErrors`), and the repaired request stays on the recorded path;
 - `-D genes.extern_init_warning` on, with an edit that leaves the recorded
   path: Genes warns about each extern class with `__init__` (Haxe's `Math`
   and `String`, and `inc.RvExtInit`) while it reads the type list, and the

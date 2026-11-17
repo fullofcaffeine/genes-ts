@@ -241,6 +241,11 @@ type Edit = {
    * the published trees must be equal.
    */
   readonly failsAfterCommit?: boolean;
+  /**
+   * For an edit that `fails`: the shadow request (and the plain warm request)
+   * must print exactly the errors of the cold build, no more and no fewer.
+   */
+  readonly sameErrors?: boolean;
   /** Modules that the report must list as emitted and dirty. */
   readonly dirtyModules?: ReadonlyArray<string>;
   /**
@@ -1207,6 +1212,40 @@ const edits: ReadonlyArray<Edit> = [
   },
   { id: "RV6a no edit after the rename reverted", apply: () => {}, results: ["incremental"], settled: true },
   {
+    // Review of slice S2 (cross-model), FB3: the only dirty module, inc.Ui,
+    // gets an error while every other module is clean, so the error comes
+    // inside a request whose walk takes stored edges. The request must fail
+    // with the errors of the cold build, once, and leave the cache as it
+    // was; the repaired request and the request after it stay on the
+    // recorded path.
+    id: "FB3 a dirty module gets an unknown attribute on an intrinsic element",
+    apply: () => edit("inc/Ui.hx", 'className="ui-v2"', 'bogusAttribute="ui-v2"'),
+    fails: true,
+    sameErrors: true
+  },
+  {
+    id: "FB3 the attribute repaired",
+    apply: () => edit("inc/Ui.hx", 'bogusAttribute="ui-v2"', 'className="ui-v2"'),
+    walk: "on-path"
+  },
+  { id: "FB3 no edit after the repair", apply: () => {}, results: ["incremental"], settled: true, walk: "on-path" },
+  {
+    // FB4: the same for an unknown prop of a component, which Genes checks
+    // against the props type of another module (inc.Widgets).
+    id: "FB4 a dirty module passes an unknown prop to a component",
+    apply: () => edit("inc/Ui.hx", "<WidgetStatus label={label} />",
+      '<WidgetStatus label={label} bogus="x" />'),
+    fails: true,
+    sameErrors: true
+  },
+  {
+    id: "FB4 the prop repaired",
+    apply: () => edit("inc/Ui.hx", '<WidgetStatus label={label} bogus="x" />',
+      "<WidgetStatus label={label} />"),
+    walk: "on-path"
+  },
+  { id: "FB4 no edit after the repair", apply: () => {}, results: ["incremental"], settled: true, walk: "on-path" },
+  {
     // Review of slice S2, M1: with -D genes.extern_init_warning, Genes warns
     // about each extern class with `__init__` (Math and String of Haxe's own
     // library, and inc.RvExtInit) while it reads the type list. A request
@@ -1817,6 +1856,12 @@ async function runPass(
         ok(warm === null || warm.code !== 0,
           `${label}: the plain warm request must fail`);
         ok(shadowed.code !== 0, `${label}: the shadow request must fail`);
+        if (step.sameErrors === true) {
+          strictEqual(shadowed.stderr, cold.stderr,
+            `${label}: the shadow request must report the errors of the cold build`);
+          ok(warm === null || warm.stderr === cold.stderr,
+            `${label}: the plain warm request must report the errors of the cold build`);
+        }
         const report = readReport();
         ok(
           report === null || (report.result === "failed" && !report.committed),
