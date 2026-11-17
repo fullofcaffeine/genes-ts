@@ -226,7 +226,6 @@ class ExprEmitter extends Emitter {
     return ctx.typeAccessor(accessor);
   }
 
-  /** Emits one exact bare runtime binding through the same assertion seam. */
   /**
    * Hook for a reference to a selected module function: it can print the
    * `Owner.field` slot read instead of the direct function binding, and
@@ -239,6 +238,7 @@ class ExprEmitter extends Emitter {
     return false;
   }
 
+  /** Emits one exact bare runtime binding through the same assertion seam. */
   function runtimeDirectBinding(name: String): String {
     if (lexicalBindingUsePlan != null) {
       if (activeBindingExpression != null)

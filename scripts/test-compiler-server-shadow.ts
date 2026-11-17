@@ -40,7 +40,9 @@
  * request and the edits whose id contains `a` or `b` (`=a` for an exact id); `--skip-plain` skips the warm server
  * without the define (G0, G2); `--skip-probe` skips `CleanRuleProbe` (for a
  * run with a guard switched off by hand, whose probe case would fail first).
- * Each of them ends with a `partial` line.
+ * Each of them ends with a `partial` line. `--react-refresh` runs every
+ * build with `-D genes.react_refresh_modules`, so the React edits below also
+ * cover modules that Genes splits into `X.tsx` and `X.fields.tsx`.
  *
  * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
  * the output lines of the session key (no absolute output path), the clean
@@ -113,7 +115,8 @@ const options = (() => {
     modes: modes as GenerationMode[],
     only: only === undefined ? null : only.split("|").filter((part) => part.length > 0),
     skipPlain: process.argv.includes("--skip-plain"),
-    skipProbe: process.argv.includes("--skip-probe")
+    skipProbe: process.argv.includes("--skip-probe"),
+    reactRefresh: process.argv.includes("--react-refresh")
   };
 })();
 
@@ -217,6 +220,11 @@ type Edit = {
    * Haxe's cache, for example after the macro interpreter was reset.
    */
   readonly settled?: boolean;
+  /**
+   * Files (relative to the output folder) that the cold tree must hold, or
+   * must not hold, after the edit; checked only with `--react-refresh`.
+   */
+  readonly refreshFiles?: { readonly present: ReadonlyArray<string>; readonly absent: ReadonlyArray<string> };
 };
 
 /** Program arguments that an edit can change, as a session would. */
@@ -519,6 +527,52 @@ const edits: ReadonlyArray<Edit> = [
     apply: () => {
       edit("inc/Main.hx", ', Fresh.value() /*FRESH_USE*/', "/*FRESH_USE*/");
       remove("inc/Fresh.hx");
+    }
+  },
+  {
+    // With --react-refresh, RefreshPanel is split: a component and a module
+    // function. RefreshPlain has no component yet, so it stays one file.
+    id: "React module with a component and a module function",
+    apply: () => {
+      create("inc/RefreshPanel.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction refreshLabel(): String {\n  return \"label\";\n}\n\n@:keep\n@:genes.reactComponent\nfunction RefreshPanel(): Element {\n  return <p>{\"panel-v1\" + refreshLabel()}</p>;\n}\n");
+      create("inc/RefreshPlain.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction plainLabel(): String {\n  return \"plain\";\n}\n/*COMPONENT*/\n");
+      addModule("inc.RefreshPanel");
+      addModule("inc.RefreshPlain");
+    },
+    refreshFiles: {
+      present: ["inc/RefreshPanel.fields.tsx"],
+      absent: ["inc/RefreshPlain.fields.tsx"]
+    }
+  },
+  {
+    // Only the component file changes; the sibling has the same bytes.
+    id: "component body edit in the React module",
+    apply: () => edit("inc/RefreshPanel.hx", '"panel-v1"', '"panel-v2"'),
+    refreshFiles: { present: ["inc/RefreshPanel.fields.tsx"], absent: [] }
+  },
+  {
+    // RefreshPlain becomes a split module (a new X.fields.tsx).
+    id: "first component in a module without one",
+    apply: () => edit(
+      "inc/RefreshPlain.hx",
+      "/*COMPONENT*/",
+      "@:keep\n@:genes.reactComponent\nfunction RefreshPlainView(): Element {\n  return <b>{plainLabel()}</b>;\n}\n/*COMPONENT*/"
+    ),
+    refreshFiles: { present: ["inc/RefreshPlain.fields.tsx"], absent: [] }
+  },
+  {
+    // RefreshPanel is one file again; its old X.fields.tsx must be removed.
+    id: "last component of the React module removed",
+    refreshFiles: { present: [], absent: ["inc/RefreshPanel.fields.tsx"] },
+    apply: () => create("inc/RefreshPanel.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction refreshLabel(): String {\n  return \"label\";\n}\n")
+  },
+  {
+    id: "React modules deleted",
+    apply: () => {
+      dropModule("inc.RefreshPanel");
+      dropModule("inc.RefreshPlain");
+      remove("inc/RefreshPanel.hx");
+      remove("inc/RefreshPlain.hx");
     }
   },
   {
@@ -1166,7 +1220,7 @@ function selected(entries: ReadonlyArray<string>, id: string): boolean {
 /** Puts every value that an edit can change back to its first state. */
 function resetState(mode: GenerationMode): void {
   currentMode = mode;
-  program.defines = [];
+  program.defines = options.reactRefresh ? ["genes.react_refresh_modules"] : [];
   program.modules = [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
   ];
@@ -1221,7 +1275,9 @@ async function main(): Promise<void> {
     .join("; ");
   process.stdout.write(
     `compiler-server-shadow:${partial ? "partial" : "ok"} (Haxe `
-    + `${selectedHaxeCompiler(repoRoot).version}; ${probeLine}; ${counts}; `
+    + `${selectedHaxeCompiler(repoRoot).version}; `
+    + `${options.reactRefresh ? "-D genes.react_refresh_modules; " : ""}`
+    + `${probeLine}; ${counts}; `
     + `G0 warm equals cold, G1 0 mismatches and trees equal cold, G2 no `
     + `stamp without the define; times ${timing}, load `
     + `${loadAtStart.toFixed(1)} to ${loadAtEnd.toFixed(1)})\n`
@@ -1327,6 +1383,13 @@ async function runPass(
         ok(shadowed.code === 0, `${label}: shadow request failed\n${describe(shadowed)}`);
       }
       const coldTree = hashTree(outputRoot("cold"));
+      if (options.reactRefresh && step.refreshFiles !== undefined) {
+        const paths = new Set(coldTree.map((entry) => entry.path));
+        for (const file of step.refreshFiles.present)
+          ok(paths.has(file), `${label}: the split file ${file} is missing`);
+        for (const file of step.refreshFiles.absent)
+          ok(!paths.has(file), `${label}: the stale file ${file} is still published`);
+      }
       if (warm !== null) {
         // G0: warm full generation equals cold, with no cache.
         const plainDifference = treeDifference(hashTree(outputRoot("plain")),

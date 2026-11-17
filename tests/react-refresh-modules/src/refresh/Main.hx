@@ -2,6 +2,9 @@ package refresh;
 
 import genes.react.JSX.*;
 import refresh.App;
+import refresh.Transitive;
+import refresh.Omitted;
+import refresh.Cycle;
 
 @:jsRequire("react-dom/client")
 extern class ReactDomClient {
@@ -16,6 +19,9 @@ extern class ReactRoot {
 class Main {
   static function main(): Void {
     LoadLog.record("Main:" + appTitle());
+    LoadLog.record("Transitive:" + (Holder.cached != null));
+    LoadLog.record("Omitted:" + (renderOmitted(2) != null));
+    LoadLog.record("Cycle:" + (CycleDep.rendered != null) + ":" + cyclePlain());
     if (js.Syntax.code("typeof document") == "undefined")
       return;
     final container: Null<js.html.Element> = js.Browser.document.getElementById("root");

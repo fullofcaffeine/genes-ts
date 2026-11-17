@@ -62,26 +62,28 @@ run("haxe", [`${fixture}/build-tsx.hxml`]);
 run("haxe", [`${fixture}/build-tsx-off.hxml`]);
 
 // Split: modules with a component and another runtime declaration.
-// Not split: only components and types (Greeting), a static initializer that
-// reads a component (Unsplit), the entry module (Main), no component (LoadLog).
-deepStrictEqual(generatedFiles("tsx"), [
-  "App.fields.tsx",
+// Not split (ReactRefreshModulePlan.componentNames):
+// - Greeting: only components and types;
+// - Main: the entry module; LoadLog, CycleDep: no component;
+// - Unsplit: a static initializer reads a component;
+// - Transitive: a static initializer reaches a component through a helper;
+// - Omitted: the owner class is omitted, so the sibling has no slot;
+// - Cycle: a hoisted direct function reads a component, and CycleDep calls
+//   it from `__init__` inside an import cycle.
+const singleFiles = [
   "App.tsx",
+  "Cycle.tsx",
+  "CycleDep.tsx",
   "Greeting.tsx",
   "LoadLog.tsx",
   "Main.tsx",
-  "Panel.fields.tsx",
+  "Omitted.tsx",
   "Panel.tsx",
+  "Transitive.tsx",
   "Unsplit.tsx"
-]);
-deepStrictEqual(generatedFiles("tsx-off"), [
-  "App.tsx",
-  "Greeting.tsx",
-  "LoadLog.tsx",
-  "Main.tsx",
-  "Panel.tsx",
-  "Unsplit.tsx"
-]);
+];
+deepStrictEqual(generatedFiles("tsx"), [...singleFiles, "App.fields.tsx", "Panel.fields.tsx"].sort());
+deepStrictEqual(generatedFiles("tsx-off"), singleFiles);
 
 // The sibling must not import its component file. With that import cycle,
 // Vite loads the sibling again on each component update, and the re-exported
@@ -108,7 +110,13 @@ const single = probe("tsx-off");
 // Cold-build semantics: the split changes neither load order nor output.
 deepStrictEqual(split.loadOrder, single.loadOrder);
 equal(split.html, single.html);
-deepStrictEqual(split.loadOrder, ["Panel.Counter", "Main:fixture"]);
+deepStrictEqual(split.loadOrder, [
+  "Panel.Counter",
+  "Main:fixture",
+  "Transitive:true",
+  "Omitted:true",
+  "Cycle:true:2"
+]);
 
 // Red without the define, green with it.
 deepStrictEqual(single.hotUpdates, {

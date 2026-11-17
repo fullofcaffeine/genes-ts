@@ -79,11 +79,14 @@ class ReactRefreshBinding {
  * compilation server stores and replays both files of a module together, and
  * the define is part of its session key.
  *
- * Limits: the two files import each other. This is safe because the
- * component file holds only hoisted function declarations at the top level.
- * Both files repeat the import list of the module, so that module load order
- * stays the same as in one file when the consumer keeps value imports
- * (`verbatimModuleSyntax`). Classic JavaScript output is not supported.
+ * Limits: only the component file imports the other one; the sibling reads
+ * a component through its `Owner.field` slot (`readsThroughSlot`), which the
+ * component file sets after the sibling has loaded. `componentNames` lists
+ * the cases where that would be too late, and keeps those modules as one
+ * file. Both files repeat the import list of the module, so that module
+ * load order stays the same as in one file when the consumer keeps value
+ * imports (`verbatimModuleSyntax`). Classic JavaScript output is not
+ * supported.
  */
 class ReactRefreshModulePlan {
   /** The define that turns the split on. */
@@ -122,92 +125,95 @@ class ReactRefreshModulePlan {
   /**
    * Returns the requested names of the component functions of a module, in
    * member and field order, or `null` when the module is not split.
+   *
+   * A module stays one file when:
+   * - it has no component, or no other runtime declaration;
+   * - it is the entry module (`MMain`): a dev server never hot-updates it;
+   * - code that runs while the module loads (a static initializer or a class
+   *   `__init__`) can reach a component of the module, also through calls of
+   *   other functions, constructors or methods of the module
+   *   (`reachesComponent`). The component file sets the `Owner.field` slots
+   *   only after the sibling has loaded, so such code would call the
+   *   placeholder method;
+   * - a direct (hoisted) non-component module function can reach a component
+   *   through other direct functions. Another module in an import cycle can
+   *   call it before the sibling has defined the slot class;
+   * - the owner class of a component is omitted (all its fields are direct
+   *   functions) and other code of the module names the component: the
+   *   sibling would have no slot to read.
    */
   public static function componentNames(module: Module): Null<Array<String>> {
     if (!enabled() || !Context.defined('genes.ts'))
       return null;
     final plan = module.moduleFunctionPlan;
     final valuePlan = module.moduleValuePlan;
+    final graph = new ModuleCodeGraph(module.module);
     final components = [];
-    final componentKeys = new Map<String, Bool>();
-    final loadTimeExpressions: Array<TypedExpr> = [];
+    final loadTime: Array<TypedExpr> = [];
+    final directBodies: Array<TypedExpr> = [];
+    final siblingCode: Array<TypedExpr> = [];
+    final omittedComponentKeys = new Map<String, Bool>();
     var hasOtherRuntime = false;
     for (member in module.members) {
       if (!Module.memberProjection(member).emitImplementation)
         continue;
       switch member {
         case MMain(_):
-          // The entry module runs the program; a dev server never hot-updates it.
           return null;
-        case MClass(cl, _, fields) if (!cl.isInterface):
-          for (entry in plan.entriesFor(cl))
-            if (isComponent(entry))
-              componentKeys.set(cl.name + '.' + entry.field.name, true);
-          for (field in Module.emittableFields(fields))
-            if (field.isStatic && field.expr != null
-              && field.kind.match(Property))
-              loadTimeExpressions.push(field.expr);
-          if (cl.init != null)
-            loadTimeExpressions.push(cl.init);
-        default:
-      }
-      switch member {
         case MClass(cl, _, _) if (cl.isInterface):
           // TypeScript output adds a runtime marker for an interface.
           hasOtherRuntime = true;
         case MClass(cl, _, fields):
-          for (entry in plan.entriesFor(cl))
-            if (isComponent(entry))
-              components.push(entry.requestedName);
-            else
-              hasOtherRuntime = true;
+          final emittable = Module.emittableFields(fields);
+          final ownerOmitted = DirectModuleBinding.canOmitSyntheticOwner(cl,
+            emittable);
+          if (!ownerOmitted)
+            hasOtherRuntime = true;
           if (valuePlan.entriesFor(cl).length > 0)
             hasOtherRuntime = true;
-          if (!DirectModuleBinding.canOmitSyntheticOwner(cl,
-            Module.emittableFields(fields)))
-            hasOtherRuntime = true;
-        case MEnum(_, _) | MMain(_):
+          for (entry in plan.entriesFor(cl)) {
+            final key = ModuleCodeGraph.staticKey(cl.name, entry.field.name);
+            if (isComponent(entry)) {
+              components.push(entry.requestedName);
+              graph.components.set(key, true);
+              if (ownerOmitted)
+                omittedComponentKeys.set(key, true);
+            } else {
+              hasOtherRuntime = true;
+              graph.direct.set(key, true);
+              if (entry.field.expr != null)
+                directBodies.push(entry.field.expr);
+            }
+          }
+          graph.addClass(cl, emittable);
+          for (field in emittable) {
+            if (field.expr == null)
+              continue;
+            final key = ModuleCodeGraph.staticKey(cl.name, field.name);
+            if (field.isStatic && graph.components.exists(key))
+              continue;
+            siblingCode.push(field.expr);
+            if (field.isStatic && field.kind.match(Property))
+              loadTime.push(field.expr);
+          }
+          if (cl.init != null) {
+            loadTime.push(cl.init);
+            siblingCode.push(cl.init);
+          }
+        case MEnum(_, _):
           hasOtherRuntime = true;
         case MType(_, _):
       }
     }
     if (components.length == 0 || !hasOtherRuntime)
       return null;
-    for (expression in loadTimeExpressions)
-      if (readsComponent(expression, module.module, componentKeys))
-        return null;
+    if (graph.reachesComponent(loadTime, true))
+      return null;
+    if (graph.reachesComponent(directBodies, false))
+      return null;
+    if (ModuleCodeGraph.names(siblingCode, module.module, omittedComponentKeys))
+      return null;
     return components;
-  }
-
-  /**
-   * True when an expression that runs while the module loads (a static
-   * initializer or a class `__init__`) reads a component of the same module.
-   *
-   * Why: in a split module the component file sets the `Owner.field` slots
-   * after the sibling has loaded. A read during the load of the sibling
-   * would see the placeholder method. Genes then keeps the module as one
-   * file. Calls inside function bodies run later and are safe.
-   */
-  static function readsComponent(expression: TypedExpr, module: String,
-      componentKeys: Map<String, Bool>): Bool {
-    var found = false;
-    function visit(current: TypedExpr): Void {
-      if (found || current == null)
-        return;
-      switch current.expr {
-        case TField(_, FStatic(owner, field)):
-          final ownerType = owner.get();
-          if (ownerType.module == module
-            && componentKeys.exists(ownerType.name + '.' + field.get().name)) {
-            found = true;
-            return;
-          }
-        default:
-      }
-      current.iter(visit);
-    }
-    visit(expression);
-    return found;
   }
 
   /**
@@ -236,6 +242,149 @@ class ReactRefreshModulePlan {
       toFields: Bool): String {
     final base = './' + Path.withoutDirectory(module.path);
     return toFields ? base + FIELDS_SUFFIX : base;
+  }
+}
+
+/**
+ * The code of one Haxe module as a graph of function bodies, used to find
+ * whether some code can reach a React component of the same module.
+ *
+ * Keys: `Owner.field` for a static field, `Owner#new` for a constructor, and
+ * `#name` for every instance field named `name` (a method call can dispatch
+ * to an override in any class of the module, so all of them are followed).
+ * Only references to the same module are followed; calls through `Dynamic`
+ * values are not visible to the typed tree.
+ */
+private class ModuleCodeGraph {
+  public final components = new Map<String, Bool>();
+  public final direct = new Map<String, Bool>();
+
+  final module: String;
+  final bodies = new Map<String, Array<TypedExpr>>();
+  final superConstructor = new Map<String, String>();
+
+  public function new(module: String) {
+    this.module = module;
+  }
+
+  public static function staticKey(owner: String, field: String): String {
+    return owner + '.' + field;
+  }
+
+  static function constructorKey(owner: String): String {
+    return owner + '#new';
+  }
+
+  static function instanceKey(field: String): String {
+    return '#' + field;
+  }
+
+  function add(key: String, body: TypedExpr): Void {
+    final list = bodies.get(key);
+    if (list == null)
+      bodies.set(key, [body]);
+    else
+      list.push(body);
+  }
+
+  /** Adds the bodies of one class: statics, constructor and instance fields. */
+  public function addClass(cl: ClassType, fields: Array<Module.Field>): Void {
+    if (cl.superClass != null) {
+      final parent = cl.superClass.t.get();
+      if (parent.module == module)
+        superConstructor.set(cl.name, parent.name);
+    }
+    for (field in fields) {
+      if (field.expr == null)
+        continue;
+      if (field.isStatic)
+        add(staticKey(cl.name, field.name), field.expr);
+      else if (field.kind.match(Constructor))
+        add(constructorKey(cl.name), field.expr);
+      else {
+        add(instanceKey(field.name), field.expr);
+        // An instance variable initializer runs in the constructor.
+        if (field.kind.match(Property))
+          add(constructorKey(cl.name), field.expr);
+      }
+    }
+  }
+
+  /**
+   * True when one of `starts` reaches a component. With `followAll` it
+   * follows static calls, constructors and instance methods of the module;
+   * otherwise only direct module functions.
+   */
+  public function reachesComponent(starts: Array<TypedExpr>,
+      followAll: Bool): Bool {
+    final visited = new Map<String, Bool>();
+    final queue = starts.copy();
+    function follow(key: String): Void {
+      if (visited.exists(key))
+        return;
+      visited.set(key, true);
+      final list = bodies.get(key);
+      if (list != null)
+        for (body in list)
+          queue.push(body);
+    }
+    function followConstructor(owner: String): Void {
+      var current: Null<String> = owner;
+      while (current != null) {
+        follow(constructorKey(current));
+        current = superConstructor.get(current);
+      }
+    }
+    var found = false;
+    function visit(current: TypedExpr): Void {
+      if (found || current == null)
+        return;
+      switch current.expr {
+        case TField(_, FStatic(owner, field)) if (owner.get().module == module):
+          final key = staticKey(owner.get().name, field.get().name);
+          if (components.exists(key)) {
+            found = true;
+            return;
+          }
+          if (followAll || direct.exists(key))
+            follow(key);
+        case TField(_, FInstance(owner, _, field))
+          if (followAll && owner.get().module == module):
+          follow(instanceKey(field.get().name));
+        case TField(_, FClosure(owner, field))
+          if (followAll && owner != null && owner.c.get().module == module):
+          follow(instanceKey(field.get().name));
+        case TNew(owner, _, _) if (followAll && owner.get().module == module):
+          followConstructor(owner.get().name);
+        default:
+      }
+      current.iter(visit);
+    }
+    while (queue.length > 0 && !found)
+      visit(queue.shift());
+    return found;
+  }
+
+  /** True when one of `expressions` names one of the `keys` statics. */
+  public static function names(expressions: Array<TypedExpr>, module: String,
+      keys: Map<String, Bool>): Bool {
+    var found = false;
+    function visit(current: TypedExpr): Void {
+      if (found || current == null)
+        return;
+      switch current.expr {
+        case TField(_, FStatic(owner, field))
+          if (owner.get().module == module
+            && keys.exists(staticKey(owner.get().name, field.get().name))):
+          found = true;
+          return;
+        default:
+      }
+      current.iter(visit);
+    }
+    for (expression in expressions)
+      visit(expression);
+    return found;
   }
 }
 #end

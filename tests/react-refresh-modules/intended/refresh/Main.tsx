@@ -1,6 +1,11 @@
 import type {JSX} from "react"
 import {LoadLog} from "./LoadLog.js"
 import {App_Fields_, App} from "./App.js"
+import {Std} from "../Std.js"
+import {Holder} from "./Transitive.js"
+import {renderOmitted} from "./Omitted.js"
+import {CycleDep} from "./CycleDep.js"
+import {Cycle_Fields_} from "./Cycle.js"
 import * as ReactDomClient from "react-dom/client"
 import {Register} from "../genes/Register.js"
 
@@ -10,6 +15,9 @@ import {Register} from "../genes/Register.js"
 export class Main {
 	static main(): void {
 		LoadLog.record("Main:" + App_Fields_.appTitle());
+		LoadLog.record("Transitive:" + Std.string(Holder.cached != null));
+		LoadLog.record("Omitted:" + Std.string(renderOmitted(2) != null));
+		LoadLog.record("Cycle:" + Std.string(CycleDep.rendered != null) + ":" + Cycle_Fields_.cyclePlain());
 		if (typeof document == "undefined") {
 			return;
 		};

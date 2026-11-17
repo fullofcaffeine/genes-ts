@@ -30,17 +30,31 @@ module function and at least one other runtime declaration becomes:
   slot assignments, and a re-export of every binding that `Panel.tsx`
   exported before. Importers do not change.
 - `Panel.fields.tsx`: every other declaration, each one exported. It never
-  imports `Panel.tsx`. Its own code reads a component through the slot
-  (`<Panel_Fields_.Badge />`).
+  imports `Panel.tsx`: only the component file imports the other one. The
+  sibling's own code reads a component through the slot
+  (`<Panel_Fields_.Badge />`), which the component file sets after the
+  sibling has loaded.
 
 An edit of a component body changes only `Panel.tsx`. The re-exported values
 come from the unchanged sibling and are the same objects, so Fast Refresh
 accepts the update.
 
-Genes keeps a module as one file when it has only components and types
-(`Greeting`), when it is the entry module (`Main`), or when a static
-initializer reads a component while the module loads (`Unsplit`): the slot
-is set only after the sibling has loaded.
+Genes keeps a module as one file (`ReactRefreshModulePlan.componentNames`)
+when:
+
+- it has no component, or no other runtime declaration (`Greeting`, `LoadLog`);
+- it is the entry module (`Main`);
+- code that runs while the module loads (a static initializer or a class
+  `__init__`) can reach a component of the module, directly (`Unsplit`) or
+  through calls of other functions, constructors or methods of the module
+  (`Transitive`). In a split module that code would call the placeholder
+  slot;
+- a direct (hoisted) non-component function can reach a component through
+  other direct functions (`Cycle`). Another module in an import cycle can
+  call it before the sibling has defined the slot class (`CycleDep`);
+- the owner class of a component is omitted, because all its fields are
+  direct functions, and other code of the module names the component
+  (`Omitted`): the sibling would have no slot to read.
 
 ## Automated evidence
 
@@ -53,9 +67,18 @@ set and the snapshots in `intended/`, type-checks both builds with the
 TypeScript 5, 6 and 7 lanes, and runs `probe.mjs` on each build. The probe
 compares module load order and server-rendered HTML (they must be equal), and
 applies the Fast Refresh export rule of `@vitejs/plugin-react` 6.0.4 to a new
-instance of each component module, as a dev server does. Without the define
+instance of each component module, as a dev server does. The probe copies
+only part of that rule: `isLikelyComponentType` and the same-value check. It
+does not copy `isCompoundComponent` or the checks for a new or a removed
+export; the Vite proof below runs the complete rule. Without the define
 `Panel` and `App` are rejected; with it all modules are accepted. A classic
 JavaScript build with the define must fail with `GENES-REACT-REFRESH-001`.
+
+The compiler-server replay of split modules is covered by
+`yarn test:compiler-server:shadow --react-refresh`: it runs every edit with
+the define, and its React edits check a component-body edit, a module that
+becomes split, and a module whose last component is removed (its stale
+`X.fields.tsx` must disappear), in compare and reuse modes.
 
 ## Vite dev-server evidence (manual)
 
@@ -82,8 +105,11 @@ a chain of importers reaches the entry module first, Vite still reloads.
   `verbatimModuleSyntax` (no import elision) the load order of other modules is
   the same as with one file. A consumer that elides unused imports can load a
   dependency used only by one part later than before.
-- In the sibling, a same-module component is read through its slot. A read
-  during module load is not possible, so such modules are not split.
+- The component file imports every binding of the sibling (and both files
+  declare `const $global` when the build uses `js.Lib.global`), also when it
+  does not use them. A consumer that checks with `noUnusedLocals` gets
+  TS6133 for these imports. The repeated import lists have the same effect.
+- Calls through `Dynamic` values are not visible to the stay-one-file rules.
 - If the module is in an ESM import cycle with one of its dependencies, the
   sibling also imports a module that imports the component file. Vite then
   loads the sibling again on a component update, the re-exported values are
