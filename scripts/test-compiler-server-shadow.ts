@@ -1138,6 +1138,33 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var unlistedValue = 1;\n")
   },
   {
+    // Must fix 1 of the review of #249, control: the first use of the inline
+    // method `thrice` of an extern class as a value makes Haxe add a wrapper
+    // class to inc.FableMixPlain, which Haxe does not type again. No
+    // metadata changes, so the request stays incremental.
+    id: "a new class in a kept module without a metadata change",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static function fableThrice(): Int {\n    final f = inc.FableMixPlain.thrice;\n    return f(3);\n  }\n"),
+    results: ["incremental"]
+  },
+  {
+    // Must fix 1: in one request, Haxe adds the wrapper class of `twice` to
+    // inc.FableMix, and inc.Fable3Macro writes `@:value("lighter")` on the
+    // static Light of the enum abstract FableShade of the same module. The
+    // new class arrives without a stamp; the other declarations keep theirs,
+    // so their metadata must still be compared (it was skipped for the
+    // whole module, and inc/FableMixUser.tsx kept "dark" | "light").
+    id: "metadata changes in a module that gets a new class in the same request",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableMixValue = 1;\n  public static function fableTwice(): Int {\n    final f = inc.FableMix.twice;\n    return f(3);\n  }\n")
+  },
+  {
+    // Control: the same kind of change in that module without a new class.
+    id: "metadata changes in a module that gets no new class",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableMixValueOnly = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1171,6 +1198,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.Mark3Macro.install()",
     "--macro", "inc.FableMacro.install()",
     "--macro", "inc.UnlistedMacro.install()",
+    "--macro", "inc.Fable3Macro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,

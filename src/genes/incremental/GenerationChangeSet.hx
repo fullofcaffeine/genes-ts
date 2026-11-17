@@ -58,6 +58,12 @@ typedef ObservedDeclaration = {
 
   /** `null` when the request left the incremental path (an `@:rtti` class). */
   final stamp: Null<StampedDeclaration>;
+
+  /**
+   * The fields of the class that the metadata comparison read, so that the
+   * walk does not copy them again; `null` when it did not read them.
+   */
+  final parts: Null<ModuleFingerprint.ClassParts>;
 }
 
 /** Why the keep rule rejects a record. */
@@ -404,7 +410,7 @@ class GenerationChangeSet {
         + 'prints its metadata into __rtti, so a stamp would reach output');
       stampSeconds += haxe.Timer.stamp() - started;
       writeReport();
-      return [for (record in records) {type: record, stamp: null}];
+      return [for (record in records) {type: record, stamp: null, parts: null}];
     }
     var keySeconds = 0.0;
     final first = requestNumber == 0;
@@ -416,6 +422,8 @@ class GenerationChangeSet {
     final pos = Context.currentPos();
     final reserve = descriptor.generation != Regenerate;
     final observed: Array<ObservedDeclaration> = [];
+    final kept: Array<Bool> = [];
+    final parts: Array<Null<ModuleFingerprint.ClassParts>> = [];
     for (index => type in types) {
       final record = records[index];
       final base: BaseType = record != null ? record : DependencyPlan.moduleTypeBase(type);
@@ -442,10 +450,16 @@ class GenerationChangeSet {
       }
       if (record != null)
         classes++;
-      observed.push({type: record, stamp: stamped});
+      kept.push(stamped.arrival == Kept);
+      // Only the first list is compared (`compareMetadata`); the walk then
+      // reuses these fields.
+      final read = first
+        && record != null ? ModuleFingerprint.classParts(record) : null;
+      parts.push(read);
+      observed.push({type: record, stamp: stamped, parts: read});
     }
     if (first) {
-      beginRequest(descriptor, types, records);
+      beginRequest(descriptor, types, records, parts, kept);
       keySeconds = sessionKeySeconds;
     }
     reservedDigest = null;
@@ -844,13 +858,16 @@ class GenerationChangeSet {
    * Settles the request after its first declaration list was stamped:
    * compares the metadata of each module with the earlier request
    * (`compareMetadata`), computes the session key once, and drops every
-   * record when the key is not the one of the earlier request. `records`
-   * holds the class record of each entry of `types` that is a class.
+   * record when the key is not the one of the earlier request. For each
+   * entry of `types`, `records` holds the class record and `parts` its
+   * fields (for a class), and `kept` whether it arrived with its stamp.
    */
   static function beginRequest(descriptor: IncrementalDescriptor,
-      types: Array<ModuleType>, records: Array<Null<ClassType>>): Void {
+      types: Array<ModuleType>, records: Array<Null<ClassType>>,
+      parts: Array<Null<ModuleFingerprint.ClassParts>>,
+      kept: Array<Bool>): Void {
     final started = haxe.Timer.stamp();
-    compareMetadata(types, records);
+    compareMetadata(types, records, parts, kept);
     final key = sessionKeyOf(descriptor);
     sessionKeySeconds = haxe.Timer.stamp() - started;
     final earlier = lastSessionKey;
@@ -883,42 +900,78 @@ class GenerationChangeSet {
    * `ModuleFingerprint.addDeclaration` gives each of its declarations: the
    * metadata of the declaration, of its fields, constructors, enum
    * constructors and type parameters, and of the structures of its declared
-   * types. When a module whose declarations all arrived with their stamps
-   * has another digest of that text than in the earlier request, each line
-   * that both requests have is compared (`metadataLines`). When one
-   * differs, `metadataEpoch` grows.
+   * types. When a module has another digest of that text than in the
+   * earlier request, each line that both requests have is compared
+   * (`addMetadataLines`), except the lines of a declaration that arrived
+   * without its stamp in this request: Haxe typed it again, and the keep
+   * rule rejects its records anyway. The decision is made for each
+   * declaration, not for the module (must fix 1 of the review of genes-ts
+   * #249): Haxe can add a declaration to a module that it did not type
+   * again, and the other declarations keep their records. When one compared
+   * line differs, `metadataEpoch` grows.
    * The epoch is a line of the session key, so every record of every pass
    * is dropped and the generation cache does not use its stored output, in
    * this request only: the next request compares with this one.
    *
-   * Not covered: metadata that only a typed body holds (limit S3 of the
-   * review of genes-ts #246), and changes after this callback, such as an
-   * `onGenerate` macro (the post-DCE fingerprints of the generation shadow
-   * see those for every declaration that a printer can reach by name).
+   * Limits:
+   *
+   * - Metadata that only a typed body holds (limit S3 of the review of
+   *   genes-ts #246).
+   * - Metadata added after this callback and before Haxe saves the class
+   *   state, for example by an `onGenerate` macro or by
+   *   `-D analyzer-optimize` (`@:pure(inferredPure)`): Haxe restores it in
+   *   the next request, so the module looks changed once each time Haxe
+   *   types it, and that request generates in full. Safe, only slower; see
+   *   `ModuleFingerprint.BEFORE_DCE_EXCLUDED_META`. The post-DCE
+   *   fingerprints of the generation shadow see such a change for every
+   *   declaration that a printer can reach by name.
+   * - Only the first declaration list of a request is compared. A later
+   *   list holds the types that a callback defined in this request; Haxe
+   *   gives them again in each request, so they arrive without a stamp, and
+   *   a copied stamp is the case of the same-object test.
+   * - A declaration that arrives without a stamp in every request (a class
+   *   that Haxe first typed in a request that added no stamp, or one with
+   *   a stamp that names another declaration) is never compared. Its own
+   *   records are never kept, but a value that another declaration derived
+   *   from its metadata is not guarded here.
    */
   static function compareMetadata(types: Array<ModuleType>,
-      records: Array<Null<ClassType>>): Void {
-    final texts = new Map<String, StringBuf>();
+      records: Array<Null<ClassType>>,
+      parts: Array<Null<ModuleFingerprint.ClassParts>>,
+      kept: Array<Bool>): Void {
+    // The text of each declaration on its own, with its arrival: the module
+    // text is their concatenation in Haxe's order.
+    final texts = new Map<String, Array<{text: String, kept: Bool}>>();
     for (index => type in types) {
       final record = records[index];
       final base: BaseType = record != null ? record : DependencyPlan.moduleTypeBase(type);
-      var buffer = texts.get(base.module);
-      if (buffer == null) {
-        buffer = new StringBuf();
-        texts.set(base.module, buffer);
-      }
-      ModuleFingerprint.addDeclaration(buffer, type, record);
+      final buffer = new StringBuf();
+      ModuleFingerprint.addDeclaration(buffer, type, record, parts[index]);
+      final entry = {text: buffer.toString(), kept: kept[index]};
+      final list = texts.get(base.module);
+      if (list == null)
+        texts.set(base.module, [entry]);
+      else
+        list.push(entry);
     }
     final changed = [];
-    for (module => buffer in texts) {
-      final text = buffer.toString();
-      final digest = Context.signature(text);
+    for (module => list in texts) {
+      final digest = Context.signature([for (entry in list) entry.text].join(''));
       if (metadataDigests.get(module) == digest)
         continue;
-      final lines = metadataLines(text);
+      // Review of genes-ts #249 (must fix 1): "typed again" is decided for
+      // each declaration, not for the module. Haxe can add a declaration to
+      // a module that it did not type again (the wrapper class of an inline
+      // method of an extern class that is used as a value); the other
+      // declarations keep their stamps and their records, so their lines
+      // are compared. Only the lines of a declaration that arrived without
+      // its stamp are not.
+      final lines = new Map<String, String>();
+      final skipped = new Map<String, Bool>();
+      for (entry in list)
+        addMetadataLines(lines, entry.text, entry.kept ? null : skipped);
       final earlier = metadataLineDigests.get(module);
-      if (earlier != null && !typedAgainModules.exists(module)
-        && changedLine(earlier, lines))
+      if (earlier != null && changedLine(earlier, lines, skipped))
         changed.push(module);
       metadataDigests.set(module, digest);
       metadataLineDigests.set(module, lines);
@@ -930,8 +983,8 @@ class GenerationChangeSet {
   }
 
   /**
-   * Returns the digest of each line of a module's metadata text
-   * (`ModuleFingerprint.addDeclaration`), by line key: the first two words
+   * Adds to `lines` the digest of each line of one declaration's metadata
+   * text (`ModuleFingerprint.addDeclaration`), by line key: the first two words
    * of a declaration line (`class inc.Shade._Shade_Impl_`), or those of a
    * field or constructor line after the key of its declaration
    * (`class inc.Shade._Shade_Impl_/static Light`).
@@ -941,9 +994,13 @@ class GenerationChangeSet {
    * That changes the member list (condition 6 of the keep rule rejects the
    * records of that class), not the metadata of any part that both requests
    * have, so it must not start a new metadata epoch.
+   *
+   * `skipped` is given for a declaration that arrived without its stamp:
+   * each of its keys is added to it, and `changedLine` does not compare
+   * them.
    */
-  static function metadataLines(text: String): Map<String, String> {
-    final lines = new Map<String, String>();
+  static function addMetadataLines(lines: Map<String, String>, text: String,
+      skipped: Null<Map<String, Bool>>): Void {
     var declaration = '';
     for (line in text.split('\n')) {
       if (line.length == 0)
@@ -957,8 +1014,9 @@ class GenerationChangeSet {
       final digest = Context.signature(line);
       final known = lines.get(key);
       lines.set(key, known == null ? digest : known + digest);
+      if (skipped != null)
+        skipped.set(key, true);
     }
-    return lines;
   }
 
   /**
@@ -966,8 +1024,10 @@ class GenerationChangeSet {
    * line that only one of them has is a part that was added or removed.
    */
   static function changedLine(earlier: Map<String, String>,
-      now: Map<String, String>): Bool {
+      now: Map<String, String>, skipped: Map<String, Bool>): Bool {
     for (key => digest in now) {
+      if (skipped.exists(key))
+        continue;
       final before = earlier.get(key);
       if (before != null && before != digest)
         return true;

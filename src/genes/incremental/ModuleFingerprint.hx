@@ -8,6 +8,17 @@ import haxe.macro.Type;
 import genes.util.TypeUtil;
 
 /**
+ * The fields of one class, read once (`ModuleFingerprint.classParts`), so
+ * that the metadata comparison of `GenerationChangeSet` and the walk of
+ * `AfterTypingPasses` share one copy.
+ */
+typedef ClassParts = {
+  final fields: Array<ClassField>;
+  final statics: Array<ClassField>;
+  final constructor: Null<ClassField>;
+}
+
+/**
  * Builds the shallow fingerprint of one module: the facts that can change
  * the module's output although Haxe did not type the module again.
  *
@@ -126,6 +137,15 @@ class ModuleFingerprint {
    * (`GenerationChangeSet.compareMetadata`), so metadata that Genes itself
    * adds later in the same callback would look like a change in the next
    * request.
+   *
+   * `:keep` is one case of a general one: any metadata that is added after
+   * that comparison and before Haxe saves the class state comes back,
+   * restored, in the next request. Examples: an `onGenerate` macro, or
+   * `-D analyzer-optimize`, which adds `@:pure(inferredPure)`. The module
+   * then looks changed, and that request drops every kept record and
+   * generates in full, once each time Haxe types the module. That is safe,
+   * only slower. Only `:keep` is listed here, because Genes adds it in every
+   * build; taking the baseline after generation instead is a follow-up.
    */
   public static final BEFORE_DCE_EXCLUDED_META: Map<String,
     String> = [':keep' =>
@@ -163,7 +183,8 @@ class ModuleFingerprint {
   }
 
   /** Adds the text of one class, as `of` describes it. */
-  static function addClass(buffer: StringBuf, cls: ClassType): Void {
+  static function addClass(buffer: StringBuf, cls: ClassType,
+      ?parts: ClassParts): Void {
     buffer.add('class ${TypeUtil.baseTypeFullName(cls)}');
     final parent = cls.superClass;
     if (parent != null) {
@@ -179,19 +200,33 @@ class ModuleFingerprint {
     buffer.add(cls.isExtern ? ' extern' : '');
     buffer.add(cls.isInterface ? ' interface' : '');
     buffer.add(cls.init != null ? ' init' : '');
-    final constructor = cls.constructor;
-    if (constructor != null) {
-      final made = constructor.get();
+    final read = parts != null ? parts : classParts(cls);
+    final made = read.constructor;
+    if (made != null) {
       buffer.add(' new' + metaText(made.meta));
       buffer.add(constraintText(made.params));
       buffer.add(anonymousText(made.type));
     }
     addMeta(buffer, cls.meta);
     buffer.add(constraintText(cls.params));
-    for (field in cls.fields.get())
+    for (field in read.fields)
       addField(buffer, 'field', field);
-    for (field in cls.statics.get())
+    for (field in read.statics)
       addField(buffer, 'static', field);
+  }
+
+  /**
+   * Reads the instance fields, the static fields and the constructor of
+   * `cls` once. Each `get()` copies the fields in the macro interpreter, so
+   * a caller that needs them twice passes the result on.
+   */
+  public static function classParts(cls: ClassType): ClassParts {
+    final constructor = cls.constructor;
+    return {
+      fields: cls.fields.get(),
+      statics: cls.statics.get(),
+      constructor: constructor == null ? null : constructor.get()
+    };
   }
 
   /** Adds the text of one enum, as `of` describes it. */
@@ -286,22 +321,29 @@ class ModuleFingerprint {
    * The first line names the declaration; each field and enum constructor
    * has a line of its own that starts with two spaces, and no metadata
    * argument adds a line end.
-   * `record` is the class record when the caller already read it, so that
-   * the class is not copied twice. `GenerationChangeSet.compareMetadata`
-   * builds the metadata digest of each module from it.
+   * `record` is the class record and `parts` its fields when the caller
+   * already read them, so that the class is not copied twice.
+   * `GenerationChangeSet.compareMetadata` builds the metadata text of each
+   * module from it.
    */
   public static function addDeclaration(buffer: StringBuf, type: ModuleType,
-      ?record: ClassType): Void {
+      ?record: ClassType, ?parts: ClassParts): Void {
     readingBeforeDce = true;
-    switch type {
-      case TClassDecl(ref):
-        addClass(buffer, record != null ? record : ref.get());
-      case TEnumDecl(ref):
-        addEnum(buffer, ref.get());
-      case TTypeDecl(ref):
-        addTypedef(buffer, ref.get());
-      case TAbstract(ref):
-        addAbstract(buffer, ref.get());
+    try {
+      switch type {
+        case TClassDecl(ref):
+          addClass(buffer, record != null ? record : ref.get(), parts);
+        case TEnumDecl(ref):
+          addEnum(buffer, ref.get());
+        case TTypeDecl(ref):
+          addTypedef(buffer, ref.get());
+        case TAbstract(ref):
+          addAbstract(buffer, ref.get());
+      }
+    } catch (error:haxe.Exception) {
+      // Haxe has no `finally`: never leave the flag on for `of`.
+      readingBeforeDce = false;
+      throw error;
     }
     readingBeforeDce = false;
     buffer.add('\n');
