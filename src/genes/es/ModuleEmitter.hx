@@ -334,6 +334,7 @@ class ModuleEmitter extends ExprEmitter {
             || moduleFunctionPlan.entryFor(cl, field) == null)
             && (moduleValuePlan == null
               || moduleValuePlan.entryFor(cl, field) == null)):
+          noteTopLevelBinding(transformIdent(field.name), false, true);
           write('export const ');
           emitIdent(field.name);
           write(' = ');
@@ -344,6 +345,15 @@ class ModuleEmitter extends ExprEmitter {
       }
     #end
   }
+
+  /**
+   * Hook for one top-level declaration of a module, called before it is
+   * written. Classic output ignores it; the TypeScript emitter records the
+   * declarations of a split React Fast Refresh module
+   * (`genes.ReactRefreshModulePlan`).
+   */
+  function noteTopLevelBinding(name: String, isType: Bool,
+    exported: Bool): Void {}
 
   function staticName(cl: ClassType, field: Field)
     return EmittedMemberName.staticField(cl, field);

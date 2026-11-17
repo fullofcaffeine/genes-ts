@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "types": ["node", "react", "react-dom"],
+    "rootDir": "./out/tsx-off/src-gen",
+    "outDir": "./out/tsx-off/dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false
+  },
+  "include": ["out/tsx-off/src-gen/**/*.ts", "out/tsx-off/src-gen/**/*.tsx"]
+}

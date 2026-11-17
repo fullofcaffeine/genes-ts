@@ -57,6 +57,31 @@ class ExprEmitter extends Emitter {
   var jsxEmissionProfile: Null<JsxEmissionProfile> = null;
   var jsxSourceInlineConsumer: Null<JsxSourceInlineConsumer> = null;
   var jsxSourcePropsConsumer: Null<JsxSourcePropsConsumer> = null;
+
+  /** An emitter of the same module whose JSX accounting this one continues. */
+  var jsxConsumptionSource: Null<ExprEmitter> = null;
+
+  /** True when a later emitter of the same module validates the accounting. */
+  var jsxConsumptionValidationDeferred = false;
+
+  /**
+   * Lets this emitter continue the source-JSX accounting of `previous`.
+   *
+   * Why: one module can be written as two files (a React Fast Refresh split,
+   * `genes.ReactRefreshModulePlan`). Each file prints only some of the
+   * module's markup, but each planned rewrite must still be printed exactly
+   * once in the module. Call it before the module is emitted; `previous`
+   * must have called `deferJsxConsumptionValidation`.
+   */
+  public function continueJsxConsumption(previous: ExprEmitter): Void {
+    jsxConsumptionSource = previous;
+  }
+
+  /** Leaves the exact-once JSX check to the emitter that continues this one. */
+  public function deferJsxConsumptionValidation(): Void {
+    jsxConsumptionValidationDeferred = true;
+  }
+
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
   var localBindingPlan: Null<LocalBindingPlan> = null;
@@ -82,6 +107,11 @@ class ExprEmitter extends Emitter {
     jsxPlan = plan;
     jsxEmissionProfile = capability.profile;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
+    if (jsxConsumptionSource != null) {
+      jsxSourceInlineConsumer = jsxConsumptionSource.jsxSourceInlineConsumer;
+      jsxSourcePropsConsumer = jsxConsumptionSource.jsxSourcePropsConsumer;
+      return;
+    }
     jsxSourceInlineConsumer = emitsJsxSource() ? plan.sourceInlineConsumer(capability.profile) : null;
     jsxSourcePropsConsumer = emitsJsxSource() ? plan.sourcePropsConsumer(capability.profile) : null;
   }
@@ -145,9 +175,9 @@ class ExprEmitter extends Emitter {
 
   /** Validates exact source-inline consumption before the writer is closed. */
   override public function finish(): Void {
-    if (jsxSourceInlineConsumer != null)
+    if (jsxSourceInlineConsumer != null && !jsxConsumptionValidationDeferred)
       jsxSourceInlineConsumer.validate();
-    if (jsxSourcePropsConsumer != null)
+    if (jsxSourcePropsConsumer != null && !jsxConsumptionValidationDeferred)
       jsxSourcePropsConsumer.validate();
     super.finish();
   }
@@ -194,6 +224,18 @@ class ExprEmitter extends Emitter {
           lexicalBindingProfile);
     }
     return ctx.typeAccessor(accessor);
+  }
+
+  /**
+   * Hook for a reference to a selected module function: it can print the
+   * `Owner.field` slot read instead of the direct function binding, and
+   * returns true when it did. Ordinary output prints the direct binding. The
+   * TypeScript emitter uses it in the sibling of a split React module
+   * (`genes.ReactRefreshModulePlan.readsThroughSlot`).
+   */
+  function emitModuleFunctionSlotRead(owner: ClassType,
+      field: ClassField): Bool {
+    return false;
   }
 
   /** Emits one exact bare runtime binding through the same assertion seam. */
@@ -898,6 +940,12 @@ class ExprEmitter extends Emitter {
       case TField(_, FStatic(owner, _.get() => field))
         if (field.meta.has(':jsRequire')):
         emitJsRequireField(owner.get(), field);
+      case TField(_, FStatic(ownerRef, fieldRef))
+        if (currentModule != null
+          && currentModule.resolveModuleFunction(ownerRef,
+            fieldRef)?.isSourceModuleBinding == true
+          && emitModuleFunctionSlotRead(ownerRef.get(), fieldRef.get())):
+        // The hook printed the `Owner.field` slot read.
       case TField(_, FStatic(ownerRef, fieldRef))
         if (currentModule != null
           && currentModule.resolveModuleFunction(ownerRef,
