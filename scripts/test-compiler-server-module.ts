@@ -1164,7 +1164,9 @@ async function main(): Promise<void> {
 async function runKeepControl(
   compiler: ReturnType<typeof selectedHaxeCompiler>
 ): Promise<string> {
-  prepare({ name: "keep-control", steps: [] });
+  // No server/invalidate here: the observation is what keep() leaves in
+  // Haxe's cache for a session that sends nothing else.
+  prepare({ name: "keep-control", noInvalidate: true, steps: [] });
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   try {
     await programRequest(server, "keep control first");
