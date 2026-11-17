@@ -49,6 +49,8 @@ class Main {
       Constrained.value(),
       LateUser.run(),
       FableProbe.value(),
+      TsTypedUser.run(),
+      ShadeUser.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

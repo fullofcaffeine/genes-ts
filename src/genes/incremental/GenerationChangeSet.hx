@@ -164,7 +164,10 @@ typedef AfterTypingReport = {
   /** Time to read and add the stamps. */
   final stampMs: Float;
 
-  /** Time to compute the session key. */
+  /**
+   * Time to compute the session key, with the comparison of the metadata of
+   * every module that comes before it (`compareMetadata`).
+   */
   final sessionKeyMs: Float;
 
   /** Time to read the member list of each class. */
@@ -219,8 +222,10 @@ typedef AfterTypingReport = {
  *    argument list, the output file name and the way from the output folder
  *    to the project root (`outputKeyLines`; not the absolute output path),
  *    the class paths in order, the working folder, the name and content of
- *    each embedded resource, and the status of each `.hx` file under the
- *    Genes class path.
+ *    each embedded resource, the status of each `.hx` file under the
+ *    Genes class path, and the metadata epoch (`compareMetadata`: it grows
+ *    when a macro changed the metadata of a module that Haxe did not type
+ *    again).
  *    When it differs, every record of every pass is dropped, and the
  *    generation cache does not use its stored output.
  * 3. The declaration arrived with one stamp, and the stamp names it.
@@ -289,8 +294,8 @@ typedef AfterTypingReport = {
  * request that added no stamp counts as typed again on every request until
  * Haxe types it again: safe, but slow.
  *
- * Lifetime: only the nonce, the request counter and the last session key are
- * `@:persistent`. They are plain text and numbers. Every other field is an
+ * Lifetime: only the nonce, the request counter, the last session key, the
+ * metadata digest of each module and the metadata epoch are `@:persistent`. They are plain text and numbers. Every other field is an
  * ordinary static that Haxe replaces at the start of each compilation, and
  * none of them holds a compiler value (the maps hold text only). Without
  * `-D genes.dev_incremental` nothing here runs.
@@ -310,6 +315,26 @@ class GenerationChangeSet {
   @:persistent static var nonce: Null<String> = null;
   @:persistent static var requestCounter = 0;
   @:persistent static var lastSessionKey: Null<String> = null;
+
+  /**
+   * The metadata digest of each module (`ModuleFingerprint.addDeclaration`
+   * over all its declarations) in the last request that observed it. Plain
+   * text; see `settleRequest`.
+   */
+  @:persistent static var metadataDigests: Map<String, String> = new Map();
+
+  /**
+   * For each module, the digest of each line of that text, by line key
+   * (`metadataLines`). Made again only when the module digest changes.
+   */
+  @:persistent static var metadataLineDigests: Map<String, Map<String,
+    String>> = new Map();
+
+  /**
+   * Grows by one in each request in which a module that Haxe did not type
+   * again has another metadata digest than before. The session key holds it.
+   */
+  @:persistent static var metadataEpoch = 0;
 
   static var requestNumber = 0;
   static var session: Null<SessionState> = null;
@@ -336,6 +361,7 @@ class GenerationChangeSet {
   static var sameObjectTokens = 0;
   static var objectProofs: Map<String, String> = new Map();
   static var objectFailures: Map<String, Bool> = new Map();
+  static var metadataChangedModules: Array<String> = [];
 
   /**
    * Stamps one declaration list that Haxe gave to `onAfterTyping` and
@@ -381,9 +407,10 @@ class GenerationChangeSet {
       return [for (record in records) {type: record, stamp: null}];
     }
     var keySeconds = 0.0;
-    if (requestNumber == 0) {
-      beginRequest(descriptor);
-      keySeconds = sessionKeySeconds;
+    final first = requestNumber == 0;
+    if (first) {
+      requestCounter++;
+      requestNumber = requestCounter;
     }
     final currentNonce = interpreterNonce();
     final pos = Context.currentPos();
@@ -416,6 +443,10 @@ class GenerationChangeSet {
       if (record != null)
         classes++;
       observed.push({type: record, stamp: stamped});
+    }
+    if (first) {
+      beginRequest(descriptor, types, records);
+      keySeconds = sessionKeySeconds;
     }
     reservedDigest = null;
     stampSeconds += haxe.Timer.stamp() - started - keySeconds;
@@ -810,14 +841,16 @@ class GenerationChangeSet {
   }
 
   /**
-   * Starts the request: takes the next request number, computes the session
-   * key once, and drops every record when the key is not the one of the
-   * earlier request.
+   * Settles the request after its first declaration list was stamped:
+   * compares the metadata of each module with the earlier request
+   * (`compareMetadata`), computes the session key once, and drops every
+   * record when the key is not the one of the earlier request. `records`
+   * holds the class record of each entry of `types` that is a class.
    */
-  static function beginRequest(descriptor: IncrementalDescriptor): Void {
-    requestCounter++;
-    requestNumber = requestCounter;
+  static function beginRequest(descriptor: IncrementalDescriptor,
+      types: Array<ModuleType>, records: Array<Null<ClassType>>): Void {
     final started = haxe.Timer.stamp();
+    compareMetadata(types, records);
     final key = sessionKeyOf(descriptor);
     sessionKeySeconds = haxe.Timer.stamp() - started;
     final earlier = lastSessionKey;
@@ -825,6 +858,130 @@ class GenerationChangeSet {
     session = state;
     lastSessionKey = key;
     droppedRecords = KeptRecords.beginRequest(requestNumber, state != Same);
+  }
+
+  /**
+   * Compares the metadata of every module with the earlier request, and
+   * starts a new metadata epoch when a module that Haxe did not type again
+   * has other metadata (genes-f8vc.9.27).
+   *
+   * Why: a macro of one module can change the metadata of a declaration of
+   * another module that Haxe does not type again, for example in an
+   * `onAfterTyping` callback. The passes after typing keep values that they
+   * derived from metadata. Example (M2b of the review of genes-ts #246):
+   * `SignatureCache` keeps the literal union `"dark" | "light"` of the enum
+   * abstract `inc.Shade`, read from the `:value` metadata of the statics of
+   * its implementation class before dead-code elimination removes them. A
+   * macro writes `@:value("lighter")` on one of them; the class keeps its
+   * stamp, so the keep rule would keep the old union, and the TypeScript of
+   * every module that prints the type would be stale. After dead-code
+   * elimination no fingerprint of the generation shadow can see those
+   * statics. Checking each reader would not end, so this compares all
+   * metadata of the program instead.
+   *
+   * What: the text of one module is the text that
+   * `ModuleFingerprint.addDeclaration` gives each of its declarations: the
+   * metadata of the declaration, of its fields, constructors, enum
+   * constructors and type parameters, and of the structures of its declared
+   * types. When a module whose declarations all arrived with their stamps
+   * has another digest of that text than in the earlier request, each line
+   * that both requests have is compared (`metadataLines`). When one
+   * differs, `metadataEpoch` grows.
+   * The epoch is a line of the session key, so every record of every pass
+   * is dropped and the generation cache does not use its stored output, in
+   * this request only: the next request compares with this one.
+   *
+   * Not covered: metadata that only a typed body holds (limit S3 of the
+   * review of genes-ts #246), and changes after this callback, such as an
+   * `onGenerate` macro (the post-DCE fingerprints of the generation shadow
+   * see those for every declaration that a printer can reach by name).
+   */
+  static function compareMetadata(types: Array<ModuleType>,
+      records: Array<Null<ClassType>>): Void {
+    final texts = new Map<String, StringBuf>();
+    for (index => type in types) {
+      final record = records[index];
+      final base: BaseType = record != null ? record : DependencyPlan.moduleTypeBase(type);
+      var buffer = texts.get(base.module);
+      if (buffer == null) {
+        buffer = new StringBuf();
+        texts.set(base.module, buffer);
+      }
+      ModuleFingerprint.addDeclaration(buffer, type, record);
+    }
+    final changed = [];
+    for (module => buffer in texts) {
+      final text = buffer.toString();
+      final digest = Context.signature(text);
+      if (metadataDigests.get(module) == digest)
+        continue;
+      final lines = metadataLines(text);
+      final earlier = metadataLineDigests.get(module);
+      if (earlier != null && !typedAgainModules.exists(module)
+        && changedLine(earlier, lines))
+        changed.push(module);
+      metadataDigests.set(module, digest);
+      metadataLineDigests.set(module, lines);
+    }
+    changed.sort(compareStrings);
+    metadataChangedModules = changed;
+    if (changed.length > 0)
+      metadataEpoch++;
+  }
+
+  /**
+   * Returns the digest of each line of a module's metadata text
+   * (`ModuleFingerprint.addDeclaration`), by line key: the first two words
+   * of a declaration line (`class inc.Shade._Shade_Impl_`), or those of a
+   * field or constructor line after the key of its declaration
+   * (`class inc.Shade._Shade_Impl_/static Light`).
+   *
+   * Why line by line: Haxe adds a static field to a class that it did not
+   * type again when another module first uses a `@:generic` method of it.
+   * That changes the member list (condition 6 of the keep rule rejects the
+   * records of that class), not the metadata of any part that both requests
+   * have, so it must not start a new metadata epoch.
+   */
+  static function metadataLines(text: String): Map<String, String> {
+    final lines = new Map<String, String>();
+    var declaration = '';
+    for (line in text.split('\n')) {
+      if (line.length == 0)
+        continue;
+      final inner = StringTools.startsWith(line, '  ');
+      final words = StringTools.ltrim(line).split(' ');
+      final head = words.length > 1 ? words[0] + ' ' + words[1] : words[0];
+      if (!inner)
+        declaration = head;
+      final key = inner ? declaration + '/' + head : head;
+      final digest = Context.signature(line);
+      final known = lines.get(key);
+      lines.set(key, known == null ? digest : known + digest);
+    }
+    return lines;
+  }
+
+  /**
+   * Returns true when a line that both `earlier` and `now` have differs. A
+   * line that only one of them has is a part that was added or removed.
+   */
+  static function changedLine(earlier: Map<String, String>,
+      now: Map<String, String>): Bool {
+    for (key => digest in now) {
+      final before = earlier.get(key);
+      if (before != null && before != digest)
+        return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns the sorted modules that Haxe did not type again and whose
+   * metadata changed since the earlier request (`compareMetadata`). Empty
+   * in most requests. When it is not empty, the session key changed.
+   */
+  public static function metadataChanged(): Array<String> {
+    return metadataChangedModules;
   }
 
   /**
@@ -888,6 +1045,7 @@ class GenerationChangeSet {
     buffer.add('haxe ${Context.definedValue('haxe')}\n');
     buffer.add('program ${descriptor.programDigest}\n');
     buffer.add('cwd ${Path.normalize(Sys.getCwd())}\n');
+    buffer.add('metadata-epoch $metadataEpoch\n');
     final output = genes.Generator.configuredOutput();
     // Without a captured output path (no `-js` when `Generator.use()` ran),
     // the key keeps Haxe's output slot as it is: safe, because any change of

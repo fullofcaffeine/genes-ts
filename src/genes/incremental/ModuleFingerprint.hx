@@ -62,21 +62,35 @@ import genes.util.TypeUtil;
  * A module of extern classes only gets `ofExtern`, a shorter text with the
  * same metadata.
  *
- * A class or enum that dead-code elimination removed is not in the
- * generator's list, so no fingerprint holds it. The walk of reachability
- * can still add it to a module; `members` then holds the same text for it.
- * An emitter can also print a removed declaration without adding it as a
- * member, for example the `@:ts.type` of a removed class at a use site
- * (`TypeReferenceCollector`), or the `:value` metadata of the removed
- * statics of an enum abstract (`TypeEmitter.enumAbstractLiteralUnion`).
- * Neither the fingerprint nor the member list holds those (limits M2a and
- * M2b of the review of genes-ts #246).
+ * Every other declaration of every module that Haxe typed, such as a class
+ * or enum that dead-code elimination removed, gets the same text through
+ * `unlisted`, as one digest for each module (genes-f8vc.9.27). A printer
+ * can read such a declaration without adding it as a member, for example
+ * the `@:ts.type` of a removed class at a use site
+ * (`TypeReferenceCollector`): limit M2a of the review of genes-ts #246. So
+ * each piece of metadata that a printer can reach after dead-code
+ * elimination, on a declaration, its fields, its constructors, its type
+ * parameters or the structures of its declared types, is in some
+ * fingerprint, whichever printer reads it. The walk of reachability can
+ * also add a removed declaration to a module; `members` then holds its
+ * text too.
+ *
+ * Metadata that a pass after typing reads before dead-code elimination,
+ * and keeps, is compared there: `GenerationChangeSet.compareMetadata`
+ * reads the text of `addDeclaration` for every declaration (M2b: the
+ * `:value` metadata of the statics of an enum abstract, which dead-code
+ * elimination removes, and from which `SignatureCache` keeps a literal
+ * union).
  *
  * Not in the fingerprint: field types (except the metadata of their
  * anonymous structures), bodies and positions. They change only when Haxe
  * types the module again, and the epochs guard that. Whether a
  * field has a body is also left out: reading it copies the complete typed
- * body in the macro interpreter, and only a new typing changes it.
+ * body in the macro interpreter, and only a new typing changes it. A macro
+ * can still change metadata that only a typed body holds: that of a local
+ * variable, of a local function's type parameter, or of a structure that
+ * only the type of an expression names. That is not covered (limit S3 of
+ * the review of genes-ts #246).
  */
 class ModuleFingerprint {
   /**
@@ -106,6 +120,24 @@ class ModuleFingerprint {
     'modules change, and no Genes source reads it'
   ];
 
+  /**
+   * The metadata names that `addDeclaration` also leaves out, each with the
+   * reason. That text is read before the passes after typing run
+   * (`GenerationChangeSet.compareMetadata`), so metadata that Genes itself
+   * adds later in the same callback would look like a change in the next
+   * request.
+   */
+  public static final BEFORE_DCE_EXCLUDED_META: Map<String,
+    String> = [':keep' =>
+    '`PublicSurface` and `LibraryProfile` add it after the '
+    + 'comparison in the first request, and it stays on a field that Haxe '
+    + 'keeps. It only steers dead-code elimination, whose result the '
+    + 'fingerprints after dead-code elimination (`of`, `members`) compare; '
+    + 'no Genes pass derives a value from it'];
+
+  /** True while `addDeclaration` reads a declaration (see `BEFORE_DCE_EXCLUDED_META`). */
+  static var readingBeforeDce = false;
+
   /** Returns the fingerprint text of one module's declarations. */
   public static function of(types: Array<Type>, directives: Array<String>,
       exposed: Array<String>): String {
@@ -119,11 +151,7 @@ class ModuleFingerprint {
         case TType(ref, _):
           addTypedef(buffer, ref.get());
         case TAbstract(ref, _):
-          final abs = ref.get();
-          buffer.add('abstract ${TypeUtil.baseTypeFullName(abs)}');
-          addMeta(buffer, abs.meta);
-          buffer.add(constraintText(abs.params));
-          buffer.add(anonymousText(abs.type));
+          addAbstract(buffer, ref.get());
         default:
           buffer.add('other');
       }
@@ -180,6 +208,103 @@ class ModuleFingerprint {
         buffer.add(anonymousText(construct.type));
       }
     }
+  }
+
+  /** Adds the text of one abstract, as `of` describes it. */
+  static function addAbstract(buffer: StringBuf, abs: AbstractType): Void {
+    buffer.add('abstract ${TypeUtil.baseTypeFullName(abs)}');
+    addMeta(buffer, abs.meta);
+    buffer.add(constraintText(abs.params));
+    buffer.add(anonymousText(abs.type));
+  }
+
+  /**
+   * Returns the fingerprint part for the declarations of one module that
+   * are in no generator list, or an empty text when there is none: one line,
+   * `unlisted <digest>`, where the digest is `Context.signature` of the
+   * text that `of` gives each of these declarations, in Haxe's order.
+   *
+   * Why (genes-f8vc.9.27): a printer can read the metadata of a declaration
+   * that dead-code elimination removed, without adding it as a member.
+   * Example from the review of genes-ts #246 (M2a): the `@:ts.type` of a
+   * removed class, which `TypeReferenceCollector` and `TypeEmitter` print
+   * where a type names the class. A macro of another module can change that
+   * metadata, and Haxe does not type the owning module again. Fixing each such reader would not end: any printer
+   * can read any metadata. So the fingerprint holds every declaration that
+   * Haxe typed. A declaration in a generator list gets the text of `of`; each
+   * other declaration gets the same text here, with every field that it
+   * still lists (a printer that walks the fields sees the same list). Rule 6
+   * of `GenerationCache` then falls back when one of them changes.
+   *
+   * `types` is the complete declaration list of the module
+   * (`TypedModuleInventory.allModules`), and `listed` says whether a
+   * declaration is in the generator's list. The digest keeps the cache
+   * small: removed declarations include large parts of the standard library.
+   *
+   * Not covered: metadata that only a typed body holds, such as that of a
+   * local variable or of a local function's type parameter (limit S3 of the
+   * review of genes-ts #246). Reading it would mean reading every typed body
+   * in every request.
+   */
+  public static function unlisted(types: Array<Type>,
+      listed: BaseType->Bool): String {
+    final buffer = new StringBuf();
+    for (type in types) {
+      switch type {
+        case TInst(ref, _):
+          final cls = ref.get();
+          if (listed(cls))
+            continue;
+          addClass(buffer, cls);
+        case TEnum(ref, _):
+          final enm = ref.get();
+          if (listed(enm))
+            continue;
+          addEnum(buffer, enm);
+        case TType(ref, _):
+          final def = ref.get();
+          if (listed(def))
+            continue;
+          addTypedef(buffer, def);
+        case TAbstract(ref, _):
+          final abs = ref.get();
+          if (listed(abs))
+            continue;
+          addAbstract(buffer, abs);
+        default:
+          continue;
+      }
+      buffer.add('\n');
+    }
+    final text = buffer.toString();
+    return text.length == 0 ? '' : 'unlisted ${Context.signature(text)}\n';
+  }
+
+  /**
+   * Adds the text that `of` gives one declaration, read from a
+   * `ModuleType` (as Haxe gives it to `onAfterTyping`), and a line end.
+   * The first line names the declaration; each field and enum constructor
+   * has a line of its own that starts with two spaces, and no metadata
+   * argument adds a line end.
+   * `record` is the class record when the caller already read it, so that
+   * the class is not copied twice. `GenerationChangeSet.compareMetadata`
+   * builds the metadata digest of each module from it.
+   */
+  public static function addDeclaration(buffer: StringBuf, type: ModuleType,
+      ?record: ClassType): Void {
+    readingBeforeDce = true;
+    switch type {
+      case TClassDecl(ref):
+        addClass(buffer, record != null ? record : ref.get());
+      case TEnumDecl(ref):
+        addEnum(buffer, ref.get());
+      case TTypeDecl(ref):
+        addTypedef(buffer, ref.get());
+      case TAbstract(ref):
+        addAbstract(buffer, ref.get());
+    }
+    readingBeforeDce = false;
+    buffer.add('\n');
   }
 
   /** Adds the text of one typedef, as `of` describes it. */
@@ -516,7 +641,8 @@ class ModuleFingerprint {
       return '';
     final entries = new Map<String, Bool>();
     for (entry in all)
-      if (!EXCLUDED_META.exists(entry.name))
+      if (!EXCLUDED_META.exists(entry.name)
+        && !(readingBeforeDce && BEFORE_DCE_EXCLUDED_META.exists(entry.name)))
         entries.set(metaEntryText(entry), true);
     final texts = [for (text in entries.keys()) text];
     if (texts.length == 0)
@@ -529,8 +655,10 @@ class ModuleFingerprint {
     final params = entry.params;
     if (params == null || params.length == 0)
       return '@${entry.name}';
-    return
-      '@${entry.name}(${[for (param in params) ExprTools.toString(param)].join(', ')})';
+    final text = '@${entry.name}(${[for (param in params) ExprTools.toString(param)].join(', ')})';
+    // `GenerationChangeSet.compareMetadata` compares the text line by line,
+    // so an argument that prints on several lines must stay on one.
+    return readingBeforeDce ? StringTools.replace(text, '\n', '\\n') : text;
   }
 }
 #end

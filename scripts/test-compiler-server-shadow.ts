@@ -1115,6 +1115,29 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var fableWideConstraint = 1;\n")
   },
   {
+    // genes-f8vc.9.27, M2a of the review of #246: dead-code elimination
+    // removes the class inc.TsTyped, so no generator list holds it, and the
+    // walk never adds it (a type override adds no dependency edge).
+    // inc.UnlistedMacro sets its `@:ts.type` to "string"; the printer of
+    // inc.TsTypedUser prints the override in a typedef field. Only the
+    // unlisted part of the fingerprint of inc.TsTyped shows the change.
+    id: "after-typing macro changes the type override of a class that dead-code elimination removes",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var unlistedOverride = 1;\n")
+  },
+  {
+    // M2b: inc.UnlistedMacro writes `@:value("lighter")` on the static
+    // Light of the implementation class of the enum abstract inc.Shade.
+    // `SignatureCache` reads the union of the values before dead-code
+    // elimination removes the statics, and keeps it; the printer of
+    // inc.ShadeUser prints it. Only the metadata comparison before the
+    // passes after typing sees the change (`GenerationChangeSet
+    // .compareMetadata`); compare mode was stale too before it.
+    id: "after-typing macro changes the value metadata of an enum abstract value that dead-code elimination removes",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var unlistedValue = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1147,6 +1170,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.Mark2Macro.install()",
     "--macro", "inc.Mark3Macro.install()",
     "--macro", "inc.FableMacro.install()",
+    "--macro", "inc.UnlistedMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,
