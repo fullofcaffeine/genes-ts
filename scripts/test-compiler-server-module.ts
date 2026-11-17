@@ -672,6 +672,31 @@ const groups: ReadonlyArray<Group> = [
     ]
   },
   {
+    // h1b: a class kept only as the constraint of a type parameter of a
+    // private function; the edit changes the constraint.
+    name: "h1b-constraint-first",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Shapes.total());"]),
+      "mr/Shapes.hx": `package mr;\n\nclass Shape {\n  public function new() {}\n\n`
+        + `  public function area(): Float {\n    return 0.0;\n  }\n}\n\n`
+        + `class Square extends Shape {\n  override public function area(): Float {\n`
+        + `    return 1.0;\n  }\n}\n\n`
+        + `class Shapes {\n  public static function total(): String {\n`
+        + `    final shape = new Shape();\n`
+        + `    return 'total ' + shape.area() + pick(null);\n  }\n\n`
+        + `  static function pick<T: Square>(item: T): String {\n    return 'picked';\n  }\n}\n`
+    },
+    steps: [
+      {
+        id: "constraint <T: Square> -> <T: Shape>",
+        apply: () => edit("Shapes.hx", "static function pick<T: Square>(item: T): String {",
+          "static function pick<T: Shape>(item: T): String {"),
+        module: "mr.Shapes",
+        expect: ["signature-changed", "uses-changed"]
+      }
+    ]
+  },
+  {
     // r05 B: the module dependency file is deleted before the full request.
     name: "r05-module-dep",
     files: {

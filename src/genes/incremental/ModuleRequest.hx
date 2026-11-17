@@ -219,10 +219,12 @@ typedef ModuleRecordsReport = {
  *   so an edit outside the module's imports is a refusal too
  *   (`source-changed`);
  * - the module uses exactly what it used: its signature (every declaration
- *   and field, private ones included, with kinds, types and metadata;
+ *   and field, private ones included, with kinds, types, type-parameter
+ *   constraints and metadata;
  *   `signature-changed`) and the use skeleton of its kept bodies (the printed
  *   code without literal values and positions, and the declarations that
- *   dead-code elimination marks for the types of its nodes;
+ *   dead-code elimination marks for the types of its nodes, type-parameter
+ *   constraints included;
  *   `uses-changed`) are the stored ones, and it has no `@:ifFeature` field;
  * - the kept declarations and fields, the final member list, the root
  *   flags and the uses of other modules are the stored ones;
@@ -1593,7 +1595,8 @@ class ModuleRequest {
     // (`mark_t` in Haxe's `dce.ml`): after `follow`, a class, an enum or an
     // abstract with their type arguments, the arguments and result of a
     // function type, and the type behind an abstract that is not a core
-    // type. Anonymous structures and `Dynamic` mark nothing. A core-type
+    // type, and the constraints of a type parameter. Anonymous structures
+    // and `Dynamic` mark nothing. A core-type
     // abstract (`Null`, `Int`) is left out: it has no implementation to keep.
     function mark(value: Type, depth: Int): Void {
       if (depth > 8)
@@ -1601,8 +1604,14 @@ class ModuleRequest {
       switch Context.follow(value) {
         case TInst(owner, params):
           final cls = owner.get();
-          if (!cls.kind.match(KTypeParameter(_)))
-            marks.set(TypeUtil.baseTypeFullName(cls), true);
+          switch cls.kind {
+            // A type parameter marks its constraints, as `mark_t` does.
+            case KTypeParameter(constraints):
+              for (constraint in constraints)
+                mark(constraint, depth + 1);
+            default:
+              marks.set(TypeUtil.baseTypeFullName(cls), true);
+          }
           for (param in params)
             mark(param, depth + 1);
         case TEnum(owner, params):
@@ -1681,7 +1690,7 @@ class ModuleRequest {
           final cls = reference.get();
           if (cls.kind.match(KTypeParameter(_)))
             continue;
-          buffer.add('class ${TypeUtil.baseTypeFullName(cls)} ${cls.params.length}');
+          buffer.add('class ${TypeUtil.baseTypeFullName(cls)} ${paramsText(cls.params)}');
           final parent = cls.superClass;
           if (parent != null)
             buffer.add(' extends ${TypeTools.toString(TInst(parent.t, parent.params))}');
@@ -1738,6 +1747,28 @@ class ModuleRequest {
    * `  private <type> <key> ...`, which `visibleShape` keeps only when
    * another module uses the field or extends its class.
    */
+  /**
+   * Returns type parameters as one text with their constraints, for
+   * example `<T:mr.Shapes.Square,U>`: a constraint is a type that dead-code
+   * elimination marks, so a changed constraint is a changed signature.
+   */
+  static function paramsText(params: Array<TypeParameter>): String {
+    return '<' + [
+      for (param in params)
+        switch param.t {
+          case TInst(owner, _):
+            switch owner.get().kind {
+              case KTypeParameter(constraints) if (constraints.length > 0):
+                param.name + ':' +
+                [for (constraint in constraints) TypeTools.toString(constraint)].join('&');
+              default: param.name;
+            }
+          default:
+            param.name;
+        }
+    ].join(',') + '>';
+  }
+
   static function addShapeField(buffer: StringBuf, owner: String,
       label: String, key: String, field: ClassField): Void {
     final copied = switch field.kind {
@@ -1751,7 +1782,7 @@ class ModuleRequest {
     buffer.add(field.isPublic ? ' public' : '');
     buffer.add(field.isFinal ? ' final' : '');
     buffer.add(field.isExtern ? ' extern' : '');
-    buffer.add(field.params.length > 0 ? ' params=${field.params.length}' : '');
+    buffer.add(field.params.length > 0 ? ' params=${paramsText(field.params)}' : '');
     buffer.add(field.meta.has(':generic') ? GENERIC_MARK : '');
     buffer.add(shapeMetaText(field.meta));
     if (field.kind.match(FMethod(MethMacro)))
