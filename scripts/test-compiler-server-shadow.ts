@@ -1092,6 +1092,29 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
   },
   {
+    // M3 of the cross-model review of #246: a structure field can declare
+    // its own type parameter (`typedef FableApi = {function pick<T>(item:
+    // T): T;}`). inc.FableMacro adds `@:ts.type("string")` to that `T`;
+    // TypeScript prints it where `T` is used. Only the structure part of
+    // the fingerprint of inc.FableProbe shows the change.
+    id: "after-typing macro sets the type of a type parameter of a structure field in a typedef",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableAnonTp = 1;\n")
+  },
+  {
+    // M3, the same shape in a structure in the argument type of a static.
+    id: "after-typing macro sets the type of a type parameter of a structure field in a class field type",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableInlineTp = 1;\n")
+  },
+  {
+    // M3 with L5: a structure in the constraint of the type parameter of a
+    // structure field.
+    id: "after-typing macro overrides an anonymous field in the constraint of a type parameter of a structure field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableWideConstraint = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1123,6 +1146,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.MarkMacro.install()",
     "--macro", "inc.Mark2Macro.install()",
     "--macro", "inc.Mark3Macro.install()",
+    "--macro", "inc.FableMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,

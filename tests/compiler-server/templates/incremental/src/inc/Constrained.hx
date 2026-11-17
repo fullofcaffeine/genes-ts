@@ -89,6 +89,15 @@ enum ConstrainedEnum {
   Hold<T:{e: Int}>(item: T);
 }
 
+/**
+ * An enum with a type parameter of its own. Nothing uses it; `CleanRuleProbe`
+ * reads it to check that the metadata of an enum type parameter is in the
+ * fingerprint.
+ */
+enum ParamEnum<X> {
+  Wrap(item: X);
+}
+
 /** A constraint that names its own parameter (`T: Ordered<T>`). */
 interface Ordered<T> {
   function compareTo(other: T): Int;

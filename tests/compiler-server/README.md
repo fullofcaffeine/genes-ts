@@ -339,10 +339,14 @@ before stored output may be replayed, each case with made-up inputs:
    an anonymous structure, in a typedef body or in the type of a class
    field (genes-f8vc.9.24, L1 and L2 of the round-3 review of #244), and
    for a field of an anonymous structure in a type-parameter constraint of a
-   method, a class, a typedef, an abstract or an enum constructor, also a
-   constraint that names its own parameter (genes-f8vc.9.26, L5 of the
-   review of #245), and for metadata on a type parameter itself (M1 of
-   the review of #246). The final member list (`ModuleFingerprint.members`)
+   method, a class, a typedef, an abstract, an enum or an enum constructor,
+   also a constraint that names its own parameter (genes-f8vc.9.26, L5 of
+   the review of #245), and for metadata on a type parameter itself (M1 of
+   the review of #246). Both hold for the type parameters that a field of
+   an anonymous structure declares, as in `{function pick<T>(item: T): T;}`
+   (M3 of the cross-model review of #246). Type parameters that only a
+   typed body declares, such as those of a local function, are not covered
+   (limit S3). The final member list (`ModuleFingerprint.members`)
    holds the same text for a member that the walk adds late: the metadata
    of the declaration and of its constructors, and of the anonymous
    structures in its types and constraints (L6). A member in the

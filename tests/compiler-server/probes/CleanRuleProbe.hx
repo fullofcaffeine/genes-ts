@@ -254,7 +254,8 @@ class CleanRuleProbe {
    * fields of anonymous structures in a typedef body and in class field
    * types (`ModuleFingerprint.anonymousText`, L2), for the fields of
    * anonymous structures in type-parameter constraints
-   * and for the metadata of a type parameter itself
+   * and for the metadata of a type parameter itself, also one that a
+   * structure field declares (M3 of the cross-model review of #246)
    * (`ModuleFingerprint.constraintText`, L5 of genes-f8vc.9.26 and M1 of
    * the review of #246), and for a
    * member that the walk adds late, in the final member list
@@ -493,6 +494,8 @@ class CleanRuleProbe {
       case TType(ref, _):
         constraintCycle('constraint of a typedef type parameter', ofType(def),
           ref.get().params, 'd');
+        parameterCycle('metadata of a typedef type parameter', ofType(def),
+          ref.get().params);
       default:
         fail('metadata fingerprint', 'typedef inc.Constrained.ConstrainedDef',
           Std.string(def));
@@ -502,6 +505,8 @@ class CleanRuleProbe {
       case TAbstract(ref, _):
         constraintCycle('constraint of an abstract type parameter',
           ofType(abs), ref.get().params, 'a');
+        parameterCycle('metadata of an abstract type parameter', ofType(abs),
+          ref.get().params);
       default:
         fail('metadata fingerprint',
           'abstract inc.Constrained.ConstrainedAbs', Std.string(abs));
@@ -513,12 +518,68 @@ class CleanRuleProbe {
         if (hold == null)
           fail('metadata fingerprint', 'constructor ConstrainedEnum.Hold',
             'none');
-        else
+        else {
           constraintCycle('constraint of an enum constructor type parameter',
             ofType(held), hold.params, 'e');
+          parameterCycle('metadata of an enum constructor type parameter',
+            ofType(held), hold.params);
+        }
       default:
         fail('metadata fingerprint', 'enum inc.Constrained.ConstrainedEnum',
           Std.string(held));
+    }
+    final paramEnum = Context.getType('inc.Constrained.ParamEnum');
+    switch paramEnum {
+      case TEnum(ref, _):
+        parameterCycle('metadata of an enum type parameter',
+          ofType(paramEnum), ref.get().params);
+      default:
+        fail('metadata fingerprint', 'enum inc.Constrained.ParamEnum',
+          Std.string(paramEnum));
+    }
+    // M3 of the cross-model review of #246: the type parameters that a
+    // structure field declares (`{function pick<T>(item: T): T;}`), with
+    // their metadata and the structures in their constraints.
+    function structureField(label: String, type: haxe.macro.Type,
+        name: String): Null<haxe.macro.Type.ClassField> {
+      final field = anonymousField(label, type, name);
+      if (field == null)
+        fail('metadata fingerprint', '$label: structure field $name', 'none');
+      return field;
+    }
+    final fableApi = Context.getType('inc.FableProbe.FableApi');
+    switch fableApi {
+      case TType(ref, _):
+        final pick = structureField('typedef structure field', ref.get().type,
+          'pick');
+        if (pick != null)
+          parameterCycle('metadata of a type parameter of a typedef structure field',
+            ofType(fableApi), pick.params);
+      default:
+        fail('metadata fingerprint', 'typedef inc.FableProbe.FableApi',
+          Std.string(fableApi));
+    }
+    final fable = Context.getType('inc.FableProbe');
+    switch fable {
+      case TInst(ref, _):
+        for (field in ref.get().statics.get())
+          switch field.name {
+            case 'call':
+              final sel = structureField('structure in an argument',
+                field.type, 'sel');
+              if (sel != null)
+                parameterCycle('metadata of a type parameter of a structure field in an argument',
+                ofType(fable), sel.params);
+            case 'wide':
+              final sel = structureField('structure in an argument',
+                field.type, 'sel');
+              if (sel != null)
+                constraintCycle('constraint of a type parameter of a structure field',
+                ofType(fable), sel.params, 'w');
+            default:
+          }
+      default:
+        fail('metadata fingerprint', 'class inc.FableProbe', Std.string(fable));
     }
     // genes-f8vc.9.26, L6: a member that the walk adds late (not in the
     // generator's list) carries its declaration text in the final member

@@ -35,9 +35,12 @@ import genes.util.TypeUtil;
  *   and in the type arguments of a parent class or interface
  *   (`anonymousText`);
  * - the metadata of each type parameter and the same structure metadata
- *   for each structure in its constraints, at every place that declares
- *   type parameters: a class, field, constructor, overload signature,
- *   typedef, abstract, enum and enum constructor (`constraintText`).
+ *   for each structure in its constraints, where a class, field,
+ *   constructor, overload signature, typedef, abstract, enum, enum
+ *   constructor or field of an anonymous structure declares type
+ *   parameters (`constraintText`). A type parameter that only a typed body
+ *   declares, such as one of a local function, is not covered (limit S3 of
+ *   the review of genes-ts #246).
  *
  * Metadata always means every entry with its arguments (`metaText`): a
  * sorted set of `@name(arguments)` texts, printed without positions, with
@@ -291,8 +294,9 @@ class ModuleFingerprint {
    * ` <T.n` and that text. Example: ` <T @:ts.type("string")` or
    * ` <T.0 0.v @:ts.type("string")`.
    *
-   * The constraints are read here, where a declaration lists its type
-   * parameters, and never inside the walk of `anonymousText`. So a
+   * The constraints are read here, where a declaration or a structure
+   * field lists its type parameters, never from a use of a type parameter
+   * inside the walk of `anonymousText`. So a
    * constraint that names its own parameter (`T: Ordered<T>` or
    * `T: {r: Int, ?next: T}`) cannot make the walk go round: the walk meets
    * `T` again as a type without arguments and stops there.
@@ -341,7 +345,12 @@ class ModuleFingerprint {
    * field of a structure (sorted by name) that has metadata, it adds
    * ` <number>.<name>` and the field's `metaText`. Example:
    * ` 0.x @:ts.type("string")`. The number makes metadata that moves from
-   * one structure to another change the text.
+   * one structure to another change the text. A field can also declare
+   * type parameters of its own, as in `{function pick<T>(item: T): T;}`
+   * (M3 of the cross-model review of genes-ts #246). TypeScript prints
+   * them, with their metadata and constraints, so the walk adds
+   * ` <number>.<name>` and the field's `constraintText` too. Example:
+   * ` 0.pick <T @:ts.type("string")`.
    *
    * The walk enters the fields of a structure, the type arguments of named
    * types, the arguments and result of functions, bound monomorphs and lazy
@@ -349,8 +358,9 @@ class ModuleFingerprint {
    * the module of its declaration, whose own fingerprint holds it (rule 6
    * falls back for every module when one of them changes). For the same
    * reason it skips the structure that holds the statics of a class, enum or
-   * abstract. It does not enter the constraints of a type parameter either:
-   * `constraintText` reads them where they are declared.
+   * abstract. It does not enter the constraints of a type parameter from a
+   * use of that parameter either: `constraintText` reads them where they
+   * are declared, which for a structure field is this walk.
    */
   public static function anonymousText(type: Null<Type>): String {
     final buffer = new StringBuf();
@@ -375,6 +385,9 @@ class ModuleFingerprint {
             final meta = metaText(field.meta);
             if (meta.length > 0)
               buffer.add(' $index.${field.name}$meta');
+            final declared = constraintText(field.params);
+            if (declared.length > 0)
+              buffer.add(' $index.${field.name}$declared');
             walk(field.type);
           }
         case TInst(_, params) | TEnum(_, params) | TType(_, params) |
@@ -411,12 +424,16 @@ class ModuleFingerprint {
    * calls it must print `globalThis.parseFloat`.
    *
    * What it leaves out, unlike `of`: the kind and access of each field, and
-   * the type-parameter constraints. Dead-code elimination keeps every extern
+   * the metadata and constraints of the type parameters that the class and
+   * its fields declare. Dead-code elimination keeps every extern
    * class whole, except `Math` and `Array` on JavaScript (`keep_whole_class`
    * in Haxe's `dce.ml`). In those two it removes the fields that nothing
    * uses, but it changes the kind of no field that it keeps: neither class
-   * has a property with an accessor method. No module prints the constraint
-   * of an extern declaration, because an extern class gets no output file.
+   * has a property with an accessor method. An extern class gets no output
+   * file, and no Genes printer of another module was found that prints the
+   * constraint or the metadata of a type parameter that an extern
+   * declaration declares. (A type parameter of a structure field in the
+   * type of an extern field is in `anonymousText`, so it is in.)
    * A field without metadata and without metadata in a structure of its
    * type adds nothing. The field part of a
    * class is stored as a digest (`Context.signature`), so the large `js.*`
