@@ -132,15 +132,23 @@ class ReactRefreshModulePlan {
    * - code that runs while the module loads (a static initializer or a class
    *   `__init__`) can reach a component of the module, also through calls of
    *   other functions, constructors or methods of the module
-   *   (`reachesComponent`). The component file sets the `Owner.field` slots
-   *   only after the sibling has loaded, so such code would call the
-   *   placeholder method;
+   *   (`reachesComponent`). Creating an instance of a class of the module, or
+   *   using the class as a value, counts as a call of every method of that
+   *   class and its ancestors in the module, because other code (an
+   *   interface call, a parent constructor, `Std.string`) can call any of
+   *   them. The component file sets the `Owner.field` slots only after the
+   *   sibling has loaded, so such code would call the placeholder method;
    * - a direct (hoisted) non-component module function can reach a component
    *   through other direct functions. Another module in an import cycle can
    *   call it before the sibling has defined the slot class;
    * - the owner class of a component is omitted (all its fields are direct
    *   functions) and other code of the module names the component: the
    *   sibling would have no slot to read.
+   *
+   * Limit: the rules see only the typed tree of this module (see
+   * `ModuleCodeGraph`): not calls through `Dynamic`, reflection by name, or
+   * another module calling back into this module's classes during an
+   * import cycle.
    */
   public static function componentNames(module: Module): Null<Array<String>> {
     if (!enabled() || !Context.defined('genes.ts'))
@@ -252,8 +260,14 @@ class ReactRefreshModulePlan {
  * Keys: `Owner.field` for a static field, `Owner#new` for a constructor, and
  * `#name` for every instance field named `name` (a method call can dispatch
  * to an override in any class of the module, so all of them are followed).
- * Only references to the same module are followed; calls through `Dynamic`
- * values are not visible to the typed tree.
+ * A new instance of a class of the module, or the class used as a value,
+ * follows its constructor chain and every instance field of the class and its
+ * ancestors in the module, because code elsewhere can call any of them.
+ * Code of other modules is not walked. Calls that the typed tree cannot show
+ * are not seen: calls through `Dynamic` values, reflection such as
+ * `Type.createInstance` on a class named only by a string, and code of
+ * another module that calls back into this module's classes while an import
+ * cycle loads.
  */
 private class ModuleCodeGraph {
   public final components = new Map<String, Bool>();
@@ -262,6 +276,7 @@ private class ModuleCodeGraph {
   final module: String;
   final bodies = new Map<String, Array<TypedExpr>>();
   final superConstructor = new Map<String, String>();
+  final instanceFieldNames = new Map<String, Array<String>>();
 
   public function new(module: String) {
     this.module = module;
@@ -294,9 +309,13 @@ private class ModuleCodeGraph {
       if (parent.module == module)
         superConstructor.set(cl.name, parent.name);
     }
+    final names = [];
+    instanceFieldNames.set(cl.name, names);
     for (field in fields) {
       if (field.expr == null)
         continue;
+      if (!field.isStatic && !field.kind.match(Constructor))
+        names.push(field.name);
       if (field.isStatic)
         add(staticKey(cl.name, field.name), field.expr);
       else if (field.kind.match(Constructor))
@@ -328,10 +347,20 @@ private class ModuleCodeGraph {
         for (body in list)
           queue.push(body);
     }
-    function followConstructor(owner: String): Void {
+    // An instance of a class of this module can reach code of another
+    // module that calls back into any of its methods (an interface call, a
+    // parent constructor that calls an override, `Std.string` calling
+    // `toString`). So a new instance, or the class used as a value, follows
+    // the constructor and every instance field of the class and of its
+    // ancestors in this module.
+    function followInstance(owner: String): Void {
       var current: Null<String> = owner;
       while (current != null) {
         follow(constructorKey(current));
+        final names = instanceFieldNames.get(current);
+        if (names != null)
+          for (name in names)
+            follow(instanceKey(name));
         current = superConstructor.get(current);
       }
     }
@@ -355,7 +384,10 @@ private class ModuleCodeGraph {
           if (followAll && owner != null && owner.c.get().module == module):
           follow(instanceKey(field.get().name));
         case TNew(owner, _, _) if (followAll && owner.get().module == module):
-          followConstructor(owner.get().name);
+          followInstance(owner.get().name);
+        case TTypeExpr(TClassDecl(owner))
+          if (followAll && owner.get().module == module):
+          followInstance(owner.get().name);
         default:
       }
       current.iter(visit);

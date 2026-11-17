@@ -47,8 +47,14 @@ when:
 - code that runs while the module loads (a static initializer or a class
   `__init__`) can reach a component of the module, directly (`Unsplit`) or
   through calls of other functions, constructors or methods of the module
-  (`Transitive`). In a split module that code would call the placeholder
-  slot;
+  (`Transitive`). Creating an instance of a class of the module, or using
+  the class as a value, counts as a call of the constructor and of every
+  instance method of the class and its ancestors in the module, because
+  other code can call any of them: an interface call in another module
+  (`CallbackIface`), a parent constructor in another module that calls an
+  override (`CallbackSuper`), or `Std.string` calling `toString`
+  (`CallbackString`). In a split module that code would call the
+  placeholder slot;
 - a direct (hoisted) non-component function can reach a component through
   other direct functions (`Cycle`). Another module in an import cycle can
   call it before the sibling has defined the slot class (`CycleDep`);
@@ -109,7 +115,10 @@ a chain of importers reaches the entry module first, Vite still reloads.
   declare `const $global` when the build uses `js.Lib.global`), also when it
   does not use them. A consumer that checks with `noUnusedLocals` gets
   TS6133 for these imports. The repeated import lists have the same effect.
-- Calls through `Dynamic` values are not visible to the stay-one-file rules.
+- The stay-one-file rules see only the typed tree of the module. They do not
+  see calls through `Dynamic` values, reflection by name (for example
+  `Type.createInstance(Type.resolveClass("..."))`), or code of another module
+  that calls back into this module's classes while an import cycle loads.
 - If the module is in an ESM import cycle with one of its dependencies, the
   sibling also imports a module that imports the component file. Vite then
   loads the sibling again on a component update, the re-exported values are

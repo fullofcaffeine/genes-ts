@@ -69,9 +69,16 @@ run("haxe", [`${fixture}/build-tsx-off.hxml`]);
 // - Transitive: a static initializer reaches a component through a helper;
 // - Omitted: the owner class is omitted, so the sibling has no slot;
 // - Cycle: a hoisted direct function reads a component, and CycleDep calls
-//   it from `__init__` inside an import cycle.
+//   it from `__init__` inside an import cycle;
+// - CallbackIface, CallbackSuper, CallbackString: a static initializer
+//   creates an instance, and code in another module (CallbackSupport, or
+//   `Std.string`) calls back into a method that reads a component.
 const singleFiles = [
   "App.tsx",
+  "CallbackIface.tsx",
+  "CallbackString.tsx",
+  "CallbackSuper.tsx",
+  "CallbackSupport.tsx",
   "Cycle.tsx",
   "CycleDep.tsx",
   "Greeting.tsx",
@@ -115,7 +122,8 @@ deepStrictEqual(split.loadOrder, [
   "Main:fixture",
   "Transitive:true",
   "Omitted:true",
-  "Cycle:true:2"
+  "Cycle:true:2",
+  "Callbacks:true:true:true:3"
 ]);
 
 // Red without the define, green with it.

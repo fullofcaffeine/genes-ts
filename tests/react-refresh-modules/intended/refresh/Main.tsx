@@ -6,6 +6,9 @@ import {Holder} from "./Transitive.js"
 import {renderOmitted} from "./Omitted.js"
 import {CycleDep} from "./CycleDep.js"
 import {Cycle_Fields_} from "./Cycle.js"
+import {IfaceHolder, CallbackIface_Fields_} from "./CallbackIface.js"
+import {SuperHolder, CallbackSuper_Fields_} from "./CallbackSuper.js"
+import {StringHolder, CallbackString_Fields_} from "./CallbackString.js"
 import * as ReactDomClient from "react-dom/client"
 import {Register} from "../genes/Register.js"
 
@@ -18,6 +21,7 @@ export class Main {
 		LoadLog.record("Transitive:" + Std.string(Holder.cached != null));
 		LoadLog.record("Omitted:" + Std.string(renderOmitted(2) != null));
 		LoadLog.record("Cycle:" + Std.string(CycleDep.rendered != null) + ":" + Cycle_Fields_.cyclePlain());
+		LoadLog.record("Callbacks:" + Std.string(IfaceHolder.rendered != null) + ":" + Std.string(SuperHolder.child.element != null) + ":" + StringHolder.text + ":" + (CallbackIface_Fields_.ifaceKeep() + CallbackSuper_Fields_.superKeep() + CallbackString_Fields_.stringKeep()));
 		if (typeof document == "undefined") {
 			return;
 		};

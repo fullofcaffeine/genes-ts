@@ -5,6 +5,9 @@ import refresh.App;
 import refresh.Transitive;
 import refresh.Omitted;
 import refresh.Cycle;
+import refresh.CallbackIface;
+import refresh.CallbackSuper;
+import refresh.CallbackString;
 
 @:jsRequire("react-dom/client")
 extern class ReactDomClient {
@@ -22,6 +25,9 @@ class Main {
     LoadLog.record("Transitive:" + (Holder.cached != null));
     LoadLog.record("Omitted:" + (renderOmitted(2) != null));
     LoadLog.record("Cycle:" + (CycleDep.rendered != null) + ":" + cyclePlain());
+    LoadLog.record("Callbacks:" + (IfaceHolder.rendered != null) + ":"
+      + (SuperHolder.child.element != null) + ":" + StringHolder.text + ":"
+      + (ifaceKeep() + superKeep() + stringKeep()));
     if (js.Syntax.code("typeof document") == "undefined")
       return;
     final container: Null<js.html.Element> = js.Browser.document.getElementById("root");
