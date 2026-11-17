@@ -1712,7 +1712,7 @@ class ModuleRequest {
             addShapeField(buffer, owner, 'static', 's:${field.name}', field);
         case TEnum(reference, _):
           final enm = reference.get();
-          buffer.add('enum ${TypeUtil.baseTypeFullName(enm)} ${enm.params.length}');
+          buffer.add('enum ${TypeUtil.baseTypeFullName(enm)} ${paramsText(enm.params)}');
           buffer.add(shapeMetaText(enm.meta));
           for (name in enm.names) {
             final construct = enm.constructs.get(name);
@@ -1722,12 +1722,12 @@ class ModuleRequest {
           }
         case TType(reference, _):
           final def = reference.get();
-          buffer.add('typedef ${TypeUtil.baseTypeFullName(def)} ${def.params.length} '
+          buffer.add('typedef ${TypeUtil.baseTypeFullName(def)} ${paramsText(def.params)} '
             + TypeTools.toString(def.type)
             + shapeMetaText(def.meta));
         case TAbstract(reference, _):
           final abs = reference.get();
-          buffer.add('abstract ${TypeUtil.baseTypeFullName(abs)} ${abs.params.length} '
+          buffer.add('abstract ${TypeUtil.baseTypeFullName(abs)} ${paramsText(abs.params)} '
             + TypeTools.toString(abs.type)
             + shapeMetaText(abs.meta));
           for (item in abs.from)

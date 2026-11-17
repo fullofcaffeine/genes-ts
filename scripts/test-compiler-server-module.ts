@@ -697,6 +697,32 @@ const groups: ReadonlyArray<Group> = [
     ]
   },
   {
+    // h3: a class kept only as the constraint of an enum's type parameter;
+    // the edit changes the constraint.
+    name: "h3-enum-constraint",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Shapes.total());"]),
+      "mr/Shapes.hx": `package mr;\n\nclass Shape {\n  public function new() {}\n\n`
+        + `  public function area(): Float {\n    return 0.0;\n  }\n}\n\n`
+        + `class Square extends Shape {\n  override public function area(): Float {\n`
+        + `    return 1.0;\n  }\n}\n\n`
+        + `enum Holder<T: Square> {\n  Item(value: T);\n  Empty;\n}\n\n`
+        + `class Shapes {\n  public static function total(): String {\n`
+        + `    final shape = new Shape();\n`
+        + `    return 'total ' + shape.area() + count(Empty);\n  }\n\n`
+        + `  static function count(holder: Holder<Dynamic>): Int {\n`
+        + `    return switch holder {\n      case Item(_): 1;\n      case Empty: 0;\n    }\n  }\n}\n`
+    },
+    steps: [
+      {
+        id: "enum constraint <T: Square> -> <T: Shape>",
+        apply: () => edit("Shapes.hx", "enum Holder<T: Square> {", "enum Holder<T: Shape> {"),
+        module: "mr.Shapes",
+        expect: ["public-shape-changed", "signature-changed", "uses-changed"]
+      }
+    ]
+  },
+  {
     // r05 B: the module dependency file is deleted before the full request.
     name: "r05-module-dep",
     files: {
