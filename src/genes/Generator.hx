@@ -486,7 +486,8 @@ class Generator {
       final exposed = explicitlyExposedModules.exists(name);
       {
         emits: implementation,
-        members: genes.incremental.ModuleFingerprint.members(module.members),
+        members: genes.incremental.ModuleFingerprint.members(module.members,
+          IncrementalShadow.listed),
         rootFlags: IncrementalShadow.rootFlags(tsMode ? isTypedImplementationRoot(module,
           exposed) : needsGen(module),
           exposed, module.expose.length, implementation)

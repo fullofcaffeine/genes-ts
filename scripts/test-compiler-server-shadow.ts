@@ -1002,6 +1002,119 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var markAnonParam = 1;\n")
   },
   {
+    // genes-f8vc.9.26, L5 of the review of #245: the after-typing macro
+    // inc.Mark3Macro adds `@:ts.type("string")` to the field v of the
+    // structure in the constraint of the type parameter of
+    // inc.Constrained.pick. Haxe does not type inc.Constrained again; only
+    // the constraint part of its fingerprint shows the change.
+    id: "after-typing macro overrides an anonymous field in the constraint of a method type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markConstraint = 1;\n")
+  },
+  {
+    // L5, a constraint that names its own parameter
+    // (`rank<T: {r: Int, ?next: T}>`): the walk must end.
+    id: "after-typing macro overrides an anonymous field in a constraint that names its own parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markRank = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the class inc.Constrained.ConstrainedBox.
+    id: "after-typing macro overrides an anonymous field in the constraint of a class type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markBoxConstraint = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the typedef inc.Constrained.ConstrainedDef.
+    id: "after-typing macro overrides an anonymous field in the constraint of a typedef type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markDefConstraint = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the abstract inc.Constrained.ConstrainedAbs.
+    id: "after-typing macro overrides an anonymous field in the constraint of an abstract type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAbsConstraint = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the constructor Hold of the enum
+    // inc.Constrained.ConstrainedEnum.
+    id: "after-typing macro overrides an anonymous field in the constraint of an enum constructor type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markEnumConstraint = 1;\n")
+  },
+  {
+    // genes-f8vc.9.26, L6 of the review of #245: dead-code elimination
+    // removes the enum inc.LateEnum, so it is not in the generator's list
+    // and has no fingerprint; the walk adds it late because inc.LateUser
+    // names it in a typedef field. inc.Mark3Macro adds `@:ts.type("string")`
+    // to the field q of the structure of its constructor Item. Only the
+    // final member list (now with the metadata of late members) shows it.
+    id: "after-typing macro overrides an anonymous field in a constructor of an enum that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateEnum = 1;\n")
+  },
+  {
+    // L6 with a late class: the structure is in the constraint of the type
+    // parameter of inc.LateEnum.LateBox.
+    id: "after-typing macro overrides an anonymous field in the constraint of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateBox = 1;\n")
+  },
+  {
+    // Round 2 of the review of #246, M1: inc.Mark3Macro adds
+    // `@:ts.type("string")` to the type parameter T of inc.Constrained.tag
+    // itself. The TypeScript printer reads it where T is used
+    // (`TypeEmitter.emitType`), so cold prints `tag<string>`.
+    id: "after-typing macro sets the type of a method type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markTpMeta = 1;\n")
+  },
+  {
+    // M1 on the type parameter of the class inc.Constrained.ConstrainedBox.
+    id: "after-typing macro sets the type of a class type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markBoxTpMeta = 1;\n")
+  },
+  {
+    // M1 on the type parameter of the late class inc.LateEnum.LateBox: only
+    // the late text of the final member list shows it.
+    id: "after-typing macro sets the type of a type parameter of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateTpMeta = 1;\n")
+  },
+  {
+    // S2: `@:ts.type("string")` on the late class inc.LateEnum.LateBox
+    // itself; the late text of the final member list holds the class
+    // metadata, so the request falls back.
+    id: "after-typing macro sets the type of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
+  },
+  {
+    // M3 of the cross-model review of #246: a structure field can declare
+    // its own type parameter (`typedef FableApi = {function pick<T>(item:
+    // T): T;}`). inc.FableMacro adds `@:ts.type("string")` to that `T`;
+    // TypeScript prints it where `T` is used. Only the structure part of
+    // the fingerprint of inc.FableProbe shows the change.
+    id: "after-typing macro sets the type of a type parameter of a structure field in a typedef",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableAnonTp = 1;\n")
+  },
+  {
+    // M3, the same shape in a structure in the argument type of a static.
+    id: "after-typing macro sets the type of a type parameter of a structure field in a class field type",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableInlineTp = 1;\n")
+  },
+  {
+    // M3 with L5: a structure in the constraint of the type parameter of a
+    // structure field.
+    id: "after-typing macro overrides an anonymous field in the constraint of a type parameter of a structure field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableWideConstraint = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1032,6 +1145,8 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.FailMacro.install()",
     "--macro", "inc.MarkMacro.install()",
     "--macro", "inc.Mark2Macro.install()",
+    "--macro", "inc.Mark3Macro.install()",
+    "--macro", "inc.FableMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,
