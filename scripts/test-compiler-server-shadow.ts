@@ -40,7 +40,9 @@
  * request and the edits whose id contains `a` or `b` (`=a` for an exact id); `--skip-plain` skips the warm server
  * without the define (G0, G2); `--skip-probe` skips `CleanRuleProbe` (for a
  * run with a guard switched off by hand, whose probe case would fail first).
- * Each of them ends with a `partial` line.
+ * Each of them ends with a `partial` line. `--react-refresh` runs every
+ * build with `-D genes.react_refresh_modules`, so the React edits below also
+ * cover modules that Genes splits into `X.tsx` and `X.fields.tsx`.
  *
  * Stage 3, slice S2 (stored edges): with a usable cache, compare and reuse
  * walk clean modules with the steps recorded for their member lists, and
@@ -127,7 +129,8 @@ const options = (() => {
     modes: modes as GenerationMode[],
     only: only === undefined ? null : only.split("|").filter((part) => part.length > 0),
     skipPlain: process.argv.includes("--skip-plain"),
-    skipProbe: process.argv.includes("--skip-probe")
+    skipProbe: process.argv.includes("--skip-probe"),
+    reactRefresh: process.argv.includes("--react-refresh")
   };
 })();
 
@@ -257,6 +260,11 @@ type Edit = {
    * reason, mode and refusal checks.
    */
   readonly notMeasured?: boolean;
+  /**
+   * Files (relative to the output folder) that the cold tree must hold, or
+   * must not hold, after the edit; checked only with `--react-refresh`.
+   */
+  readonly refreshFiles?: { readonly present: ReadonlyArray<string>; readonly absent: ReadonlyArray<string> };
 };
 
 /** Program arguments that an edit can change, as a session would. */
@@ -559,6 +567,52 @@ const edits: ReadonlyArray<Edit> = [
     apply: () => {
       edit("inc/Main.hx", ', Fresh.value() /*FRESH_USE*/', "/*FRESH_USE*/");
       remove("inc/Fresh.hx");
+    }
+  },
+  {
+    // With --react-refresh, RefreshPanel is split: a component and a module
+    // function. RefreshPlain has no component yet, so it stays one file.
+    id: "React module with a component and a module function",
+    apply: () => {
+      create("inc/RefreshPanel.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction refreshLabel(): String {\n  return \"label\";\n}\n\n@:keep\n@:genes.reactComponent\nfunction RefreshPanel(): Element {\n  return <p>{\"panel-v1\" + refreshLabel()}</p>;\n}\n");
+      create("inc/RefreshPlain.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction plainLabel(): String {\n  return \"plain\";\n}\n/*COMPONENT*/\n");
+      addModule("inc.RefreshPanel");
+      addModule("inc.RefreshPlain");
+    },
+    refreshFiles: {
+      present: ["inc/RefreshPanel.fields.tsx"],
+      absent: ["inc/RefreshPlain.fields.tsx"]
+    }
+  },
+  {
+    // Only the component file changes; the sibling has the same bytes.
+    id: "component body edit in the React module",
+    apply: () => edit("inc/RefreshPanel.hx", '"panel-v1"', '"panel-v2"'),
+    refreshFiles: { present: ["inc/RefreshPanel.fields.tsx"], absent: [] }
+  },
+  {
+    // RefreshPlain becomes a split module (a new X.fields.tsx).
+    id: "first component in a module without one",
+    apply: () => edit(
+      "inc/RefreshPlain.hx",
+      "/*COMPONENT*/",
+      "@:keep\n@:genes.reactComponent\nfunction RefreshPlainView(): Element {\n  return <b>{plainLabel()}</b>;\n}\n/*COMPONENT*/"
+    ),
+    refreshFiles: { present: ["inc/RefreshPlain.fields.tsx"], absent: [] }
+  },
+  {
+    // RefreshPanel is one file again; its old X.fields.tsx must be removed.
+    id: "last component of the React module removed",
+    refreshFiles: { present: [], absent: ["inc/RefreshPanel.fields.tsx"] },
+    apply: () => create("inc/RefreshPanel.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction refreshLabel(): String {\n  return \"label\";\n}\n")
+  },
+  {
+    id: "React modules deleted",
+    apply: () => {
+      dropModule("inc.RefreshPanel");
+      dropModule("inc.RefreshPlain");
+      remove("inc/RefreshPanel.hx");
+      remove("inc/RefreshPlain.hx");
     }
   },
   {
@@ -1310,6 +1364,119 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var markAnonParam = 1;\n")
   },
   {
+    // genes-f8vc.9.26, L5 of the review of #245: the after-typing macro
+    // inc.Mark3Macro adds `@:ts.type("string")` to the field v of the
+    // structure in the constraint of the type parameter of
+    // inc.Constrained.pick. Haxe does not type inc.Constrained again; only
+    // the constraint part of its fingerprint shows the change.
+    id: "after-typing macro overrides an anonymous field in the constraint of a method type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markConstraint = 1;\n")
+  },
+  {
+    // L5, a constraint that names its own parameter
+    // (`rank<T: {r: Int, ?next: T}>`): the walk must end.
+    id: "after-typing macro overrides an anonymous field in a constraint that names its own parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markRank = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the class inc.Constrained.ConstrainedBox.
+    id: "after-typing macro overrides an anonymous field in the constraint of a class type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markBoxConstraint = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the typedef inc.Constrained.ConstrainedDef.
+    id: "after-typing macro overrides an anonymous field in the constraint of a typedef type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markDefConstraint = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the abstract inc.Constrained.ConstrainedAbs.
+    id: "after-typing macro overrides an anonymous field in the constraint of an abstract type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markAbsConstraint = 1;\n")
+  },
+  {
+    // L5 on the type parameter of the constructor Hold of the enum
+    // inc.Constrained.ConstrainedEnum.
+    id: "after-typing macro overrides an anonymous field in the constraint of an enum constructor type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markEnumConstraint = 1;\n")
+  },
+  {
+    // genes-f8vc.9.26, L6 of the review of #245: dead-code elimination
+    // removes the enum inc.LateEnum, so it is not in the generator's list
+    // and has no fingerprint; the walk adds it late because inc.LateUser
+    // names it in a typedef field. inc.Mark3Macro adds `@:ts.type("string")`
+    // to the field q of the structure of its constructor Item. Only the
+    // final member list (now with the metadata of late members) shows it.
+    id: "after-typing macro overrides an anonymous field in a constructor of an enum that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateEnum = 1;\n")
+  },
+  {
+    // L6 with a late class: the structure is in the constraint of the type
+    // parameter of inc.LateEnum.LateBox.
+    id: "after-typing macro overrides an anonymous field in the constraint of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateBox = 1;\n")
+  },
+  {
+    // Round 2 of the review of #246, M1: inc.Mark3Macro adds
+    // `@:ts.type("string")` to the type parameter T of inc.Constrained.tag
+    // itself. The TypeScript printer reads it where T is used
+    // (`TypeEmitter.emitType`), so cold prints `tag<string>`.
+    id: "after-typing macro sets the type of a method type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markTpMeta = 1;\n")
+  },
+  {
+    // M1 on the type parameter of the class inc.Constrained.ConstrainedBox.
+    id: "after-typing macro sets the type of a class type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markBoxTpMeta = 1;\n")
+  },
+  {
+    // M1 on the type parameter of the late class inc.LateEnum.LateBox: only
+    // the late text of the final member list shows it.
+    id: "after-typing macro sets the type of a type parameter of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateTpMeta = 1;\n")
+  },
+  {
+    // S2: `@:ts.type("string")` on the late class inc.LateEnum.LateBox
+    // itself; the late text of the final member list holds the class
+    // metadata, so the request falls back.
+    id: "after-typing macro sets the type of a class that the generator adds late",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
+  },
+  {
+    // M3 of the cross-model review of #246: a structure field can declare
+    // its own type parameter (`typedef FableApi = {function pick<T>(item:
+    // T): T;}`). inc.FableMacro adds `@:ts.type("string")` to that `T`;
+    // TypeScript prints it where `T` is used. Only the structure part of
+    // the fingerprint of inc.FableProbe shows the change.
+    id: "after-typing macro sets the type of a type parameter of a structure field in a typedef",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableAnonTp = 1;\n")
+  },
+  {
+    // M3, the same shape in a structure in the argument type of a static.
+    id: "after-typing macro sets the type of a type parameter of a structure field in a class field type",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableInlineTp = 1;\n")
+  },
+  {
+    // M3 with L5: a structure in the constraint of the type parameter of a
+    // structure field.
+    id: "after-typing macro overrides an anonymous field in the constraint of a type parameter of a structure field",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var fableWideConstraint = 1;\n")
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1340,6 +1507,8 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.FailMacro.install()",
     "--macro", "inc.MarkMacro.install()",
     "--macro", "inc.Mark2Macro.install()",
+    "--macro", "inc.Mark3Macro.install()",
+    "--macro", "inc.FableMacro.install()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,
@@ -1495,7 +1664,7 @@ function selected(entries: ReadonlyArray<string>, id: string): boolean {
 /** Puts every value that an edit can change back to its first state. */
 function resetState(mode: GenerationMode): void {
   currentMode = mode;
-  program.defines = [];
+  program.defines = options.reactRefresh ? ["genes.react_refresh_modules"] : [];
   program.modules = [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
   ];
@@ -1550,7 +1719,9 @@ async function main(): Promise<void> {
     .join("; ");
   process.stdout.write(
     `compiler-server-shadow:${partial ? "partial" : "ok"} (Haxe `
-    + `${selectedHaxeCompiler(repoRoot).version}; ${probeLine}; ${counts}; `
+    + `${selectedHaxeCompiler(repoRoot).version}; `
+    + `${options.reactRefresh ? "-D genes.react_refresh_modules; " : ""}`
+    + `${probeLine}; ${counts}; `
     + `G0 warm equals cold, G1 0 mismatches and trees equal cold, G2 no `
     + `stamp without the define; times ${timing}, load `
     + `${loadAtStart.toFixed(1)} to ${loadAtEnd.toFixed(1)})\n`
@@ -1673,6 +1844,13 @@ async function runPass(
         ok(shadowed.code === 0, `${label}: shadow request failed\n${describe(shadowed)}`);
       }
       const coldTree = hashTree(outputRoot("cold"));
+      if (options.reactRefresh && step.refreshFiles !== undefined) {
+        const paths = new Set(coldTree.map((entry) => entry.path));
+        for (const file of step.refreshFiles.present)
+          ok(paths.has(file), `${label}: the split file ${file} is missing`);
+        for (const file of step.refreshFiles.absent)
+          ok(!paths.has(file), `${label}: the stale file ${file} is still published`);
+      }
       if (warm !== null) {
         // G0: warm full generation equals cold, with no cache.
         const plainDifference = treeDifference(hashTree(outputRoot("plain")),

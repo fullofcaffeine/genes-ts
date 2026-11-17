@@ -10,6 +10,7 @@ import sys.io.File;
 import genes.incremental.GenerationCache;
 import genes.incremental.IncrementalRequest;
 import genes.util.PathUtil;
+import genes.util.TypeUtil;
 
 using Lambda;
 
@@ -438,6 +439,13 @@ class IncrementalShadow {
   var outputFolder = '';
   var decision: CacheDecision = NoCache('not decided');
   final fingerprints = new Map<String, String>();
+
+  /**
+   * The key (`module.Name`) of each declaration in the generator's list of
+   * this request: plain text, read by `listed`.
+   */
+  final listedDeclarations = new Map<String, Bool>();
+
   final files = new Map<String, Array<CachedFile>>();
   final warnings = new Map<String, Array<CachedWarning>>();
   var warningCount = 0;
@@ -782,7 +790,7 @@ class IncrementalShadow {
     final shadow = current;
     if (shadow == null || !shadow.active)
       return null;
-    return ModuleFingerprint.members(members);
+    return ModuleFingerprint.members(members, listed);
   }
 
   /**
@@ -1000,7 +1008,7 @@ class IncrementalShadow {
     final lines = ['reachable ${names.join(' ')}'];
     for (name in all)
       lines.push('$name: '
-        + ModuleFingerprint.members(modules.get(name).members)
+        + ModuleFingerprint.members(modules.get(name).members, listed)
           .split('\n')
           .join(' | '));
     if (shadow.storedPass) {
@@ -1066,9 +1074,11 @@ class IncrementalShadow {
     final grouped = new Map<String, Array<Type>>();
     final order = [];
     for (type in types) {
-      final module = moduleOf(type);
-      if (module == null)
+      final base = declarationOf(type);
+      if (base == null)
         continue;
+      final module = base.module;
+      shadow.listedDeclarations.set(TypeUtil.baseTypeFullName(base), true);
       final list = grouped.get(module);
       if (list == null) {
         grouped.set(module, [type]);
@@ -1085,8 +1095,9 @@ class IncrementalShadow {
       // library) never gets an output file. Other modules print what its
       // class and field metadata says, so rule 6 reads it
       // (`ModuleFingerprint.ofExtern`: a shorter text than `of`).
-      if (list.foreach(isExternClass)) {
-        shadow.fingerprints.set(module, ModuleFingerprint.ofExtern(list));
+      final externs = externClasses(list);
+      if (externs != null) {
+        shadow.fingerprints.set(module, ModuleFingerprint.ofExtern(externs));
         continue;
       }
       shadow.fingerprints.set(module, fingerprintOf(module, list, exposed));
@@ -2027,19 +2038,46 @@ class IncrementalShadow {
     return ModuleFingerprint.of(types, directives, sortedNames);
   }
 
-  static function isExternClass(type: Type): Bool {
-    return switch type {
-      case TInst(ref, _): ref.get().isExtern;
-      default: false;
-    }
+  /**
+   * Returns the classes of `types` when every declaration is an extern
+   * class, or `null` otherwise. Each class is read once, and
+   * `ModuleFingerprint.ofExtern` gets the classes that were read here.
+   */
+  static function externClasses(types: Array<Type>): Null<Array<ClassType>> {
+    final classes = [];
+    for (type in types)
+      switch type {
+        case TInst(ref, _):
+          final cls = ref.get();
+          if (!cls.isExtern)
+            return null;
+          classes.push(cls);
+        default:
+          return null;
+      }
+    return classes;
   }
 
-  static function moduleOf(type: Type): Null<String> {
+  /**
+   * Returns whether `declaration` is in the generator's list of this
+   * request, so that its module's fingerprint holds it.
+   * `ModuleFingerprint.members` gives every other member its full text (L6
+   * of the review of genes-ts #245). Without an active shadow it returns
+   * false, which only makes that text longer.
+   */
+  public static function listed(declaration: BaseType): Bool {
+    final shadow = current;
+    return shadow != null
+      && shadow.listedDeclarations.exists(TypeUtil.baseTypeFullName(declaration));
+  }
+
+  /** Returns the declaration of a named type, or `null` for any other type. */
+  static function declarationOf(type: Type): Null<BaseType> {
     return switch type {
-      case TInst(ref, _): ref.get().module;
-      case TEnum(ref, _): ref.get().module;
-      case TType(ref, _): ref.get().module;
-      case TAbstract(ref, _): ref.get().module;
+      case TInst(ref, _): ref.get();
+      case TEnum(ref, _): ref.get();
+      case TType(ref, _): ref.get();
+      case TAbstract(ref, _): ref.get();
       default: null;
     }
   }

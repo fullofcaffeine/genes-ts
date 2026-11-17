@@ -52,6 +52,9 @@ class Main {
       ColorFacts.value(),
       ExtUser.run(),
       AnonSig.value(),
+      Constrained.value(),
+      LateUser.run(),
+      FableProbe.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

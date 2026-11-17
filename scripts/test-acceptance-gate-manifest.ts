@@ -52,6 +52,7 @@ function expectedLegacySequence(selection: AcceptanceSelection): ReadonlyArray<A
     nodeGate("deep-nullish-alias", "scripts/dist/test-deep-nullish-alias.js"),
     nodeGate("focused-lexical-binding-use-plan", "scripts/dist/test-lexical-binding-use-plan.js"),
     nodeGate("focused-module-functions", "scripts/dist/test-module-functions.js"),
+    nodeGate("focused-react-refresh-modules", "scripts/dist/test-react-refresh-modules.js"),
     nodeGate("focused-array-index-strict", "scripts/dist/test-array-index-strict.js"),
     nodeGate("focused-reflection-class-values", "scripts/dist/test-reflection-class-values.js"),
     nodeGate("focused-abstract-implementation-properties", "scripts/dist/test-abstract-implementation-properties.js"),

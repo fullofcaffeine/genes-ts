@@ -189,7 +189,7 @@ function runSyntheticControls(): void {
   try {
     const valid = writeSyntheticArtifacts();
     roots.push(valid);
-    assert.equal(validateAcceptanceShardAggregate(input(valid)).totalGates, 41);
+    assert.equal(validateAcceptanceShardAggregate(input(valid)).totalGates, 42);
 
     const missing = writeSyntheticArtifacts();
     roots.push(missing);
