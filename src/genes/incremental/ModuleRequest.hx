@@ -138,6 +138,9 @@ typedef ModuleRequestReport = {
 
   /** Time of the shape and root step before dead-code elimination. */
   final rootMs: Float;
+
+  /** Time spent reading and hashing source files in this request. */
+  final digestMs: Float;
 }
 
 /** The report of the record step of one full request with `"moduleRecords": true`. */
@@ -155,6 +158,9 @@ typedef ModuleRecordsReport = {
 
   final shapeMs: Float;
   final recordMs: Float;
+
+  /** Time spent reading and hashing source files in this request. */
+  final digestMs: Float;
 }
 
 /**
@@ -194,7 +200,12 @@ typedef ModuleRecordsReport = {
  * Before each request (full or module), the session sends Haxe's
  * `server/invalidate` for each file that it saved. Genes also checks file
  * contents itself (`beginRequest`, `stale-source`, `source-changed`),
- * because Haxe compares file times only in whole seconds.
+ * because Haxe compares file times only in whole seconds. It keeps a
+ * file's digest as "what Haxe typed" only when the digest read before
+ * typing equals the digest after typing (`provenDigest`). A save that lands
+ * while Haxe types makes that file unknown: module requests are refused
+ * until a full request has made Haxe parse it again, which the next full
+ * request does.
  *
  * The descriptor is one file for the whole session (its path is a define,
  * and a new define value starts a new Haxe cache). A server runs one request
@@ -381,6 +392,8 @@ class ModuleRequest {
   static var moduleFiles: Map<String, String> = new Map();
   static var loadedModules: Map<String, Bool> = new Map();
   static var requestDigests: Map<String, String> = new Map();
+  static var preDigests: Map<String, String> = new Map();
+  static var digestSeconds = 0.0;
   static var targetFile: Null<String> = null;
   static var targetDigestAtStart: Null<String> = null;
   static var targetTypedDigest: Null<String> = null;
@@ -402,6 +415,8 @@ class ModuleRequest {
     moduleFiles = new Map();
     loadedModules = new Map();
     requestDigests = new Map();
+    preDigests = new Map();
+    digestSeconds = 0.0;
     targetFile = null;
     targetDigestAtStart = null;
     targetTypedDigest = null;
@@ -444,16 +459,35 @@ class ModuleRequest {
         if (file != null) {
           targetFile = file;
           final now = digestOf(file);
+          preDigests.set(file, now);
           targetDigestAtStart = now;
           targetTypedDigest = typedDigests.get(file);
           if (targetTypedDigest != now)
             stale.push(file);
         }
       case Full:
+        // The first full request of this macro interpreter knows no file
+        // yet: read every Haxe source of the class paths before typing, so
+        // that `provenDigest` can prove what Haxe typed.
+        if (descriptor.moduleRecords == true && !typedDigests.keys().hasNext())
+          for (root in Context.getClassPath())
+            scanSources(root.length == 0 ? '.' : root);
         if (descriptor.moduleRecords == true)
-          for (file => digest in typedDigests)
-            if (digestOf(file) != digest)
-              stale.push(file);
+          for (file => digest in typedDigests) {
+            final now = digestOf(file);
+            preDigests.set(file, now);
+            if (now == digest)
+              continue;
+            stale.push(file);
+            // A changed `import.hx` changes how every module of its folder
+            // and the folders below is typed.
+            if (Path.withoutDirectory(file) == 'import.hx') {
+              final folder = Path.directory(file) + '/';
+              for (other => _ in typedDigests)
+                if (StringTools.startsWith(other, folder))
+                  stale.push(other);
+            }
+          }
     }
     if (stale.length > 0)
       haxe.macro.CompilationServer.invalidateFiles([
@@ -463,15 +497,60 @@ class ModuleRequest {
   }
 
   /**
+   * Reads the digest of every `.hx` file below `folder` into `preDigests`,
+   * under the path that Haxe gives in positions (the class path joined with
+   * the relative path).
+   */
+  static function scanSources(folder: String): Void {
+    final entries = try FileSystem.readDirectory(folder)
+    catch (_:haxe.Exception) [];
+    for (entry in entries) {
+      final path = folder == '.' ? entry : Path.join([folder, entry]);
+      if (StringTools.endsWith(entry, '.hx')) {
+        if (!preDigests.exists(path))
+          preDigests.set(path, digestOf(path));
+      } else if (!StringTools.startsWith(entry, '.')
+        && (try FileSystem.isDirectory(path) catch (_:haxe.Exception) false))
+        scanSources(path);
+    }
+  }
+
+  /** The digest that `typedDigests` keeps for content that is not proven to be what Haxe typed. */
+  static inline final UNKNOWN_DIGEST = 'unknown';
+
+  /**
+   * Returns the digest of `file` if it is proven to be the content that Haxe
+   * typed in this request, or `UNKNOWN_DIGEST`.
+   *
+   * Proof: the digest read before typing (`beginRequest`) equals the digest
+   * after typing, so the file did not change while Haxe read it. A file
+   * that `beginRequest` did not read (a new file) is unknown, and so is a
+   * file whose content changed during the request (a save landed while
+   * Haxe typed): a module request refuses an unknown file, and the next
+   * full request makes Haxe parse it again. A file that is missing before
+   * and after stays `missing`.
+   */
+  static function provenDigest(file: String): String {
+    final after = digestOf(file);
+    final before = preDigests.get(file);
+    if (before != null)
+      return before == after ? after : UNKNOWN_DIGEST;
+    return after == 'missing' ? after : UNKNOWN_DIGEST;
+  }
+
+  /**
    * Returns the SHA-1 digest of a file's bytes as hexadecimal text, or
    * `missing`. The macro interpreter computes SHA-1 natively.
    */
   static function digestOf(file: String): String {
-    return try {
+    final started = haxe.Timer.stamp();
+    final digest = try {
       haxe.crypto.Sha1.make(File.getBytes(file)).toHex();
     } catch (_:haxe.Exception) {
       'missing';
     }
+    digestSeconds += haxe.Timer.stamp() - started;
+    return digest;
   }
 
   /**
@@ -620,11 +699,12 @@ class ModuleRequest {
         list.push(type);
       }
     }
-    // Haxe typed these modules in this request from their current content.
+    // Haxe typed these modules in this request; keep a digest only when it
+    // is proven to be the content that Haxe read (`provenDigest`).
     for (module in GenerationChangeSet.retypedModules()) {
       final file = moduleFiles.get(module);
       if (file != null)
-        typedDigests.set(file, digestOf(file));
+        typedDigests.set(file, provenDigest(file));
     }
     switch descriptor.kind {
       case Module(module):
@@ -644,14 +724,26 @@ class ModuleRequest {
       case Full:
         if (descriptor.moduleRecords != true)
           return;
-        // The content of every source file right after typing, for the
-        // records (`storedFiles`).
+        // The content that Haxe typed for every source file, for the
+        // records (`storedFiles`): the proven digest of each module file
+        // (`typedDigests`, unknown for a module that Haxe kept from before
+        // this session's records), and of each `import.hx` that can apply.
         for (_ => file in moduleFiles)
-          if (!requestDigests.exists(file))
-            requestDigests.set(file, digestOf(file));
+          if (!requestDigests.exists(file)) {
+            final typed = typedDigests.get(file);
+            // Haxe kept this module from before the digests that this
+            // session keeps (a new macro interpreter): unknown, so that the
+            // next full request makes Haxe parse it again.
+            if (typed == null)
+              typedDigests.set(file, UNKNOWN_DIGEST);
+            requestDigests.set(file, typed == null ? UNKNOWN_DIGEST : typed);
+          }
         for (file in importFilesOf([for (_ => file in moduleFiles) file]))
-          if (!requestDigests.exists(file))
-            requestDigests.set(file, digestOf(file));
+          if (!requestDigests.exists(file)) {
+            final typed = provenDigest(file);
+            typedDigests.set(file, typed);
+            requestDigests.set(file, typed);
+          }
         // A module needs a new shape when its epochs differ from the ones
         // of its cached shape: Haxe typed it again, or the session key
         // changed (the cache is then empty). Modules of extern classes only
@@ -939,9 +1031,9 @@ class ModuleRequest {
         default:
       }
     externalUses = uses;
-    // Read right after typing (`afterSave`): every source file, and every
+    // Proven typed content (`afterSave`): every source file, and every
     // `import.hx` that can apply to them (a missing one is `missing`, so a
-    // new one counts as a change).
+    // new one counts as a change; an unproven one is `unknown`).
     storedFiles = requestDigests;
     storedMain = '';
     if (main != null) {
@@ -1175,15 +1267,14 @@ class ModuleRequest {
           'the last full request (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
     }
     // The requested module was typed from the file's current content: the
-    // file did not change during the request, and Haxe either typed the
-    // module again in this request (`beginRequest` made it parse a file
-    // whose content differed) or kept a module typed from this content.
+    // content that Haxe typed is proven (`provenDigest`) and equals the file
+    // now.
     final ownFile = moduleFiles.get(module);
+    final typedContent = targetFile == null ? null : typedDigests.get(targetFile);
     if (targetFile == null
-      || targetDigestAtStart == null
-      || digestOf(targetFile) != targetDigestAtStart
-      || (GenerationChangeSet.retypedModules().indexOf(module) < 0
-        && targetTypedDigest != targetDigestAtStart))
+      || typedContent == null
+      || typedContent == UNKNOWN_DIGEST
+      || digestOf(targetFile) != typedContent)
       return refuse('stale-source',
         'Haxe may have typed $module from other ' +
         'content than its file holds now (a save during the request, or two ' +
@@ -1456,7 +1547,8 @@ class ModuleRequest {
       kept: kept,
       generationMs: GenerationChangeSet.milliseconds(generationSeconds),
       checkMs: GenerationChangeSet.milliseconds(checkSeconds),
-      rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds)
+      rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds),
+      digestMs: GenerationChangeSet.milliseconds(digestSeconds)
     };
     save(IncrementalRequest.generationReportPath(descriptor.path),
       Json.stringify(report, null, '  ') + '\n');
@@ -1473,7 +1565,8 @@ class ModuleRequest {
       walked: walked,
       shapes: shapeCount,
       shapeMs: GenerationChangeSet.milliseconds(shapeSeconds),
-      recordMs: GenerationChangeSet.milliseconds(haxe.Timer.stamp() - started)
+      recordMs: GenerationChangeSet.milliseconds(haxe.Timer.stamp() - started),
+      digestMs: GenerationChangeSet.milliseconds(digestSeconds)
     };
     save(descriptor.path + '.module-records.json',
       Json.stringify(report, null, '  ') + '\n');

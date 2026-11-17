@@ -74,6 +74,21 @@ const workspace = path.join(tempRoot, "workspace");
 const descriptorFile = path.join(tempRoot, "request.json");
 const reportFile = `${descriptorFile}.report.json`;
 const failFlag = path.join(tempRoot, "fail.flag");
+const raceFlag = path.join(tempRoot, "race.flag");
+
+/**
+ * A test double for an editor that saves a file while Haxe types a request:
+ * `mr.Race` rewrites the file that `race.flag` names in `onAfterTyping`,
+ * after Haxe parsed it.
+ */
+const raceMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Race {\n`
+  + `  public static function install(flag: String, sources: String): Void {\n`
+  + `    Context.onAfterTyping(_ -> {\n      if (!sys.FileSystem.exists(flag))\n        return;\n`
+  + `      final parts = sys.io.File.getContent(flag).split('|');\n`
+  + `      sys.FileSystem.deleteFile(flag);\n      final file = sources + '/' + parts[0];\n`
+  + `      sys.io.File.saveContent(file, StringTools.replace(sys.io.File.getContent(file), parts[1], parts[2]));\n`
+  + `    });\n  }\n}\n`;
+const raceArgs = ["--macro", `mr.Race.install(${JSON.stringify(raceFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
 const timeoutMs = 180_000;
 const keepControl = process.argv.includes("--keep-control");
 const only = process.argv.find((argument) => argument.startsWith("--only="))
@@ -128,6 +143,10 @@ type Step = {
   readonly skipProgram?: boolean;
   /** Runs after the module request and before the full request (r05). */
   readonly afterModule?: () => void;
+  /** A save (`file|from|to`, under `src/`) that lands while Haxe types the module request. */
+  readonly raceOnModule?: string;
+  /** A save (`file|from|to`) that lands while Haxe types the full request. */
+  readonly raceOnFull?: string;
 };
 
 /** A list of steps on its own server and its own copy of the template. */
@@ -157,6 +176,9 @@ function touch(file: string): void {
 /** Files saved since the last request; the driver invalidates them first. */
 const saved = new Set<string>();
 
+/** The file status of the last `edit`, for a test that sets the time back to it. */
+let firstSave = statSync(".");
+
 /** Replaces one exact text in a fixture file and moves its time. */
 function edit(relative: string, from: string, to: string): void {
   const file = path.join(workspace, "src/mr", relative);
@@ -165,6 +187,7 @@ function edit(relative: string, from: string, to: string): void {
     `${relative} must contain ${JSON.stringify(from)} exactly once`);
   writeFileSync(file, text.replace(from, to));
   touch(file);
+  firstSave = statSync(file);
   saved.add(file);
 }
 
@@ -796,6 +819,85 @@ const groups: ReadonlyArray<Group> = [
     ]
   },
   {
+    // t1 part A: a second save lands while Haxe types the module request,
+    // in the same second as the first. No server/invalidate.
+    name: "t1-save-during-module-request",
+    noInvalidate: true,
+    files: { "mr/Race.hx": raceMacro },
+    extraArgs: raceArgs,
+    steps: [
+      {
+        id: "first save; a second save lands while Haxe types",
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Sava';"),
+        module: "mr.Button",
+        raceOnModule: "mr/Button.hx|return 'Sava';|return 'Savb';",
+        expect: "stale-source",
+        afterModule: () => {
+          // The editor's second save kept the second of the first save.
+          const file = path.join(workspace, "src/mr/Button.hx");
+          utimesSync(file, firstSave.atime, firstSave.mtime);
+        },
+        skipProgram: true
+      },
+      {
+        id: "next module request, no further save",
+        apply: () => {},
+        module: "mr.Button",
+        expect: ["preview", "stale-source"]
+      },
+      { id: "a second full request", apply: () => {} }
+    ]
+  },
+  {
+    // t1b: a save lands while Haxe types a full request; the session then
+    // invalidates every saved file and previews another module.
+    name: "t1b-save-during-full-request",
+    files: { "mr/Race.hx": raceMacro },
+    extraArgs: raceArgs,
+    steps: [
+      {
+        id: "full request during which Main stops calling Theme.size()",
+        apply: () => edit("Leaf.hx", "case Small: 'small';", "case Small: 'tiny';"),
+        raceOnFull: "mr/Main.hx|    trace(Theme.size());\n|"
+      },
+      {
+        id: "Theme text edit; Main and Theme invalidated; preview Theme",
+        apply: () => {
+          saved.add(path.join(workspace, "src/mr/Main.hx"));
+          edit("Theme.hx", "return 'blue';", "return 'teal';");
+        },
+        module: "mr.Theme",
+        expect: ["source-changed", "other-modules-changed", "other-modules-typed"]
+      }
+    ]
+  },
+  {
+    // t3 step 2: an import.hx changes in the same second with the same size.
+    // No server/invalidate.
+    name: "t3-import-hx",
+    noInvalidate: true,
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.sub.Tagged.show());",
+        "trace(ExtA.tag('a') + ExtB.tag('b'));"]),
+      "mr/ExtA.hx": `package mr;\nclass ExtA {\n  public static function tag(text: String): String {\n`
+        + `    return 'A' + text;\n  }\n}\n`,
+      "mr/ExtB.hx": `package mr;\nclass ExtB {\n  public static function tag(text: String): String {\n`
+        + `    return 'B' + text;\n  }\n}\n`,
+      "mr/sub/Tagged.hx": `package mr.sub;\nclass Tagged {\n  public static function show(): String {\n`
+        + `    return 'tagged ' + 'x'.tag();\n  }\n}\n`,
+      "mr/sub/import.hx": "using mr.ExtA;\n"
+    },
+    steps: [
+      { id: "no edit, module below an import.hx", apply: () => {}, module: "mr.sub.Tagged", expect: "preview" },
+      {
+        id: "import.hx ExtA -> ExtB, same time and size; preview Tagged; then a full request",
+        apply: () => editSameSecond("sub/import.hx", "using mr.ExtA;", "using mr.ExtB;"),
+        module: "mr.sub.Tagged",
+        expect: ["source-changed", "stale-source"]
+      }
+    ]
+  },
+  {
     // r05 B: the module dependency file is deleted before the full request.
     name: "r05-module-dep",
     files: {
@@ -964,8 +1066,10 @@ async function coldBuild(
 }
 
 async function programRequest(server: OwnedHaxeCompilerServer,
-    label: string): Promise<number> {
+    label: string, race?: string): Promise<number> {
   await invalidate(server, label);
+  if (race !== undefined)
+    writeFileSync(raceFlag, race);
   writeDescriptor({ kind: "full", moduleRecords: true });
   const started = performance.now();
   const result = await server.compile(incremental(programArguments(folder("program"))),
@@ -1031,6 +1135,8 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   }
   if (step.fails === true)
     writeFileSync(failFlag, "fail\n");
+  if (step.raceOnModule !== undefined)
+    writeFileSync(raceFlag, step.raceOnModule);
   writeDescriptor({ kind: "module", module });
   const started = performance.now();
   const result = await server.compile(incremental(moduleArguments(module, previewFolder)),
@@ -1107,7 +1213,7 @@ async function runGroup(group: Group,
       let programMs = 0;
       if (step.skipProgram !== true) {
         const coldTree = await coldBuild(compiler, label);
-        programMs = await programRequest(server, label);
+        programMs = await programRequest(server, label, step.raceOnFull);
         const difference = treeDifference(hashTree(folder("program")), coldTree);
         deepStrictEqual(difference, [],
           `${label}: the full request after the step differs from the cold build:\n`
