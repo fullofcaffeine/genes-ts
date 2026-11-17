@@ -137,6 +137,11 @@ type Group = {
   readonly files?: Readonly<Record<string, string>>;
   /** Extra Haxe arguments of every request of the group. */
   readonly extraArgs?: ReadonlyArray<string>;
+  /**
+   * Do not send `server/invalidate` for saved files before a request (a
+   * session that forgot): Genes must then notice stale content itself.
+   */
+  readonly noInvalidate?: boolean;
   readonly steps: ReadonlyArray<Step>;
 };
 
@@ -149,6 +154,9 @@ function touch(file: string): void {
   utimesSync(file, clock, clock);
 }
 
+/** Files saved since the last request; the driver invalidates them first. */
+const saved = new Set<string>();
+
 /** Replaces one exact text in a fixture file and moves its time. */
 function edit(relative: string, from: string, to: string): void {
   const file = path.join(workspace, "src/mr", relative);
@@ -157,6 +165,26 @@ function edit(relative: string, from: string, to: string): void {
     `${relative} must contain ${JSON.stringify(from)} exactly once`);
   writeFileSync(file, text.replace(from, to));
   touch(file);
+  saved.add(file);
+}
+
+/**
+ * Replaces one exact text with another of the same length and keeps the
+ * file time: a second save within the same second, which Haxe's whole-second
+ * file-time check cannot see.
+ */
+function editSameSecond(relative: string, from: string, to: string): void {
+  const file = path.join(workspace, "src/mr", relative);
+  strictEqual(from.length, to.length, `${relative}: the replacement must keep the size`);
+  const before = statSync(file);
+  const text = readFileSync(file, "utf8");
+  ok(text.split(from).length === 2,
+    `${relative} must contain ${JSON.stringify(from)} exactly once`);
+  writeFileSync(file, text.replace(from, to));
+  utimesSync(file, before.atime, before.mtime);
+  strictEqual(Math.floor(statSync(file).mtimeMs / 1000), Math.floor(before.mtimeMs / 1000),
+    `${relative}: the file time must stay in the same second`);
+  saved.add(file);
 }
 
 const baseSteps: ReadonlyArray<Step> = [
@@ -723,6 +751,51 @@ const groups: ReadonlyArray<Group> = [
     ]
   },
   {
+    // Two saves of one module within one second, same size: Haxe's
+    // whole-second file-time check sees one save. No server/invalidate.
+    name: "same-second-saves",
+    noInvalidate: true,
+    steps: [
+      {
+        id: "first save",
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Sava';"),
+        module: "mr.Button",
+        expect: "preview",
+        skipProgram: true
+      },
+      {
+        id: "second save in the same second, same size",
+        apply: () => editSameSecond("Button.hx", "return 'Sava';", "return 'Savb';"),
+        module: "mr.Button",
+        expect: ["preview", "stale-source"]
+      }
+    ]
+  },
+  {
+    // A same-size replacement after a full request, in the same second as
+    // the save that the full request typed. No server/invalidate.
+    name: "same-size-replacement",
+    noInvalidate: true,
+    steps: [
+      {
+        id: "save and full request",
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Sava';")
+      },
+      {
+        id: "same-size replacement in the same second",
+        apply: () => editSameSecond("Button.hx", "return 'Sava';", "return 'Savb';"),
+        module: "mr.Button",
+        expect: ["preview", "stale-source"]
+      },
+      {
+        id: "same-size replacement of an imported module in the same second",
+        apply: () => editSameSecond("Theme.hx", "return 'blue';", "return 'teal';"),
+        module: "mr.Button",
+        expect: ["source-changed", "other-modules-changed", "other-modules-typed"]
+      }
+    ]
+  },
+  {
     // r05 B: the module dependency file is deleted before the full request.
     name: "r05-module-dep",
     files: {
@@ -755,6 +828,25 @@ function folder(name: string): string {
 }
 
 let groupArgs: ReadonlyArray<string> = [];
+let invalidateSaved = true;
+
+/**
+ * Sends Haxe's `server/invalidate` for each file saved since the last
+ * request, as a development session must before each request.
+ */
+async function invalidate(server: OwnedHaxeCompilerServer, label: string): Promise<void> {
+  if (!invalidateSaved) {
+    saved.clear();
+    return;
+  }
+  for (const file of saved) {
+    const result = await server.compile(["--display", JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "server/invalidate", params: { file }
+    })], `Invalidate ${path.basename(file)} ${label}`, timeoutMs, workspace);
+    ok(result.code === 0, `${label}: server/invalidate failed\n${describe(result)}`);
+  }
+  saved.clear();
+}
 
 /** Arguments shared by every request: the defines of the session. */
 function commonArguments(): string[] {
@@ -873,6 +965,7 @@ async function coldBuild(
 
 async function programRequest(server: OwnedHaxeCompilerServer,
     label: string): Promise<number> {
+  await invalidate(server, label);
   writeDescriptor({ kind: "full", moduleRecords: true });
   const started = performance.now();
   const result = await server.compile(incremental(programArguments(folder("program"))),
@@ -898,6 +991,8 @@ function prepare(group: Group): void {
     touch(file);
   }
   groupArgs = group.extraArgs ?? [];
+  invalidateSaved = group.noInvalidate !== true;
+  saved.clear();
 }
 
 /** Runs the module request of one step and checks its output; returns the outcome. */
@@ -910,6 +1005,7 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   if (step.sameFolder !== true && step.keepFolder !== true)
     rmSync(previewFolder, { recursive: true, force: true });
   rmSync(reportFile, { force: true });
+  await invalidate(server, label);
   if (step.race === "full-descriptor") {
     // S2: the session wrote the full descriptor before this module request ran.
     writeDescriptor({ kind: "full", moduleRecords: true });

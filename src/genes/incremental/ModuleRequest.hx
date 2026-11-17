@@ -191,6 +191,11 @@ typedef ModuleRecordsReport = {
  * 4. The session runs the full request afterwards; it remains the authority
  *    for the published tree.
  *
+ * Before each request (full or module), the session sends Haxe's
+ * `server/invalidate` for each file that it saved. Genes also checks file
+ * contents itself (`beginRequest`, `stale-source`, `source-changed`),
+ * because Haxe compares file times only in whole seconds.
+ *
  * The descriptor is one file for the whole session (its path is a define,
  * and a new define value starts a new Haxe cache). A server runs one request
  * at a time and queues the others, and each request reads the descriptor
@@ -215,7 +220,9 @@ typedef ModuleRecordsReport = {
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
  * - no source file of the stored program other than the module's own
- *   changed since the full request (time and size; also `import.hx` files),
+ *   changed since the full request (content digest; also `import.hx`
+ *   files, and also files of modules that this request loads, because Haxe
+ *   compares file times only in whole seconds),
  *   so an edit outside the module's imports is a refusal too
  *   (`source-changed`);
  * - the module uses exactly what it used: its signature (every declaration
@@ -323,8 +330,27 @@ class ModuleRequest {
    */
   @:persistent static var externalUses: Map<String, Bool> = new Map();
 
-  /** The time and size (`stampOf`) of each source file of the stored program. */
+  /**
+   * The content digest (`digestOf`) of each source file and `import.hx`
+   * file of the stored program, read right after typing in the full request.
+   */
   @:persistent static var storedFiles: Map<String, String> = new Map();
+
+  /**
+   * The content digest of each source file when Haxe last typed its module
+   * in a request with the define. A file whose content differs at the start
+   * of a request may hold content that Haxe's own check missed: Haxe keeps
+   * file times in whole seconds, so a second save in the same second looks
+   * unchanged. `beginRequest` makes Haxe parse such a file again.
+   */
+  @:persistent static var typedDigests: Map<String, String> = new Map();
+
+  /**
+   * Files of modules that a module request typed alone and could not mark
+   * for a new typing (`retypeLater` failed). The next request invalidates
+   * them before typing.
+   */
+  @:persistent static var typedAlone: Array<String> = [];
 
   /**
    * Modules whose roots a request added and did not remove (it failed
@@ -354,6 +380,11 @@ class ModuleRequest {
   static var addedRoots: Array<MetaAccess> = [];
   static var moduleFiles: Map<String, String> = new Map();
   static var loadedModules: Map<String, Bool> = new Map();
+  static var requestDigests: Map<String, String> = new Map();
+  static var targetFile: Null<String> = null;
+  static var targetDigestAtStart: Null<String> = null;
+  static var targetTypedDigest: Null<String> = null;
+  static var retypeFailure: Null<String> = null;
   static var surfaceOwners: Null<Map<String, Bool>> = null;
 
   /**
@@ -370,12 +401,77 @@ class ModuleRequest {
     addedRoots = [];
     moduleFiles = new Map();
     loadedModules = new Map();
+    requestDigests = new Map();
+    targetFile = null;
+    targetDigestAtStart = null;
+    targetTypedDigest = null;
+    retypeFailure = null;
     surfaceOwners = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
+    beginRequest();
     // `false`: after Haxe saved the class state, so that the roots that
     // `afterSave` adds never reach the server's cache.
     Context.onGenerate(afterSave, false);
+  }
+
+  /**
+   * Runs before Haxe types the program (`Generator.use()` is an init
+   * macro): makes Haxe parse again each file whose content is not the
+   * content that Haxe last typed (`typedDigests`), and each file that an
+   * earlier module request typed alone and could not mark (`typedAlone`).
+   *
+   * Why: Haxe's compilation server compares file times in whole seconds.
+   * Two saves of one file in the same second look like one, and the second
+   * request types the first save's content. Example: `'Save'` becomes
+   * `'Sava'` and then `'Savb'` within one second; without this step the
+   * preview of the second save shows `Sava`. A session should still send
+   * `server/invalidate` for each saved file before a request.
+   *
+   * In a module request it also notes the digest of the requested module's
+   * file, which `decide` compares with the file after typing.
+   */
+  static function beginRequest(): Void {
+    final descriptor = IncrementalRequest.descriptor();
+    if (descriptor == null)
+      return;
+    final stale = typedAlone.copy();
+    typedAlone = [];
+    switch descriptor.kind {
+      case Module(module):
+        final file = try Context.resolvePath(module.split('.').join('/')
+          + '.hx') catch (_:haxe.Exception) null;
+        if (file != null) {
+          targetFile = file;
+          final now = digestOf(file);
+          targetDigestAtStart = now;
+          targetTypedDigest = typedDigests.get(file);
+          if (targetTypedDigest != now)
+            stale.push(file);
+        }
+      case Full:
+        if (descriptor.moduleRecords == true)
+          for (file => digest in typedDigests)
+            if (digestOf(file) != digest)
+              stale.push(file);
+    }
+    if (stale.length > 0)
+      haxe.macro.CompilationServer.invalidateFiles([
+        for (file in stale)
+          FileSystem.absolutePath(file)
+      ]);
+  }
+
+  /**
+   * Returns the SHA-1 digest of a file's bytes as hexadecimal text, or
+   * `missing`. The macro interpreter computes SHA-1 natively.
+   */
+  static function digestOf(file: String): String {
+    return try {
+      haxe.crypto.Sha1.make(File.getBytes(file)).toHex();
+    } catch (_:haxe.Exception) {
+      'missing';
+    }
   }
 
   /**
@@ -524,6 +620,12 @@ class ModuleRequest {
         list.push(type);
       }
     }
+    // Haxe typed these modules in this request from their current content.
+    for (module in GenerationChangeSet.retypedModules()) {
+      final file = moduleFiles.get(module);
+      if (file != null)
+        typedDigests.set(file, digestOf(file));
+    }
     switch descriptor.kind {
       case Module(module):
         final own = typesOf(types, module);
@@ -542,6 +644,14 @@ class ModuleRequest {
       case Full:
         if (descriptor.moduleRecords != true)
           return;
+        // The content of every source file right after typing, for the
+        // records (`storedFiles`).
+        for (_ => file in moduleFiles)
+          if (!requestDigests.exists(file))
+            requestDigests.set(file, digestOf(file));
+        for (file in importFilesOf([for (_ => file in moduleFiles) file]))
+          if (!requestDigests.exists(file))
+            requestDigests.set(file, digestOf(file));
         // A module needs a new shape when its epochs differ from the ones
         // of its cached shape: Haxe typed it again, or the session key
         // changed (the cache is then empty). Modules of extern classes only
@@ -602,11 +712,17 @@ class ModuleRequest {
       File.saveContent(appears, 'genes module request\n');
       FileSystem.deleteFile(vanishes);
     } catch (error:haxe.Exception) {
-      Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot mark '
+      // The request publishes nothing (`decide` refuses), and the next
+      // request makes Haxe parse these files again before it types them.
+      retypeFailure = '[GENES-MODULE-REQUEST-002] Genes cannot mark '
         + '${modules.join(', ')} for a new typing in the next full request '
-        + '(${error.message}); restart the compilation server before the next '
-        + 'full request.',
-        Context.currentPos());
+        + '(${error.message})';
+      for (module in modules) {
+        final file = moduleFiles.get(module);
+        if (file != null)
+          typedAlone = typedAlone.concat([file]);
+      }
+      Context.warning(retypeFailure, Context.currentPos());
     }
   }
 
@@ -823,17 +939,10 @@ class ModuleRequest {
         default:
       }
     externalUses = uses;
-    final files = new Map<String, String>();
-    for (module => file in moduleFiles)
-      if (!files.exists(file))
-        files.set(file, stampOf(file));
-    // `import.hx` files change how the modules of their folder and the
-    // folders below are typed; a missing one is stamped too, so that a new
-    // one counts as a change.
-    for (file in importFilesOf([for (_ => file in moduleFiles) file]))
-      if (!files.exists(file))
-        files.set(file, stampOf(file));
-    storedFiles = files;
+    // Read right after typing (`afterSave`): every source file, and every
+    // `import.hx` that can apply to them (a missing one is `missing`, so a
+    // new one counts as a change).
+    storedFiles = requestDigests;
     storedMain = '';
     if (main != null) {
       function findMain(expression: TypedExpr): Void {
@@ -913,6 +1022,7 @@ class ModuleRequest {
     storedEpochs = new Map();
     externalUses = new Map();
     storedFiles = new Map();
+    typedDigests = new Map();
     shapeCache = new Map();
   }
 
@@ -947,19 +1057,6 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the time and size of a source file as one text, or `missing`.
-   * Haxe compares file times too when it decides to type a module again.
-   */
-  static function stampOf(file: String): String {
-    return try {
-      final status = FileSystem.stat(file);
-      '${status.mtime.getTime()} ${status.size}';
-    } catch (_:haxe.Exception) {
-      'missing';
-    }
-  }
-
-  /**
    * Returns `shape` without the lines of private fields that no other
    * module can see: no module of the stored full request uses the field
    * from another module, and no class of another module extends its class.
@@ -967,8 +1064,10 @@ class ModuleRequest {
    * this one; `kept` and the reference checks still guard what it does to
    * this module's own file.
    *
-   * Example: adding the private helper `format()` to `app.Button` keeps the
-   * visible shape, so the edit can be previewed.
+   * Example: changing the type of a private helper of `app.Button` that no
+   * other module uses keeps the visible shape. (The edit is still refused,
+   * by the signature check of `decide`; the visible shape only decides
+   * whether modules that import this one need a new typing.)
    */
   static function visibleShape(shape: String): String {
     return [
@@ -1012,6 +1111,9 @@ class ModuleRequest {
         'the request has a --main, so it is not the ' +
         'module request that its descriptor names; write the descriptor only ' +
         'while no request is in flight');
+    final failedMark = retypeFailure;
+    if (failedMark != null)
+      return refuse('retype-mark-failed', failedMark);
     if (descriptor.generation != ReuseClean || descriptor.afterTyping != Reuse)
       return refuse('needs-reuse',
         'a module request needs "generation": "reuse" and "afterTyping": "reuse"');
@@ -1072,20 +1174,26 @@ class ModuleRequest {
           '$name is not the module of ' +
           'the last full request (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
     }
-    // Haxe checks only the files of the modules that this request loads. An
-    // edit of any other file of the stored program (a module that imports
-    // this one, for example) is invisible to it, so Genes checks those files.
+    // The requested module was typed from the file's current content: the
+    // file did not change during the request, and Haxe either typed the
+    // module again in this request (`beginRequest` made it parse a file
+    // whose content differed) or kept a module typed from this content.
     final ownFile = moduleFiles.get(module);
-    final loadedFiles = new Map<String, Bool>();
-    for (name => file in moduleFiles)
-      if (name != module)
-        loadedFiles.set(file, true);
-    for (file => stamp in storedFiles)
-      if (file != ownFile && !loadedFiles.exists(file)
-        && stampOf(file) != stamp)
-        return refuse('source-changed',
-          '$file changed since the full request, and this request does not ' +
-          'type it');
+    if (targetFile == null
+      || targetDigestAtStart == null
+      || digestOf(targetFile) != targetDigestAtStart
+      || (GenerationChangeSet.retypedModules().indexOf(module) < 0
+        && targetTypedDigest != targetDigestAtStart))
+      return refuse('stale-source',
+        'Haxe may have typed $module from other ' +
+        'content than its file holds now (a save during the request, or two ' +
+        'saves in one second); send the module request again');
+    // Every other file of the stored program has the content that the full
+    // request typed: Haxe compares file times in whole seconds, so its own
+    // check can miss an edit, also of a module that this request loads.
+    for (file => digest in storedFiles)
+      if (file != ownFile && file != targetFile && digestOf(file) != digest)
+        return refuse('source-changed', '$file changed since the full request');
     final failures = GenerationChangeSet.sameObjectFailures();
     if (failures.length > 0)
       return refuse('same-object-failure',
