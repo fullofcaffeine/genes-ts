@@ -387,7 +387,18 @@ difference of their results is a mismatch. The edits whose ids start with
 - the import cycle through a third module (`inc.CyHub` rows) with no edit,
   so that clean modules answer the cycle question from stored requests;
 - a module that only the walk creates (`inc.Ghost`), made by a stored step
-  of the clean typedef module `inc.GhostHint`.
+  of the clean typedef module `inc.GhostHint`;
+- the rows of the review of slice S2 (ids start with `RV6`, modules
+  `inc.Rv*`): one late member that two clean typedef modules name, two late
+  members of one clean module whose order follows the visit order, a late
+  member of a clean module that closes an import cycle through two clean
+  modules, a generic instance named in a type position and then used at
+  run time, and a late member that is renamed;
+- `-D genes.extern_init_warning` on, with an edit that leaves the recorded
+  path: Genes warns about each extern class with `__init__` (Haxe's `Math`
+  and `String`, and `inc.RvExtInit`) while it reads the type list, and the
+  request that generates a second time must still report each warning once.
+  Every request compares these generator warnings with the cold build.
 
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic

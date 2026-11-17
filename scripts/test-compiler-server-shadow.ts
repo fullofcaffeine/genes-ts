@@ -1045,6 +1045,153 @@ const edits: ReadonlyArray<Edit> = [
     results: ["incremental"],
     settled: true
   },
+  // Review of slice S2 (genes-f8vc.9.19, probes 6a to 6e; all leave the
+  // recorded path or stay on it, never drift): one late member that two
+  // clean typedef modules name (RV6c), two late members of one clean module
+  // whose order follows the visit order (RV6b), a late member of a clean
+  // module that closes an import cycle through two clean modules (RV6d), a
+  // generic instance named in a type position and then used at run time
+  // (RV6e), and a late member that is renamed (RV6a).
+  {
+    id: "RV6c Leaf2 names inc.RvWayB: the other clean source adds the shared late member",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final rvWayB: Null<inc.RvWayB> = null;")
+  },
+  { id: "RV6c no edit after the flip", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6c the flip removed",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final rvWayB: Null<inc.RvWayB> = null;", "value(): String {")
+  },
+  { id: "RV6c no edit after the flip removed", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6b Leaf2 names inc.RvOrdWayY: two late members of a clean module in the other order",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final rvOrdY: Null<inc.RvOrdWayY> = null;")
+  },
+  { id: "RV6b no edit after the order flip", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6b the order flips back",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final rvOrdY: Null<inc.RvOrdWayY> = null;", "value(): String {")
+  },
+  { id: "RV6b no edit after the order flips back", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6d a late member of a clean module closes an import cycle through two clean modules",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef RvCyHint = {\n  final ?e: inc.RvCyQ.RvCyQExtra;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final rvCy: Null<RvCyHint> = null;");
+    }
+  },
+  { id: "RV6d no edit while that cycle stands", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6d the cycle opens again",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef RvCyHint = {\n  final ?e: inc.RvCyQ.RvCyQExtra;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final rvCy: Null<RvCyHint> = null;",
+        "value(): String {");
+    }
+  },
+  { id: "RV6d no edit after the cycle opened", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e a dirty module first names a generic instance in a type position only",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef RvBoxHint = {\n  final ?b: inc.RvBox<Float>;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final rvBox: Null<RvBoxHint> = null;");
+    }
+  },
+  { id: "RV6e no edit after that first use", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e a second dirty module uses the generic instance at run time",
+    apply: () => edit("inc/RvBoxUser.hx", "/*RVBOX_USE*/",
+      "+ new RvBox<Float>(1.5).item /*RVBOX_USE*/")
+  },
+  { id: "RV6e no edit after the run-time use", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e the run-time use removed",
+    apply: () => edit("inc/RvBoxUser.hx", "+ new RvBox<Float>(1.5).item /*RVBOX_USE*/",
+      "/*RVBOX_USE*/")
+  },
+  { id: "RV6e no edit after the run-time use removed", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e the type-only use removed",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef RvBoxHint = {\n  final ?b: inc.RvBox<Float>;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final rvBox: Null<RvBoxHint> = null;",
+        "value(): String {");
+    }
+  },
+  { id: "RV6e no edit after the type-only use removed", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6a the late member named by a clean typedef module is renamed",
+    apply: () => {
+      for (const relative of ["inc/RvName.hx", "inc/RvNameWay.hx"]) {
+        const file = sourceFile(relative);
+        writeFileSync(file, readFileSync(file, "utf8").replaceAll("RvNameOld", "RvNameNew"));
+        touch(file);
+      }
+    }
+  },
+  { id: "RV6a no edit after the rename", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6a the rename reverted",
+    apply: () => {
+      for (const relative of ["inc/RvName.hx", "inc/RvNameWay.hx"]) {
+        const file = sourceFile(relative);
+        writeFileSync(file, readFileSync(file, "utf8").replaceAll("RvNameNew", "RvNameOld"));
+        touch(file);
+      }
+    }
+  },
+  { id: "RV6a no edit after the rename reverted", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    // Review of slice S2, M1: with -D genes.extern_init_warning, Genes warns
+    // about each extern class with `__init__` (Math and String of Haxe's own
+    // library, and inc.RvExtInit) while it reads the type list. A request
+    // that leaves the walk with stored edges, and every compare request with
+    // a clean set, generates again; the warnings must still come once.
+    id: "S2 define genes.extern_init_warning added",
+    apply: () => {
+      program.defines.push("genes.extern_init_warning");
+    },
+    // Haxe selects another macro context for another define set, so the
+    // request starts with no generation cache.
+    results: ["full"]
+  },
+  {
+    id: "S2 no edit with genes.extern_init_warning",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 with genes.extern_init_warning, an edit that leaves the recorded path",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;"),
+    walk: "left"
+  },
+  {
+    id: "S2 with genes.extern_init_warning, that edit undone",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;",
+      "value(): String {"),
+    walk: "left"
+  },
+  {
+    id: "S2 define genes.extern_init_warning removed",
+    apply: () => {
+      program.defines = program.defines.filter((define) =>
+        define !== "genes.extern_init_warning");
+    }
+  },
   {
     // M2 of the review of #244: the capture of a typedef in `inc.Leaf2`
     // writes a SignatureCache fact for the source position of the field
@@ -1269,6 +1416,21 @@ function treeDifference(
       .filter((entry) => !leftPaths.has(entry.path))
       .map((entry) => entry.path)
   ].sort();
+}
+
+/**
+ * Returns the warnings that Genes reports while it reads the type list,
+ * sorted: today "Extern __init__ methods are not supported" with
+ * `-D genes.extern_init_warning`. A request reports each of them once, also
+ * when it generates a second time after it left the walk with stored edges
+ * (slice S2).
+ */
+function generatorWarnings(result: ProcessResult): ReadonlyArray<string> {
+  return `${result.stdout}\n${result.stderr}`
+    .split("\n")
+    .filter((line) => line.includes("Extern __init__ methods are not supported"))
+    .map((line) => line.trim())
+    .sort();
 }
 
 /**
@@ -1575,6 +1737,14 @@ async function runPass(
           + "print warnings than the cold build");
       deepStrictEqual(printWarnings(shadowed), coldWarnings,
         `G1 failed at ${label}: the shadow request reported other print `
+        + "warnings than the cold build");
+      const coldGeneratorWarnings = generatorWarnings(cold);
+      if (warm !== null)
+        deepStrictEqual(generatorWarnings(warm), coldGeneratorWarnings,
+          `G0 failed at ${label}: the plain warm request reported other `
+          + "generator warnings than the cold build");
+      deepStrictEqual(generatorWarnings(shadowed), coldGeneratorWarnings,
+        `G1 failed at ${label}: the shadow request reported other generator `
         + "warnings than the cold build");
       if (report.result !== "off") {
         strictEqual(report.printWarnings, coldWarnings.length,

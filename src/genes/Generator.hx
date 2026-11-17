@@ -25,6 +25,26 @@ using Lambda;
 using StringTools;
 
 /**
+ * The facts of one generation that come from Haxe's type list alone, before
+ * any `Module` value exists: the declarations of each output module, the
+ * root exports, and the concrete class and enum names.
+ *
+ * Why: when a request leaves the walk with stored edges (Stage 3, slice S2),
+ * `Generator.generateTransactional` builds new `Module` values and walks
+ * again. It starts from these facts instead of reading the type list again,
+ * because that step reports warnings (an extern `__init__` with
+ * `-D genes.extern_init_warning`) that a request must report once.
+ * `concrete` is a copy taken before any module added a name; each pass
+ * copies it again. Request-local: it holds typed values only for the
+ * request that made it.
+ */
+private typedef GenerationProgram = {
+  final toGenerate: Map<String, Array<Type>>;
+  final expose: Map<String, ModuleExport>;
+  final concrete: Array<String>;
+}
+
+/**
  * Orchestrates the shared Haxe-to-TypeScript/classic-JavaScript pipeline.
  *
  * Why: both output profiles must consume the same typed modules, semantic
@@ -163,31 +183,56 @@ class Generator {
    * What/How: typed modules, reachability, capability checks, implementation
    * files, declarations, source maps, and TS support files are accumulated in
    * `outputTransaction`; public output changes only at the final commit.
+   *
+   * `program` is given only for the live pass after a pass with stored edges
+   * (Stage 3, slice S2; see the caller below). That pass builds new `Module`
+   * values from the program facts of the first pass instead of reading the
+   * type list again: a warning of that step, such as "Extern __init__
+   * methods are not supported" with `-D genes.extern_init_warning`, is
+   * reported once, and the plan work of the pass is timed as
+   * `genes.plan.rerun`, not as a second inventory and walk.
    */
   static function generateTransactional(api: JSGenApi, outputFile: String,
-      output: String, outputTransaction: OutputTransaction): Void {
-    final endInventoryTimer = timer('genes.plan.inventory');
+      output: String, outputTransaction: OutputTransaction,
+      ?program: GenerationProgram): Void {
+    final given = program;
+    final rerun = given != null;
+    var rerunTimerOpen = rerun;
+    final rerunTimer = rerun ? timer('genes.plan.rerun') : () -> {};
+    function endRerunTimer(): Void {
+      if (!rerunTimerOpen)
+        return;
+      rerunTimerOpen = false;
+      rerunTimer();
+    }
+    function planTimer(name: String): Void->Void {
+      return rerun ? () -> {} : timer(name);
+    }
+    final endInventoryTimer = planTimer('genes.plan.inventory');
     // Typing and Haxe's filters are complete: declaration names are final.
-    TypeUtil.startGenerationNames();
-    ModuleDirectivePlan.validate();
+    if (!rerun) {
+      TypeUtil.startGenerationNames();
+      ModuleDirectivePlan.validate();
+    }
     // With `-D genes.compile_stage_profile`, `haxe --times` splits the
     // inventory stage into its whole-program loops (types, exports), the
     // `Module` values (modules) and the incremental shadow (shadow). A request
     // that replays stored output still runs the first two for every type.
     #if genes.compile_stage_profile
-    final endInventoryTypesTimer = timer('genes.plan.inventory.types');
+    final endInventoryTypesTimer = planTimer('genes.plan.inventory.types');
     #end
-    final toGenerate = typesPerModule(api.types);
+    final toGenerate = given != null ? given.toGenerate : typesPerModule(api.types);
     #if genes.compile_stage_profile
     endInventoryTypesTimer();
-    final endInventoryExportsTimer = timer('genes.plan.inventory.exports');
+    final endInventoryExportsTimer = planTimer('genes.plan.inventory.exports');
     #end
     final extension = Path.extension(outputFile);
     final outputDir = Path.directory(outputFile);
     Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
     final modules = new Map();
-    final expose: Map<String, ModuleExport> = new Map();
-    final concrete = [];
+    final expose: Map<String,
+      ModuleExport> = given != null ? given.expose : new Map();
+    final concrete = given != null ? given.concrete.copy() : [];
     function export(export: ModuleExport) {
       if (expose.exists(export.name)) {
         final duplicate = expose.get(export.name);
@@ -211,7 +256,9 @@ class Generator {
       }
       expose.set(export.name, export);
     }
-    for (type in api.types) {
+    // The live pass after a pass with stored edges has these facts already.
+    final programTypes: Array<Type> = rerun ? [] : api.types;
+    for (type in programTypes) {
       switch type {
         #if (haxe_ver >= 4.2)
         case TInst(ownerRef, _)
@@ -267,9 +314,16 @@ class Generator {
         default:
       }
     }
+    // The program facts before any `Module` adds a concrete name: the live
+    // pass after a pass with stored edges starts from them.
+    final programFacts: GenerationProgram = {
+      toGenerate: toGenerate,
+      expose: expose,
+      concrete: concrete.copy()
+    };
     #if genes.compile_stage_profile
     endInventoryExportsTimer();
-    final endInventoryModulesTimer = timer('genes.plan.inventory.modules');
+    final endInventoryModulesTimer = planTimer('genes.plan.inventory.modules');
     #end
     final context: genes.Module.ModuleContext = {
       concrete: concrete,
@@ -316,7 +370,7 @@ class Generator {
     }
     #if genes.compile_stage_profile
     endInventoryModulesTimer();
-    final endInventoryShadowTimer = timer('genes.plan.inventory.shadow');
+    final endInventoryShadowTimer = planTimer('genes.plan.inventory.shadow');
     #end
     IncrementalShadow.inventory(api.types, exposedByModule, output);
     #if genes.compile_stage_profile
@@ -430,6 +484,7 @@ class Generator {
 
         final visitSteps: Array<WalkStep> = [];
         final resolvedKeys: Array<String> = [];
+        final namedKeys: Array<String> = [];
         final edges = sourceModule.dependencyPlan.edges;
         for (edge in edges) {
           if (!DependencyPlan.containsKind(kinds, edge.kind))
@@ -504,19 +559,21 @@ class Generator {
             });
             if (changed)
               resolvedKeys.push(key);
+            if (known != null)
+              namedKeys.push(key);
           }
         }
         if (state != null)
           IncrementalShadow.recordVisit(moduleName, state, visitSteps,
-            resolvedKeys);
+            resolvedKeys, namedKeys);
       }
       IncrementalShadow.enter(null, Reachability);
       return reachable;
     }
 
-    final endReachabilityTimer = timer('genes.plan.reachability');
+    final endReachabilityTimer = planTimer('genes.plan.reachability');
     #if genes.compile_stage_profile
-    final endReachabilityRootsTimer = timer('genes.plan.reachability.roots');
+    final endReachabilityRootsTimer = planTimer('genes.plan.reachability.roots');
     #end
     final initialNames = [for (name in modules.keys()) name];
     initialNames.sort(Reflect.compare);
@@ -540,7 +597,7 @@ class Generator {
       [RuntimeValue, RuntimeSideEffect];
     #if genes.compile_stage_profile
     endReachabilityRootsTimer();
-    final endReachabilityExpandTimer = timer('genes.plan.reachability.expand');
+    final endReachabilityExpandTimer = planTimer('genes.plan.reachability.expand');
     #end
     // Stage 3, slice S2. In a pass with stored edges
     // (`IncrementalShadow.storedWalk`: `generation` "compare" or "reuse"
@@ -614,16 +671,20 @@ class Generator {
       });
     } catch (error:haxe.Exception) {
       endReachabilityTimers();
+      endRerunTimer();
       if (!storedPass)
         throw error;
       // Any stop of the pass with stored edges is a fallback, never a
       // diagnostic: the live pass reports a real error again.
       IncrementalShadow.leaveStoredPass(error.message);
-      generateTransactional(api, outputFile, output, outputTransaction);
+      generateTransactional(api, outputFile, output, outputTransaction,
+        programFacts);
       return;
     }
+    endRerunTimer();
     if (storedPass && IncrementalShadow.walkAgain()) {
-      generateTransactional(api, outputFile, output, outputTransaction);
+      generateTransactional(api, outputFile, output, outputTransaction,
+        programFacts);
       return;
     }
 

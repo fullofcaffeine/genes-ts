@@ -844,8 +844,10 @@ class IncrementalShadow {
 
   /**
    * Records the steps of one live visit: `state` is the module's member list
-   * when the visit started, `steps` the steps in edge order, and `resolved`
-   * the keys of the steps that added a declaration or a module.
+   * when the visit started, `steps` the steps in edge order, `resolved` the
+   * keys of the steps that added a declaration or a module, and `named` the
+   * keys of the steps for which no member had the plain name, so that the
+   * walk read the second name (`WalkStep.typeName`).
    *
    * In a live pass with a usable cache, the visit of a clean module is also
    * checked against the record, as the walk with stored edges would take it:
@@ -854,7 +856,8 @@ class IncrementalShadow {
    * first such visit gives the walk's verdict (`ShadowWalkReport`).
    */
   public static function recordVisit(module: String, state: String,
-      steps: Array<genes.WalkStep>, resolved: Array<String>): Void {
+      steps: Array<genes.WalkStep>, resolved: Array<String>,
+      named: Array<String>): Void {
     final shadow = current;
     if (shadow == null || !shadow.active)
       return;
@@ -905,7 +908,18 @@ class IncrementalShadow {
         'plan for the same member list');
       return;
     }
-    for (key in resolved) {
+    // The walk with stored edges finds a declaration by its key when a step
+    // adds it, and also when it needs the second name but the record does
+    // not hold it (`Generator.expandReachability`). Both leave the path
+    // when the stamp changed or is empty, or the inventory lacks the key.
+    final needed = resolved.copy();
+    for (key in named) {
+      final index = visit.steps.findIndex(step -> step.key == key);
+      if (index >= 0 && visit.steps[index].typeName.length == 0
+        && needed.indexOf(key) < 0)
+        needed.push(key);
+    }
+    for (key in needed) {
       final index = visit.steps.findIndex(step -> step.key == key);
       final step = visit.steps[index];
       if (visit.stamps[index].length == 0
@@ -913,7 +927,7 @@ class IncrementalShadow {
         || TypedModuleInventory.declarationByKey(step.module, key) == null) {
         shadow.staleSteps++;
         shadow.diverge('left',
-          'the stored step of $module to $key adds a ' +
+          'the stored step of $module to $key needs a ' +
           'declaration whose stamp changed or that the inventory lacks');
       }
     }
