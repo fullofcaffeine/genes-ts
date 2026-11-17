@@ -257,7 +257,7 @@ Genes has one canonical serial acceptance runner, per-gate timing, bounded
 cleanup, and separate output roots. It does not yet have a complete declarative
 gate manifest: `acceptanceOwnedFocusedGates` describes only the focused subset,
 while direct and conditional calls in `scripts/test-acceptance.ts` own the rest.
-The main TypeScript acceptance job executes all 41 gates serially. The current
+The main TypeScript acceptance job executes all 42 gates serially. The current
 artifact proves enough independent long work to justify first modeling the
 complete conditional sequence and then running a partition experiment.
 
