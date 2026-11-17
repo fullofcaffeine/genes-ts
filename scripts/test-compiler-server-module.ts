@@ -126,6 +126,8 @@ type Step = {
   readonly sameFolder?: boolean;
   /** Skip the full request after this step (the next step depends on it). */
   readonly skipProgram?: boolean;
+  /** Runs after the module request and before the full request (r05). */
+  readonly afterModule?: () => void;
 };
 
 /** A list of steps on its own server and its own copy of the template. */
@@ -176,7 +178,9 @@ const baseSteps: ReadonlyArray<Step> = [
       "  static function unusedToo(): Int {\n    return 7;\n  }\n\n"
       + "  static function unused(): String {"),
     module: "mr.Button",
-    expect: "preview"
+    // A new field changes the module's signature: refused, as every
+    // structural edit (see `ModuleRequest`).
+    expect: "signature-changed"
   },
   {
     id: "body edit in a class with a parent class and an interface",
@@ -186,9 +190,16 @@ const baseSteps: ReadonlyArray<Step> = [
     expect: "preview"
   },
   {
-    id: "body edit of the module with main",
+    id: "structural edit of the module with main (a new + 1)",
     apply: () => edit("Main.hx", "trace(Theme.size());",
       "trace(Theme.size() + 1);"),
+    module: "mr.Main",
+    expect: "uses-changed"
+  },
+  {
+    id: "literal edit of the module with main",
+    apply: () => edit("Main.hx", "trace(Theme.size() + 1);",
+      "trace(Theme.size() + 2);"),
     module: "mr.Main",
     expect: "preview"
   },
@@ -197,7 +208,7 @@ const baseSteps: ReadonlyArray<Step> = [
     apply: () => edit("Button.hx", "return label() + ':' + helper();",
       "return label() + ':' + helper() + Theme.spacing();"),
     module: "mr.Button",
-    expect: "foreign-references-changed"
+    expect: "uses-changed"
   },
   {
     id: "the only call of a private helper is removed",
@@ -205,7 +216,7 @@ const baseSteps: ReadonlyArray<Step> = [
       "return label() + ':' + helper() + Theme.spacing();",
       "return label() + ':' + Theme.spacing();"),
     module: "mr.Button",
-    expect: "kept-changed"
+    expect: "uses-changed"
   },
   {
     id: "inline constant changed",
@@ -309,7 +320,7 @@ const groups: ReadonlyArray<Group> = [
         apply: () => edit("Modes.hx", "static function pick(mode: Mode): String {",
           "static function pick(mode: Dynamic): String {"),
         module: "mr.Modes",
-        expect: "kept-changed"
+        expect: "signature-changed"
       }
     ]
   },
@@ -331,7 +342,7 @@ const groups: ReadonlyArray<Group> = [
         apply: () => edit("Tags.hx", "Std.string(tag) + Std.string(other)",
           "tag.text + Std.string(other)"),
         module: "mr.Tags",
-        expect: "kept-changed"
+        expect: "uses-changed"
       }
     ]
   },
@@ -361,14 +372,17 @@ const groups: ReadonlyArray<Group> = [
         apply: () => edit("Sidebar.hx", "static var current: Null<Tab> = null;",
           "static var current: Null<String> = null;"),
         module: "mr.Sidebar",
-        expect: "kept-changed"
+        expect: "signature-changed"
       },
       {
         id: "local Array<Row> -> Array<Int>",
         apply: () => edit("Lists.hx", "final rows: Array<Row> = [];",
           "final rows: Array<Int> = [];"),
         module: "mr.Lists",
-        expect: ["preview", "kept-changed"]
+        // Haxe folds `rows.length + ints.length` of two empty arrays to `0`
+        // before dead-code elimination, so the local's type is not a use:
+        // the skeleton stays, and the preview equals cold.
+        expect: "preview"
       },
       {
         id: "local Signal -> String becomes Int -> String",
@@ -376,7 +390,7 @@ const groups: ReadonlyArray<Group> = [
           "final handler: Signal -> String = _ -> 'handled';",
           "final handler: Int -> String = _ -> 'handled';"),
         module: "mr.Calls",
-        expect: "kept-changed"
+        expect: "uses-changed"
       }
     ]
   },
@@ -469,7 +483,7 @@ const groups: ReadonlyArray<Group> = [
         apply: () => edit("Globals.hx", "final host: Dynamic = js.Lib.global;",
           "final host: Dynamic = null;"),
         module: "mr.Globals",
-        expect: ["foreign-references-changed", "answers-changed"]
+        expect: "uses-changed"
       },
       {
         id: "after: Leaf body edit",
@@ -558,8 +572,128 @@ const groups: ReadonlyArray<Group> = [
         apply: () => edit("Button.hx", "return label() + ':' + helper();",
           "return label() + ':';"),
         module: "mr.Button",
-        expect: "kept-changed",
+        expect: "uses-changed",
         keepFolder: true
+      }
+    ]
+  },
+  {
+    // N1: a use of the module (by Plugin.fire) that is alive only because the
+    // module calls Hook.fire, which Plugin overrides.
+    name: "r01-override-cycle",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Core.run(new Plugin()));"]),
+      "mr/Hook.hx": `package mr;\n\nclass Hook {\n  public function new() {}\n\n`
+        + `  public function fire(): String {\n    return 'hook';\n  }\n}\n`,
+      "mr/Plugin.hx": `package mr;\n\nclass Plugin extends Hook {\n`
+        + `  override public function fire(): String {\n`
+        + `    return 'plugin ' + Core.secret();\n  }\n}\n`,
+      "mr/Core.hx": `package mr;\n\nclass Core {\n  static var depth = 0;\n\n`
+        + `  public static function run(hook: Hook): String {\n`
+        + `    return 'run ' + trigger(hook);\n  }\n\n`
+        + `  static function trigger(hook: Hook): String {\n    return hook.fire();\n  }\n\n`
+        + `  public static function secret(): String {\n`
+        + `    return depth++ > 0 ? 'deep' : trigger(new Hook());\n  }\n}\n`
+    },
+    steps: [
+      { id: "no edit", apply: () => {}, module: "mr.Core", expect: "preview" },
+      {
+        id: "run() stops calling trigger()",
+        apply: () => edit("Core.hx", "return 'run ' + trigger(hook);", "return 'run';"),
+        module: "mr.Core",
+        expect: "uses-changed"
+      },
+      {
+        id: "text edit only",
+        apply: () => edit("Core.hx", "return 'run';", "return 'run!';"),
+        module: "mr.Core",
+        expect: "preview"
+      }
+    ]
+  },
+  {
+    // N2: a private field type makes a class of another module used; its
+    // override then reaches an override in the edited module.
+    name: "r02-used-class-dispatch",
+    files: {
+      "mr/Main.hx": mainWith(["trace(new mr.Hook.Task().work());",
+        "final local = new mr.Core.Local();", "trace(Core.run());"]),
+      "mr/Hook.hx": `package mr;\n\nclass Hook {\n  public function new() {}\n\n`
+        + `  public function fire(): String {\n    return 'hook';\n  }\n}\n\n`
+        + `class Task {\n  public function new() {}\n\n`
+        + `  public function work(): String {\n    return 'task';\n  }\n}\n\n`
+        + `class FiringTask extends Task {\n  final hook: Hook;\n\n`
+        + `  public function new(hook: Hook) {\n    super();\n    this.hook = hook;\n  }\n\n`
+        + `  override public function work(): String {\n    return hook.fire();\n  }\n}\n`,
+      "mr/Core.hx": `package mr;\n\nclass Local extends Hook {\n`
+        + `  public function new() {\n    super();\n  }\n\n`
+        + `  override public function fire(): String {\n`
+        + `    return 'local ' + Core.secret();\n  }\n}\n\n`
+        + `class Core {\n  static var pending: Array<Int> = [];\n\n`
+        + `  public static function run(): String {\n`
+        + `    return 'run ' + pending.length;\n  }\n\n`
+        + `  public static function secret(): String {\n    return 'secret';\n  }\n}\n`
+    },
+    steps: [
+      { id: "no edit", apply: () => {}, module: "mr.Core", expect: "preview" },
+      {
+        id: "private static Array<Int> -> Array<mr.Hook.FiringTask>",
+        apply: () => edit("Core.hx", "static var pending: Array<Int> = [];",
+          "static var pending: Array<mr.Hook.FiringTask> = [];"),
+        module: "mr.Core",
+        expect: "signature-changed"
+      }
+    ]
+  },
+  {
+    // r03 step 2: an @:ifFeature field keeps a dead function in a full
+    // build when another module keeps the named field.
+    name: "r03-if-feature",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Theme.size());", "trace(Probe.run());"]),
+      "mr/Probe.hx": `package mr;\n\nclass Probe {\n`
+        + `  public static function run(): String {\n    return 'probe';\n  }\n\n`
+        + `  static function spare(): String {\n    return 'spare';\n  }\n}\n`
+    },
+    steps: [
+      {
+        id: "@:ifFeature of a field that only Main keeps, added to a dead private function",
+        apply: () => edit("Probe.hx", "  static function spare(): String {",
+          "  @:ifFeature(\"mr.Theme.size\")\n  static function spare(): String {"),
+        module: "mr.Probe",
+        expect: ["signature-changed", "if-feature"]
+      },
+      {
+        id: "text edit while the @:ifFeature field exists",
+        apply: () => edit("Probe.hx", "return 'probe';", "return 'probe!';"),
+        module: "mr.Probe",
+        expect: "if-feature"
+      }
+    ]
+  },
+  {
+    // r05 B: the module dependency file is deleted before the full request.
+    name: "r05-module-dep",
+    files: {
+      "mr/Main.hx": mainWith(["Registry.items.push('first');",
+        "trace(Registry.describe());"]),
+      "mr/Registry.hx": `package mr;\n\nclass Registry {\n`
+        + `  public static final items = [];\n\n`
+        + `  public static function describe(): String {\n`
+        + `    return 'registry ' + items.length;\n  }\n}\n`
+    },
+    steps: [
+      {
+        id: "Registry edit, then the .module-dep file is deleted",
+        apply: () => edit("Registry.hx", "return 'registry ' + items.length;",
+          "return 'registry! ' + items.length;"),
+        module: "mr.Registry",
+        expect: "public-shape-changed",
+        afterModule: () => rmSync(`${descriptorFile}.module-dep`, { force: true })
+      },
+      {
+        id: "a second full request, no edit",
+        apply: () => {}
       }
     ]
   }
@@ -822,6 +956,7 @@ async function runGroup(group: Group,
         else
           refusals++;
       }
+      step.afterModule?.();
       let programMs = 0;
       if (step.skipProgram !== true) {
         const coldTree = await coldBuild(compiler, label);

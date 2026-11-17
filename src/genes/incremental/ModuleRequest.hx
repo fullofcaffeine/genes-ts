@@ -42,11 +42,12 @@ typedef ModuleRecord = {
   final foreignRefs: Array<String>;
 
   /**
-   * The declarations of other modules that the signatures of its kept
-   * fields name (`type <type>` lines, sorted). Dead-code elimination keeps
-   * them for this module; `addRoots` reads them as uses.
+   * A digest of the module's use skeleton (`skeletonOf`): the typed bodies
+   * of its kept fields and its class initializers, after Haxe's filters,
+   * with the values of literal constants left out. Two equal skeletons use
+   * the same fields, types and classes in the same way.
    */
-  final mentions: Array<String>;
+  final skeleton: String;
 
   /**
    * The public shape of the module before dead-code elimination
@@ -97,8 +98,8 @@ typedef ModuleReferences = {
   /** See `ModuleRecord.foreignRefs`. */
   final foreign: Array<String>;
 
-  /** See `ModuleRecord.mentions`. */
-  final mentions: Array<String>;
+  /** See `ModuleRecord.skeleton`. */
+  final skeleton: String;
 
   /** The other modules that `foreign` names. */
   final modules: Array<String>;
@@ -180,11 +181,12 @@ typedef ModuleRecordsReport = {
  *    request. The output folder must be a sibling of the program's output
  *    folder (same depth from the project root), so that the session key and
  *    the source-map paths are the program's.
- * 3. Genes roots dead-code elimination at the uses of the module that the
- *    full request saw in other modules (`afterSave`), prints the module into
- *    the request's output folder, and runs `decide`. When every check holds,
- *    it publishes the module's files (`result: "preview"`); otherwise it
- *    publishes nothing (`result: "refused"` with a code and a reason).
+ * 3. Genes roots dead-code elimination at the declarations and fields that
+ *    the full request kept for the module (`afterSave`), prints the module
+ *    into the request's output folder, and runs `decide`. When every check
+ *    holds, it publishes the module's files (`result: "preview"`);
+ *    otherwise it publishes nothing (`result: "refused"` with a code and a
+ *    reason).
  * 4. The session runs the full request afterwards; it remains the authority
  *    for the published tree.
  *
@@ -212,12 +214,16 @@ typedef ModuleRecordsReport = {
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
  * - no source file of the stored program other than the module's own
- *   changed since the full request (time and size), so an edit outside the
- *   module's imports is a refusal too (`source-changed`);
- * - the kept declarations and fields, the final member list and the root
- *   flags are the stored ones, and the uses of other modules are the stored
- *   ones (so the files of other modules that are already published still
- *   fit this module);
+ *   changed since the full request (time and size; also `import.hx` files),
+ *   so an edit outside the module's imports is a refusal too
+ *   (`source-changed`);
+ * - the module uses exactly what it used: its signature (every declaration
+ *   and field, private ones included, with kinds, types and metadata;
+ *   `signature-changed`) and the use skeleton of its kept bodies (the typed
+ *   tree with every node's type, without literal values and positions;
+ *   `uses-changed`) are the stored ones, and it has no `@:ifFeature` field;
+ * - the kept declarations and fields, the final member list, the root
+ *   flags and the uses of other modules are the stored ones;
  * - every question that planning and printing of the module asked
  *   (features, module map, import cycles, signature facts) got the answer
  *   of a full build (`featureAnswer`, `wrongAnswer`), and no question names
@@ -227,39 +233,34 @@ typedef ModuleRecordsReport = {
  *   its maps is inside a folder where the program and preview output paths
  *   part.
  *
- * Why the kept fields are the full build's (dead-code elimination): the
- * request roots only declarations and fields with a reason that holds in the
- * full build after the edit: a use that the stored full request saw in a
- * module outside this request's program (so its liveness cannot depend on
- * the edited module) whose classes do not extend a class of the module. A
- * field that overrides such a used parent field gets `@:maybeUsed`, so it
- * stays only when its class stays, as Haxe decides. Everything else is
- * left to Haxe's own dead-code elimination over the new code, whatever it
- * follows (fields, types of parameters, `toString` through `Std.string`).
- * Call the result K. Each root is a root of the full build, and the request
- * holds a part of the full program, so the full build keeps all of K. The
- * full build reaches the module first through a chain that does not pass
- * the module, which existed in the stored build, so it reaches a stored
- * kept line first; when K holds every stored kept line, Haxe's closure from
- * those lines lies in K, so the full build keeps nothing outside K. The
- * check "kept lines equal" therefore proves that K is the full build's set.
- * Example: an edit removes the only call of a private helper. No reason
- * roots the helper, Haxe drops it, and its stored kept line is missing:
- * `kept-changed`.
+ * What is proven (dead-code elimination). Dead-code elimination decides
+ * what to keep from its roots and from what each kept field uses: the
+ * fields it reads and calls, the types of its nodes, the classes it creates,
+ * and the overrides of what it calls. Other modules did not change (equal
+ * epochs and source files). The module's signature is the stored one, so
+ * its roots (`@:keep`, `__init__`) and field types are the same, and the
+ * skeleton of each kept body is the stored one, so each kept field uses the
+ * same things; only literal values and positions differ, which dead-code
+ * elimination does not read. So the full build after the edit has the same
+ * input as the stored full build in every place that a kept field reaches,
+ * and keeps the same lines: K(new full) = K(stored). The request roots those
+ * lines, and its program is a part of the full program, so its own
+ * elimination keeps them and nothing that the full build would not keep;
+ * the check "kept lines equal" confirms it. Example: an edit removes the
+ * only call of a private helper: the skeleton changes (`uses-changed`). A
+ * text or markup literal edit keeps the skeleton and can be previewed.
  *
- * Limits: a use through reflection, a dynamic or anonymous-structure field
- * name, or an `@:ifFeature` field of a module outside the request can keep a
- * field of the module in a full build that this request does not see; such
- * a field is then missing here and the request is refused, or (for a field
- * that the edit makes newly reachable that way) the preview can differ. A
- * class kept only because another module names it as a type, or an override
- * reached only through a parent type (s04b, s06), has no reason here, so
- * such modules are refused. Import-cycle answers are computed from the
- * modules of this request only, so an edit inside an import cycle is
- * usually refused.
+ * Limits: the proof assumes that Haxe's elimination reads only typed trees,
+ * signatures and metadata; a macro that reads literal values and changes
+ * other declarations from them, and a file that a macro reads in a module
+ * outside the request (other than `import.hx` and resources, which the
+ * session key covers), are not covered. A class kept only because another
+ * module names it as a type, and an edit inside an import cycle, are
+ * refused. The rule refuses every structural edit: a new or removed field,
+ * call, local type or class use.
  *
- * Effects on the compiler server: the roots are `@:keep` and `@:maybeUsed`
- * entries with the argument `"genes.moduleRequest"`, which Genes adds after
+ * Effects on the compiler server: the roots are `@:keep` entries with the
+ * argument `"genes.moduleRequest"`, which Genes adds after
  * Haxe saved the class state and removes before printing, so they never
  * reach Haxe's cache (unlike `--macro keep(...)`). A request that fails
  * before the generator runs leaves them; the next request removes them
@@ -297,6 +298,9 @@ class ModuleRequest {
     'of the module itself reads (`genes.js.Async`, `Module.nativeAsyncPlanForEmission`)'
   ];
 
+  /** The start of the shape line of a copied body (see `addShapeField`). */
+  static inline final BODY_MARK = '    #body ';
+
   /** The start of the shape line of a private field (see `addShapeField`). */
   static inline final PRIVATE_MARK = 'private ';
 
@@ -315,17 +319,6 @@ class ModuleRequest {
    */
   @:persistent static var externalUses: Map<String, Bool> = new Map();
 
-  /**
-   * For each use line (`field <type> <s|i>:<name>` or `type <type>`) that a
-   * module of the stored full request makes of another module, the modules
-   * that make it.
-   */
-  @:persistent static var usersByRef: Map<String, Array<String>> = new Map();
-
-  /** For each module of the stored program, the modules of the parents and interfaces of its classes. */
-  @:persistent static var ancestorModules: Map<String, Map<String,
-    Bool>> = new Map();
-
   /** The time and size (`stampOf`) of each source file of the stored program. */
   @:persistent static var storedFiles: Map<String, String> = new Map();
 
@@ -334,6 +327,9 @@ class ModuleRequest {
    * before the generator ran). The next request removes them.
    */
   @:persistent static var leftoverRoots: Array<String> = [];
+
+  /** The class (`TypeUtil.baseTypeFullName`) of the stored full request's `--main` function, or empty. */
+  @:persistent static var storedMain = '';
 
   /** `GenerationChangeSet.epochs` of every module that the stored full request saw. */
   @:persistent static var storedEpochs: Map<String, String> = new Map();
@@ -535,8 +531,9 @@ class ModuleRequest {
         // `static final items = []`) closes differently. The next full
         // request must type every module that this request typed again.
         retypeLater(GenerationChangeSet.retypedModules(), descriptor.path);
-        if (storedKey != null)
-          addRoots(module, own);
+        final record = storedKey == null ? null : records.get(module);
+        if (record != null)
+          addRoots(module, own, record.kept);
         rootSeconds += haxe.Timer.stamp() - rootStart;
       case Full:
         if (descriptor.moduleRecords != true)
@@ -568,8 +565,11 @@ class ModuleRequest {
 
   /**
    * Makes the next request type each of `modules` again: each gets a
-   * dependency on the file `<descriptor>.module-dep`, which does not exist
-   * when Haxe notes its time and exists afterwards. The server then finds
+   * dependency on `<descriptor>.module-dep`, which does not exist when Haxe
+   * notes its time and exists afterwards, and on
+   * `<descriptor>.module-dep-gone`, which exists then and is deleted
+   * afterwards. Deleting or writing one of them by hand still leaves the
+   * other changed. The server then finds
    * the dependency changed and types the modules again, with the whole
    * program in a full request. The dependency lives only on these typed
    * module objects; the next typing drops it.
@@ -582,13 +582,21 @@ class ModuleRequest {
       descriptorPath: String): Void {
     if (modules.length == 0)
       return;
-    final dependency = descriptorPath + '.module-dep';
+    // Two files, so that deleting or writing either one by hand cannot hide
+    // the change: Haxe notes `appears` while it is missing and `vanishes`
+    // while it exists, then Genes writes the first and deletes the second.
+    final appears = descriptorPath + '.module-dep';
+    final vanishes = descriptorPath + '.module-dep-gone';
     try {
-      if (FileSystem.exists(dependency))
-        FileSystem.deleteFile(dependency);
-      for (module in modules)
-        Context.registerModuleDependency(module, dependency);
-      File.saveContent(dependency, 'genes module request\n');
+      if (FileSystem.exists(appears))
+        FileSystem.deleteFile(appears);
+      File.saveContent(vanishes, 'genes module request\n');
+      for (module in modules) {
+        Context.registerModuleDependency(module, appears);
+        Context.registerModuleDependency(module, vanishes);
+      }
+      File.saveContent(appears, 'genes module request\n');
+      FileSystem.deleteFile(vanishes);
     } catch (error:haxe.Exception) {
       Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot mark '
         + '${modules.join(', ')} for a new typing in the next full request '
@@ -602,81 +610,43 @@ class ModuleRequest {
   static inline final ROOT_MARK = 'genes.moduleRequest';
 
   /**
-   * Adds the roots of dead-code elimination for `module` (`types` are its
-   * declarations before dead-code elimination), and remembers each metadata
-   * so that `removeRoots` can take the entry away again.
-   *
-   * A root needs a reason that holds in the full build after the edit: a use
-   * of the declaration or field that the stored full request saw in a module
-   * that is not in this request's program and that extends no class of the
-   * module (see the class comment). Such a use gets `@:keep`. An instance
-   * field whose parent class or interface field has such a use gets
-   * `@:maybeUsed` instead: Haxe then keeps it only when its class stays.
-   * An enum with such a use gets `@:keep` (Haxe keeps or drops an enum as a
-   * whole). Nothing else is rooted; Haxe's own entry points (`@:keep` in the
-   * source, `__init__`) still apply.
+   * Adds `@:keep` to each declaration and field of `types` (the module's
+   * declarations before dead-code elimination) that the stored record calls
+   * kept, unless it already has one, and remembers each metadata so that
+   * `removeRoots` can take the entry away again. The request has no
+   * `--main`; these are its roots. `decide` admits the result only when the
+   * module's signature and use skeleton equal the stored ones, so the full
+   * build keeps exactly these lines (see the class comment).
    */
-  static function addRoots(module: String, types: Array<Type>): Void {
-    function used(line: String): Bool {
-      final users = usersByRef.get(line);
-      if (users == null)
-        return false;
-      for (user in users) {
-        if (user == module || loadedModules.exists(user))
-          continue;
-        final ancestors = ancestorModules.get(user);
-        if (ancestors != null && ancestors.exists(module))
-          continue;
-        return true;
-      }
-      return false;
-    }
+  static function addRoots(module: String, types: Array<Type>,
+      kept: Array<String>): Void {
+    final wanted = new Map<String, Bool>();
+    for (line in kept)
+      wanted.set(line, true);
     final pos = Context.currentPos();
-    final roots = [];
-    function root(meta: MetaAccess, name: String): Void {
-      if (meta.has(name))
-        return;
-      roots.push({meta: meta, name: name});
+    final roots: Array<MetaAccess> = [];
+    function root(meta: MetaAccess): Void {
+      if (!meta.has(':keep'))
+        roots.push(meta);
     }
     for (type in types)
       switch type {
         case TInst(reference, _):
           final cls = reference.get();
           final name = TypeUtil.baseTypeFullName(cls);
-          final ancestors = [];
-          function addAncestor(other: ClassType): Void {
-            final key = TypeUtil.baseTypeFullName(other);
-            if (ancestors.indexOf(key) >= 0)
-              return;
-            ancestors.push(key);
-            final parent = other.superClass;
-            if (parent != null)
-              addAncestor(parent.t.get());
-            for (item in other.interfaces)
-              addAncestor(item.t.get());
-          }
-          final parent = cls.superClass;
-          if (parent != null)
-            addAncestor(parent.t.get());
-          for (item in cls.interfaces)
-            addAncestor(item.t.get());
           for (field in cls.statics.get())
-            if (used('field $name s:${field.name}'))
-              root(field.meta, ':keep');
-          for (field in cls.fields.get()) {
-            if (used('field $name i:${field.name}'))
-              root(field.meta, ':keep');
-            else if (ancestors.exists(other ->
-              used('field $other i:${field.name}')))
-              root(field.meta, ':maybeUsed');
-          }
+            if (wanted.exists('class $name s:${field.name}'))
+              root(field.meta);
+          for (field in cls.fields.get())
+            if (wanted.exists('class $name i:${field.name}'))
+              root(field.meta);
           final constructor = cls.constructor;
-          if (constructor != null && used('field $name i:new'))
-            root(constructor.get().meta, ':keep');
+          if (constructor != null && wanted.exists('class $name new'))
+            root(constructor.get().meta);
         case TEnum(reference, _):
           final enm = reference.get();
-          if (used('type ${TypeUtil.baseTypeFullName(enm)}'))
-            root(enm.meta, ':keep');
+          if (wanted.exists('enum ${TypeUtil.baseTypeFullName(enm)}'))
+            root(enm.meta);
         default:
       }
     if (roots.length == 0)
@@ -684,9 +654,9 @@ class ModuleRequest {
     // Noted before the first entry is added: a request that fails before
     // `removeRoots` leaves them to the next request.
     leftoverRoots = leftoverRoots.concat([module]);
-    for (item in roots) {
-      item.meta.add(item.name, [macro $v{ROOT_MARK}], pos);
-      addedRoots.push(item.meta);
+    for (meta in roots) {
+      meta.add(':keep', [macro $v{ROOT_MARK}], pos);
+      addedRoots.push(meta);
     }
   }
 
@@ -701,9 +671,9 @@ class ModuleRequest {
     leftoverRoots = [];
   }
 
-  /** Removes the `@:keep` and `@:maybeUsed` entries with `ROOT_MARK` from `meta`, and keeps the others. */
+  /** Removes the `@:keep` entries with `ROOT_MARK` from `meta`, and keeps the others. */
   static function removeMarked(meta: MetaAccess): Void {
-    for (name in [':keep', ':maybeUsed']) {
+    for (name in [':keep']) {
       final entries = meta.extract(name);
       final own = entries.filter(entry -> switch entry.params {
         case [{expr: EConst(CString(value, _))}] if (value == ROOT_MARK): true;
@@ -812,7 +782,7 @@ class ModuleRequest {
       final references: ModuleReferences = if (sameEarlier
         && earlier.kept.join('\n') == kept.join('\n')) {
           foreign: earlier.foreignRefs,
-          mentions: earlier.mentions,
+          skeleton: earlier.skeleton,
           modules: []
         } else {
           walked++;
@@ -822,7 +792,7 @@ class ModuleRequest {
         epochs: epochs,
         kept: kept,
         foreignRefs: references.foreign,
-        mentions: references.mentions,
+        skeleton: references.skeleton,
         shape: shapes.get(module)
       });
     }
@@ -849,73 +819,29 @@ class ModuleRequest {
         default:
       }
     externalUses = uses;
-    final users = new Map<String, Array<String>>();
-    for (module => record in made)
-      for (line in record.foreignRefs.concat(record.mentions)) {
-        if (!StringTools.startsWith(line, 'field ')
-          && !StringTools.startsWith(line, 'type '))
-          continue;
-        final list = users.get(line);
-        if (list == null)
-          users.set(line, [module]);
-        else if (list.indexOf(module) < 0)
-          list.push(module);
-      }
-    // The `--main` call is a root of the full program that a module request
-    // does not have; it counts as a use by no module (the empty name).
-    if (main != null) {
-      function visitMain(expression: TypedExpr): Void {
-        switch expression.expr {
-          case TField(_, FStatic(owner, field)):
-            final line = 'field ${TypeUtil.baseTypeFullName(owner.get())} s:${field.get().name}';
-            final list = users.get(line);
-            if (list == null)
-              users.set(line, ['']);
-            else if (list.indexOf('') < 0)
-              list.push('');
-          default:
-        }
-        TypedExprTools.iter(expression, visitMain);
-      }
-      visitMain(main);
-    }
-    usersByRef = users;
-    final ancestors = new Map<String, Map<String, Bool>>();
-    for (type in types)
-      switch type {
-        case TInst(reference, _):
-          final cls = reference.get();
-          var set = ancestors.get(cls.module);
-          if (set == null) {
-            set = new Map();
-            ancestors.set(cls.module, set);
-          }
-          final seen = new Map<String, Bool>();
-          final pending = [cls];
-          while (pending.length > 0) {
-            final current = pending.pop();
-            final parent = current.superClass;
-            final others = [for (item in current.interfaces) item.t.get()];
-            if (parent != null)
-              others.push(parent.t.get());
-            for (other in others) {
-              final name = TypeUtil.baseTypeFullName(other);
-              if (seen.exists(name))
-                continue;
-              seen.set(name, true);
-              if (other.module != cls.module)
-                set.set(other.module, true);
-              pending.push(other);
-            }
-          }
-        default:
-      }
-    ancestorModules = ancestors;
     final files = new Map<String, String>();
     for (module => file in moduleFiles)
       if (!files.exists(file))
         files.set(file, stampOf(file));
+    // `import.hx` files change how the modules of their folder and the
+    // folders below are typed; a missing one is stamped too, so that a new
+    // one counts as a change.
+    for (file in importFilesOf([for (_ => file in moduleFiles) file]))
+      if (!files.exists(file))
+        files.set(file, stampOf(file));
     storedFiles = files;
+    storedMain = '';
+    if (main != null) {
+      function findMain(expression: TypedExpr): Void {
+        switch expression.expr {
+          case TField(_, FStatic(owner, field)) if (field.get().name == 'main'):
+            storedMain = TypeUtil.baseTypeFullName(owner.get());
+          default:
+            TypedExprTools.iter(expression, findMain);
+        }
+      }
+      findMain(main);
+    }
     storedKey = key;
     storedOutputFolder = absoluteFolder(outputFile);
     records = made;
@@ -947,9 +873,9 @@ class ModuleRequest {
   /**
    * Returns true when a refused module request may publish an empty tree
    * into `outputFolder`, so that no file of an earlier preview stays there.
-   * Only a folder that is known not to be the full request's output folder
-   * qualifies: records exist, the folder differs from theirs, and the
-   * request has no `--main`. A session still reads the published files from
+   * Only a folder where Genes published a preview before qualifies (it has
+   * `PREVIEW_MARKER`), and never the full request's output folder or a
+   * request with `--main`. A session still reads the published files from
    * the report (`files`).
    */
   public static function mayEmptyFolder(outputFolder: String,
@@ -957,7 +883,22 @@ class ModuleRequest {
     return !hasMain
       && storedKey != null
       && storedOutputFolder != ''
-      && outputFolder != storedOutputFolder;
+      && outputFolder != storedOutputFolder
+      && FileSystem.exists(Path.join([outputFolder, PREVIEW_MARKER]));
+  }
+
+  /**
+   * The file that marks a folder as a preview folder of module requests.
+   * Genes writes it after it published a preview there, and empties only a
+   * folder that has it. The name is in Genes' reserved `.genes-output-`
+   * space, so no generated file can take it.
+   */
+  public static inline final PREVIEW_MARKER = '.genes-output-module-preview';
+
+  /** Writes `PREVIEW_MARKER` into the folder of a published preview. */
+  public static function markPreviewFolder(outputFolder: String): Void {
+    save(Path.join([outputFolder, PREVIEW_MARKER]),
+      'Genes module request preview folder. Genes may empty this folder.\n');
   }
 
   /** Forgets every record. */
@@ -967,10 +908,38 @@ class ModuleRequest {
     records = new Map();
     storedEpochs = new Map();
     externalUses = new Map();
-    usersByRef = new Map();
-    ancestorModules = new Map();
     storedFiles = new Map();
     shapeCache = new Map();
+  }
+
+  /**
+   * Returns the `import.hx` paths that can apply to `sources`: one in each
+   * folder from the folder of a source up to the class path that holds it.
+   */
+  static function importFilesOf(sources: Array<String>): Array<String> {
+    final roots = [
+      for (entry in Context.getClassPath())
+        PathUtil.normalize(FileSystem.absolutePath(entry.length == 0 ? '.' : entry))
+    ];
+    final found = new Map<String, Bool>();
+    for (source in sources) {
+      final absolute = PathUtil.normalize(FileSystem.absolutePath(source));
+      var root: Null<String> = null;
+      for (candidate in roots)
+        if (StringTools.startsWith(absolute, candidate + '/')
+          && (root == null || candidate.length > root.length))
+          root = candidate;
+      if (root == null)
+        continue;
+      var folder = Path.directory(absolute);
+      while (folder.length >= root.length) {
+        found.set(Path.join([folder, 'import.hx']), true);
+        if (folder == root)
+          break;
+        folder = Path.directory(folder);
+      }
+    }
+    return sortedKeys(found);
   }
 
   /**
@@ -1135,6 +1104,24 @@ class ModuleRequest {
       return refuse('public-shape-changed',
         'the public shape of $module ' +
         'changed: ${firstDifference(storedShape, currentShape)}');
+    // The strict rule: the module uses exactly what it used in the stored
+    // full request (see the class comment). Its signature (every field,
+    // private ones included, with types and metadata) and the skeleton of
+    // its kept bodies must be the stored ones; only literal values and
+    // positions may differ.
+    if (signatureOf(shape) != signatureOf(record.shape))
+      return refuse('signature-changed',
+        'a declaration or field of $module ' +
+        'changed: ${firstDifference(signatureOf(record.shape), signatureOf(shape))}');
+    if (shape.indexOf('@:ifFeature') >= 0)
+      return refuse('if-feature',
+        '$module has an @:ifFeature field, which ' +
+        'dead-code elimination keeps when another module adds the feature');
+    if (facts.references.skeleton != record.skeleton)
+      return refuse('uses-changed',
+        'the code of $module uses other fields, ' +
+        'types or classes than in the full request (an edit beyond literal ' +
+        'values)');
     if (facts.exposed)
       return refuse('exposed',
         '$module is exposed or has public root entries, ' +
@@ -1430,8 +1417,8 @@ class ModuleRequest {
    * returns what they use from other modules: the fields, declarations and
    * structure field names that their bodies name (`foreign`, with the
    * `toString` that `Std.string` and `trace` reach, and `define <feature>`
-   * for each `__define_feature__` call), and the declarations that their
-   * signatures name (`mentions`). Both lists are sorted and unique.
+   * for each `__define_feature__` call), sorted and unique, and the digest
+   * of the module's use skeleton (`skeleton`, see `skeletonOf`).
    *
    * Example: `render` of `app.Button` calls `Theme.color()` and its own
    * `label()`: the foreign line `field app.Theme s:color` (the call of
@@ -1441,7 +1428,7 @@ class ModuleRequest {
   public static function referencesOf(module: String,
       types: Array<Type>): ModuleReferences {
     final foreign = new Map<String, Bool>();
-    final mentions = new Map<String, Bool>();
+    final skeleton = new StringBuf();
     final modules = new Map<String, Bool>();
     final owners = new Map<String, {module: String, name: String}>();
     function classOf(reference: Ref<ClassType>): {module: String, name: String} {
@@ -1486,32 +1473,6 @@ class ModuleRequest {
       switch Context.follow(value) {
         case TInst(owner, _):
           useField(owner, false, 'toString');
-        default:
-      }
-    }
-    function mention(value: Type, depth: Int): Void {
-      if (depth > 6)
-        return;
-      switch Context.follow(value) {
-        case TInst(owner, params):
-          final found = classOf(owner);
-          if (found.module != module)
-            mentions.set('type ${found.name}', true);
-          for (param in params)
-            mention(param, depth + 1);
-        case TEnum(owner, params):
-          final enm = owner.get();
-          if (enm.module != module)
-            mentions.set('type ${TypeUtil.baseTypeFullName(enm)}', true);
-          for (param in params)
-            mention(param, depth + 1);
-        case TFun(args, result):
-          for (arg in args)
-            mention(arg.t, depth + 1);
-          mention(result, depth + 1);
-        case TAbstract(_, params):
-          for (param in params)
-            mention(param, depth + 1);
         default:
       }
     }
@@ -1566,35 +1527,87 @@ class ModuleRequest {
             }
             TypedExprTools.iter(expression, visit);
           }
-          function walkField(field: ClassField): Void {
-            mention(field.type, 0);
+          final name = TypeUtil.baseTypeFullName(cls);
+          function addSkeleton(label: String, body: TypedExpr): Void {
+            skeleton.add('$name $label\n');
+            skeleton.add(skeletonOf(body));
+            skeleton.add('\n');
+          }
+          function walkField(label: String, field: ClassField): Void {
             final body = field.expr();
-            if (body != null)
+            if (body != null) {
               visit(body);
+              addSkeleton(label, body);
+            }
             for (signature in field.overloads.get()) {
               final other = signature.expr();
-              if (other != null)
+              if (other != null) {
                 visit(other);
+                addSkeleton('$label overload', other);
+              }
             }
           }
           for (field in cls.statics.get())
-            walkField(field);
+            walkField('s:${field.name}', field);
           for (field in cls.fields.get())
-            walkField(field);
+            walkField('i:${field.name}', field);
           final constructor = cls.constructor;
           if (constructor != null)
-            walkField(constructor.get());
+            walkField('new', constructor.get());
           final init = cls.init;
-          if (init != null)
+          if (init != null) {
             visit(init);
+            addSkeleton('init', init);
+          }
         default:
       }
     return {
       foreign: sortedKeys(foreign),
-      mentions: sortedKeys(mentions),
+      skeleton: haxe.crypto.Sha1.make(haxe.io.Bytes.ofString(skeleton.toString()))
+        .toHex(),
       modules: sortedKeys(modules)
     };
   }
+
+  /**
+   * Returns the use skeleton of one typed body: Haxe's printed typed tree
+   * of the body (after its filters), with the type of every node, without
+   * local variable numbers, and with the value of every literal constant
+   * replaced by a placeholder of the same kind (`0`, `0.0`, `""`). The
+   * argument of `__define_feature__` stays, because dead-code elimination
+   * reads it.
+   *
+   * Why: dead-code elimination decides what to keep from the fields,
+   * types, classes and features that bodies use, never from the value of a
+   * literal. Two bodies with the same skeleton, typed against the same
+   * other modules, give dead-code elimination the same input. Example:
+   * `return 'Save';` and `return 'Store';` have the same skeleton;
+   * `return label() + helper();` and `return label();` do not.
+   */
+  public static function skeletonOf(body: TypedExpr): String {
+    function blank(expression: TypedExpr): TypedExpr {
+      return switch expression.expr {
+        case TConst(TInt(_)):
+          {expr: TConst(TInt(0)), t: expression.t, pos: expression.pos};
+        case TConst(TFloat(_)):
+          {expr: TConst(TFloat('0.0')), t: expression.t, pos: expression.pos};
+        case TConst(TString(_)):
+          {expr: TConst(TString('')), t: expression.t, pos: expression.pos};
+        case TCall({expr: TIdent('__define_feature__')}, _):
+          expression;
+        default:
+          TypedExprTools.map(expression, blank);
+      }
+    }
+    // The typed tree with the type of every node (`pretty = false`), as
+    // dead-code elimination sees it, without the local variable numbers,
+    // which a new typing assigns again.
+    return VARIABLE_NUMBER.replace(TypedExprTools.toString(blank(body),
+      false), '$1()');
+  }
+
+  /** A local variable with its number in Haxe's typed-tree printout, for example `count(512)`. */
+  static final VARIABLE_NUMBER = ~/([A-Za-z_$][A-Za-z0-9_$]*)\(-?[0-9]+\)/g;
 
   /**
    * Returns the public shape of one module's declarations before dead-code
@@ -1694,17 +1707,51 @@ class ModuleRequest {
     buffer.add(shapeMetaText(field.meta));
     if (field.kind.match(FMethod(MethMacro)))
       buffer.add(MACRO_MARK);
-    if (copied) {
-      buffer.add(' at ${placeText(field.pos)}');
-      final body = field.expr();
-      if (body != null)
-        buffer.add(' body ${placeText(body.pos)} '
-          + TypedExprTools.toString(body, true));
-    }
     for (signature in field.overloads.get())
       buffer.add(' overload ${TypeTools.toString(signature.type)}'
         + shapeMetaText(signature.meta));
+    // The copied body and its position go on a line of their own
+    // (`BODY_MARK`), so that `signatureOf` can leave them out.
+    if (copied) {
+      final body = field.expr();
+      buffer.add('\n$BODY_MARK${field.name} at ${placeText(field.pos)}');
+      if (body != null)
+        buffer.add(' ${placeText(body.pos)} '
+          + StringTools.replace(TypedExprTools.toString(body, true), '\n',
+            '\\n'));
+    }
   }
+
+  /**
+   * Returns the signature of a module from its shape: every declaration and
+   * field line, private ones included, without the copied bodies and their
+   * positions (`BODY_MARK` lines). Equal signatures mean the same
+   * declarations, fields, kinds, types and metadata, so the same roots of
+   * dead-code elimination (`@:keep`, `__init__`) and the same field types
+   * that it follows.
+   */
+  static function signatureOf(shape: String): String {
+    var current = '';
+    final lines = [];
+    for (line in shape.split('\n')) {
+      if (StringTools.startsWith(line, BODY_MARK))
+        continue;
+      if (StringTools.startsWith(line, 'class '))
+        current = line.split(' ')[1];
+      // Haxe adds `@:keep` to the `main` function of the `--main` class; a
+      // module request has no `--main`, and roots the function itself.
+      if (current == storedMain
+        && (StringTools.startsWith(line, '  static main ')
+          || StringTools.startsWith(line, '  $PRIVATE_MARK$current s:main ')))
+        lines.push(MAIN_KEEP.replace(line, ''));
+      else
+        lines.push(line);
+    }
+    return lines.join('\n');
+  }
+
+  /** The argument-less `@:keep` that Haxe adds to the `main` function. */
+  static final MAIN_KEEP = ~/ @:keep(?= |$)/;
 
   static function isExternClass(type: Type): Bool {
     return switch type {

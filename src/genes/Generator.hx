@@ -892,6 +892,7 @@ class Generator {
     final endPublicationTimer = timer('genes.publish.transaction');
     outputTransaction.commit();
     endPublicationTimer();
+    ModuleRequest.markPreviewFolder(ModuleRequest.absoluteFolder(outputFile));
     IncrementalShadow.committed();
     ModuleRequest.writeReport(target, 'preview', null, files, kept,
       haxe.Timer.stamp() - started, checkSeconds);

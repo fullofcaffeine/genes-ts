@@ -370,8 +370,8 @@ After each scripted edit, a module request names the edited module as the only
 root (no `--main`) and writes into its own sibling folder. The gate requires:
 
 - the expected result for each edit: `preview`, or a refusal code such as
-  `kept-changed` (the only call of a private helper was removed, so a full
-  build drops the helper, and nothing roots it) or
+  `uses-changed` (the only call of a private helper was removed: an edit
+  beyond literal values changes the module's use skeleton) or
   `public-shape-changed` (an inline constant changed, so importing modules
   print another value);
 - for a preview, only the module's files in the folder, each byte-identical to
@@ -386,7 +386,9 @@ that keep a declaration (s02, s03b, s08), edits outside the module's imports
 (s05, s12, s14), a feature that only the edited module defined (s10), field
 types that another module's use decides (s09), a request that fails after
 Genes added its roots (s18), descriptors written for another request (S2,
-s14) and a stale preview folder (s19). `--only=<text>` runs the groups whose
+s14), a stale preview folder (s19), a use that is alive only through the
+edited module (r01), a field type that makes another module's class used
+(r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05). `--only=<text>` runs the groups whose
 name contains the text; `GENES_TEST_SOURCE=<folder>` runs them against
 another Genes source folder (for example an older commit, where they fail).
 
