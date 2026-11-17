@@ -444,6 +444,22 @@ class GenerationChangeSet {
   }
 
   /**
+   * Returns the sorted modules of every declaration that the after-typing
+   * callback saw in this request, stamped or not. Empty when the request
+   * added no stamp.
+   *
+   * Why: a module request (`ModuleRequest`) must know that every module of
+   * its program, other than the requested one, is the module of the last
+   * full request. It compares `epochs` of each of these modules with the
+   * stored ones.
+   */
+  public static function observedModules(): Array<String> {
+    final names = [for (name in moduleEpochs.keys()) name];
+    names.sort(compareStrings);
+    return names;
+  }
+
+  /**
    * Returns the sorted modules with a declaration that arrived without a
    * valid stamp: Haxe typed them in this request, or a macro defined them.
    */

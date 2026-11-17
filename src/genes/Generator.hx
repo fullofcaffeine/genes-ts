@@ -19,6 +19,7 @@ import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImportSpec;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.incremental.IncrementalShadow;
+import genes.incremental.ModuleRequest;
 import sys.FileSystem;
 
 using Lambda;
@@ -166,6 +167,13 @@ class Generator {
    */
   static function generateTransactional(api: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction): Void {
+    // A module request (G3) prints one module; see `generateModuleRequest`.
+    final previewed = ModuleRequest.requestedTarget();
+    if (previewed != null) {
+      generateModuleRequest(api, outputFile, output, outputTransaction,
+        previewed);
+      return;
+    }
     final endInventoryTimer = timer('genes.plan.inventory');
     // Typing and Haxe's filters are complete: declaration names are final.
     TypeUtil.startGenerationNames();
@@ -642,6 +650,242 @@ class Generator {
     // Stage 3: compare and store only after the complete tree is public, so
     // a failed request keeps the cache of the last successful generation.
     IncrementalShadow.committed();
+    // With `"moduleRecords": true`, keep the facts that a later module
+    // request checks (G3); otherwise this returns at once.
+    ModuleRequest.programCommitted(api.types, outputFile);
+  }
+
+  /**
+   * Prints only `target` for a module request (G3) and publishes its files
+   * when `ModuleRequest.decide` proves that they equal the files of a full
+   * request; otherwise publishes nothing. Either way it writes the module
+   * request report.
+   *
+   * Why: a full request plans and prints every reachable module, about 90%
+   * of a request after one edit. A development session wants to show the
+   * edited module first.
+   *
+   * What/How: the inventory, the walk of reachability, validation and
+   * printing run as in `generateTransactional`, but for `target` only: the
+   * walk follows the edges of `target` one step, so that the modules that
+   * it imports exist with the declarations that it names, and does not plan
+   * them. The output root gets no export list, and no TypeScript support
+   * file is printed. The checks then compare the result with the records of
+   * the last full request; see `ModuleRequest` for the rules and limits.
+   */
+  static function generateModuleRequest(haxeApi: JSGenApi, outputFile: String,
+      output: String, outputTransaction: OutputTransaction,
+      target: String): Void {
+    final started = haxe.Timer.stamp();
+    // The roots of dead-code elimination must not reach any printer.
+    ModuleRequest.removeRoots();
+    // The program of this request is only a part of the full program: answer
+    // feature questions as a full build would (`featureAnswer`). Every other
+    // function is Haxe's own.
+    final api: JSGenApi = {
+      outputFile: haxeApi.outputFile,
+      types: haxeApi.types,
+      main: haxeApi.main,
+      generateStatement: haxeApi.generateStatement,
+      generateValue: haxeApi.generateValue,
+      setTypeAccessor: haxeApi.setTypeAccessor,
+      isKeyword: haxeApi.isKeyword,
+      addFeature: haxeApi.addFeature,
+      hasFeature: feature -> ModuleRequest.featureAnswer(feature,
+        haxeApi.hasFeature(feature)),
+      quoteString: haxeApi.quoteString,
+      buildMetaData: haxeApi.buildMetaData,
+      setCurrentClass: haxeApi.setCurrentClass
+    };
+    final endInventoryTimer = timer('genes.plan.inventory');
+    TypeUtil.startGenerationNames();
+    ModuleDirectivePlan.validate();
+    final toGenerate = typesPerModule(api.types);
+    final extension = Path.extension(outputFile);
+    final outputDir = Path.directory(outputFile);
+    Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
+    final concrete = [];
+    for (type in api.types)
+      switch type {
+        case TEnum((_.get() : BaseType) => t, _) |
+          TInst((_.get() : BaseType) => t, _):
+          concrete.push(TypeUtil.baseTypeFullName(t));
+        default:
+      }
+    final modules = new Map<String, Module>();
+    final context: genes.Module.ModuleContext = {
+      concrete: concrete,
+      modules: modules,
+      hasFeature: api.hasFeature,
+      jsxProviderSchemas: new genes.JsxTypeChecker.JsxProviderSchemaCatalog(),
+      explicitTypeArgumentDeclarations: new genes.ExplicitTypeArguments.ExplicitTypeArgumentDeclarations(),
+      jsonTypeDefinitions: new genes.JsonTypeSupport.JsonTypeDefinitionAnswers()
+    }
+    function typesOf(name: String): Array<Type>
+      return switch toGenerate.get(name) {
+        case null: [];
+        case v: v;
+      }
+    final own = toGenerate.get(target);
+    final declarations = ModuleRequest.typesOf(api.types, target);
+    final references = ModuleRequest.referencesOf(target, declarations);
+    var module: Null<Module> = null;
+    var exposed = false;
+    var emits = false;
+    if (own != null && target != output) {
+      for (type in own)
+        switch type {
+          #if (haxe_ver >= 4.2)
+          case TInst(ownerRef, _)
+            if (ownerRef.get().kind.match(KModuleFields(_))):
+            for (field in ownerRef.get().statics.get())
+              if (field.meta.has(':expose'))
+                exposed = true;
+          #end
+          default:
+            final base = TypeUtil.typeToBaseType(type);
+            if (base != null
+              && (base.meta.has(':expose') || LibraryProfile.isRoot(base)))
+              exposed = true;
+        }
+      modules.set(output,
+        new Module(context, output, typesOf(output), api.main, []));
+      IncrementalShadow.enter(target, Inventory);
+      final planned = new Module(context, target, own);
+      modules.set(target, planned);
+      // A full request has a `Module` for every module of the program before
+      // planning starts, and planning asks whether a module is in that map
+      // (`Module.resolveModuleFunction`). Give each module that the target
+      // uses its `Module` here, with its declarations of this request.
+      for (name in references.modules)
+        if (!modules.exists(name) && toGenerate.exists(name))
+          modules.set(name, new Module(context, name, typesOf(name)));
+      IncrementalShadow.enter(null, Inventory);
+      module = planned;
+    }
+    endInventoryTimer();
+    if (module != null) {
+      final endReachabilityTimer = timer('genes.plan.reachability');
+      // One step of the walk of `generateTransactional`: the targets of the
+      // module's edges get the declarations that it names, with the
+      // declarations of their own module first, as in a full request.
+      final kinds = [RuntimeValue, RuntimeSideEffect, TypeOnly];
+      IncrementalShadow.enter(target, Reachability);
+      var again = true;
+      while (again) {
+        again = false;
+        for (edge in module.dependencyPlan.edges) {
+          if (!DependencyPlan.containsKind(kinds, edge.kind))
+            continue;
+          switch edge.importSpec {
+            case Bound(importSpec) if (importSpec.external):
+              continue;
+            case SideEffect(edgeRequest) if (edgeRequest.external):
+              continue;
+            default:
+          }
+          final referencedType = edge.referencedType;
+          if (referencedType == null) {
+            if (edge.importSpec != null)
+              CompilerDiagnostic.fail('Genes DependencyPlan (module request) has an internal '
+                + 'import without a typed declaration '
+                + '[${edge.provenance.rule}]',
+                edge.provenance.sourcePosition);
+            continue;
+          }
+          switch referencedType {
+            case TAbstract(_):
+              continue;
+            case TClassDecl(_.get() => {kind: KTypeParameter(_)}):
+              continue;
+            default:
+          }
+          final base = DependencyPlan.moduleTypeBase(referencedType);
+          if (base.isExtern || base.module == 'StdTypes')
+            continue;
+          if (base.module == null || base.module.length == 0)
+            CompilerDiagnostic.fail('Genes DependencyPlan (module request) cannot resolve '
+              + '${base.name} to an output module '
+              + '[${edge.provenance.rule}]',
+              edge.provenance.sourcePosition);
+          var targetModule = modules.get(base.module);
+          if (targetModule == null) {
+            targetModule = new Module(context, base.module,
+              typesOf(base.module));
+            modules.set(base.module, targetModule);
+          }
+          final changed = targetModule.addTypes([DependencyPlan.moduleTypeToType(referencedType)]);
+          if (targetModule.getMember(base.name) == null
+            && targetModule.getMember(TypeUtil.baseTypeName(base)) == null)
+            CompilerDiagnostic.fail('Genes DependencyPlan (module request) retained '
+              + '${TypeUtil.baseTypeFullName(base)} but could not materialize '
+              + 'its emitted declaration [${edge.provenance.rule}]',
+              edge.provenance.sourcePosition);
+          if (changed && targetModule == module) {
+            // The plan of the module itself changed: read its edges again.
+            again = true;
+            break;
+          }
+        }
+      }
+      IncrementalShadow.enter(null, Reachability);
+      endReachabilityTimer();
+
+      final endValidationTimer = timer('genes.validate.modules');
+      final jsxCapability = JsxCapabilityPolicy.current();
+      IncrementalShadow.enter(target, Validation);
+      jsxCapability.validate(module.jsxPlan);
+      jsxCapability.resolveRuntimeBinding(module.codeDependencies,
+        module.jsxPlan);
+      for (entry in module.moduleFunctionPlan.rootPublicEntries())
+        if (entry.publicExportName != null)
+          exposed = true;
+      IncrementalShadow.enter(null, Validation);
+      endValidationTimer();
+
+      emits = module.path != 'StdTypes' && hasImplementation(module);
+      if (emits) {
+        final endImplementationTimer = timer('genes.emit.implementation');
+        IncrementalShadow.enter(target, Emit);
+        generateImplementation(api, module, outputDir, outputTransaction);
+        IncrementalShadow.enter(null, Emit);
+        endImplementationTimer();
+      }
+    }
+
+    final checkStart = haxe.Timer.stamp();
+    final refusal = ModuleRequest.decide({
+      module: target,
+      rootModule: output,
+      types: module == null ? [] : declarations,
+      allTypes: api.types,
+      references: references,
+      members: module == null ? '' : genes.incremental.ModuleFingerprint.members(module.members),
+      rootFlags: module == null ? '' : IncrementalShadow.rootFlags(isTypedImplementationRoot(module,
+        exposed), exposed,
+        module.expose.length, emits),
+      emits: emits,
+      exposed: exposed,
+      outputFolder: ModuleRequest.absoluteFolder(outputFile),
+      hasMain: api.main != null
+    });
+    final checkSeconds = haxe.Timer.stamp() - checkStart;
+    final files = IncrementalShadow.recordedModule(target).files;
+    final kept = ModuleRequest.keptLines(declarations).length;
+    if (refusal != null) {
+      outputTransaction.abort();
+      IncrementalShadow.committed();
+      ModuleRequest.writeReport(target,
+        refusal.code == 'off' ? 'off' : 'refused', refusal, [], kept,
+        haxe.Timer.stamp() - started, checkSeconds);
+      return;
+    }
+    final endPublicationTimer = timer('genes.publish.transaction');
+    outputTransaction.commit();
+    endPublicationTimer();
+    IncrementalShadow.committed();
+    ModuleRequest.writeReport(target, 'preview', null, files, kept,
+      haxe.Timer.stamp() - started, checkSeconds);
   }
 
   /**
@@ -880,8 +1124,12 @@ class Generator {
       LibraryProfile.validate();
       // A second `Generator.use()` in one request must not register a second
       // capture: each module list would then hold every declaration twice.
-      if (!alreadyInstalled)
+      if (!alreadyInstalled) {
         TypedModuleInventory.install();
+        // Module requests (G3) only; without the incremental define this
+        // registers nothing.
+        ModuleRequest.install();
+      }
       ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.
@@ -894,6 +1142,10 @@ class Generator {
       final typeScriptProfile = Context.defined('genes.ts');
       Context.onGenerate(types -> {
         generation++;
+        // A module request (G3) runs only on the TypeScript profile, which
+        // never reads the stamp; skip the loop over every declaration.
+        if (ModuleRequest.skipsGenerationStamps())
+          return;
         final pos = Context.currentPos();
         for (type in types) {
           switch type {

@@ -339,6 +339,14 @@ class IncrementalShadow {
   final reportFile: String;
   final started: Float;
   final mode: GenerationReuse;
+
+  /**
+   * True in a module request (G3, `ModuleRequest`): the shadow only records
+   * the answers, files and warnings of the printed module. It applies no
+   * clean rule, stores no cache and writes no report of its own.
+   */
+  final preview: Bool;
+
   final refusal: Null<GenerationRefusal>;
   final underReuse: Bool;
   var active: Bool;
@@ -402,6 +410,8 @@ class IncrementalShadow {
     this.underReuse = underReuse;
     this.refusal = refusal;
     this.started = haxe.Timer.stamp();
+    final descriptor = IncrementalRequest.requestedDescriptor();
+    this.preview = descriptor != null && !descriptor.kind.match(Full);
   }
 
   /**
@@ -485,6 +495,51 @@ class IncrementalShadow {
           return '-D $define prints messages while Genes prints a module, '
             + 'and a replayed module is not printed';
     return null;
+  }
+
+  /**
+   * Returns why this request has no active shadow, or `null` when it has
+   * one. A module request (`ModuleRequest`) refuses its preview with this
+   * reason.
+   */
+  public static function inactiveReason(): Null<String> {
+    final shadow = current;
+    if (shadow == null)
+      return 'the request has no "generation" value';
+    if (!shadow.active) {
+      final why = shadow.reason;
+      return why == null ? 'the generation shadow is off' : why;
+    }
+    return null;
+  }
+
+  /**
+   * Returns what this request recorded for `module` so far: its answer
+   * lines and added features (sorted), the sources that its maps name by a
+   * relative path, and the relative paths of its staged files. A module
+   * request compares them with the stored entry before it publishes.
+   */
+  public static function recordedModule(module: String): {
+    answers: Array<String>,
+    additions: Array<String>,
+    mapSources: Array<String>,
+    files: Array<String>
+  } {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return {
+        answers: [],
+        additions: [],
+        mapSources: [],
+        files: []
+      };
+    final staged = shadow.files.get(module);
+    return {
+      answers: sortedLines(shadow.answers.get(module)),
+      additions: sortedLines(shadow.additions.get(module)),
+      mapSources: sortedLines(shadow.mapSources.get(module)),
+      files: staged == null ? [] : [for (file in staged) file.path]
+    };
   }
 
   /**
@@ -1014,6 +1069,10 @@ class IncrementalShadow {
   function finish(success: Bool, failure: Null<String>): Void {
     stopClock();
     owner = null;
+    // A module request keeps the cache of the last full request as it is;
+    // `ModuleRequest` writes its report.
+    if (preview)
+      return;
     final generationSeconds = haxe.Timer.stamp() - started;
     final emittedNames = [for (name in files.keys()) name];
     emittedNames.sort(compareStrings);

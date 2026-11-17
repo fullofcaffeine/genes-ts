@@ -360,3 +360,26 @@ without comparing or replaying.
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic
 unless the 1-minute load stays at 2.0 or less.
+
+## Module requests (G3)
+
+`yarn test:compiler-server:module` uses the project `templates/module-request`
+and one warm server. A full request (`--main mr.Main`) with
+`"moduleRecords": true` stores the records of `genes.incremental.ModuleRequest`.
+After each scripted edit, a module request names the edited module as the only
+root (no `--main`) and writes into its own sibling folder. The gate requires:
+
+- the expected result for each edit: `preview`, or a refusal code such as
+  `reference-lost` (the only call of a private helper was removed, so a full
+  build drops the helper) or `public-shape-changed` (an inline constant
+  changed, so importing modules print another value);
+- for a preview, only the module's files in the folder, each byte-identical to
+  the same file of a cold build of the edited program;
+- after each module request, a full request whose tree equals the cold tree, so
+  a module request leaves nothing behind in Haxe's cache.
+
+`--keep-control` also roots one module request with `--macro keep(<module>)`
+instead and prints whether the next full request differs from cold (it does:
+the kept class keeps a field that a cold build drops). That line is an
+observation, not a pass condition.
+

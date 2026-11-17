@@ -72,6 +72,7 @@
     "test:dynamic-import-policy": "yarn build:scripts && node scripts/dist/test-dynamic-import-policy.js",
     "test:compiler-server": "yarn build:scripts && node scripts/dist/test-compiler-server.js",
     "test:compiler-server:shadow": "yarn build:scripts && node scripts/dist/test-compiler-server-shadow.js",
+    "test:compiler-server:module": "yarn build:scripts && node scripts/dist/test-compiler-server-module.js",
     "test:compiler-server:rollback": "yarn build:scripts && node scripts/dist/test-compiler-server.js --rollback-only",
     "test:compiler-server:kept-types": "yarn build:scripts && node scripts/dist/test-compiler-server-kept-types.js",
     "test:compiler-server:after-typing": "yarn build:scripts && node scripts/dist/test-compiler-server-after-typing.js",

@@ -308,6 +308,22 @@ class GenerationCache {
   }
 
   /**
+   * Returns the stored fingerprint of one module, also of a module without
+   * an output file (`CachedInventoryModule`), or `null`. A module request
+   * (`ModuleRequest`) reads it for a module of extern classes that a macro
+   * defined again, such as a `genes.ts.imports` holder.
+   */
+  public static function storedFingerprint(module: String): Null<String> {
+    if (storedKey == null)
+      return null;
+    final stored = entries.get(module);
+    if (stored != null)
+      return stored.fingerprint;
+    final other = inventory.get(module);
+    return other == null ? null : other.fingerprint;
+  }
+
+  /**
    * Returns the answers that were asked outside any module's clock in the
    * stored generation (`answerLine` texts). The checks before emission
    * compare each one with the answer now, like `storedGlobalWitnesses`.
