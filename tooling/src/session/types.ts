@@ -448,21 +448,33 @@ export interface ChangeImpact {
   readonly restartCompiler?: boolean;
   readonly revalidate?: boolean;
   /**
-   * Set this to `true` when Haxe and its macros never read this input
-   * directly. The session then keeps the owned Haxe server and its cache when
-   * the input changes, instead of starting a new server with an empty cache.
+   * Set this to `true` when Haxe and its macros never read this input. The
+   * session then keeps the owned Haxe server and its cache when the input
+   * changes, instead of starting a new server with an empty cache.
    *
-   * By default, a change to a watched file that is not a `.hx` module on a
-   * class path restarts the server: a macro may read any file without telling
-   * Haxe, and a warm cache would keep the macro's old result.
+   * By default, a change to a watched path that is not a content edit of a
+   * `.hx` module on a class path restarts the server: a macro may read any
+   * file without telling Haxe, and a warm cache would keep the macro's old
+   * result.
+   *
+   * "Read" includes everything a macro can do with the input: read its bytes,
+   * check that it exists, list its folder, or start a tool that does any of
+   * these. If a macro does read an input declared with `keepCache`, the next
+   * builds keep that macro's old result, so the published output can differ
+   * from a cold build until the session restarts. The session cannot detect
+   * this; leave `keepCache` off when you are not sure.
    *
    * Use it for an input that reaches Haxe only through the files that
    * `prepareRevision` writes (for example a stylesheet that the host turns
    * into a Haxe companion; the digest of the prepared files already selects a
    * separate Haxe cache), or for an input that only a validator or another
-   * tool reads. It does not change how `.hx` modules on a class path are
-   * handled: a created or removed module still restarts the server. It cannot
-   * be combined with `restartCompiler`.
+   * tool reads.
+   *
+   * `keepCache` never covers a `.hx` file (Haxe always searches its working
+   * directory as a class path, so a `.hx` file in any declared input can be a
+   * module), a directory, or a path that a host invalidation names and that
+   * no longer exists. Those changes still restart the server. It cannot be
+   * combined with `restartCompiler`.
    */
   readonly keepCache?: boolean;
 }
@@ -527,6 +539,14 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * The callback returns bytes rather than writing into session directories.
    * Tooling validates their paths, computes their identity, writes a private
    * copy, and adds only the declared class paths to this Haxe request.
+   *
+   * Cache cost: the digest of the prepared files is a define, and Haxe keeps
+   * one set of caches per define set. Each new digest therefore types the
+   * whole program again and adds about three Haxe caches to the owned server,
+   * which are not freed until the server stops. A digest seen before reuses
+   * its caches. On the small compiler-server fixture, six digests gave 20
+   * caches and a server of 450 to 870 MB (two runs). genes-f8vc.23 tracks a
+   * bound.
    */
   readonly prepareRevision?: (context: {
     readonly revision: number;

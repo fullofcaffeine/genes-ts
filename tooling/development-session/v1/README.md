@@ -83,9 +83,16 @@ It does not use globs or guess which parts of a larger directory are relevant.
 
 A change to an extra input starts a new owned Haxe server with an empty
 cache, because a macro may read the file without telling Haxe. A host marks
-an input with `keepCache: true` when Haxe and its macros never read it
-directly, for example a stylesheet that reaches Haxe only as a
-`prepareRevision` companion. A change to that input keeps the server.
+an input with `keepCache: true` when Haxe and its macros never read it, for
+example a stylesheet that reaches Haxe only as a `prepareRevision`
+companion. A change to that input keeps the server. "Read" includes reading
+the bytes, checking that the file exists, listing its folder, and starting a
+tool that does any of these. If a macro does read a `keepCache` input, later
+builds keep the macro's old result, and the published output can differ from
+a cold build until the session restarts; the session cannot detect this.
+`keepCache` never covers a `.hx` file (Haxe always searches its working
+directory as a class path), a directory, or a path that a host invalidation
+names and that no longer exists.
 
 ## States a host presents
 

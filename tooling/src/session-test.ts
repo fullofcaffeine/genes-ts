@@ -413,6 +413,27 @@ class FakeWatch<Cause> implements ReconciledWatchSession {
     this.options.onChange(change);
   }
 
+  /**
+   * Reports one change the way the real watcher does when several inputs
+   * cover the same path: their causes are combined with the session's
+   * `merge`. `change` reports only the first input's cause.
+   */
+  changeMerged(
+    absolutePath: string,
+    existence: ReconciledWatchChange<Cause>["existence"] = "modified",
+  ): void {
+    const causes = this.options.inputs
+      .filter((candidate) => matches(candidate, absolutePath))
+      .map((input) => input.cause);
+    assert.equal(causes.length > 1, true, `only one fake watch input owns ${absolutePath}`);
+    this.options.onChange({
+      path: absolutePath,
+      cause: causes.reduce((left, right) => this.options.merge(left, right)),
+      origin: "native",
+      existence,
+    });
+  }
+
   reconcile(): ReconciliationResult {
     const changedPath = this.reconciliationChanges.shift();
     if (changedPath !== undefined) {
@@ -7328,6 +7349,123 @@ await withHarness(
       extraInputs: [
         { kind: "tree", path: "styles", impact: { rebuild: true, keepCache: true } },
         { kind: "tree", path: "data", impact: { rebuild: true } },
+      ],
+    };
+  },
+);
+
+// `keepCache` never applies to a `.hx` file. Haxe 4.3.7 always searches the
+// working directory as a class path, even without `-cp .`, so a `.hx` file
+// in a keepCache tree below it can be a module: a new
+// `servercase/TopThing.hx` there shadows a top-level `TopThing` for an
+// unchanged module. The session's class-path list holds only the declared
+// `-cp` entries, so it must not decide this.
+await withHarness(
+  "keep-cache-never-covers-hx-files",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const servers = (): number => new Set(harness.compiler.compatibilityDigests).size;
+    const notes = path.join(harness.root, "servercase", "readme.txt");
+    writeFileSync(notes, "notes-v2\n", "utf8");
+    currentWatch(harness).change(notes);
+    await harness.session.waitForIdle();
+    assert.equal(servers(), 1, "a text file in the keepCache tree keeps the server");
+    const module = path.join(harness.root, "servercase", "TopThing.hx");
+    writeFileSync(module, "package servercase;\n\nclass TopThing {}\n", "utf8");
+    currentWatch(harness).change(module, "created");
+    await harness.session.waitForIdle();
+    assert.equal(
+      servers(),
+      2,
+      "a .hx file created below the working directory starts a new server",
+    );
+    writeFileSync(module, "package servercase;\n\nclass TopThing { static var v = 1; }\n", "utf8");
+    currentWatch(harness).change(module);
+    await harness.session.waitForIdle();
+    assert.equal(servers(), 3, "an edited .hx file outside the declared class paths starts a new server");
+    assert.equal(harness.session.state.kind, "ready");
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "servercase"));
+    writeFileSync(path.join(root, "servercase", "readme.txt"), "notes-v1\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        { kind: "tree", path: "servercase", impact: { rebuild: true, keepCache: true } },
+      ],
+    };
+  },
+);
+
+// A host invalidation names one path, and the session cannot see what
+// changed below it. `keepCache` therefore applies only to an existing file
+// there: a directory such as `src` may hold a created or removed module, and
+// a path that no longer exists may have been such a directory.
+await withHarness(
+  "keep-cache-host-invalidation-needs-an-existing-file",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const servers = (): number => new Set(harness.compiler.compatibilityDigests).size;
+    const invalidate = async (relative: string): Promise<void> => {
+      harness.session.invalidate({
+        path: relative,
+        impact: { rebuild: true, keepCache: true },
+      });
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "ready");
+    };
+    await invalidate("styles/card.module.css");
+    assert.equal(servers(), 1, "an existing file keeps the server");
+    await invalidate("src");
+    assert.equal(servers(), 2, "a directory that holds a class path starts a new server");
+    await invalidate("styles");
+    assert.equal(servers(), 3, "any directory starts a new server");
+    await invalidate("styles/removed.module.css");
+    assert.equal(servers(), 4, "a path that no longer exists starts a new server");
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "styles"));
+    writeFileSync(path.join(root, "styles", "card.module.css"), ".card {}\n", "utf8");
+    return options;
+  },
+);
+
+// When two inputs cover one path, the real watcher combines their causes
+// with `mergeObservedImpact`: the cache is kept only when both inputs
+// declared `keepCache`.
+await withHarness(
+  "keep-cache-merge-needs-every-input",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const servers = (): number => new Set(harness.compiler.compatibilityDigests).size;
+    const both = path.join(harness.root, "data", "both.txt");
+    writeFileSync(both, "both-v2\n", "utf8");
+    currentWatch(harness).changeMerged(both);
+    await harness.session.waitForIdle();
+    assert.equal(servers(), 1, "two keepCache inputs keep the server");
+    const mixed = path.join(harness.root, "data", "note.txt");
+    writeFileSync(mixed, "note-v2\n", "utf8");
+    currentWatch(harness).changeMerged(mixed);
+    await harness.session.waitForIdle();
+    assert.equal(servers(), 2, "one input without keepCache starts a new server");
+    assert.equal(harness.session.state.kind, "ready");
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "data"));
+    writeFileSync(path.join(root, "data", "both.txt"), "both-v1\n", "utf8");
+    writeFileSync(path.join(root, "data", "note.txt"), "note-v1\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        { kind: "tree", path: "data", impact: { rebuild: true, keepCache: true } },
+        { path: "data/both.txt", impact: { rebuild: true, keepCache: true } },
+        { path: "data/note.txt", impact: { rebuild: true } },
       ],
     };
   },

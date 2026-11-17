@@ -680,9 +680,17 @@ rolled back, the other output can start normally.
   cache. A stylesheet that reaches Haxe only as a `prepareRevision`
   companion is the usual case: the digest of the prepared files is part of
   the request, so a new companion already selects a separate Haxe cache.
-  `keepCache` does not cover `.hx` modules on a class path, and it cannot be
-  combined with `restartCompiler`. If a macro does read the input, the warm
-  cache keeps the macro's old result, so leave `keepCache` off. An invalidation
+  `keepCache` never covers a `.hx` file: Haxe 4.3.7 always searches its
+  working directory as a class path, even without `-cp .`, so a `.hx` file in
+  any declared input can be a module. It also never covers a directory, or a
+  path that a host invalidation names and that no longer exists, because a
+  module may have been created or removed below it. It cannot be combined
+  with `restartCompiler`. "Read" includes reading the bytes, checking that
+  the file exists, listing its folder, and starting a tool that does any of
+  these. If a macro does read an input declared with `keepCache`, the next
+  builds keep the macro's old result, and the published output can differ
+  from a cold build until the session restarts; the session cannot detect
+  this, so leave `keepCache` off when you are not sure. An invalidation
   that fails or waits more than two minutes also replaces the server instead
   of failing the build. It resolves the invocation plan at startup and again
   only when a plan input changes: an HXML or library provenance file (their
@@ -700,9 +708,14 @@ rolled back, the other output can start normally.
   would be ambiguous. When
   `prepareRevision` is used, the session owns
   `-D genes.tooling.prepared=<exact digest>` so a warm compiler cannot reuse an
-  older generated input. When `compilerData` is used, the session owns the
-  request-local private request file. These private defines may not appear in
-  the HXML graph. It also rejects `--cmd`, `--run`,
+  older generated input. This has a cost: Haxe keeps one set of caches per
+  set of define values, so each new digest types the whole program again and
+  adds about three caches to the owned server, which stay until the server
+  stops. A digest seen before reuses its caches. On the small
+  compiler-server fixture, six digests gave 20 caches and a server of 450 to
+  870 MB (two runs). genes-f8vc.23 tracks a bound. When `compilerData` is
+  used, the session owns the request-local private request file. These
+  private defines may not appear in the HXML graph. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled
   program inside Haxe, before the host has checked and accepted the candidate.
   It rejects `--xml`, `-xml`, and `--json` too because they write extra files outside
@@ -801,7 +814,8 @@ rolled back, the other output can start normally.
   By default a change to an extra input restarts the owned Haxe server,
   because a macro may read the file. Add `keepCache: true` when Haxe and its
   macros never read it, for example a stylesheet that `prepareRevision` turns
-  into a Haxe companion:
+  into a Haxe companion. A `.hx` file or a directory in the input still
+  restarts the server:
 
   ```ts
   extraInputs: [{

@@ -15,8 +15,15 @@ it.
   companion can declare it safely: the digest of the prepared files is part
   of the request, so a new companion already selects a separate Haxe cache.
   Inputs without the flag keep the old behavior, because a macro may read
-  them. `keepCache` does not change how class-path `.hx` modules are handled,
-  and a declaration with both `keepCache` and `restartCompiler` is rejected.
+  them. `keepCache` never covers a `.hx` file (Haxe always searches its
+  working directory as a class path, so such a file can be a module), a
+  directory, or a path that a host invalidation names and that no longer
+  exists. A declaration with both `keepCache` and `restartCompiler` is
+  rejected. If a macro does read a `keepCache` input, later builds keep the
+  macro's old result. With `prepareRevision`, each new prepared digest still
+  types the whole program again and adds about three Haxe caches that stay
+  until the server stops (20 caches and a server of 450 to 870 MB after six
+  digests on the small fixture, two runs); genes-f8vc.23 tracks a bound.
 - Keep one warm Haxe compiler-server cache for the whole development session.
   Haxe 4.3.7 selects its cache by the values of all defines, and the session
   used to name each new private candidate folder in `-D genes.output`. So

@@ -27,7 +27,9 @@
  *   content edit between them does not, and each tree equals cold;
  * - a change to a file that a macro reads (`data/snippet.hx`, `data/note.txt`)
  *   starts a new server and publishes the new text, while a change to an
- *   input declared with `keepCache` keeps the server.
+ *   input declared with `keepCache` keeps the server;
+ * - a `.hx` file created in a keepCache tree below the working directory
+ *   (always a Haxe class path) still starts a new server.
  *
  * Timings are printed, not judged: a timing claim needs a quiet machine.
  */
@@ -218,6 +220,10 @@ try {
   writeFileSync(path.join(projectRoot, "data", "note.txt"), "note-v1", "utf8");
   mkdirSync(path.join(projectRoot, "notes"));
   writeFileSync(path.join(projectRoot, "notes", "readme.txt"), "readme-v1", "utf8");
+  // A folder in the project root, which is Haxe's working directory and so
+  // always a class path, though no `-cp` names it.
+  mkdirSync(path.join(projectRoot, "servercase"));
+  writeFileSync(path.join(projectRoot, "servercase", "readme.txt"), "cwd-v1", "utf8");
   writeFileSync(
     path.join(projectRoot, "build.hxml"),
     [...programArguments, ""].join("\n"),
@@ -238,6 +244,7 @@ try {
       { kind: "tree", path: "data", impact: { rebuild: true } },
       // An input that Haxe never reads; the host says so with `keepCache`.
       { kind: "tree", path: "notes", impact: { rebuild: true, keepCache: true } },
+      { kind: "tree", path: "servercase", impact: { rebuild: true, keepCache: true } },
     ],
     resolveInvocation: () => ({
       executable: haxeExecutable,
@@ -537,6 +544,17 @@ try {
         apply: () =>
           writeFileSync(path.join(projectRoot, "notes", "readme.txt"), "readme-v2", "utf8"),
         keepsServer: true,
+      },
+      {
+        label: "new servercase/TopThing.hx in a keepCache tree below the working directory",
+        apply: () =>
+          writeFileSync(
+            path.join(projectRoot, "servercase", "TopThing.hx"),
+            'package servercase;\n\nclass TopThing {\n  public static function value(): String {\n    return "cwd-package";\n  }\n}\n',
+            "utf8",
+          ),
+        expect: () =>
+          assert.equal(/from "\.\/TopThing\.js"/u.test(published(leaf)), true),
       },
     ];
     for (const step of structureSteps) {

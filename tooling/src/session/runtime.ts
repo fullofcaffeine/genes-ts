@@ -131,8 +131,8 @@ interface BuildCause {
   readonly rebuild: boolean;
   /**
    * The next request needs an empty Haxe cache: a source file was created or
-   * removed, or a watched input that is not a `.hx` module changed and was
-   * not declared with `keepCache`. See `#observe`.
+   * removed, or another watched path changed that `keepCache` does not
+   * cover. See `#observe` and `keepCacheCovers`.
    */
   readonly freshCache: boolean;
 }
@@ -175,6 +175,39 @@ function observedImpact(impact: ChangeImpact, subject: string): ObservedImpact {
       restartCompiler,
     keepCache,
   });
+}
+
+/**
+ * Returns true when a host's `keepCache` declaration may keep the warm Haxe
+ * cache for this changed path.
+ *
+ * `keepCache` says that no macro reads the input. It cannot say that the
+ * path holds no Haxe module, so the cache is never kept for:
+ *
+ * - a `.hx` file. Haxe 4.3.7 always searches its working directory as a
+ *   class path, even without `-cp .`, so a `.hx` file in a declared tree can
+ *   be a module that the session's list of `-cp` entries does not show. A
+ *   new `servercase/TopThing.hx` there changes which `TopThing` an unchanged
+ *   module uses;
+ * - a directory. A host invalidation or an exact input reports only the
+ *   directory, not a module created or removed below it (a tree input
+ *   reports each file below it separately);
+ * - a path that a host invalidation names and that no longer exists: it may
+ *   have been such a directory.
+ *
+ * Example: an edit of `styles/card.module.css` is covered; a host
+ * invalidation of `src` is not.
+ */
+function keepCacheCovers(
+  absolutePath: string,
+  existence: "created" | "deleted" | "modified" | "unknown",
+): boolean {
+  if (absolutePath.endsWith(".hx")) return false;
+  try {
+    return !lstatSync(absolutePath).isDirectory();
+  } catch {
+    return existence !== "unknown";
+  }
 }
 
 /** An HXML or library provenance file: the plan and the server are renewed. */
@@ -1332,11 +1365,12 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    *
    * - a content edit of an existing `.hx` module on a class path. The
    *   session sends `server/invalidate` for it when Haxe could miss it;
-   * - a change to any other file whose input the host declared with
-   *   `keepCache` (Haxe and its macros never read it directly). For example
-   *   a stylesheet that reaches Haxe only as a `prepareRevision` companion:
-   *   the digest of the prepared files is a define, so a new companion
-   *   already selects a separate Haxe cache.
+   * - a change to a file that is not a `.hx` file and whose input the host
+   *   declared with `keepCache` (Haxe and its macros never read it). For
+   *   example a stylesheet that reaches Haxe only as a `prepareRevision`
+   *   companion: the digest of the prepared files is a define, so a new
+   *   companion already selects a separate Haxe cache. `keepCacheCovers`
+   *   lists the paths that `keepCache` never covers.
    *
    * Every other change asks for an empty cache (`freshCache`):
    *
@@ -1345,7 +1379,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    *   a missing `import.hx` or a top-level `TopThing` that a new
    *   `servercase/TopThing.hx` now shadows, without a dependency edge, so
    *   the unchanged module would keep its old meaning. `keepCache` does not
-   *   change this;
+   *   change this, also not for a `.hx` file outside the declared class
+   *   paths: Haxe always searches its working directory too;
    * - a macro may read any other file without telling Haxe, and a warm cache
    *   would keep the macro's old result.
    */
@@ -1375,9 +1410,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (impact.rebuild) {
       this.#newestRebuildRevision = this.#newestRevision;
     }
-    // Only a module file on a class path can keep the cache. A `.hx` file in
-    // another declared input (for example `data/snippet.hx` that a macro
-    // reads) is an ordinary input.
+    // Only a content edit of a module file on a declared class path is sent
+    // as `server/invalidate`. Any other `.hx` file (for example
+    // `data/snippet.hx` that a macro reads, or a file that Haxe finds
+    // through its working directory) asks for an empty cache.
     const sourceFile =
       absolutePath.endsWith(".hx") &&
       inventory.classPaths.some((classPath) => containedBy(classPath, absolutePath));
@@ -1403,7 +1439,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         restartCompiler: impact.restartCompiler,
         rebuild: impact.rebuild,
         freshCache:
-          impact.rebuild && !contentEdit && (sourceFile || !impact.keepCache),
+          impact.rebuild &&
+          !contentEdit &&
+          !(impact.keepCache && keepCacheCovers(absolutePath, existence)),
       }),
     );
   }

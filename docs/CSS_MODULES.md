@@ -432,7 +432,15 @@ processor configuration, lock identity, and every processor-reported input.
 Declare such an input with `impact: { rebuild: true, keepCache: true }` when
 it reaches Haxe only through the prepared companion and no macro reads it.
 Then a stylesheet edit reuses the one owned Haxe server; without the flag,
-each edit starts a new server.
+each edit starts a new server. Leave the flag off if a macro reads the
+stylesheet, lists its folder, or starts a tool that reads it.
+
+An edit that changes the companion is still not a fast warm edit. The
+companion digest is a Haxe define, so Haxe types the whole program again in
+a new set of caches, and the server keeps those caches until it stops: about
+three caches for each new digest (20 caches and a server of 450 to 870 MB
+after six digests on the small compiler-server fixture, two runs).
+genes-f8vc.23 tracks a bound.
 Direct editor navigation from a Haxe field to the CSS selector is also not yet
 promised. Published generated Haxe companions do keep a stable source-map path
 when the host uses the same private and public relative path.
