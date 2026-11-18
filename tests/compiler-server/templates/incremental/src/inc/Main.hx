@@ -54,6 +54,7 @@ class Main {
       AnonSig.value(),
       Constrained.value(),
       LateUser.run(),
+      ListedTs.value() + ListedUser.run(),
       FableProbe.value(),
       Extras.value() /*FRESH_USE*/
     ];

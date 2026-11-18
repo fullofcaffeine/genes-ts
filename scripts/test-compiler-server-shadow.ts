@@ -1493,6 +1493,18 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
   },
   {
+    // The same metadata on a listed class (review of the merge of #246 into
+    // slice S2): inc.Mark3Macro adds `@:ts.type("string")` to
+    // inc.ListedTs.ListedBox, which dead-code elimination keeps. The clean
+    // module inc.ListedUser names it only in a typedef field, so its plan
+    // loses the edge to ListedBox although its member list and every stamp
+    // stay the same.
+    id: "after-typing macro sets the type of a listed class that a clean module names only in a type position",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markListedClassMeta = 1;\n")
+  },
+  { id: "no edit after the type of the listed class was set", apply: () => {} },
+  {
     // M3 of the cross-model review of #246: a structure field can declare
     // its own type parameter (`typedef FableApi = {function pick<T>(item:
     // T): T;}`). inc.FableMacro adds `@:ts.type("string")` to that `T`;
