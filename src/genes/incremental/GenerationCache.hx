@@ -75,6 +75,16 @@ typedef CachedVisit = {
    * (`GenerationChangeSet.stampOf`; empty when it had none).
    */
   final stamps: Array<String>;
+
+  /**
+   * For each step, the metadata of its declaration in the recording request
+   * (`ModuleFingerprint.metaText`). An after-typing macro can change it
+   * without a new stamp, and the plan reads it: `@:ts.type("string")` on a
+   * class removes the edge of every module that names the class only in a
+   * type position. The walk with stored edges leaves the recorded path when
+   * it differs (`IncrementalShadow.checkStoredTarget`).
+   */
+  final metas: Array<String>;
 }
 
 /** One module that a module read by name during generation, with its epochs then. */
@@ -298,7 +308,7 @@ typedef CacheRequestFacts = {
  */
 class GenerationCache {
   /** The entry format. A new field or meaning needs a new number. */
-  public static inline final FORMAT = 4;
+  public static inline final FORMAT = 5;
 
   /**
    * The features that emission can add while Genes prints modules, so that
@@ -614,6 +624,8 @@ class GenerationCache {
             + step.typeName.length;
         for (stamp in visit.stamps)
           size += stamp.length;
+        for (meta in visit.metas)
+          size += meta.length;
       }
       if (module.runtimeRequests != null)
         for (request in module.runtimeRequests)

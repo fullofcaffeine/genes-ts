@@ -177,6 +177,7 @@ typedef ShadowWalkReport = {
 
   /**
    * Steps of checked visits that added a declaration whose stamp differs
+   * from the recorded one, that name a declaration whose metadata differs
    * from the recorded one, or that the inventory cannot find by its key.
    */
   final stale: Int;
@@ -463,6 +464,13 @@ class IncrementalShadow {
 
   /** `GenerationChangeSet.stampOf` answers of this request, by declaration key. */
   final stamps = new Map<String, String>();
+
+  /**
+   * The metadata text (`ModuleFingerprint.metaText`) of each declaration of
+   * the modules that stored steps name, by module and declaration key, read
+   * once in this request (`TypedModuleInventory.textsByKey`).
+   */
+  final targetMetas = new Map<String, Map<String, String>>();
 
   /** True in the pass that walks clean modules with stored steps. */
   var storedPass = false;
@@ -845,6 +853,35 @@ class IncrementalShadow {
     return type;
   }
 
+  /**
+   * Checks, before the walk with stored edges takes a stored step of
+   * `module`, that the declaration it names has the metadata that the
+   * recording request saw (`meta`). Throws `LeftRecordedPath` when it
+   * differs or the inventory lacks the declaration. It runs for every
+   * stored step, also when the declaration is already a member, because
+   * no stamp check runs then.
+   *
+   * Why: an after-typing macro can change a declaration's metadata without
+   * a new stamp, and the dependency plan of another module reads that
+   * metadata. Example: `@:ts.type("string")` on the class
+   * `inc.LateEnum.LateBox` removes the edge from `inc.LateUser`, which names
+   * the class only in a typedef field; the stored step to `LateBox` would
+   * add a member that the live walk does not add.
+   */
+  public static function checkStoredTarget(module: String,
+      step: genes.WalkStep, meta: Null<String>): Void {
+    final shadow = current;
+    if (shadow == null)
+      throw new LeftRecordedPath('no incremental generator for a stored step');
+    if (meta == null || shadow.targetMeta(step.module, step.key) != meta)
+      throw new LeftRecordedPath(changedTargetReason(module, step.key));
+  }
+
+  static function changedTargetReason(module: String, key: String): String {
+    return 'the stored step of $module to $key names a declaration whose '
+      + 'metadata changed or that the inventory lacks';
+  }
+
   /** Stops the walk with stored edges: a stored step failed a check of the walk. */
   public static function leaveRecordedPath(message: String): Void {
     throw new LeftRecordedPath(message);
@@ -859,23 +896,27 @@ class IncrementalShadow {
    *
    * In a live pass with a usable cache, the visit of a clean module is also
    * checked against the record, as the walk with stored edges would take it:
-   * a member list that the record does not have, recorded steps that differ
-   * from the live ones, or an added declaration whose stamp changed. The
-   * first such visit gives the walk's verdict (`ShadowWalkReport`).
+   * a member list that the record does not have, a recorded step whose
+   * declaration has other metadata now, recorded steps that differ from the
+   * live ones, or an added declaration whose stamp changed. The first such
+   * visit gives the walk's verdict (`ShadowWalkReport`). `metas` holds the
+   * metadata text of each step's declaration, in the order of `steps`.
    */
   public static function recordVisit(module: String, state: String,
-      steps: Array<genes.WalkStep>, resolved: Array<String>,
-      named: Array<String>): Void {
+      steps: Array<genes.WalkStep>, metas: Array<String>,
+      resolved: Array<String>, named: Array<String>): Void {
     final shadow = current;
     if (shadow == null || !shadow.active)
       return;
     shadow.liveVisits++;
     final seen = new Map<String, Bool>();
     final unique: Array<genes.WalkStep> = [];
-    for (step in steps)
+    final uniqueMetas: Array<String> = [];
+    for (index => step in steps)
       if (!seen.exists(step.key)) {
         seen.set(step.key, true);
         unique.push(step);
+        uniqueMetas.push(metas[index]);
       }
     var list = shadow.visits.get(module);
     if (list == null) {
@@ -886,7 +927,8 @@ class IncrementalShadow {
       list.push({
         members: state,
         steps: unique,
-        stamps: [for (step in unique) shadow.stampOf(step.module, step.key)]
+        stamps: [for (step in unique) shadow.stampOf(step.module, step.key)],
+        metas: uniqueMetas
       });
     // Checked in a live pass: `measure`, and the live pass of `compare`.
     if (shadow.storedPass || (shadow.rerun && shadow.mode != CompareClean))
@@ -908,6 +950,18 @@ class IncrementalShadow {
         'the walk visited $module with a member list ' +
         'that the record does not have');
       return;
+    }
+    // The walk with stored edges checks the metadata of each stored step's
+    // declaration before it takes the step (`checkStoredTarget`), so a
+    // changed one leaves the path before different steps could matter.
+    for (index => step in visit.steps) {
+      final recorded = visit.metas == null ? null : visit.metas[index];
+      if (recorded == null
+        || shadow.targetMeta(step.module, step.key) != recorded) {
+        shadow.staleSteps++;
+        shadow.diverge('left', changedTargetReason(module, step.key));
+        return;
+      }
     }
     if (stepText(visit.steps) != stepText(unique)) {
       shadow.differingVisits++;
@@ -1441,6 +1495,22 @@ class IncrementalShadow {
     final stamp = GenerationChangeSet.stampOf(module, key);
     stamps.set(key, stamp);
     return stamp;
+  }
+
+  /**
+   * Returns the metadata text of the declaration `key` of `module` in this
+   * request, or `null` when the inventory lacks it. Each module is read
+   * once.
+   */
+  function targetMeta(module: String, key: String): Null<String> {
+    var ofModule = targetMetas.get(module);
+    if (ofModule == null) {
+      final read = TypedModuleInventory.textsByKey(module,
+        base -> ModuleFingerprint.metaText(base.meta));
+      ofModule = read == null ? new Map() : read;
+      targetMetas.set(module, ofModule);
+    }
+    return ofModule.get(key);
   }
 
   /** Keeps the first divergence of the live walk from the record. */

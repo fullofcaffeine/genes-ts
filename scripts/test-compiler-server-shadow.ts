@@ -1490,7 +1490,12 @@ const edits: ReadonlyArray<Edit> = [
     // metadata, so the request falls back.
     id: "after-typing macro sets the type of a class that the generator adds late",
     apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
-      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
+      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n"),
+    // Slice S2: the plan of the clean module inc.LateUser loses its edge to
+    // LateBox, with the same member list and stamps. The stored step to
+    // LateBox records the class metadata, so the walk with stored edges
+    // leaves the recorded path there (never `drift`).
+    walk: "left"
   },
   {
     // The same metadata on a listed class (review of the merge of #246 into
@@ -1501,9 +1506,18 @@ const edits: ReadonlyArray<Edit> = [
     // stay the same.
     id: "after-typing macro sets the type of a listed class that a clean module names only in a type position",
     apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
-      "class Leaf2 {\n  public static var markListedClassMeta = 1;\n")
+      "class Leaf2 {\n  public static var markListedClassMeta = 1;\n"),
+    // The fingerprint of inc.ListedTs holds the class metadata, so the
+    // request generates in full before any walk.
+    results: ["full"]
   },
-  { id: "no edit after the type of the listed class was set", apply: () => {} },
+  {
+    id: "no edit after the type of the listed class was set",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
   {
     // M3 of the cross-model review of #246: a structure field can declare
     // its own type parameter (`typedef FableApi = {function pick<T>(item:

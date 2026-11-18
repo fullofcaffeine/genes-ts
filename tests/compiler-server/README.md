@@ -377,7 +377,10 @@ list when the visit starts; a clean module takes the steps recorded for its
 member list now, and answers import-cycle questions from its stored runtime
 requests. The walk with stored edges leaves the recorded path when the record
 has no visit with that member list, when a stored step adds a declaration
-whose stamp changed, or when a check before emission fails. Then the request
+whose stamp changed, when the declaration of a stored step has other
+metadata than the recording request saw (an after-typing macro can add
+`@:ts.type` without a new stamp, and the plan reads it), or when a check
+before emission fails. Then the request
 runs again from the inventory with live edges and no clean module, before any
 `api.addFeature`. The report's `walk` object says what happened (`verdict`:
 `none`, `on-path`, `left` or `drift`; `drift` always fails the gate).
@@ -407,6 +410,12 @@ difference of their results is a mismatch. The edits whose ids start with
   member of a clean module that closes an import cycle through two clean
   modules, a generic instance named in a type position and then used at
   run time, and a late member that is renamed;
+- after-typing metadata on a walk target with the same member list and
+  stamps: `@:ts.type` on the late class `inc.LateEnum.LateBox` removes the
+  edge from the clean module `inc.LateUser`, and the walk leaves the
+  recorded path at that stored step; on the listed class
+  `inc.ListedTs.ListedBox` the fingerprint of its module makes the request
+  generate in full before any walk;
 - an HXX error in the only dirty module (`FB3`: an unknown attribute on an
   intrinsic element; `FB4`: an unknown prop of a component), so that the
   error comes inside a request whose walk takes stored edges: the shadow

@@ -477,6 +477,8 @@ class Generator {
           state);
         if (stored != null) {
           for (position => step in stored.steps) {
+            IncrementalShadow.checkStoredTarget(moduleName, step,
+              stored.metas == null ? null : stored.metas[position]);
             final resolve = () -> IncrementalShadow.resolveStoredStep(step,
               stored.stamps[position]);
             takeStep(step,
@@ -488,6 +490,10 @@ class Generator {
         }
 
         final visitSteps: Array<WalkStep> = [];
+        // The metadata of each step's declaration, which the plan can read
+        // (`@:ts.type` on a class removes its edge); see
+        // `GenerationCache.CachedVisit`.
+        final visitMetas: Array<String> = [];
         final resolvedKeys: Array<String> = [];
         final namedKeys: Array<String> = [];
         final edges = sourceModule.dependencyPlan.edges;
@@ -562,6 +568,7 @@ class Generator {
               name: base.name,
               typeName: known == null ? '' : known
             });
+            visitMetas.push(genes.incremental.ModuleFingerprint.metaText(base.meta));
             if (changed)
               resolvedKeys.push(key);
             if (known != null)
@@ -570,7 +577,7 @@ class Generator {
         }
         if (state != null)
           IncrementalShadow.recordVisit(moduleName, state, visitSteps,
-            resolvedKeys, namedKeys);
+            visitMetas, resolvedKeys, namedKeys);
       }
       IncrementalShadow.enter(null, Reachability);
       return reachable;
