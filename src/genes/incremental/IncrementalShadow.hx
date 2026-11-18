@@ -869,8 +869,8 @@ class IncrementalShadow {
    * and the live walk reads them. Examples: `@:ts.type("string")` on the
    * class `inc.LateEnum.LateBox` removes the edge from `inc.LateUser`,
    * which names the class only in a typedef field; `exclude()` on the enum
-   * `inc.PZ.PZEnum` makes it extern, so the live walk takes no step to it
-   * from `inc.PA`. In both cases the stored step would add a member that
+   * `inc.ExclOwner.ExclEarly` makes it extern, so the live walk takes no
+   * step to it from `inc.ExclHintUser`. In both cases the stored step would add a member that
    * the live walk does not add.
    */
   public static function checkStoredTarget(module: String,
