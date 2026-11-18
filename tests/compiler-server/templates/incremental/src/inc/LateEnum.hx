@@ -16,3 +16,11 @@ enum LateEnum {
 
 /** A late class with a structure in the constraint of its type parameter. */
 class LateBox<T:{lb: Int}> {}
+
+/**
+ * A late class with a type override, so a type position that names it adds
+ * no dependency edge. `inc.Mark3Macro` removes the override
+ * (`unmarkLateTyped`).
+ */
+@:ts.type("number")
+class LateTyped {}

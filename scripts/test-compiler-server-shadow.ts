@@ -1592,6 +1592,32 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var fableMixValueOnly = 1;\n")
   },
   {
+    // Stage 3 slice S2 merged with #249 (journal note 2138): inc.Mark3Macro
+    // removes `@:ts.type("number")` from the late class
+    // inc.LateEnum.LateTyped. While the class had the override, the plan of
+    // the clean module inc.LateUser had no edge to it, so no stored step
+    // names it, and `checkStoredTarget` cannot see the change. Two checks of
+    // #249 each see it: the metadata comparison before the passes after
+    // typing (`GenerationChangeSet.compareMetadata`, a new session key) and
+    // the unlisted part of the fingerprint of inc.LateEnum
+    // (`ModuleFingerprint.unlisted`). Either one makes the request fall back
+    // to a full generation. With both switched off, the walk with stored
+    // edges keeps the old path: compare reports drift and reuse publishes a
+    // stale tree.
+    id: "after-typing macro removes the type override of a late class that no stored step names",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var unmarkLateTyped = 1;\n"),
+    results: ["full"],
+    reason: "inc.LateEnum"
+  },
+  {
+    // The next request compares with the one before, so it is incremental
+    // again, and its tree must still equal the cold build.
+    id: "no edit after the type override of a late class was removed",
+    apply: () => {},
+    results: ["incremental"]
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],

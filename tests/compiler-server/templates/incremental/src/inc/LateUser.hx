@@ -4,6 +4,7 @@ package inc;
 typedef LateHint = {
   final ?late: inc.LateEnum;
   final ?box: inc.LateEnum.LateBox<{lb: Int}>;
+  final ?typed: inc.LateEnum.LateTyped;
 }
 
 class LateUser {

@@ -416,6 +416,11 @@ difference of their results is a mismatch. The edits whose ids start with
   recorded path at that stored step; on the listed class
   `inc.ListedTs.ListedBox` the fingerprint of its module makes the request
   generate in full before any walk;
+- the opposite case: an after-typing macro removes `@:ts.type` from the
+  late class `inc.LateEnum.LateTyped`, which no stored step names, so the
+  clean module `inc.LateUser` gains an edge that its stored steps lack. The
+  metadata checks of genes-ts #249 (`GenerationChangeSet.compareMetadata`
+  and `ModuleFingerprint.unlisted`) make the request generate in full;
 - an HXX error in the only dirty module (`FB3`: an unknown attribute on an
   intrinsic element; `FB4`: an unknown prop of a component), so that the
   error comes inside a request whose walk takes stored edges: the shadow
