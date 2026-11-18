@@ -442,8 +442,9 @@ class IncrementalShadow {
   final fingerprints = new Map<String, String>();
 
   /**
-   * The key (`module.Name`) of each declaration in the generator's list of
-   * this request: plain text, read by `listed`.
+   * The key (`listedKey`) of each declaration in the generator's list of
+   * this request: plain text, read by `listed` and by the unlisted part of
+   * the fingerprints.
    */
   final listedDeclarations = new Map<String, Bool>();
 
@@ -1132,7 +1133,7 @@ class IncrementalShadow {
       if (base == null)
         continue;
       final module = base.module;
-      shadow.listedDeclarations.set(TypeUtil.baseTypeFullName(base), true);
+      shadow.listedDeclarations.set(listedKey(base), true);
       final list = grouped.get(module);
       if (list == null) {
         grouped.set(module, [type]);
@@ -1156,6 +1157,23 @@ class IncrementalShadow {
       }
       shadow.fingerprints.set(module, fingerprintOf(module, list, exposed));
     }
+    // Every other declaration that Haxe typed (genes-f8vc.9.27): a printer
+    // can read the metadata of a declaration that dead-code elimination
+    // removed (`ModuleFingerprint.unlisted`). A module whose declarations
+    // were all removed gets a fingerprint of this part only, so rule 6 sees
+    // it too.
+    final all = TypedModuleInventory.allModules();
+    if (all != null) {
+      final isListed = (base: BaseType) ->
+        shadow.listedDeclarations.exists(listedKey(base));
+      for (module => list in all) {
+        final text = ModuleFingerprint.unlisted(list, isListed);
+        if (text.length == 0)
+          continue;
+        final known = shadow.fingerprints.get(module);
+        shadow.fingerprints.set(module, known == null ? text : known + text);
+      }
+    }
     shadow.fingerprintSeconds = haxe.Timer.stamp() - fingerprintStart;
     final decideStart = haxe.Timer.stamp();
     shadow.decision = GenerationCache.decide({
@@ -1169,6 +1187,17 @@ class IncrementalShadow {
       sameObjectFailures: GenerationChangeSet.sameObjectFailures(),
       outputFolder: shadow.outputFolder,
       needsReuseCache: shadow.mode == CompareClean || shadow.mode == ReuseClean});
+    // Name the modules when a metadata change made the session key differ
+    // (`GenerationChangeSet.compareMetadata`).
+    final changed = GenerationChangeSet.metadataChanged();
+    if (changed.length > 0)
+      switch shadow.decision {
+        case NoCache(why):
+          shadow.decision = NoCache('$why: the metadata of a module that '
+            + 'Haxe did not type again changed: '
+            + changed.slice(0, 5).join(', '));
+        default:
+      }
     shadow.decideSeconds = haxe.Timer.stamp() - decideStart;
   }
 
@@ -2152,7 +2181,19 @@ class IncrementalShadow {
   public static function listed(declaration: BaseType): Bool {
     final shadow = current;
     return shadow != null
-      && shadow.listedDeclarations.exists(TypeUtil.baseTypeFullName(declaration));
+      && shadow.listedDeclarations.exists(listedKey(declaration));
+  }
+
+  /**
+   * Returns the key of a declaration in `listedDeclarations`: its full name
+   * and the place of its declaration. The name alone is not unique: Haxe
+   * renames a class with `@:native("Lib")` to `Lib` before generation, so a
+   * listed class could hide a removed class `Lib` of the same module.
+   */
+  static function listedKey(declaration: BaseType): String {
+    final place = Context.getPosInfos(declaration.pos);
+    return
+      '${TypeUtil.baseTypeFullName(declaration)}@${place.min}-${place.max}';
   }
 
   /** Returns the declaration of a named type, or `null` for any other type. */

@@ -645,6 +645,113 @@ class CleanRuleProbe {
         fail('metadata fingerprint', 'class inc.LateEnum.LateBox',
           Std.string(lateBox));
     }
+    // genes-f8vc.9.27: every declaration that Haxe typed is in a metadata
+    // text, whichever printer reads it. After dead-code elimination,
+    // `ModuleFingerprint.unlisted` holds each declaration that is in no
+    // generator list (M2a: the `@:ts.type` of a removed class; M2b: the
+    // `:value` metadata of a removed static of an enum abstract), and adds
+    // nothing for a listed one. Before the passes after typing,
+    // `ModuleFingerprint.addDeclaration` gives the text whose digest
+    // `GenerationChangeSet.compareMetadata` compares between requests.
+    function moduleTypeOf(type: haxe.macro.Type): haxe.macro.Type.ModuleType {
+      return switch type {
+        case TInst(ref, _): TClassDecl(ref);
+        case TEnum(ref, _): TEnumDecl(ref);
+        case TType(ref, _): TTypeDecl(ref);
+        case TAbstract(ref, _): TAbstract(ref);
+        default: throw 'not a declaration: $type';
+      }
+    }
+    function unlistedOf(type: haxe.macro.Type): () -> String
+      return () -> genes.incremental.ModuleFingerprint.unlisted([type],
+        _ -> false);
+    function digestOf(type: haxe.macro.Type): () -> String
+      return () -> {
+        final buffer = new StringBuf();
+        genes.incremental.ModuleFingerprint.addDeclaration(buffer,
+          moduleTypeOf(type));
+        buffer.toString();
+      };
+    final tsTyped = Context.getType('inc.TsTyped');
+    switch tsTyped {
+      case TInst(ref, _):
+        cycleText('unlisted class', unlistedOf(tsTyped), ref.get().meta);
+        cycleText('metadata digest of a class', digestOf(tsTyped),
+          ref.get().meta);
+        final listedText = genes.incremental.ModuleFingerprint.unlisted([tsTyped],
+          _ -> true);
+        expectText('a listed declaration adds no unlisted text', '',
+          listedText);
+      default:
+        fail('metadata fingerprint', 'class inc.TsTyped', Std.string(tsTyped));
+    }
+    final shade = Context.getType('inc.Shade');
+    switch shade {
+      case TAbstract(ref, _):
+        final impl = ref.get().impl;
+        if (impl == null)
+          fail('metadata fingerprint', 'inc.Shade: an implementation class',
+            'none');
+        else {
+          final implType = haxe.macro.Type.TInst(impl, []);
+          var light: Null<haxe.macro.Type.ClassField> = null;
+          for (field in impl.get().statics.get())
+            if (field.name == 'Light')
+              light = field;
+          if (light == null)
+            fail('metadata fingerprint', 'inc.Shade: the static Light', 'none');
+          else {
+            cycleText('unlisted static of an enum abstract',
+              unlistedOf(implType), light.meta);
+            cycleText('metadata digest of a static of an enum abstract',
+              digestOf(implType), light.meta);
+          }
+        }
+      default:
+        fail('metadata fingerprint', 'abstract inc.Shade', Std.string(shade));
+    }
+    switch Context.getType('inc.Shape') {
+      case TEnum(ref, _):
+        final circle = ref.get().constructs.get('Circle');
+        if (circle == null)
+          fail('metadata fingerprint', 'constructor inc.Shape.Circle', 'none');
+        else
+          cycleText('metadata digest of an enum constructor',
+            digestOf(Context.getType('inc.Shape')), circle.meta);
+      default:
+        fail('metadata fingerprint', 'enum inc.Shape', 'another type');
+    }
+    switch chain {
+      case TType(ref, _):
+        final field = anonymousField('digest', ref.get().type, 'x');
+        if (field == null)
+          fail('metadata fingerprint', 'digest: anonymous field x', 'none');
+        else
+          cycleText('metadata digest of a structure field', digestOf(chain),
+            field.meta);
+      default:
+    }
+    switch lateBox {
+      case TInst(ref, _):
+        parameterCycle('metadata digest of a type parameter',
+          digestOf(lateBox), ref.get().params);
+        constraintCycle('metadata digest of a constraint structure field',
+          digestOf(lateBox), ref.get().params, 'lb');
+      default:
+    }
+    // `:keep` is left out of the digest only: Genes adds it after the
+    // comparison (`BEFORE_DCE_EXCLUDED_META`), and `of` still holds it.
+    switch target {
+      case TInst(ref, _):
+        final digestBefore = digestOf(target)();
+        final ofBefore = ofType(target)();
+        ref.get().meta.add(':keep', [], pos);
+        expectText('metadata digest leaves out :keep', digestBefore,
+          digestOf(target)());
+        expectDifferent('fingerprint holds :keep', ofBefore, ofType(target)());
+        ref.get().meta.remove(':keep');
+      default:
+    }
   }
 
   /** Returns every `.hx` file below `folder`, sorted. */

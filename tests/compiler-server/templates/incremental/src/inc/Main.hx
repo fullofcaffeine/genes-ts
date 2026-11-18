@@ -56,6 +56,9 @@ class Main {
       LateUser.run(),
       ListedTs.value() + ListedUser.run(),
       FableProbe.value(),
+      TsTypedUser.run(),
+      ShadeUser.value(),
+      FableMixUser.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));
