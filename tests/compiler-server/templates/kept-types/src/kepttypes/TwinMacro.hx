@@ -21,6 +21,11 @@ import haxe.macro.Type;
  * The type of the field `state` comes from the `@:twin` metadata of
  * `Twinner`: `phase` gives `kepttypes.Phase`, any other text gives
  * `String`. So a bucket of the earlier `Twin` holds a wrong field type.
+ * The field has no initial value: Haxe would write it as `:value`
+ * metadata, and a changed metadata of a module whose stamps say "kept"
+ * drops every record before the keep rule runs
+ * (`GenerationChangeSet.compareMetadata`), so the same-object test would
+ * no longer be the only guard.
  */
 class TwinMacro {
   #if macro
@@ -35,7 +40,6 @@ class TwinMacro {
     }
     final pos = Context.currentPos();
     final stateType: ComplexType = kind == 'phase' ? macro : kepttypes.Phase : macro : String;
-    final initial: Expr = kind == 'phase' ? macro kepttypes.Phase.Draft : macro "draft";
     Context.defineType({
       pack: ['kepttypes'],
       name: 'Twin',
@@ -46,7 +50,7 @@ class TwinMacro {
         {
           name: 'state',
           access: [APublic, AStatic],
-          kind: FVar(stateType, initial),
+          kind: FVar(stateType, null),
           pos: pos
         }
       ]
@@ -55,8 +59,11 @@ class TwinMacro {
     Context.onGenerate(types -> {
       for (type in types)
         switch type {
-          case TInst(_.get() => {pack: ['kepttypes'], name: 'Twin',
-            meta: meta}, _):
+          case TInst(_.get() => {
+            pack: ['kepttypes'],
+            name: 'Twin',
+            meta: meta
+          }, _):
             saved = [
               for (entry in meta.get())
                 if (StringTools.startsWith(entry.name,

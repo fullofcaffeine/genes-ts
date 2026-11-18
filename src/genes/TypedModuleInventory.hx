@@ -224,7 +224,28 @@ class TypedModuleInventory {
     return Context.getType(path);
   }
 
+  /**
+   * Returns every module that Haxe typed in this request, each with its
+   * declarations in Haxe's order, also the ones that dead-code elimination
+   * removes later. Returns `null` when the request did not install Genes.
+   *
+   * Only the incremental shadow calls it: `ModuleFingerprint.unlisted`
+   * gives each declaration that is in no generator list a fingerprint
+   * (genes-f8vc.9.27). It adds no witness, because the shadow reads every
+   * module and is not the output of one of them. Do not change the returned
+   * map.
+   */
+  public static function allModules(): Null<Map<String, Array<Type>>> {
+    return index();
+  }
+
   static function known(module: String): Null<Array<Type>> {
+    final all = index();
+    return all == null ? null : all.get(module);
+  }
+
+  /** Groups the pending declarations by module, and returns all groups. */
+  static function index(): Null<Map<String, Array<Type>>> {
     // A request that did not install Genes has no inventory of its own. The
     // arrays could then still hold declarations of an earlier request on the
     // same compilation server, so they must not answer.
@@ -246,7 +267,7 @@ class TypedModuleInventory {
       }
       pending = [];
     }
-    return modules.get(module);
+    return modules;
   }
 
   /**
