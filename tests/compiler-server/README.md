@@ -399,7 +399,9 @@ difference of their results is a mismatch. The edits whose ids start with
 - two sources (`inc.PairWayA`, `inc.PairWayB`) that add late members to one
   clean module (`inc.Pair`), with their visit order flipped and back;
 - a typedef (`inc.Tinted.TintAlias`) whose class `inc.Tint` becomes concrete
-  and stops being concrete;
+  and stops being concrete (since genes-ts #249, the request where it
+  becomes concrete generates in full, because `inc.Tint` moves from the
+  unlisted part of its fingerprint to the listed part);
 - the import cycle through a third module (`inc.CyHub` rows) with no edit,
   so that clean modules answer the cycle question from stored requests;
 - a module that only the walk creates (`inc.Ghost`), made by a stored step
@@ -412,8 +414,10 @@ difference of their results is a mismatch. The edits whose ids start with
   run time, and a late member that is renamed;
 - after-typing metadata on a walk target with the same member list and
   stamps: `@:ts.type` on the late class `inc.LateEnum.LateBox` removes the
-  edge from the clean module `inc.LateUser`, and the walk leaves the
-  recorded path at that stored step; on the listed class
+  edge from the clean module `inc.LateUser`; the stored step records the
+  target's metadata, so the walk would leave the recorded path there, but
+  since genes-ts #249 the metadata comparison before the passes after
+  typing makes the request generate in full first; on the listed class
   `inc.ListedTs.ListedBox` the fingerprint of its module makes the request
   generate in full before any walk;
 - the opposite case: an after-typing macro removes `@:ts.type` from the

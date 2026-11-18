@@ -1080,10 +1080,16 @@ const edits: ReadonlyArray<Edit> = [
     // Row 3: inc.Leaf2 uses inc.Tint at run time, so the class is concrete
     // and the generator adds the typedef inc.Tinted.TintAlias to the clean
     // module inc.Tinted.
+    // Without #249 the walk with stored edges left the recorded path here.
+    // Since the merge with #249, inc.Tint moves from the unlisted part of its
+    // module fingerprint (`ModuleFingerprint.unlisted`) to the listed part,
+    // so the fingerprint of inc.Tint changes and the request generates in
+    // full, before any walk. Safe, but slower.
     id: "S2 a typedef whose class becomes concrete",
     apply: () => edit("inc/Leaf2.hx", "/*LEAF2_USE*/",
       "+ Std.string(new inc.Tint().shade) /*LEAF2_USE*/"),
-    walk: "left"
+    results: ["full"],
+    reason: "inc.Tint"
   },
   {
     id: "S2 no edit after the typedef was added",
@@ -1493,9 +1499,13 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var markLateClassMeta = 1;\n"),
     // Slice S2: the plan of the clean module inc.LateUser loses its edge to
     // LateBox, with the same member list and stamps. The stored step to
-    // LateBox records the class metadata, so the walk with stored edges
-    // leaves the recorded path there (never `drift`).
-    walk: "left"
+    // LateBox records the class metadata (`checkStoredTarget`), so without
+    // #249 the walk with stored edges left the recorded path there. Since
+    // the merge with #249, the metadata comparison before the passes after
+    // typing sees the change first: the session key changes and the request
+    // generates in full, before any walk. It must never be `drift`.
+    results: ["full"],
+    reason: "inc.LateEnum"
   },
   {
     // The same metadata on a listed class (review of the merge of #246 into
