@@ -478,7 +478,7 @@ class Generator {
         if (stored != null) {
           for (position => step in stored.steps) {
             IncrementalShadow.checkStoredTarget(moduleName, step,
-              stored.metas == null ? null : stored.metas[position]);
+              stored.targets == null ? null : stored.targets[position]);
             final resolve = () -> IncrementalShadow.resolveStoredStep(step,
               stored.stamps[position]);
             takeStep(step,
@@ -490,10 +490,10 @@ class Generator {
         }
 
         final visitSteps: Array<WalkStep> = [];
-        // The metadata of each step's declaration, which the plan can read
-        // (`@:ts.type` on a class removes its edge); see
-        // `GenerationCache.CachedVisit`.
-        final visitMetas: Array<String> = [];
+        // The text of the target facts of each step's declaration
+        // (`WalkTarget.inputsText`), which this walk and the plan read
+        // before a step; see `GenerationCache.CachedVisit`.
+        final visitTargets: Array<String> = [];
         final resolvedKeys: Array<String> = [];
         final namedKeys: Array<String> = [];
         final edges = sourceModule.dependencyPlan.edges;
@@ -517,24 +517,26 @@ class Generator {
             continue;
           }
 
-          switch referencedType {
-            case TAbstract(_):
-              // Abstracts erase/project through their backing type and never own
-              // an emitted module member.
-              continue;
-            case TClassDecl(_.get() => {kind: KTypeParameter(_)}):
-              continue;
-            default:
-          }
-          final base = DependencyPlan.moduleTypeBase(referencedType);
-          if (base.isExtern || base.module == 'StdTypes')
+          // The walk reads the target only through `WalkTarget.inputsOf`,
+          // and records the text of those facts with the step, so the walk
+          // with stored edges compares every fact that this decision reads
+          // (`IncrementalShadow.checkStoredTarget`). Abstracts erase or
+          // project through their backing type and never own an emitted
+          // member; externs, type parameters and `StdTypes` get no step.
+          final inputs = WalkTarget.inputsOf(referencedType);
+          if (!WalkTarget.takesStep(inputs))
             continue;
-          if (base.module == null || base.module.length == 0)
-            CompilerDiagnostic.fail('Genes DependencyPlan ($profile) cannot resolve '
-              + '${base.name} to an output module '
-              + '[${edge.provenance.rule}]',
-              edge.provenance.sourcePosition);
+          final targetModule = switch inputs.module {
+            case null | '':
+              CompilerDiagnostic.fail('Genes DependencyPlan ($profile) cannot resolve '
+                + '${inputs.name} to an output module '
+                + '[${edge.provenance.rule}]',
+                edge.provenance.sourcePosition);
+            case module: module;
+          }
 
+          // The key is the declaration's identity: its kind and full name.
+          final base = DependencyPlan.moduleTypeBase(referencedType);
           final key = DependencyPlan.moduleTypeKeyOf(referencedType, base);
           var typeName: Null<String> = null;
           final readTypeName = () -> {
@@ -547,8 +549,8 @@ class Generator {
           };
           final changed = takeStep({
             key: key,
-            module: base.module,
-            name: base.name,
+            module: targetModule,
+            name: inputs.name,
             typeName: ''
           },
             readTypeName,
@@ -564,11 +566,11 @@ class Generator {
             final known = typeName;
             visitSteps.push({
               key: key,
-              module: base.module,
-              name: base.name,
+              module: targetModule,
+              name: inputs.name,
               typeName: known == null ? '' : known
             });
-            visitMetas.push(genes.incremental.ModuleFingerprint.metaText(base.meta));
+            visitTargets.push(WalkTarget.inputsText(inputs));
             if (changed)
               resolvedKeys.push(key);
             if (known != null)
@@ -577,7 +579,7 @@ class Generator {
         }
         if (state != null)
           IncrementalShadow.recordVisit(moduleName, state, visitSteps,
-            visitMetas, resolvedKeys, namedKeys);
+            visitTargets, resolvedKeys, namedKeys);
       }
       IncrementalShadow.enter(null, Reachability);
       return reachable;

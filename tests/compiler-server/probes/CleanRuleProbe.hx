@@ -59,6 +59,7 @@ class CleanRuleProbe {
     checkEmissionFeatures();
     checkExcludedMetadata();
     checkMetadataFingerprint();
+    checkStepInputs();
     Sys.println('clean-rule-probe:ok ($cases cases)');
   }
 
@@ -264,6 +265,42 @@ class CleanRuleProbe {
    * in this compiler process only (the probe runs with `--no-output`) and
    * remove it again.
    */
+  /**
+   * Stage 3, slice S2 (must fix of the review of genes-ts #247): the text of
+   * `WalkTarget.inputsOf`, which each stored walk step records and
+   * `IncrementalShadow.checkStoredTarget` compares, changes when the
+   * target's metadata changes and when `exclude()` makes it extern; and
+   * `WalkTarget.takesStep` stops taking a step to it once it is extern. It
+   * runs last, because `exclude()` cannot be undone in this process.
+   */
+  static function checkStepInputs(): Void {
+    final pos = Context.currentPos();
+    final declaration: haxe.macro.Type.ModuleType = switch Context.getType('inc.ExclOwner.ExclEarly') {
+      case TEnum(ref, _): TEnumDecl(ref);
+      default:
+        Context.fatalError('clean-rule-probe: inc.ExclOwner.ExclEarly is not an enum',
+          pos);
+    }
+    final enm = switch declaration {
+      case TEnumDecl(ref): ref.get();
+      default: Context.fatalError('clean-rule-probe: no enum', pos);
+    }
+    final text = () ->
+      genes.WalkTarget.inputsText(genes.WalkTarget.inputsOf(declaration));
+    final before = text();
+    expectBool('step inputs: a plain enum takes a step', true,
+      genes.WalkTarget.takesStep(genes.WalkTarget.inputsOf(declaration)));
+    enm.meta.add(':probe.mark', [], pos);
+    expectDifferent('step inputs: metadata added', before, text());
+    enm.meta.remove(':probe.mark');
+    expectText('step inputs: metadata removed again', before, text());
+    enm.exclude();
+    expectDifferent('step inputs: exclude() makes the enum extern', before,
+      text());
+    expectBool('step inputs: an extern enum takes no step', false,
+      genes.WalkTarget.takesStep(genes.WalkTarget.inputsOf(declaration)));
+  }
+
   static function checkMetadataFingerprint(): Void {
     final pos = Context.currentPos();
     final arg = (text: String) -> [
@@ -991,6 +1028,12 @@ class CleanRuleProbe {
     cases++;
     if (actual != wanted)
       fail(name, wanted, actual);
+  }
+
+  static function expectBool(name: String, wanted: Bool, actual: Bool): Void {
+    cases++;
+    if (actual != wanted)
+      fail(name, Std.string(wanted), Std.string(actual));
   }
 
   static function expectDifferent(name: String, other: String,

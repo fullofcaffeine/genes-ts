@@ -467,11 +467,11 @@ class IncrementalShadow {
   final stamps = new Map<String, String>();
 
   /**
-   * The metadata text (`ModuleFingerprint.metaText`) of each declaration of
-   * the modules that stored steps name, by module and declaration key, read
-   * once in this request (`TypedModuleInventory.textsByKey`).
+   * The target facts (`WalkTarget.inputsText`) of each declaration of the
+   * modules that stored steps name, by module and declaration key, read once in this
+   * request (`TypedModuleInventory.textsByKey`).
    */
-  final targetMetas = new Map<String, Map<String, String>>();
+  final targetFactTexts = new Map<String, Map<String, String>>();
 
   /** True in the pass that walks clean modules with stored steps. */
   var storedPass = false;
@@ -856,31 +856,36 @@ class IncrementalShadow {
 
   /**
    * Checks, before the walk with stored edges takes a stored step of
-   * `module`, that the declaration it names has the metadata that the
-   * recording request saw (`meta`). Throws `LeftRecordedPath` when it
-   * differs or the inventory lacks the declaration. It runs for every
-   * stored step, also when the declaration is already a member, because
-   * no stamp check runs then.
+   * `module`, that the declaration it names has the target facts that the
+   * recording request saw (`facts`): the text of `WalkTarget.inputsOf`,
+   * which holds every fact of the target that the live walk reads before it
+   * takes a step (kind, extern flag, module, name) and its metadata, which
+   * the plan reads. Throws `LeftRecordedPath` when they differ or the
+   * inventory lacks the declaration. It runs for every stored step, also
+   * when the declaration is already a member, because no stamp check runs
+   * then.
    *
-   * Why: an after-typing macro can change a declaration's metadata without
-   * a new stamp, and the dependency plan of another module reads that
-   * metadata. Example: `@:ts.type("string")` on the class
-   * `inc.LateEnum.LateBox` removes the edge from `inc.LateUser`, which names
-   * the class only in a typedef field; the stored step to `LateBox` would
-   * add a member that the live walk does not add.
+   * Why: an after-typing macro can change these facts without a new stamp,
+   * and the live walk reads them. Examples: `@:ts.type("string")` on the
+   * class `inc.LateEnum.LateBox` removes the edge from `inc.LateUser`,
+   * which names the class only in a typedef field; `exclude()` on the enum
+   * `inc.PZ.PZEnum` makes it extern, so the live walk takes no step to it
+   * from `inc.PA`. In both cases the stored step would add a member that
+   * the live walk does not add.
    */
   public static function checkStoredTarget(module: String,
-      step: genes.WalkStep, meta: Null<String>): Void {
+      step: genes.WalkStep, facts: Null<String>): Void {
     final shadow = current;
     if (shadow == null)
       throw new LeftRecordedPath('no incremental generator for a stored step');
-    if (meta == null || shadow.targetMeta(step.module, step.key) != meta)
+    if (facts == null || shadow.targetFactsOf(step.module, step.key) != facts)
       throw new LeftRecordedPath(changedTargetReason(module, step.key));
   }
 
   static function changedTargetReason(module: String, key: String): String {
     return 'the stored step of $module to $key names a declaration whose '
-      + 'metadata changed or that the inventory lacks';
+      + 'target facts (kind, extern flag, module, name or metadata) '
+      + 'changed or that the inventory lacks';
   }
 
   /** Stops the walk with stored edges: a stored step failed a check of the walk. */
@@ -898,13 +903,14 @@ class IncrementalShadow {
    * In a live pass with a usable cache, the visit of a clean module is also
    * checked against the record, as the walk with stored edges would take it:
    * a member list that the record does not have, a recorded step whose
-   * declaration has other metadata now, recorded steps that differ from the
-   * live ones, or an added declaration whose stamp changed. The first such
-   * visit gives the walk's verdict (`ShadowWalkReport`). `metas` holds the
-   * metadata text of each step's declaration, in the order of `steps`.
+   * declaration has other target facts now, recorded steps that differ from
+   * the live ones, or an added declaration whose stamp changed. The first
+   * such visit gives the walk's verdict (`ShadowWalkReport`). `targets`
+   * holds the target facts (`WalkTarget.inputsText`) of each step's
+   * declaration, in the order of `steps`.
    */
   public static function recordVisit(module: String, state: String,
-      steps: Array<genes.WalkStep>, metas: Array<String>,
+      steps: Array<genes.WalkStep>, targets: Array<String>,
       resolved: Array<String>, named: Array<String>): Void {
     final shadow = current;
     if (shadow == null || !shadow.active)
@@ -912,12 +918,12 @@ class IncrementalShadow {
     shadow.liveVisits++;
     final seen = new Map<String, Bool>();
     final unique: Array<genes.WalkStep> = [];
-    final uniqueMetas: Array<String> = [];
+    final uniqueTargets: Array<String> = [];
     for (index => step in steps)
       if (!seen.exists(step.key)) {
         seen.set(step.key, true);
         unique.push(step);
-        uniqueMetas.push(metas[index]);
+        uniqueTargets.push(targets[index]);
       }
     var list = shadow.visits.get(module);
     if (list == null) {
@@ -929,7 +935,7 @@ class IncrementalShadow {
         members: state,
         steps: unique,
         stamps: [for (step in unique) shadow.stampOf(step.module, step.key)],
-        metas: uniqueMetas
+        targets: uniqueTargets
       });
     // Checked in a live pass: `measure`, and the live pass of `compare`.
     if (shadow.storedPass || (shadow.rerun && shadow.mode != CompareClean))
@@ -952,13 +958,13 @@ class IncrementalShadow {
         'that the record does not have');
       return;
     }
-    // The walk with stored edges checks the metadata of each stored step's
-    // declaration before it takes the step (`checkStoredTarget`), so a
-    // changed one leaves the path before different steps could matter.
+    // The walk with stored edges checks the target facts of each stored
+    // step's declaration before it takes the step (`checkStoredTarget`), so
+    // a changed one leaves the path before different steps could matter.
     for (index => step in visit.steps) {
-      final recorded = visit.metas == null ? null : visit.metas[index];
+      final recorded = visit.targets == null ? null : visit.targets[index];
       if (recorded == null
-        || shadow.targetMeta(step.module, step.key) != recorded) {
+        || shadow.targetFactsOf(step.module, step.key) != recorded) {
         shadow.staleSteps++;
         shadow.diverge('left', changedTargetReason(module, step.key));
         return;
@@ -1527,17 +1533,17 @@ class IncrementalShadow {
   }
 
   /**
-   * Returns the metadata text of the declaration `key` of `module` in this
-   * request, or `null` when the inventory lacks it. Each module is read
-   * once.
+   * Returns the target facts (`WalkTarget.inputsText`) of the declaration `key` of
+   * `module` in this request, or `null` when the inventory lacks it. Each
+   * module is read once.
    */
-  function targetMeta(module: String, key: String): Null<String> {
-    var ofModule = targetMetas.get(module);
+  function targetFactsOf(module: String, key: String): Null<String> {
+    var ofModule = targetFactTexts.get(module);
     if (ofModule == null) {
       final read = TypedModuleInventory.textsByKey(module,
-        base -> ModuleFingerprint.metaText(base.meta));
+        type -> genes.WalkTarget.inputsText(genes.WalkTarget.inputsOf(type)));
       ofModule = read == null ? new Map() : read;
-      targetMetas.set(module, ofModule);
+      targetFactTexts.set(module, ofModule);
     }
     return ofModule.get(key);
   }

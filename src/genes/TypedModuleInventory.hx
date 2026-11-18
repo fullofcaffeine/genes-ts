@@ -268,16 +268,16 @@ class TypedModuleInventory {
    * witness, and keeps the first declaration of a key.
    *
    * Why: the walk with stored edges of Stage 3, slice S2 checks the
-   * metadata of the declaration that each stored step names
-   * (`IncrementalShadow.checkStoredTarget`). Example: an after-typing macro
-   * adds `@:ts.type("string")` to `inc.LateEnum.LateBox`; the plan of a
-   * module that names `LateBox` in a type position then has no edge to it,
-   * although no stamp changed. Reading the whole module once is cheaper
+   * target facts (`WalkTarget.inputsText`) of the declaration that each
+   * stored step names (`IncrementalShadow.checkStoredTarget`). Example: an
+   * after-typing macro adds `@:ts.type("string")` to `inc.LateEnum.LateBox`;
+   * the plan of a module that names `LateBox` in a type position then has
+   * no edge to it, although no stamp changed. Reading the whole module once is cheaper
    * than one `declarationByKey` search for each step, which reads every
    * declaration of the module again.
    */
   public static function textsByKey(module: String,
-      text: BaseType->String): Null<Map<String, String>> {
+      text: ModuleType->String): Null<Map<String, String>> {
     final indexed = known(module);
     if (indexed == null)
       return null;
@@ -295,7 +295,7 @@ class TypedModuleInventory {
       final base = DependencyPlan.moduleTypeBase(declaration);
       final key = DependencyPlan.moduleTypeKeyOf(declaration, base);
       if (!texts.exists(key))
-        texts.set(key, text(base));
+        texts.set(key, text(declaration));
     }
     return texts;
   }

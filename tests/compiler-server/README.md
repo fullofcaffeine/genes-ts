@@ -378,9 +378,16 @@ member list now, and answers import-cycle questions from its stored runtime
 requests. The walk with stored edges leaves the recorded path when the record
 has no visit with that member list, when a stored step adds a declaration
 whose stamp changed, when the declaration of a stored step has other
-metadata than the recording request saw (an after-typing macro can add
-`@:ts.type` without a new stamp, and the plan reads it), or when a check
-before emission fails. Then the request
+target facts than the recording request saw (`checkStoredTarget`), or when
+a check before emission fails. The live walk reads a target only through
+`WalkTarget.inputsOf`, and the step records the text of its result
+(`WalkTarget.inputsText`): the kind, the extern flag, the module and the
+name, which the walk reads before it takes a step, and the metadata, which
+the plan reads. A fact that the walk starts to read is a field of that
+result, so the record holds it too. An after-typing macro can change two of
+these facts without a new stamp: the metadata (it can add `@:ts.type`) and
+the extern flag (it can call `exclude()`, and the walk takes no step to an
+extern declaration). Then the request
 runs again from the inventory with live edges and no clean module, before any
 `api.addFeature`. The report's `walk` object says what happened (`verdict`:
 `none`, `on-path`, `left` or `drift`; `drift` always fails the gate).
@@ -425,6 +432,17 @@ difference of their results is a mismatch. The edits whose ids start with
   clean module `inc.LateUser` gains an edge that its stored steps lack. The
   metadata checks of genes-ts #249 (`GenerationChangeSet.compareMetadata`
   and `ModuleFingerprint.unlisted`) make the request generate in full;
+- an after-typing macro calls `exclude()` on an enum of `inc.ExclOwner`
+  (`inc.ExcludeMacro`), once before and once after the after-typing passes
+  of Genes. The enum becomes extern with no new stamp and no metadata
+  change, so the walk takes no step to it from the clean module
+  `inc.ExclHintUser`, which names it only in a typedef field. The class
+  comes first in `inc.ExclOwner`, and the walk visits `inc.ExclHintUser`
+  first, so the member list of the visit of `inc.ExclOwner` still matches
+  the record. Only the extern flag in the target facts that
+  `checkStoredTarget` compares leaves the recorded path; without it,
+  compare reported drift and reuse published a stale tree (must fix of the
+  review of genes-ts #247);
 - an HXX error in the only dirty module (`FB3`: an unknown attribute on an
   intrinsic element; `FB4`: an unknown prop of a component), so that the
   error comes inside a request whose walk takes stored edges: the shadow

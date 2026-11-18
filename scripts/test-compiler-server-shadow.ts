@@ -1628,6 +1628,47 @@ const edits: ReadonlyArray<Edit> = [
     results: ["incremental"]
   },
   {
+    // Must fix of the review of genes-ts #247 (Stage 3 S2). inc.ExcludeMacro
+    // calls `exclude()` on the enum inc.ExclOwner.ExclEarly, before the
+    // after-typing passes of Genes. That makes the enum extern with no new
+    // stamp and no metadata change. inc.ExclHintUser names the enum only in
+    // a typedef field; the live walk takes no step to an extern declaration,
+    // so the enum leaves inc/ExclOwner.tsx and its type import leaves
+    // inc/ExclHintUser.tsx. The class comes first in inc.ExclOwner, and the
+    // walk visits inc.ExclHintUser first: its stored step would add the enum
+    // back before the visit of inc.ExclOwner, so the member list of that
+    // visit matches the record. Only `checkStoredTarget`, which compares the
+    // target facts of each stored step (extern flag and metadata), leaves
+    // the recorded path here. With the extern flag out of those facts,
+    // compare reported drift and reuse published a stale tree.
+    id: "after-typing macro makes an enum extern before the Genes passes",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var excludeEarly = 1;\n"),
+    results: ["full"],
+    walk: "left"
+  },
+  {
+    id: "no edit after an enum was made extern before the Genes passes",
+    apply: () => {},
+    results: ["incremental"],
+    walk: "on-path"
+  },
+  {
+    // The same with the enum inc.ExclOwner.ExclLate, excluded after the
+    // after-typing passes of Genes, so they never see the change.
+    id: "after-typing macro makes an enum extern after the Genes passes",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var excludeLate = 1;\n"),
+    results: ["full"],
+    walk: "left"
+  },
+  {
+    id: "no edit after an enum was made extern after the Genes passes",
+    apply: () => {},
+    results: ["incremental"],
+    walk: "on-path"
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1646,6 +1687,7 @@ function buildArguments(mode: Mode): string[] {
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
     "--macro", 'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
+    "--macro", "inc.ExcludeMacro.installAfter()",
     "--macro", "genes.Generator.use()",
     "--macro", "genes.js.Async.enable()",
     "--macro", "genes.react.InlineMarkup.enable()",
@@ -1662,6 +1704,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.FableMacro.install()",
     "--macro", "inc.UnlistedMacro.install()",
     "--macro", "inc.Fable3Macro.install()",
+    "--macro", "inc.ExcludeMacro.installBefore()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,

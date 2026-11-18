@@ -77,14 +77,23 @@ typedef CachedVisit = {
   final stamps: Array<String>;
 
   /**
-   * For each step, the metadata of its declaration in the recording request
-   * (`ModuleFingerprint.metaText`). An after-typing macro can change it
-   * without a new stamp, and the plan reads it: `@:ts.type("string")` on a
-   * class removes the edge of every module that names the class only in a
-   * type position. The walk with stored edges leaves the recorded path when
-   * it differs (`IncrementalShadow.checkStoredTarget`).
+   * For each step, the text of the target facts of its declaration in the
+   * recording request (`WalkTarget.inputsText`). The live walk reads a
+   * target only through `WalkTarget.inputsOf`, so this text holds every
+   * fact that the walk reads before it takes the step: the kind, the extern
+   * flag, the module and the name. It also holds the metadata, which the
+   * plan of the visiting module reads. An after-typing macro can change
+   * some of these facts without a new stamp:
+   *
+   * - `@:ts.type("string")` on a class removes the edge of every module
+   *   that names the class only in a type position;
+   * - `exclude()` on an enum makes it extern, and the live walk takes no
+   *   step to an extern declaration.
+   *
+   * The walk with stored edges leaves the recorded path when the text
+   * differs (`IncrementalShadow.checkStoredTarget`).
    */
-  final metas: Array<String>;
+  final targets: Array<String>;
 }
 
 /** One module that a module read by name during generation, with its epochs then. */
@@ -308,7 +317,7 @@ typedef CacheRequestFacts = {
  */
 class GenerationCache {
   /** The entry format. A new field or meaning needs a new number. */
-  public static inline final FORMAT = 5;
+  public static inline final FORMAT = 6;
 
   /**
    * The features that emission can add while Genes prints modules, so that
@@ -624,8 +633,8 @@ class GenerationCache {
             + step.typeName.length;
         for (stamp in visit.stamps)
           size += stamp.length;
-        for (meta in visit.metas)
-          size += meta.length;
+        for (target in visit.targets)
+          size += target.length;
       }
       if (module.runtimeRequests != null)
         for (request in module.runtimeRequests)

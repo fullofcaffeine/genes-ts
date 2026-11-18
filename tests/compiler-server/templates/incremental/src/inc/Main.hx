@@ -55,6 +55,7 @@ class Main {
       Constrained.value(),
       LateUser.run(),
       ListedTs.value() + ListedUser.run(),
+      ExclOwner.value() + ExclHintUser.run(),
       FableProbe.value(),
       TsTypedUser.run(),
       ShadeUser.value(),
