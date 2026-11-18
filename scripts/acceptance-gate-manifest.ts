@@ -113,6 +113,7 @@ export const acceptanceGateManifest: ReadonlyArray<AcceptanceGateDefinition> = [
   nodeGate("deep-nullish-alias", "scripts/dist/test-deep-nullish-alias.js", "output"),
   focusedGate("test:lexical-binding-use-plan", "scripts/dist/test-lexical-binding-use-plan.js"),
   focusedGate("test:module-functions", "scripts/dist/test-module-functions.js"),
+  focusedGate("test:react-refresh-modules", "scripts/dist/test-react-refresh-modules.js"),
   focusedGate("test:array-index-strict", "scripts/dist/test-array-index-strict.js"),
   focusedGate("test:reflection-class-values", "scripts/dist/test-reflection-class-values.js"),
   focusedGate("test:abstract-implementation-properties", "scripts/dist/test-abstract-implementation-properties.js"),

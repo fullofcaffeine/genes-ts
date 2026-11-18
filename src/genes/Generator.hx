@@ -15,6 +15,7 @@ import genes.dts.DefinitionEmitter;
 import genes.util.Timer.timer;
 import genes.util.TypeUtil;
 import genes.Module;
+import genes.ReactRefreshModulePlan;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImportSpec;
 import genes.JsxPlan.JsxCapabilityPolicy;
@@ -834,9 +835,29 @@ class Generator {
       case true:
         final importExtension = if (haxe.macro.Context.defined('genes.ts.no_extension')
           || haxe.macro.Context.defined('genes.no_extension')) null else '.js';
+        var part: ReactRefreshPart = Whole;
+        var fieldsEmitter: Null<TsModuleEmitter> = null;
+        if (ReactRefreshModulePlan.componentNames(module) != null) {
+          // The sibling holds every declaration except the components. It is
+          // written first, so the component file knows what to import.
+          final fieldsPath = ReactRefreshModulePlan.fieldsPath(Path.join([outputDir, module.path]),
+            Genes.outExtension);
+          fieldsEmitter = new TsModuleEmitter(module.createContext(api),
+            outputTransaction.writer(fieldsPath));
+          fieldsEmitter.deferJsxConsumptionValidation();
+          fieldsEmitter.emitTsModule(module, importExtension, Fields);
+          #if (debug || js_source_map)
+          fieldsEmitter.emitSourceMap(fieldsPath + '.map', true,
+            outputTransaction);
+          #end
+          fieldsEmitter.finish();
+          part = Components(fieldsEmitter.reactRefreshBindings());
+        }
         final emitter = new TsModuleEmitter(ctx,
           outputTransaction.writer(path));
-        emitter.emitTsModule(module, importExtension);
+        if (fieldsEmitter != null)
+          emitter.continueJsxConsumption(fieldsEmitter);
+        emitter.emitTsModule(module, importExtension, part);
         emitter;
       case false:
         final emitter = new ModuleEmitter(ctx, outputTransaction.writer(path));
@@ -879,6 +900,7 @@ class Generator {
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
+      ReactRefreshModulePlan.validateProfile();
       // A second `Generator.use()` in one request must not register a second
       // capture: each module list would then hold every declaration twice.
       if (!alreadyInstalled)

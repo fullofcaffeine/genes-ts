@@ -24,7 +24,12 @@
  * - the server memory stays roughly flat;
  * - a structure change (a new module, a new `import.hx`, a new module that
  *   shadows a top-level name, a removed module) starts a new server, a
- *   content edit between them does not, and each tree equals cold.
+ *   content edit between them does not, and each tree equals cold;
+ * - a change to a file that a macro reads (`data/snippet.hx`, `data/note.txt`)
+ *   starts a new server and publishes the new text, while a change to an
+ *   input declared with `keepCache` keeps the server;
+ * - a `.hx` file created in a keepCache tree below the working directory
+ *   (always a Haxe class path) still starts a new server.
  *
  * Timings are printed, not judged: a timing claim needs a quiet machine.
  */
@@ -212,6 +217,13 @@ try {
   );
   mkdirSync(path.join(projectRoot, "data"));
   writeFileSync(path.join(projectRoot, "data", "snippet.hx"), "snippet-v1", "utf8");
+  writeFileSync(path.join(projectRoot, "data", "note.txt"), "note-v1", "utf8");
+  mkdirSync(path.join(projectRoot, "notes"));
+  writeFileSync(path.join(projectRoot, "notes", "readme.txt"), "readme-v1", "utf8");
+  // A folder in the project root, which is Haxe's working directory and so
+  // always a class path, though no `-cp` names it.
+  mkdirSync(path.join(projectRoot, "servercase"));
+  writeFileSync(path.join(projectRoot, "servercase", "readme.txt"), "cwd-v1", "utf8");
   writeFileSync(
     path.join(projectRoot, "build.hxml"),
     [...programArguments, ""].join("\n"),
@@ -225,9 +237,15 @@ try {
     hxml: { allowedRoots: [projectRoot, genesSourceRoot, helderSourceRoot] },
     publicOutputFile: "src-gen/index.ts",
     stateDirectory: ".genes/dev",
-    // A declared input that is not on a class path. A macro reads a `.hx`
-    // file in it as text, so its change must not keep the warm cache.
-    extraInputs: [{ kind: "tree", path: "data", impact: { rebuild: true } }],
+    extraInputs: [
+      // A declared input that is not on a class path. A macro reads a `.hx`
+      // file and a `.txt` file in it as text, so its change must not keep
+      // the warm cache.
+      { kind: "tree", path: "data", impact: { rebuild: true } },
+      // An input that Haxe never reads; the host says so with `keepCache`.
+      { kind: "tree", path: "notes", impact: { rebuild: true, keepCache: true } },
+      { kind: "tree", path: "servercase", impact: { rebuild: true, keepCache: true } },
+    ],
     resolveInvocation: () => ({
       executable: haxeExecutable,
       cwd: projectRoot,
@@ -446,6 +464,8 @@ try {
       readonly label: string;
       readonly apply: () => void;
       readonly expect?: () => void;
+      /** The owned server stays; by default only for a content edit. */
+      readonly keepsServer?: boolean;
     }[] = [
       {
         label: "new unused module other.Extra",
@@ -490,19 +510,22 @@ try {
         apply: () => rmSync(path.join(projectRoot, "src", "servercase/TopThing.hx")),
       },
       {
-        label: "new macro module Snip that reads data/snippet.hx",
+        label: "new macro module Snip that reads data/snippet.hx and data/note.txt",
         apply: () =>
           writeSource(
             "servercase/Snip.hx",
-            'package servercase;\n\nclass Snip {\n  public static macro function text() {\n    return macro $v{sys.io.File.getContent("data/snippet.hx")};\n  }\n}\n',
+            'package servercase;\n\nclass Snip {\n  public static macro function text() {\n    return macro $v{sys.io.File.getContent("data/snippet.hx")};\n  }\n\n  public static macro function note() {\n    return macro $v{sys.io.File.getContent("data/note.txt")};\n  }\n}\n',
           ),
       },
       {
         label: "leaf uses Snip (content edit)",
         apply: () => {
-          edit("servercase/UnimportedLeaf.hx", '"leaf-" + TopThing.value()', '"leaf-" + TopThing.value() + Snip.text()');
+          edit("servercase/UnimportedLeaf.hx", '"leaf-" + TopThing.value()', '"leaf-" + TopThing.value() + Snip.text() + Snip.note()');
         },
-        expect: () => assert.equal(published(leaf).includes("snippet-v1"), true),
+        expect: () => {
+          assert.equal(published(leaf).includes("snippet-v1"), true);
+          assert.equal(published(leaf).includes("note-v1"), true);
+        },
       },
       {
         label: "data/snippet.hx edited (a .hx file that is not on a class path)",
@@ -510,18 +533,41 @@ try {
           writeFileSync(path.join(projectRoot, "data", "snippet.hx"), "snippet-v2", "utf8"),
         expect: () => assert.equal(published(leaf).includes("snippet-v2"), true),
       },
+      {
+        label: "data/note.txt edited (a macro reads it; not a .hx file)",
+        apply: () =>
+          writeFileSync(path.join(projectRoot, "data", "note.txt"), "note-v2", "utf8"),
+        expect: () => assert.equal(published(leaf).includes("note-v2"), true),
+      },
+      {
+        label: "notes/readme.txt edited (keepCache input)",
+        apply: () =>
+          writeFileSync(path.join(projectRoot, "notes", "readme.txt"), "readme-v2", "utf8"),
+        keepsServer: true,
+      },
+      {
+        label: "new servercase/TopThing.hx in a keepCache tree below the working directory",
+        apply: () =>
+          writeFileSync(
+            path.join(projectRoot, "servercase", "TopThing.hx"),
+            'package servercase;\n\nclass TopThing {\n  public static function value(): String {\n    return "cwd-package";\n  }\n}\n',
+            "utf8",
+          ),
+        expect: () =>
+          assert.equal(/from "\.\/TopThing\.js"/u.test(published(leaf)), true),
+      },
     ];
     for (const step of structureSteps) {
       const startsBefore = serverStarts();
       step.apply();
       generation += 1;
       const ms = await waitForGeneration(generation, step.label);
-      const contentEdit = step.label.includes("content edit");
-      await observe(generation, step.label, ms, !contentEdit);
+      const keepsServer = step.keepsServer ?? step.label.includes("content edit");
+      await observe(generation, step.label, ms, !keepsServer);
       assert.equal(
         serverStarts(),
-        startsBefore + (contentEdit ? 0 : 1),
-        `${step.label}: ${contentEdit ? "a content edit must keep" : "a structure change must replace"} the server`,
+        startsBefore + (keepsServer ? 0 : 1),
+        `${step.label}: ${keepsServer ? "this change must keep" : "this change must replace"} the server`,
       );
       step.expect?.();
       assert.deepEqual(publicTree(), coldTree(step.label), `${step.label}: tree differs from cold`);

@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/react-refresh-modules/src
+-main refresh.Main
+-js tests/react-refresh-modules/out/tsx/src-gen/index.tsx
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+-D genes.react_refresh_modules
+-dce full

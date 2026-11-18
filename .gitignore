@@ -13,6 +13,7 @@
 /tests/side-effect-import/out
 /tests/module-directives/out
 /tests/module-functions/out
+/tests/react-refresh-modules/out
 /tests/internal-types/out
 /tests/type-roots/out
 /tests/type-roots/out-classic

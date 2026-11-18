@@ -330,6 +330,16 @@ JSX/TSX:
   namespace used by `.ts`, dynamic TSX tags, and classic JS JSX lowering
   (default `react`). `none` makes those capabilities fail before output.
 
+- `-D genes.react_refresh_modules` — split each React module that has a
+  `@:genes.reactComponent` function and another runtime declaration into
+  `X.tsx` (the components, plus a re-export of the old exports) and
+  `X.fields.tsx` (everything else). React Fast Refresh (for example Vite with
+  `@vitejs/plugin-react`) can then hot-update an edited component and keep
+  React state. Importers do not change. TypeScript profile only; classic
+  output fails with `GENES-REACT-REFRESH-001`. See
+  `genes.ReactRefreshModulePlan` and `tests/react-refresh-modules/README.md`
+  for the rules and limits.
+
 Async/await sugar:
 - `@:async` + `await(...)` are available via `genes.js.Async` (see `ASYNC_AWAIT.md`).
 

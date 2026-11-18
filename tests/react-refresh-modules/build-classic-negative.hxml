@@ -1,0 +1,6 @@
+-lib genes-ts
+-cp tests/react-refresh-modules/src
+-main refresh.Main
+-js tests/react-refresh-modules/out/classic/index.js
+-D genes.react_refresh_modules
+-dce full
