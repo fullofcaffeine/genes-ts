@@ -95,7 +95,8 @@
             "rebuild": { "type": "boolean" },
             "revalidate": { "type": "boolean" },
             "reinventory": { "type": "boolean" },
-            "restartCompiler": { "type": "boolean" }
+            "restartCompiler": { "type": "boolean" },
+            "keepCache": { "type": "boolean" }
           }
         }
       }
