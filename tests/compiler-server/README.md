@@ -485,19 +485,39 @@ types that another module's use decides (s09), a request that fails after
 Genes added its roots (s18), descriptors written for another request (S2,
 s14), a stale preview folder (s19), a use that is alive only through the
 edited module (r01), a field type that makes another module's class used
-(r02), an `@:ifFeature` field (r03), a deleted `.module-dep` file (r05), and
-an after-typing macro that copies a literal of the requested module into the
-metadata of another module (m249: refused with `session-changed`, while a
-literal that the macro does not read still previews). `--only=<text>` runs the groups whose
-name contains the text; `GENES_TEST_SOURCE=<folder>` runs them against
+(r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05).
+
+The last groups run an after-typing macro (`mr.CopyMacro`) that copies a
+string literal of `mr.Probe` into another module that Haxe does not type
+again: into `@:mrTag` of `mr.Leaf` (m249), into `@:ts.type` of the class
+`mr.TsTyped` (f1), and into `@:ts.type` of a typedef field of `mr.TsUser`
+(f3); for the literal `ext` it calls `exclude()` on the enum
+`mr.ExclOwner.ExclE` (f2). Each case runs
+twice. With the macro given after `--macro genes.Generator.use()` its
+callback runs before the after-typing passes of Genes, and the metadata
+comparison refuses the request with `session-changed` (f2 changes no
+metadata: `target-facts-changed`). With the macro given before it, the
+callback runs after those passes, and only the check before dead-code elimination refuses
+it, with `target-facts-changed`. Each group then previews a literal that the
+macro does not read. Every group starts with a second full request, because
+the metadata comparison compares with the earlier request.
+
+After each accepted preview the gate also runs the tree check: cold must
+differ from the last full tree only in the previewed module's files and
+maps. A change of any other file means that a preview left the published
+tree stale. The final line counts the previews that passed it.
+
+`--only=<text>` runs the groups whose name contains the text; `GENES_TEST_SOURCE=<folder>` runs them against
 another Genes source folder (for example an older commit, where they fail).
 
-A module request shares two checks with the full incremental path: the
+A module request shares three checks with the full incremental path: the
 metadata comparison of `GenerationChangeSet` (a changed metadata epoch
-changes the session key, and the request is refused with `session-changed`;
-group m249), and the step decision of `genes.WalkTarget`. It never takes
-stored walk steps (Stage 3, slice S2) and writes nothing into the generation
-cache, so the full request after each step still checks the stored walk
+changes the session key, and the request is refused with `session-changed`),
+the declaration facts (`WalkTarget.inputsText` and the metadata text of
+`ModuleFingerprint.addDeclaration`, read again after the after-typing macros and before dead-code elimination for every
+module of the request, `target-facts-changed`), and the step decision of
+`genes.WalkTarget`. It never takes stored walk steps (Stage 3, slice S2) and
+writes nothing into the generation cache, so the full request after each step still checks the stored walk
 against a live one. No group covers a redefined extern module (a
 `genes.ts.imports` holder); the shadow gate covers its fingerprint for full
 requests.

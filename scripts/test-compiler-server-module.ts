@@ -31,10 +31,11 @@
  * edited module defined (s10), field types that another module's use
  * decides (s09), a request that fails after the roots were added (s18),
  * descriptors written for another request (S2, s14), and a refused request
- * into a folder that holds an earlier preview (s19). After them,
- * m249 checks the metadata comparison of genes-ts #249: an after-typing
- * macro that copies a literal of the requested module into the metadata of
- * another module refuses the request (`session-changed`).
+ * into a folder that holds an earlier preview (s19). After them, the
+ * groups of `lateMacroGroups` (m249, f1, f2, f3) run an after-typing macro
+ * that changes another module from a literal of the requested module, in
+ * both callback orders. After each accepted preview, the tree check
+ * requires that cold changes only the previewed module's files.
  *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
@@ -159,6 +160,11 @@ type Group = {
   readonly files?: Readonly<Record<string, string>>;
   /** Extra Haxe arguments of every request of the group. */
   readonly extraArgs?: ReadonlyArray<string>;
+  /**
+   * Extra Haxe arguments given before `--macro genes.Generator.use()`: an
+   * after-typing callback registered here runs after the passes of Genes.
+   */
+  readonly argsBeforeGenes?: ReadonlyArray<string>;
   /**
    * Do not send `server/invalidate` for saved files before a request (a
    * session that forgot): Genes must then notice stale content itself.
@@ -353,6 +359,267 @@ function mainWith(lines: ReadonlyArray<string>): string {
     + `    trace(Button.render());\n`
     + lines.map((line) => `    ${line}\n`).join("")
     + `  }\n}\n`;
+}
+
+/**
+ * The source of `mr.CopyMacro`: an after-typing macro that reads the first
+ * string literal of the body of `mr.Probe.tag()` and copies it into another
+ * module that Haxe does not type again. `install(kind)` picks what it does:
+ *
+ * - `leaf-meta`: writes `@:mrTag(<literal>)` on the class `mr.Leaf.Leaf`;
+ * - `ts-type`: writes `@:ts.type(<literal>)` on the class `mr.TsTyped`;
+ * - `exclude`: calls `exclude()` on the enum `mr.ExclOwner.ExclE` when the
+ *   literal is `ext`;
+ * - `field-meta`: writes `@:ts.type(<literal>)` on the field `typed` of the
+ *   typedef `mr.TsUser.TsHint`.
+ */
+const copyMacro = `package mr;
+
+#if macro
+import haxe.macro.Context;
+import haxe.macro.Type;
+import haxe.macro.TypedExprTools;
+
+class CopyMacro {
+  public static function install(kind: String): Void {
+    Context.onAfterTyping(types -> apply(types, kind));
+  }
+
+  static function firstText(expr: TypedExpr): Null<String> {
+    var found: Null<String> = null;
+    function visit(item: TypedExpr): Void {
+      if (found != null)
+        return;
+      switch item.expr {
+        case TConst(TString(text)): found = text;
+        default: TypedExprTools.iter(item, visit);
+      }
+    }
+    visit(expr);
+    return found;
+  }
+
+  static function apply(types: Array<ModuleType>, kind: String): Void {
+    var tag: Null<String> = null;
+    var leaf: Null<ClassType> = null;
+    var typed: Null<ClassType> = null;
+    var excluded: Null<EnumType> = null;
+    var hint: Null<DefType> = null;
+    for (type in types)
+      switch type {
+        case TClassDecl(ref):
+          final cls = ref.get();
+          if (cls.module == 'mr.Probe')
+            for (field in cls.statics.get())
+              if (field.name == 'tag') {
+                final value = field.expr();
+                if (value != null)
+                  tag = firstText(value);
+              }
+          if (cls.module == 'mr.Leaf' && cls.name == 'Leaf')
+            leaf = cls;
+          if (cls.module == 'mr.TsTyped' && cls.name == 'TsTyped')
+            typed = cls;
+        case TEnumDecl(ref):
+          final enm = ref.get();
+          if (enm.module == 'mr.ExclOwner' && enm.name == 'ExclE')
+            excluded = enm;
+        case TTypeDecl(ref):
+          final def = ref.get();
+          if (def.module == 'mr.TsUser' && def.name == 'TsHint')
+            hint = def;
+        default:
+      }
+    final text = tag;
+    if (text == null)
+      return;
+    final pos = Context.currentPos();
+    switch kind {
+      case 'leaf-meta':
+        final found = leaf;
+        if (found == null)
+          return;
+        found.meta.remove(':mrTag');
+        found.meta.add(':mrTag', [macro $v{text}], pos);
+      case 'ts-type':
+        final found = typed;
+        if (found == null)
+          return;
+        found.meta.remove(':ts.type');
+        found.meta.add(':ts.type', [macro $v{text}], pos);
+      case 'exclude':
+        final found = excluded;
+        if (found != null && text == 'ext')
+          found.exclude();
+      case 'field-meta':
+        final found = hint;
+        if (found == null)
+          return;
+        switch found.type {
+          case TAnonymous(anon):
+            for (field in anon.get().fields)
+              if (field.name == 'typed') {
+                field.meta.remove(':ts.type');
+                field.meta.add(':ts.type', [macro $v{text}], pos);
+              }
+          default:
+        }
+      default:
+        Context.fatalError('CopyMacro: unknown kind ' + kind, pos);
+    }
+  }
+}
+#end
+`;
+
+/** `mr.Probe`: `tag()` returns `literal`, and `run()` calls `uses`. */
+function probeWith(literal: string, uses: string): string {
+  return `package mr;\n\nclass Probe {\n`
+    + `  static function tag(): String {\n    return '${literal}';\n  }\n\n`
+    + `  public static function run(): String {\n`
+    + `    return 'probe ' + tag() + ${uses};\n  }\n}\n`;
+}
+
+/**
+ * The groups of after-typing macros that change another module from a
+ * literal of the requested module (review of genes-ts #250 after the merge
+ * with #249 and #247). Each case runs twice:
+ *
+ * - "macro after Genes.use()": the macro is given after
+ *   `--macro genes.Generator.use()`, so its callback runs BEFORE the
+ *   after-typing passes of Genes (Haxe runs those callbacks in reverse
+ *   order of registration), and `GenerationChangeSet.compareMetadata` sees
+ *   a metadata change;
+ * - "macro before Genes.use()": the macro is given before it, so its
+ *   callback runs AFTER those passes (the `installAfter` pattern), and only
+ *   the check before dead-code elimination (`target-facts-changed`) sees the change.
+ *
+ * In every case cold changes other files than the module's, so a preview
+ * would leave the tree stale. A literal that the macro does not read still
+ * previews.
+ */
+function lateMacroGroups(): ReadonlyArray<Group> {
+  const cases: ReadonlyArray<{
+    readonly name: string;
+    readonly kind: string;
+    readonly what: string;
+    readonly files: Readonly<Record<string, string>>;
+    readonly from: string;
+    readonly to: string;
+    readonly early: string | ReadonlyArray<string>;
+    readonly late: string | ReadonlyArray<string>;
+  }> = [
+    {
+      // m249: metadata of a class that no printer reads.
+      name: "m249-metadata",
+      kind: "leaf-meta",
+      what: "copies the literal into @:mrTag of mr.Leaf",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("one", "Leaf.kindName(Leaf.Kind.Small)")
+      },
+      from: "one",
+      to: "two",
+      early: "session-changed",
+      late: "target-facts-changed"
+    },
+    {
+      // f1: @:ts.type of a class that another module names in a typedef
+      // field; cold changes mr/TsUser.ts.
+      name: "f1-ts-type",
+      kind: "ts-type",
+      what: "copies the literal into @:ts.type of mr.TsTyped",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("number", "TsUser.run()"),
+        "mr/TsTyped.hx": `package mr;\n\n@:ts.type("number") class TsTyped {}\n`,
+        "mr/TsUser.hx": `package mr;\n\ntypedef TsHint = {\n  final ?typed: mr.TsTyped;\n}\n\n`
+          + `class TsUser {\n  public static function run(): String {\n`
+          + `    final hint: Null<TsHint> = null;\n`
+          + `    return hint == null ? 'user' : 'hint';\n  }\n}\n`
+      },
+      from: "number",
+      to: "string",
+      early: "session-changed",
+      late: "target-facts-changed"
+    },
+    {
+      // f2: exclude() of an enum that another module names in a typedef
+      // field; cold changes mr/ExclOwner.ts and mr/ExclHintUser.ts. No
+      // metadata changes, so the metadata comparison never sees it.
+      name: "f2-exclude",
+      kind: "exclude",
+      what: "calls exclude() on mr.ExclOwner.ExclE for the literal ext",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("keep", "ExclOwner.run() + ExclHintUser.run()"),
+        "mr/ExclOwner.hx": `package mr;\n\nenum ExclE {\n  EA;\n  EB;\n}\n\n`
+          + `class ExclOwner {\n  public static function run(): String {\n`
+          + `    return 'owner';\n  }\n}\n`,
+        "mr/ExclHintUser.hx": `package mr;\n\ntypedef ExclHint = {\n`
+          + `  final ?mode: mr.ExclOwner.ExclE;\n}\n\n`
+          + `class ExclHintUser {\n  public static function run(): String {\n`
+          + `    final hint: Null<ExclHint> = null;\n`
+          + `    return hint == null ? 'excl' : 'hint';\n  }\n}\n`
+      },
+      from: "keep",
+      to: "ext",
+      early: "target-facts-changed",
+      late: "target-facts-changed"
+    },
+    {
+      // f3: @:ts.type of a field of a typedef's structure; cold changes
+      // mr/TsUser.ts. Only the metadata text of
+      // `ModuleFingerprint.addDeclaration` holds field metadata.
+      name: "f3-field-meta",
+      kind: "field-meta",
+      what: "copies the literal into @:ts.type of the field typed of mr.TsUser.TsHint",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("number", "TsUser.run()"),
+        "mr/TsUser.hx": `package mr;\n\ntypedef TsHint = {\n  final ?typed: Int;\n}\n\n`
+          + `class TsUser {\n  public static function run(): String {\n`
+          + `    final hint: Null<TsHint> = null;\n`
+          + `    return hint == null ? 'user' : 'hint';\n  }\n}\n`
+      },
+      from: "number",
+      to: "string",
+      early: "session-changed",
+      late: "target-facts-changed"
+    }
+  ];
+  const groups: Group[] = [];
+  for (const item of cases)
+    for (const order of ["after", "before"] as const) {
+      const install = ["--macro", `mr.CopyMacro.install(${JSON.stringify(item.kind)})`];
+      groups.push({
+        name: `${item.name}-macro-${order}-genes-use`,
+        files: { ...item.files, "mr/CopyMacro.hx": copyMacro },
+        ...(order === "after" ? { extraArgs: install } : { argsBeforeGenes: install }),
+        steps: [
+          {
+            // The metadata comparison compares with the earlier request, and
+            // a macro after the passes of Genes writes after that
+            // comparison: a second full request settles the baseline.
+            id: `macro ${order} Genes.use(), a second full request, no edit`,
+            apply: () => {}
+          },
+          {
+            id: `macro ${order} Genes.use() ${item.what}: '${item.from}' -> '${item.to}'`,
+            apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`),
+            module: "mr.Probe",
+            expect: order === "after" ? item.early : item.late
+          },
+          {
+            id: `macro ${order} Genes.use(), a literal that the macro does not read`,
+            apply: () => edit("Probe.hx", "return 'probe ' + tag()", "return 'probe! ' + tag()"),
+            module: "mr.Probe",
+            expect: "preview"
+          }
+        ]
+      });
+    }
+  return groups;
 }
 
 const groups: ReadonlyArray<Group> = [
@@ -926,68 +1193,7 @@ const groups: ReadonlyArray<Group> = [
       }
     ]
   },
-  {
-    // m249: an after-typing macro copies a literal of the requested module
-    // into the metadata of another module that Haxe does not type again
-    // (the M2b case of genes-ts #249). The metadata comparison of
-    // `GenerationChangeSet` starts a new metadata epoch, so the session key
-    // differs from the stored one and the request is refused. A literal
-    // that the macro does not read still previews.
-    name: "m249-metadata-epoch",
-    files: {
-      "mr/Main.hx": mainWith(["trace(Probe.run());"]),
-      "mr/Probe.hx": `package mr;\n\nclass Probe {\n`
-        + `  static function tag(): String {\n    return 'one';\n  }\n\n`
-        + `  public static function run(): String {\n`
-        + `    return 'probe ' + tag() + Leaf.kindName(Leaf.Kind.Small);\n  }\n}\n`,
-      "mr/MetaMacro.hx": `package mr;\n\n#if macro\nimport haxe.macro.Context;\n`
-        + `import haxe.macro.Type;\nimport haxe.macro.TypedExprTools;\n\n`
-        + `class MetaMacro {\n`
-        + `  static function firstText(expr: TypedExpr): Null<String> {\n`
-        + `    var found: Null<String> = null;\n`
-        + `    function visit(item: TypedExpr): Void {\n`
-        + `      if (found != null)\n        return;\n`
-        + `      switch item.expr {\n`
-        + `        case TConst(TString(text)): found = text;\n`
-        + `        default: TypedExprTools.iter(item, visit);\n      }\n    }\n`
-        + `    visit(expr);\n    return found;\n  }\n\n`
-        + `  public static function install(): Void {\n`
-        + `    Context.onAfterTyping(types -> {\n`
-        + `      var tag: Null<String> = null;\n`
-        + `      var leaf: Null<ClassType> = null;\n`
-        + `      for (type in types)\n        switch type {\n`
-        + `          case TClassDecl(ref):\n            final cls = ref.get();\n`
-        + `            if (cls.module == 'mr.Probe')\n`
-        + `              for (field in cls.statics.get())\n`
-        + `                if (field.name == 'tag') {\n`
-        + `                  final value = field.expr();\n`
-        + `                  if (value != null)\n`
-        + `                    tag = firstText(value);\n                }\n`
-        + `            if (cls.module == 'mr.Leaf' && cls.name == 'Leaf')\n`
-        + `              leaf = cls;\n          default:\n        }\n`
-        + `      final found = leaf;\n      final text = tag;\n`
-        + `      if (found == null || text == null)\n        return;\n`
-        + `      found.meta.remove(':mrTag');\n`
-        + `      found.meta.add(':mrTag', [macro $v{text}], Context.currentPos());\n`
-        + `    });\n  }\n}\n#end\n`
-    },
-    extraArgs: ["--macro", "mr.MetaMacro.install()"],
-    steps: [
-      {
-        id: "the literal that the macro copies into mr.Leaf metadata",
-        apply: () => edit("Probe.hx", "return 'one';", "return 'two';"),
-        module: "mr.Probe",
-        expect: "session-changed"
-      },
-      {
-        id: "a literal that the macro does not read",
-        apply: () => edit("Probe.hx", "return 'probe ' + tag()",
-          "return 'probe! ' + tag()"),
-        module: "mr.Probe",
-        expect: "preview"
-      }
-    ]
-  }
+  ...lateMacroGroups()
 ];
 
 function folder(name: string): string {
@@ -995,6 +1201,10 @@ function folder(name: string): string {
 }
 
 let groupArgs: ReadonlyArray<string> = [];
+
+/** The number of accepted previews whose tree check passed. */
+let treeChecks = 0;
+let groupArgsBeforeGenes: ReadonlyArray<string> = [];
 let invalidateSaved = true;
 
 /**
@@ -1021,6 +1231,7 @@ function commonArguments(): string[] {
     "-cp", genesSource,
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
+    ...groupArgsBeforeGenes,
     "--macro", "genes.Generator.use()",
     "-cp", path.join(workspace, "src"),
     "-D", "js-es=6",
@@ -1160,6 +1371,7 @@ function prepare(group: Group): void {
     touch(file);
   }
   groupArgs = group.extraArgs ?? [];
+  groupArgsBeforeGenes = group.argsBeforeGenes ?? [];
   invalidateSaved = group.noInvalidate !== true;
   saved.clear();
 }
@@ -1218,7 +1430,7 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   strictEqual(report.module, module, `${label}: report module`);
   const outcome = report.result === "preview" ? "preview" : report.refusal ?? report.result;
   if (report.result === "preview") {
-    await coldBuild(compiler, label);
+    const coldTree = await coldBuild(compiler, label);
     // The preview holds the module's files and the manifest, nothing else.
     const published = publishedFiles(previewFolder);
     deepStrictEqual(published, [...report.files].sort(),
@@ -1233,6 +1445,18 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
       ok(readFileSync(path.join(previewFolder, file)).equals(readFileSync(coldFile)),
         `${label}: ${file} of the preview differs from the cold build`);
     }
+    // The tree check (review of genes-ts #250): an accepted preview is the
+    // only change that the edit makes. Cold must differ from the last full
+    // tree only in the module's own files (and their maps); a change of any
+    // other file means that the published tree goes stale until the next
+    // full request.
+    const others = treeDifference(programBefore, coldTree)
+      .filter((file) => !file.startsWith(".genes-output-"))
+      .filter((file) => !(file === `${prefix}.ts` || file.startsWith(`${prefix}.`)));
+    deepStrictEqual(others, [],
+      `${label}: the preview was accepted, but cold also changes other files `
+      + `than those of ${module}:\n${others.join("\n")}`);
+    treeChecks++;
   } else if (step.sameFolder === true) {
     deepStrictEqual(hashTree(folder("program")), programBefore,
       `${label}: a refused module request changed the full request's tree`);
@@ -1324,7 +1548,8 @@ async function main(): Promise<void> {
   process.stdout.write(`compiler-server-module:${only === undefined ? "ok" : "partial"} `
     + `(Haxe ${compiler.version}; ${selectedGroups.length} groups; ${previews} `
     + `previews byte-identical to cold, ${refusals} refused or failed as expected, `
-    + `every full request after a step equal to cold; ${control})\n`);
+    + `every full request after a step equal to cold; tree check on ${treeChecks} `
+    + `previews: cold changes only the previewed module's files; ${control})\n`);
 }
 
 /**
