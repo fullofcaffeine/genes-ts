@@ -32,9 +32,9 @@
  * decides (s09), a request that fails after the roots were added (s18),
  * descriptors written for another request (S2, s14), and a refused request
  * into a folder that holds an earlier preview (s19). After them, the
- * groups of `lateMacroGroups` (m249, f1, f2, f3) run an after-typing macro
- * that changes another module from a literal of the requested module, in
- * both callback orders. After each accepted preview, the tree check
+ * groups of `lateMacroGroups` (m249, f1, f2, f3, a1, a2, d1, d1-full) run a
+ * macro that changes another module or a define from a literal of the
+ * requested module, after typing or after save, in both callback orders. After each accepted preview, the tree check
  * requires that cold changes only the previewed module's files.
  *
  * `--keep-control` also runs the older way to root a module request,
@@ -364,14 +364,18 @@ function mainWith(lines: ReadonlyArray<string>): string {
 /**
  * The source of `mr.CopyMacro`: an after-typing macro that reads the first
  * string literal of the body of `mr.Probe.tag()` and copies it into another
- * module that Haxe does not type again. `install(kind)` picks what it does:
+ * module that Haxe does not type again. `install(kind)` runs it in an
+ * after-typing callback, `installAfterSave(kind)` in an after-save callback
+ * (`Context.onGenerate(..., false)`). `kind` picks what it does:
  *
  * - `leaf-meta`: writes `@:mrTag(<literal>)` on the class `mr.Leaf.Leaf`;
  * - `ts-type`: writes `@:ts.type(<literal>)` on the class `mr.TsTyped`;
  * - `exclude`: calls `exclude()` on the enum `mr.ExclOwner.ExclE` when the
  *   literal is `ext`;
  * - `field-meta`: writes `@:ts.type(<literal>)` on the field `typed` of the
- *   typedef `mr.TsUser.TsHint`.
+ *   typedef `mr.TsUser.TsHint`;
+ * - `define`: calls `Compiler.define('genes.disable_native_accessors', '1')`
+ *   when the literal is `ext`.
  */
 const copyMacro = `package mr;
 
@@ -382,7 +386,21 @@ import haxe.macro.TypedExprTools;
 
 class CopyMacro {
   public static function install(kind: String): Void {
-    Context.onAfterTyping(types -> apply(types, kind));
+    Context.onAfterTyping(types -> apply([for (type in types) type], kind));
+  }
+
+  public static function installAfterSave(kind: String): Void {
+    Context.onGenerate(types -> apply([for (type in types) declarationOf(type)], kind), false);
+  }
+
+  static function declarationOf(type: Type): ModuleType {
+    return switch type {
+      case TInst(ref, _): TClassDecl(ref);
+      case TEnum(ref, _): TEnumDecl(ref);
+      case TType(ref, _): TTypeDecl(ref);
+      case TAbstract(ref, _): TAbstract(ref);
+      default: null;
+    }
   }
 
   static function firstText(expr: TypedExpr): Null<String> {
@@ -406,7 +424,7 @@ class CopyMacro {
     var excluded: Null<EnumType> = null;
     var hint: Null<DefType> = null;
     for (type in types)
-      switch type {
+      if (type != null) switch type {
         case TClassDecl(ref):
           final cls = ref.get();
           if (cls.module == 'mr.Probe')
@@ -451,6 +469,9 @@ class CopyMacro {
         final found = excluded;
         if (found != null && text == 'ext')
           found.exclude();
+      case 'define':
+        if (text == 'ext')
+          haxe.macro.Compiler.define('genes.disable_native_accessors', '1');
       case 'field-meta':
         final found = hint;
         if (found == null)
@@ -508,6 +529,10 @@ function lateMacroGroups(): ReadonlyArray<Group> {
     readonly to: string;
     readonly early: string | ReadonlyArray<string>;
     readonly late: string | ReadonlyArray<string>;
+    /** `save`: the macro runs in an after-save callback, not after typing. */
+    readonly phase?: "save";
+    /** Only full requests: checks the full incremental path. */
+    readonly fullOnly?: boolean;
   }> = [
     {
       // m249: metadata of a class that no printer reads.
@@ -586,12 +611,97 @@ function lateMacroGroups(): ReadonlyArray<Group> {
       to: "string",
       early: "session-changed",
       late: "target-facts-changed"
+    },
+    {
+      // a1: f1, but the macro writes @:ts.type in an after-save callback,
+      // which runs after `ModuleRequest.afterSave` when it was registered
+      // later (macro after Genes.use()) unless Genes reads late enough.
+      name: "a1-ts-type-after-save",
+      kind: "ts-type",
+      phase: "save",
+      what: "copies the literal into @:ts.type of mr.TsTyped after save",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("number", "TsUser.run()"),
+        "mr/TsTyped.hx": `package mr;\n\n@:ts.type("number") class TsTyped {}\n`,
+        "mr/TsUser.hx": `package mr;\n\ntypedef TsHint = {\n  final ?typed: mr.TsTyped;\n}\n\n`
+          + `class TsUser {\n  public static function run(): String {\n`
+          + `    final hint: Null<TsHint> = null;\n`
+          + `    return hint == null ? 'user' : 'hint';\n  }\n}\n`
+      },
+      from: "number",
+      to: "string",
+      early: "target-facts-changed",
+      late: "target-facts-changed"
+    },
+    {
+      // a2: f2, but exclude() runs in an after-save callback.
+      name: "a2-exclude-after-save",
+      kind: "exclude",
+      phase: "save",
+      what: "calls exclude() on mr.ExclOwner.ExclE after save for the literal ext",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("keep", "ExclOwner.run() + ExclHintUser.run()"),
+        "mr/ExclOwner.hx": `package mr;\n\nenum ExclE {\n  EA;\n  EB;\n}\n\n`
+          + `class ExclOwner {\n  public static function run(): String {\n`
+          + `    return 'owner';\n  }\n}\n`,
+        "mr/ExclHintUser.hx": `package mr;\n\ntypedef ExclHint = {\n`
+          + `  final ?mode: mr.ExclOwner.ExclE;\n}\n\n`
+          + `class ExclHintUser {\n  public static function run(): String {\n`
+          + `    final hint: Null<ExclHint> = null;\n`
+          + `    return hint == null ? 'excl' : 'hint';\n  }\n}\n`
+      },
+      from: "keep",
+      to: "ext",
+      early: "target-facts-changed",
+      late: "target-facts-changed"
+    },
+    {
+      // d1: a define that a macro sets after typing; cold prints mr/Acc.ts
+      // without its native getter. With the macro after Genes.use() the
+      // define is set before the session key is read.
+      name: "d1-late-define",
+      kind: "define",
+      what: "sets -D genes.disable_native_accessors for the literal ext",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("keep", "new Acc().value"),
+        "mr/Acc.hx": `package mr;\n\nclass Acc {\n  public function new() {}\n\n`
+          + `  public var value(get, never): Int;\n\n`
+          + `  function get_value(): Int {\n    return 1;\n  }\n}\n`
+      },
+      from: "keep",
+      to: "ext",
+      early: "session-changed",
+      late: "defines-changed"
+    },
+    {
+      // d1-full: the same edit with full requests only: the full warm
+      // request must equal cold (the generation shadow must not replay
+      // mr/Acc.ts).
+      name: "d1-late-define-full",
+      kind: "define",
+      fullOnly: true,
+      what: "sets -D genes.disable_native_accessors for the literal ext",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+        "mr/Probe.hx": probeWith("keep", "new Acc().value"),
+        "mr/Acc.hx": `package mr;\n\nclass Acc {\n  public function new() {}\n\n`
+          + `  public var value(get, never): Int;\n\n`
+          + `  function get_value(): Int {\n    return 1;\n  }\n}\n`
+      },
+      from: "keep",
+      to: "ext",
+      early: "-",
+      late: "-"
     }
   ];
   const groups: Group[] = [];
   for (const item of cases)
     for (const order of ["after", "before"] as const) {
-      const install = ["--macro", `mr.CopyMacro.install(${JSON.stringify(item.kind)})`];
+      const installer = item.phase === "save" ? "installAfterSave" : "install";
+      const install = ["--macro", `mr.CopyMacro.${installer}(${JSON.stringify(item.kind)})`];
       groups.push({
         name: `${item.name}-macro-${order}-genes-use`,
         files: { ...item.files, "mr/CopyMacro.hx": copyMacro },
@@ -604,17 +714,26 @@ function lateMacroGroups(): ReadonlyArray<Group> {
             id: `macro ${order} Genes.use(), a second full request, no edit`,
             apply: () => {}
           },
-          {
+          item.fullOnly === true ? {
+            id: `macro ${order} Genes.use() ${item.what}: '${item.from}' -> '${item.to}', `
+              + "full request only",
+            apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`)
+          } : {
             id: `macro ${order} Genes.use() ${item.what}: '${item.from}' -> '${item.to}'`,
             apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`),
             module: "mr.Probe",
             expect: order === "after" ? item.early : item.late
           },
-          {
+          item.fullOnly === true ? {
+            id: `macro ${order} Genes.use(), a second full request, no edit`,
+            apply: () => {}
+          } : {
             id: `macro ${order} Genes.use(), a literal that the macro does not read`,
             apply: () => edit("Probe.hx", "return 'probe ' + tag()", "return 'probe! ' + tag()"),
             module: "mr.Probe",
-            expect: "preview"
+            // The define stays set while the literal is `ext`, and a macro
+            // after the passes of Genes sets it after the session key.
+            expect: item.kind === "define" && order === "before" ? "defines-changed" : "preview"
           }
         ]
       });
