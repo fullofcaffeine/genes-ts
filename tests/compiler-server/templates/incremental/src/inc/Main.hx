@@ -13,11 +13,17 @@ import inc.PrivB.UsesB;
  */
 class Main {
   public static function main(): Void {
-    final parts = [
-      Shared.label("main"),
+    final parts = [Shared.label("main"),
       A.run(),
       B.run(),
       C.run(),
+      Den.value()
+      + Pair.value()
+      + PairEnd.run()
+      + PairStart.run()
+      + Tinted.value()
+      + GhostUser.run()
+      + RvProbe.run(),
       Ui.render("main") != null ? "ui" : "none",
       User.describe(),
       ChainUser.read({
@@ -46,6 +52,14 @@ class Main {
       ColorFacts.value(),
       ExtUser.run(),
       AnonSig.value(),
+      Constrained.value(),
+      LateUser.run(),
+      ListedTs.value() + ListedUser.run(),
+      ExclOwner.value() + ExclHintUser.run(),
+      FableProbe.value(),
+      TsTypedUser.run(),
+      ShadeUser.value(),
+      FableMixUser.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

@@ -65,6 +65,7 @@
     "test:side-effect-import:evidence": "yarn build:scripts && node scripts/dist/test-side-effect-import-evidence.js",
     "test:module-directives": "yarn build:scripts && node scripts/dist/test-module-directives.js",
     "test:module-functions": "yarn build:scripts && node scripts/dist/test-module-functions.js",
+    "test:react-refresh-modules": "yarn build:scripts && node scripts/dist/test-react-refresh-modules.js",
     "test:internal-types": "yarn build:scripts && node scripts/dist/test-internal-types.js",
     "test:type-roots": "yarn build:scripts && node scripts/dist/test-type-roots.js",
     "test:finally-completion": "yarn build:scripts && node scripts/dist/test-finally-completion.js",

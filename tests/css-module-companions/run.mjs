@@ -738,8 +738,14 @@ async function exerciseWarmCssModuleSession() {
       },
       publicOutputFile: "src-gen/index.ts",
       stateDirectory: ".genes/dev",
+      // The stylesheet reaches Haxe only as the prepared companion, whose
+      // digest is in the request, and no macro reads it. `keepCache` lets
+      // every CSS edit reuse the one owned Haxe server.
       extraInputs: [
-        { path: "styles/card.module.css", impact: { rebuild: true } },
+        {
+          path: "styles/card.module.css",
+          impact: { rebuild: true, keepCache: true },
+        },
       ],
       resolveInvocation: () => ({
         executable,

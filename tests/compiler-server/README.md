@@ -337,7 +337,20 @@ before stored output may be replayed, each case with made-up inputs:
    `addFeature("...")` of the Genes sources is in `EMISSION_FEATURES`.
    The same holds for a field of an extern-only module and for a field of
    an anonymous structure, in a typedef body or in the type of a class
-   field (genes-f8vc.9.24, L1 and L2 of the round-3 review of #244).
+   field (genes-f8vc.9.24, L1 and L2 of the round-3 review of #244), and
+   for a field of an anonymous structure in a type-parameter constraint of a
+   method, a class, a typedef, an abstract, an enum or an enum constructor,
+   also a constraint that names its own parameter (genes-f8vc.9.26, L5 of
+   the review of #245), and for metadata on a type parameter itself (M1 of
+   the review of #246). Both hold for the type parameters that a field of
+   an anonymous structure declares, as in `{function pick<T>(item: T): T;}`
+   (M3 of the cross-model review of #246). Type parameters that only a
+   typed body declares, such as those of a local function, are not covered
+   (limit S3). The final member list (`ModuleFingerprint.members`)
+   holds the same text for a member that the walk adds late: the metadata
+   of the declaration and of its constructors, and of the anonymous
+   structures in its types and constraints (L6). A member in the
+   generator's list leaves that text out, because its fingerprint holds it.
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the
@@ -356,6 +369,90 @@ after typing; the shadow only reads them. A descriptor without `generation`
 runs no shadow and writes no shadow report. `"generation": "measure"`
 applies the clean rules, stores the files and reports the clean share
 without comparing or replaying.
+
+Stage 3, slice S2 (stored edges). A request with a usable cache does not
+build the dependency plan of a clean module during the reachability walk.
+Each live visit of a module records its steps, keyed by the module's member
+list when the visit starts; a clean module takes the steps recorded for its
+member list now, and answers import-cycle questions from its stored runtime
+requests. The walk with stored edges leaves the recorded path when the record
+has no visit with that member list, when a stored step adds a declaration
+whose stamp changed, when the declaration of a stored step has other
+target facts than the recording request saw (`checkStoredTarget`), or when
+a check before emission fails. The live walk reads a target only through
+`WalkTarget.inputsOf`, and the step records the text of its result
+(`WalkTarget.inputsText`): the kind, the extern flag, the module and the
+name, which the walk reads before it takes a step, and the metadata, which
+the plan reads. A fact that the walk starts to read is a field of that
+result, so the record holds it too. An after-typing macro can change two of
+these facts without a new stamp: the metadata (it can add `@:ts.type`) and
+the extern flag (it can call `exclude()`, and the walk takes no step to an
+extern declaration). Then the request
+runs again from the inventory with live edges and no clean module, before any
+`api.addFeature`. The report's `walk` object says what happened (`verdict`:
+`none`, `on-path`, `left` or `drift`; `drift` always fails the gate).
+`--modes=measure` walks live only and reports how often the stored walk would
+leave the recorded path (the go/no-go line `walk with stored edges: X of Y`);
+in compare, the stored walk and the live walk run in one request and any
+difference of their results is a mismatch. The edits whose ids start with
+`S2` cover the order-sensitive cases:
+
+- a type-only use (through a typedef field: a local variable type makes
+  dead-code elimination keep the class) of a class that dead-code
+  elimination removed (`inc.Den.DenNote`), in a module that stays clean,
+  first and last; with no edit between them `inc.Den` has two recorded
+  member lists, and only the visit with `DenNote` creates `inc.DenDeep`, its
+  superclass;
+- two sources (`inc.PairWayA`, `inc.PairWayB`) that add late members to one
+  clean module (`inc.Pair`), with their visit order flipped and back;
+- a typedef (`inc.Tinted.TintAlias`) whose class `inc.Tint` becomes concrete
+  and stops being concrete (since genes-ts #249, the request where it
+  becomes concrete generates in full, because `inc.Tint` moves from the
+  unlisted part of its fingerprint to the listed part);
+- the import cycle through a third module (`inc.CyHub` rows) with no edit,
+  so that clean modules answer the cycle question from stored requests;
+- a module that only the walk creates (`inc.Ghost`), made by a stored step
+  of the clean typedef module `inc.GhostHint`;
+- the rows of the review of slice S2 (ids start with `RV6`, modules
+  `inc.Rv*`): one late member that two clean typedef modules name, two late
+  members of one clean module whose order follows the visit order, a late
+  member of a clean module that closes an import cycle through two clean
+  modules, a generic instance named in a type position and then used at
+  run time, and a late member that is renamed;
+- after-typing metadata on a walk target with the same member list and
+  stamps: `@:ts.type` on the late class `inc.LateEnum.LateBox` removes the
+  edge from the clean module `inc.LateUser`; the stored step records the
+  target's metadata, so the walk would leave the recorded path there, but
+  since genes-ts #249 the metadata comparison before the passes after
+  typing makes the request generate in full first; on the listed class
+  `inc.ListedTs.ListedBox` the fingerprint of its module makes the request
+  generate in full before any walk;
+- the opposite case: an after-typing macro removes `@:ts.type` from the
+  late class `inc.LateEnum.LateTyped`, which no stored step names, so the
+  clean module `inc.LateUser` gains an edge that its stored steps lack. The
+  metadata checks of genes-ts #249 (`GenerationChangeSet.compareMetadata`
+  and `ModuleFingerprint.unlisted`) make the request generate in full;
+- an after-typing macro calls `exclude()` on an enum of `inc.ExclOwner`
+  (`inc.ExcludeMacro`), once before and once after the after-typing passes
+  of Genes. The enum becomes extern with no new stamp and no metadata
+  change, so the walk takes no step to it from the clean module
+  `inc.ExclHintUser`, which names it only in a typedef field. The class
+  comes first in `inc.ExclOwner`, and the walk visits `inc.ExclHintUser`
+  first, so the member list of the visit of `inc.ExclOwner` still matches
+  the record. Only the extern flag in the target facts that
+  `checkStoredTarget` compares leaves the recorded path; without it,
+  compare reported drift and reuse published a stale tree (must fix of the
+  review of genes-ts #247);
+- an HXX error in the only dirty module (`FB3`: an unknown attribute on an
+  intrinsic element; `FB4`: an unknown prop of a component), so that the
+  error comes inside a request whose walk takes stored edges: the shadow
+  and plain warm requests must print exactly the errors of the cold build
+  (`sameErrors`), and the repaired request stays on the recorded path;
+- `-D genes.extern_init_warning` on, with an edit that leaves the recorded
+  path: Genes warns about each extern class with `__init__` (Haxe's `Math`
+  and `String`, and `inc.RvExtInit`) while it reads the type list, and the
+  request that generates a second time must still report each warning once.
+  Every request compares these generator warnings with the cold build.
 
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic

@@ -337,7 +337,7 @@ The keep rule has six conditions. This slice enforces five from plain text:
 | Condition | Where | Rejects |
 | --- | --- | --- |
 | 1. The request is eligible. | `IncrementalRequest` | Other Haxe versions, display requests, `@:rtti` programs. No stamp is added and no record is read or written. |
-| 2. The session key is the same. | `GenerationChangeSet` | Other defines (also one that an init macro sets), another program digest from the session, other class paths, an edited Genes source file. Every record is dropped. |
+| 2. The session key is the same. | `GenerationChangeSet` | Other defines (also one that an init macro sets), another program digest from the session, other class paths, an edited Genes source file, and a new metadata epoch: a macro changed the metadata of a module that Haxe did not type again (`compareMetadata`, genes-f8vc.9.27). Every record is dropped. |
 | 3. The stamp names this declaration. | `GenerationChangeSet` | A type that a macro defined with the metadata of another class (probe row E2). |
 | 4. The stamp equals the stamp of the record, and the same pass wrote the record. | `GenerationChangeSet.keep`, `KeptRecords` | A declaration that Haxe typed again; a declaration of another Haxe cache. |
 | 5. The record's typed values address the same declaration object. | Not in `src/genes`. | See below. |

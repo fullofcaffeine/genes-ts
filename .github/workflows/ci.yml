@@ -391,6 +391,12 @@ jobs:
       - run: yarn test:template-literals
       - run: yarn test:classic:dts
       - run: yarn test:library-profile
+      # The warm CSS Module session drives a real owned Haxe server through
+      # add, edit, remove, fail, repair, delete, and restore, and requires one
+      # server for the whole sequence. It used to run only in release
+      # workflows, so a regression stayed red there unnoticed.
+      - run: yarn test:css-module-companions
+        timeout-minutes: 15
 
   genes-ts-acceptance-shards:
     name: genes-ts acceptance (${{ matrix.shard }})

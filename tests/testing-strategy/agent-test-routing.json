@@ -655,6 +655,60 @@
       ]
     },
     {
+      "id": "react-refresh-modules",
+      "packageScript": "test:react-refresh-modules",
+      "runnerToken": "scripts/dist/test-react-refresh-modules.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "tsx"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-react-refresh-modules.ts",
+        "tests/react-refresh-modules"
+      ],
+      "proves": "With genes.react_refresh_modules, a React module with other runtime declarations splits into a component file and a sibling, keeps the same runtime output and load order, and passes the Fast Refresh export rule for a new module instance.",
+      "doesNotProve": "It does not run a Vite dev server (tests/react-refresh-modules/vite-proof.mjs is a manual check) and does not cover classic JavaScript output.",
+      "owners": [
+        "scripts/test-react-refresh-modules.ts",
+        "tests/react-refresh-modules"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:react-refresh-modules",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/react-refresh-modules.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "reflection-class-values",
       "packageScript": "test:reflection-class-values",
       "runnerToken": "scripts/dist/test-reflection-class-values.js",
@@ -3872,6 +3926,10 @@
         {
           "gate": "react-flight",
           "when": "React Flight values, host extensions, native identities, or recursive validation changes"
+        },
+        {
+          "gate": "react-refresh-modules",
+          "when": "the React Fast Refresh module split, its sibling file, or component slot reads change"
         },
         {
           "gate": "hxx-tsx",

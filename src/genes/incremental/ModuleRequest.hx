@@ -1243,10 +1243,9 @@ class ModuleRequest {
         continue;
       final declarations = typesOf(facts.allTypes, name);
       final stored = GenerationCache.storedFingerprint(name);
-      if (declarations.length > 0
-        && declarations.foreach(isExternClass)
-        && stored != null
-        && ModuleFingerprint.ofExtern(declarations) == stored)
+      final externs = externClassesOf(declarations);
+      if (externs != null && stored != null
+        && ModuleFingerprint.ofExtern(externs) == stored)
         redefined.set(name, true);
       else
         others.push(name);
@@ -2033,6 +2032,28 @@ class ModuleRequest {
 
   /** The argument-less `@:keep` that Haxe adds to the `main` function. */
   static final MAIN_KEEP = ~/ @:keep(?= |$)/;
+
+  /**
+   * Returns the classes of `types` when there is at least one and every one
+   * is an extern class, or `null` otherwise. `ModuleFingerprint.ofExtern`
+   * reads the classes.
+   */
+  static function externClassesOf(types: Array<Type>): Null<Array<ClassType>> {
+    if (types.length == 0)
+      return null;
+    final classes = [];
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          if (!cls.isExtern)
+            return null;
+          classes.push(cls);
+        default:
+          return null;
+      }
+    return classes;
+  }
 
   static function isExternClass(type: Type): Bool {
     return switch type {

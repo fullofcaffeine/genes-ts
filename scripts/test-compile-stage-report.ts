@@ -51,6 +51,16 @@ assertOptionalReachabilityRows([], "zero-rounded reachability control");
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
+/**
+ * Returns the position of the timer site for `timerId` in `source`, or -1.
+ * A site is a direct `timer('id')` call or Generator's `planTimer('id')`,
+ * which calls `timer` except on the live pass that follows a stored walk
+ * (so that pass does not count the same planning time twice).
+ */
+function timerSiteIndex(source: string, timerId: string): number {
+  const direct = source.indexOf(`timer('${timerId}')`);
+  return direct >= 0 ? direct : source.indexOf(`planTimer('${timerId}')`);
+}
 for (const [source, timerIds] of [
   ["src/genes/Generator.hx", [
     "genes.plan.reachability.roots",
@@ -64,7 +74,7 @@ for (const [source, timerIds] of [
 ] as const) {
   const authoredSource = readFileSync(path.join(repoRoot, source), "utf8");
   for (const timerId of timerIds) {
-    ok(authoredSource.includes(`timer('${timerId}')`),
+    ok(timerSiteIndex(authoredSource, timerId) >= 0,
       `${source} is missing the ${timerId} timer site`);
   }
 }
@@ -72,9 +82,12 @@ const generatorSource = readFileSync(
   path.join(repoRoot, "src/genes/Generator.hx"),
   "utf8"
 );
+const rootsTimerIndex =
+  timerSiteIndex(generatorSource, "genes.plan.reachability.roots");
+const initialNamesIndex = generatorSource.indexOf("final initialNames =");
 ok(
-  generatorSource.indexOf("timer('genes.plan.reachability.roots')")
-    < generatorSource.indexOf("final initialNames ="),
+  rootsTimerIndex >= 0 && initialNamesIndex >= 0
+    && rootsTimerIndex < initialNamesIndex,
   "reachability roots timing must start before root evidence preparation"
 );
 function syntheticFineRow(

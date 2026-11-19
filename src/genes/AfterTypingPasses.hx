@@ -60,10 +60,19 @@ class AfterTypingClass {
   var members: Null<String> = null;
 
   public function new(type: ClassType, ?stamp: StampedDeclaration,
-      ?declaration: ModuleType) {
+      ?declaration: ModuleType,
+      ?parts: genes.incremental.ModuleFingerprint.ClassParts) {
     this.type = type;
     this.stamp = stamp;
     this.declaration = declaration;
+    // The fields that `GenerationChangeSet.compareMetadata` already read in
+    // this callback: the same copy, so the walk does not copy them again.
+    if (parts != null) {
+      instanceFields = parts.fields;
+      staticFields = parts.statics;
+      constructorField = parts.constructor;
+      constructorRead = true;
+    }
     final declaredPath = type.pack.concat([type.name]).join('.');
     this.ownerKey = declaredPath == type.module ? declaredPath : type.module
       + '.'
@@ -271,7 +280,7 @@ class AfterTypingPasses {
           final record = seen == null ? null : seen.type;
           final current = seen == null
             || record == null ? new AfterTypingClass(reference.get()) : new AfterTypingClass(record,
-              seen.stamp, type);
+              seen.stamp, type, seen.parts);
           if (current.stamp != null && !ModuleRequest.skipsMemberRead(current))
             GenerationChangeSet.readMembers(current.memberList);
           if (classSeconds == null) {
