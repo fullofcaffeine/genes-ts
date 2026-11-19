@@ -523,6 +523,70 @@ differ from the last full tree only in the previewed module's files and
 maps. A change of any other file means that a preview left the published
 tree stale. The final line counts the previews that passed it.
 
+The `stat-` groups check how Genes knows that the files of the stored
+program still hold what Haxe typed (genes-f8vc.14.11). A full request reads
+and hashes every file of the program and keeps, with each proven digest, the
+file status read right after the bytes: size, modification time, change time
+and inode. A module request does not read a file again when its status
+equals the kept status and the kept modification and change times were
+older than that read by more than the grain (2 s). This is git's rule for
+its index. Every other file is read and hashed. The report lists the files
+that were read (`hashedSources`) and counts the trusted ones
+(`trustedSources`).
+
+Why the rule holds: the system sets the change time to its clock at every
+change of a file (bytes, times, name or rights), and no tool can set it. A
+change after the read gives another change time. A change during the read
+gives a change time within the grain of the read, and the rule never trusts
+such a status. The rule trusts three things:
+
+- the system clock is not set back;
+- file times come from this machine's clock (a local file system, not a
+  network share with another clock);
+- nobody restores a file below the file system.
+
+On Windows the change time is the creation time, so Genes reads every file
+there.
+
+The groups, all without `server/invalidate` where Haxe's own check must not
+help:
+
+- `stat-rule`: after the files settle, a Button edit previews with every
+  unchanged fixture file trusted. Then three saves of `mr/Theme.hx` that
+  Haxe cannot see must be read and refused with `source-changed`: same size,
+  modification time and inode (only the change time moves); another file
+  (another inode) with the same size and time; and the same kind of save
+  when the kept status was read inside the grain (a modification time in
+  the future). A status read inside the grain is read even when nothing
+  changed.
+- `stat-save-and-revert`: `mr.Flip`, an init macro after
+  `genes.Generator.use()`, saves `mr/Button.hx` after Genes read it and puts
+  the old text back after typing. The digest is the same before and after
+  typing, but Haxe typed the other text: the change time makes the file
+  unknown (`stale-source`), and the next request previews.
+- `stat-first-seen`: a new module and a first use of `haxe.Json`, older than
+  the grain when the full request runs, are proven, so the next module
+  request previews. Before, the first one was refused with a misleading
+  `source-changed`.
+- `stat-first-seen-after-failed-request`: a full request fails with a type
+  error after Haxe parsed the new module; a second save of it follows in the
+  same second. The next full request types the parse that Haxe kept, so it
+  may differ from cold in that module's files (the gate allows only those).
+  Genes must not prove that file, so the module request after it is
+  refused, and the following full request equals cold again.
+- `stat-deleted-import-hx`: a module request sees a deleted `import.hx` by
+  its missing status (`source-changed`), and the full request after the next
+  one makes Haxe type nothing again.
+
+Limits: a file that Haxe parsed before the current macro interpreter started
+(Haxe starts a new one when a macro module changes) is not covered; every
+file that the first full request of a new interpreter proves has the same
+limit. On APFS a replaced file also gets a new change time, so the inode
+check is a second guard there, not the only one.
+
+The last lines of the gate give the median `digestMs` of the module
+requests and the median load per CPU; they are diagnostic only.
+
 `--only=<text>` runs the groups whose name contains the text;
 `GENES_TEST_SOURCE=<folder>` runs them against another Genes source folder
 (for example an older commit, where they fail).
@@ -544,7 +608,8 @@ How a module request relates to the full incremental path:
   checks the stored walk against a live one.
 
 Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
-metadata that only a typed body holds; a change that a macro makes by name
+metadata that only a typed body holds; a file that Haxe parsed before the
+current macro interpreter started; a change that a macro makes by name
 to a module outside the request's program; an after-save callback that
 another after-save callback registers while the save phase runs, when it is
 registered after the callback of Genes; and a file that a macro reads in a

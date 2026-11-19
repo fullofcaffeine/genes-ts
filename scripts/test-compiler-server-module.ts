@@ -37,13 +37,25 @@
  * requested module, after typing or after save, in both callback orders. After each accepted preview, the tree check
  * requires that cold changes only the previewed module's files.
  *
+ * The groups of `statGroups` check how Genes knows file contents
+ * (genes-f8vc.14.11). A module request trusts the kept status of an
+ * unchanged file (size, modification time, change time, inode) only when
+ * that status was read more than the grain (2 s) after the file's last
+ * change, and reads every other file. The groups cover a save that keeps the
+ * size and the modification time, a file replaced by another one, a status
+ * read inside the grain, a save and a revert while Haxe types, a file first
+ * seen in a full request (also after a failed request) and a deleted
+ * `import.hx`.
+ *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
  * differs from cold (the measured cache pollution of genes-f8vc.14.1). It is
  * an observation, not a pass condition. `--only=<text>` runs the groups
  * whose name contains the text.
  *
- * Times are printed with the 1-minute load; they are diagnostic only.
+ * Times are printed with the 1-minute load; they are diagnostic only. The
+ * last lines give the median time that module requests spent on source
+ * files (`digestMs` of the report).
  */
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { createHash } from "node:crypto";
@@ -52,6 +64,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   utimesSync,
@@ -79,6 +92,29 @@ const descriptorFile = path.join(tempRoot, "request.json");
 const reportFile = `${descriptorFile}.report.json`;
 const failFlag = path.join(tempRoot, "fail.flag");
 const raceFlag = path.join(tempRoot, "race.flag");
+const flipFlag = path.join(tempRoot, "flip.flag");
+
+/**
+ * A test double for an editor that saves a file and reverts it while Haxe
+ * types a request: `mr.Flip`, an init macro given after
+ * `genes.Generator.use()` (so after Genes read the file), replaces a text in
+ * the file that `flip.flag` names, and puts the old content back in
+ * `onAfterTyping`, after Haxe parsed the file. The digest before and after
+ * typing is the same; the change time is not.
+ */
+const flipMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Flip {\n`
+  + `  public static function install(flag: String, sources: String): Void {\n`
+  + `    if (!sys.FileSystem.exists(flag))\n      return;\n`
+  + `    final parts = sys.io.File.getContent(flag).split('|');\n`
+  + `    sys.FileSystem.deleteFile(flag);\n    final file = sources + '/' + parts[0];\n`
+  + `    final original = sys.io.File.getContent(file);\n`
+  + `    sys.io.File.saveContent(file, StringTools.replace(original, parts[1], parts[2]));\n`
+  + `    Context.onAfterTyping(_ -> sys.io.File.saveContent(file, original));\n`
+  + `  }\n}\n`;
+const flipArgs = ["--macro", `mr.Flip.install(${JSON.stringify(flipFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
+
+/** The timestamp grain of `ModuleRequest` (2 s) plus a margin, in milliseconds. */
+const settleMs = 2_500;
 
 /**
  * A test double for an editor that saves a file while Haxe types a request:
@@ -120,6 +156,12 @@ type ModuleReport = {
   readonly files: ReadonlyArray<string>;
   readonly generationMs: number;
   readonly checkMs: number;
+  /** Time spent on source files (read, hash, status). */
+  readonly digestMs: number;
+  /** Files of the stored program that the source check read; absent before genes-f8vc.14.11. */
+  readonly hashedSources?: ReadonlyArray<string>;
+  /** Files of the stored program that the status rule trusted; absent before genes-f8vc.14.11. */
+  readonly trustedSources?: number;
 };
 
 /** One scripted edit, the module that the session previews, and the expected answer. */
@@ -151,6 +193,28 @@ type Step = {
   readonly raceOnModule?: string;
   /** A save (`file|from|to`) that lands while Haxe types the full request. */
   readonly raceOnFull?: string;
+  /**
+   * A save (`file|from|to`, under `src/`) after Genes read the file and before
+   * Haxe parses it, reverted after typing (`mr.Flip`), in the module request.
+   */
+  readonly flipOnModule?: string;
+  /**
+   * Wait this long after `apply` and before the requests, so that the files
+   * that `apply` wrote are older than the grain when a request reads them.
+   */
+  readonly settleMs?: number;
+  /** The full request after this step must fail (a type error), with no cold build. */
+  readonly failsFull?: boolean;
+  /**
+   * The full request after this step may differ from cold in these files
+   * only: Haxe's whole-second check missed a save of a file that an earlier
+   * failed request parsed. The next full request must equal cold again.
+   */
+  readonly staleFull?: ReadonlyArray<string>;
+  /** The number of modules that Haxe must type again in the full request after this step (`shapes` of its records report). */
+  readonly fullTypedAgain?: number;
+  /** More checks of the module request's report. */
+  readonly check?: (report: ModuleReport, label: string) => void;
 };
 
 /** A list of steps on its own server and its own copy of the template. */
@@ -217,6 +281,65 @@ function editSameSecond(relative: string, from: string, to: string): void {
   strictEqual(Math.floor(statSync(file).mtimeMs / 1000), Math.floor(before.mtimeMs / 1000),
     `${relative}: the file time must stay in the same second`);
   saved.add(file);
+}
+
+/** The absolute path of a fixture file under `src/mr`. */
+function sourceFile(relative: string): string {
+  return path.join(workspace, "src/mr", relative);
+}
+
+/**
+ * Sets the modification time of a fixture file to a whole second, so that
+ * a later save can set it back exactly. The change time becomes now.
+ */
+function setTime(relative: string, seconds: number): void {
+  ok(Number.isInteger(seconds), `${relative}: the time must be a whole second`);
+  utimesSync(sourceFile(relative), seconds, seconds);
+}
+
+/**
+ * Replaces one exact text with another of the same length and sets the
+ * modification time back exactly: size, modification time and inode stay,
+ * only the change time moves. Neither Haxe's whole-second check nor a
+ * status rule without the change time can see this save.
+ */
+function editKeepingStatus(relative: string, from: string, to: string): void {
+  const file = sourceFile(relative);
+  strictEqual(from.length, to.length, `${relative}: the replacement must keep the size`);
+  const before = statSync(file);
+  ok(before.mtimeMs % 1000 === 0, `${relative}: setTime must set a whole second first`);
+  const text = readFileSync(file, "utf8");
+  ok(text.split(from).length === 2,
+    `${relative} must contain ${JSON.stringify(from)} exactly once`);
+  writeFileSync(file, text.replace(from, to));
+  utimesSync(file, before.atime, before.mtime);
+  const after = statSync(file);
+  strictEqual(after.size, before.size, `${relative}: the size must stay`);
+  strictEqual(after.mtimeMs, before.mtimeMs, `${relative}: the modification time must stay`);
+  strictEqual(after.ino, before.ino, `${relative}: the inode must stay`);
+}
+
+/**
+ * Replaces a fixture file by a new file (another inode) whose text differs
+ * in one same-length place, with the same modification time: an editor
+ * that writes a copy and renames it over the file.
+ */
+function replaceKeepingTime(relative: string, from: string, to: string): void {
+  const file = sourceFile(relative);
+  strictEqual(from.length, to.length, `${relative}: the replacement must keep the size`);
+  const before = statSync(file);
+  ok(before.mtimeMs % 1000 === 0, `${relative}: setTime must set a whole second first`);
+  const text = readFileSync(file, "utf8");
+  ok(text.split(from).length === 2,
+    `${relative} must contain ${JSON.stringify(from)} exactly once`);
+  const copy = `${file}.new`;
+  writeFileSync(copy, text.replace(from, to));
+  utimesSync(copy, before.atime, before.mtime);
+  renameSync(copy, file);
+  const after = statSync(file);
+  strictEqual(after.size, before.size, `${relative}: the size must stay`);
+  strictEqual(after.mtimeMs, before.mtimeMs, `${relative}: the modification time must stay`);
+  ok(after.ino !== before.ino, `${relative}: the new file must have another inode`);
 }
 
 const baseSteps: ReadonlyArray<Step> = [
@@ -739,6 +862,214 @@ function lateMacroGroups(): ReadonlyArray<Group> {
       });
     }
   return groups;
+}
+
+/** `mr.Fresh`: a module that a group adds after the first full request. */
+function freshWith(text: string): string {
+  return `package mr;\n\nclass Fresh {\n  public static function run(): String {\n`
+    + `    return '${text}';\n  }\n}\n`;
+}
+
+/** The fixture files (under the workspace's `src/`) that a module request read. */
+function hashedFixtureFiles(report: ModuleReport): ReadonlyArray<string> {
+  const root = path.join(workspace, "src") + path.sep;
+  return (report.hashedSources ?? []).filter((file) => file.startsWith(root));
+}
+
+/** Checks that a refused module request read `mr/Theme.hx` and named it. */
+function readTheme(report: ModuleReport, label: string): void {
+  ok(String(report.reason).includes(sourceFile("Theme.hx")),
+    `${label}: the refusal must name mr/Theme.hx (${String(report.reason)})`);
+  deepStrictEqual(hashedFixtureFiles(report), [sourceFile("Theme.hx")],
+    `${label}: the module request must read mr/Theme.hx and no other fixture file`);
+}
+
+/**
+ * The groups of genes-f8vc.14.11: how a module request knows that the files
+ * of the stored program still hold what Haxe typed, without reading every
+ * file.
+ *
+ * - `stat-rule`: a module request trusts the kept status of an unchanged
+ *   file only when it was read more than the grain after the file's last
+ *   change; a save that keeps the size and the modification time (only the
+ *   change time moves), a file replaced by another one with the same size
+ *   and time, and a status read inside the grain (a modification time in
+ *   the future) are read and seen. No `server/invalidate`, so Haxe's own
+ *   whole-second check does not see these saves either.
+ * - `stat-save-and-revert`: a save and a revert while Haxe types leave the
+ *   digest equal; the change time shows them (`stale-source`).
+ * - `stat-first-seen`: a new module and a library module used for the first
+ *   time, older than the grain at the full request, are proven, so the next
+ *   module request previews (before: `source-changed` once).
+ * - `stat-first-seen-after-failed-request`: a failed request parsed the new
+ *   module, and a second save in the same second follows. Haxe types the
+ *   parse that it kept, so the full request differs from cold; Genes must
+ *   not prove the file, so that the next full request parses it again.
+ * - `stat-deleted-import-hx`: a module request sees a deleted `import.hx`
+ *   by its missing status (`source-changed`), and the full request after
+ *   the next one does not make Haxe type its folder again.
+ */
+function statGroups(): ReadonlyArray<Group> {
+  const now = (): number => Math.floor(Date.now() / 1000);
+  return [
+    {
+      name: "stat-rule",
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Theme gets a whole-second time in the past; the files settle; a full request reads them",
+          apply: () => setTime("Theme.hx", now() - 60),
+          settleMs
+        },
+        {
+          id: "Button text edit: every unchanged file is trusted by its status",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Sale';"),
+          module: "mr.Button",
+          expect: "preview",
+          check: (report, label) => {
+            ok((report.trustedSources ?? 0) > 0,
+              `${label}: the status rule trusted no file (trustedSources ${String(report.trustedSources)})`);
+            deepStrictEqual(hashedFixtureFiles(report), [],
+              `${label}: the module request read fixture files that did not change`);
+          }
+        },
+        {
+          id: "Theme saved with the same size, modification time and inode (only the change time moves)",
+          apply: () => editKeepingStatus("Theme.hx", "return 'blue';", "return 'teal';"),
+          module: "mr.Button",
+          expect: "source-changed",
+          check: readTheme
+        },
+        { id: "the files settle; a full request reads them", apply: () => {}, settleMs },
+        {
+          id: "Theme replaced by another file (another inode) with the same size and modification time",
+          apply: () => replaceKeepingTime("Theme.hx", "return 'teal';", "return 'gray';"),
+          module: "mr.Button",
+          expect: "source-changed",
+          check: readTheme
+        },
+        {
+          id: "Theme gets a whole-second time in the future (a status inside the grain), no content change",
+          apply: () => setTime("Theme.hx", now() + 3600)
+        },
+        {
+          id: "no edit: the status read inside the grain is not trusted",
+          apply: () => {},
+          module: "mr.Button",
+          expect: "preview",
+          check: (report, label) => deepStrictEqual(hashedFixtureFiles(report),
+            [sourceFile("Theme.hx")], `${label}: the module request must read mr/Theme.hx only`)
+        },
+        {
+          id: "Theme saved inside the grain with the same size, modification time and inode",
+          apply: () => editKeepingStatus("Theme.hx", "return 'gray';", "return 'pink';"),
+          module: "mr.Button",
+          expect: "source-changed",
+          check: readTheme
+        }
+      ]
+    },
+    {
+      name: "stat-save-and-revert",
+      files: { "mr/Flip.hx": flipMacro },
+      extraArgs: flipArgs,
+      steps: [
+        {
+          id: "Button text edit; a save and a revert land while Haxe types",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Sale';"),
+          module: "mr.Button",
+          flipOnModule: "mr/Button.hx|return 'Sale';|return 'Salt';",
+          expect: "stale-source"
+        },
+        {
+          id: "next module request, no further save",
+          apply: () => {},
+          module: "mr.Button",
+          expect: "preview"
+        }
+      ]
+    },
+    {
+      name: "stat-first-seen",
+      steps: [
+        {
+          id: "new module Fresh and a first use of haxe.Json, older than the grain at the full request",
+          apply: () => {
+            writeFileSync(sourceFile("Fresh.hx"), freshWith("one"));
+            edit("Main.hx", "    trace(Theme.size());\n",
+              "    trace(Theme.size());\n    trace(Fresh.run() + haxe.Json.stringify(1));\n");
+          },
+          settleMs
+        },
+        {
+          id: "Button text edit, the first module request after them",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Sale';"),
+          module: "mr.Button",
+          expect: "preview"
+        }
+      ]
+    },
+    {
+      name: "stat-first-seen-after-failed-request",
+      noInvalidate: true,
+      steps: [
+        {
+          id: "new module Fresh and a module with a type error: the full request fails after Haxe parsed Fresh",
+          apply: () => {
+            writeFileSync(sourceFile("Fresh.hx"), freshWith("one"));
+            writeFileSync(sourceFile("Broken.hx"), "package mr;\n\nclass Broken {\n"
+              + "  public static function value(): Int {\n    return 'not a number';\n  }\n}\n");
+            edit("Main.hx", "    trace(Theme.size());\n",
+              "    trace(Theme.size());\n    trace(Fresh.run());\n    trace(Broken.value());\n");
+          },
+          failsFull: true
+        },
+        {
+          id: "Main stops using Broken; Fresh saved again in the same second; the files settle",
+          apply: () => {
+            edit("Main.hx", "    trace(Broken.value());\n", "");
+            editSameSecond("Fresh.hx", "return 'one';", "return 'two';");
+          },
+          settleMs,
+          // Haxe types Fresh from the parse that the failed request left in its
+          // cache: the file's whole-second time did not change.
+          staleFull: ["mr/Fresh.ts", "mr/Fresh.ts.map"]
+        },
+        {
+          id: "no edit: Fresh is not proven, so the module request is refused and the full request parses it again",
+          apply: () => {},
+          module: "mr.Button",
+          expect: "source-changed"
+        }
+      ]
+    },
+    {
+      name: "stat-deleted-import-hx",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.sub.Tagged.show());"]),
+        "mr/sub/Tagged.hx": "package mr.sub;\n\nclass Tagged {\n"
+          + "  public static function show(): String {\n    return 'tagged';\n  }\n}\n",
+        "mr/sub/import.hx": "using StringTools;\n"
+      },
+      steps: [
+        {
+          id: "mr/sub/import.hx deleted; preview of Button, which does not import it",
+          apply: () => rmSync(sourceFile("sub/import.hx")),
+          module: "mr.Button",
+          expect: "source-changed",
+          check: (report, label) => ok(String(report.reason).includes(sourceFile("sub/import.hx")),
+            `${label}: the refusal must name mr/sub/import.hx (${String(report.reason)})`)
+        },
+        {
+          id: "no edit: the next full request makes Haxe type nothing again",
+          apply: () => {},
+          module: "mr.Button",
+          expect: "preview",
+          fullTypedAgain: 0
+        }
+      ]
+    }
+  ];
 }
 
 const groups: ReadonlyArray<Group> = [
@@ -1312,7 +1643,8 @@ const groups: ReadonlyArray<Group> = [
       }
     ]
   },
-  ...lateMacroGroups()
+  ...lateMacroGroups(),
+  ...statGroups()
 ];
 
 function folder(name: string): string {
@@ -1439,6 +1771,10 @@ type Row = {
   readonly typedAgain: string;
   readonly moduleMs: number;
   readonly genesMs: number;
+  /** `digestMs` of the module request's report, or `null` without a report. */
+  readonly digestMs: number | null;
+  /** Files that the status rule trusted / files that the source check read. */
+  readonly sources: string;
   readonly programMs: number;
   readonly load: number;
 };
@@ -1473,9 +1809,43 @@ async function programRequest(server: OwnedHaxeCompilerServer,
   ok(result.code === 0, `${label}: full request failed\n${describe(result)}`);
   const records = `${descriptorFile}.module-records.json`;
   ok(existsSync(records), `${label}: the full request stored no module records`);
-  strictEqual((JSON.parse(readFileSync(records, "utf8")) as { stored: boolean })
-    .stored, true, `${label}: the full request did not store its module records`);
+  strictEqual(readRecordsReport().stored, true,
+    `${label}: the full request did not store its module records`);
   return elapsed;
+}
+
+/** The parts of the records report of the last full request that this gate reads. */
+function readRecordsReport(): { readonly stored: boolean, readonly shapes: number } {
+  return JSON.parse(readFileSync(`${descriptorFile}.module-records.json`, "utf8")) as {
+    readonly stored: boolean,
+    readonly shapes: number
+  };
+}
+
+/** Runs a full request that must fail (a type error in the sources). */
+async function failingProgramRequest(server: OwnedHaxeCompilerServer,
+    label: string): Promise<void> {
+  await invalidate(server, label);
+  writeDescriptor({ kind: "full", moduleRecords: true });
+  const result = await server.compile(incremental(programArguments(folder("program"))),
+    `Failing program ${label}`, timeoutMs, workspace);
+  ok(result.code !== 0, `${label}: the full request must fail`);
+}
+
+/** Resolves after `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** The median of a list of numbers, or 0 for an empty list. */
+function median(values: ReadonlyArray<number>): number {
+  if (values.length === 0)
+    return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle] ?? 0
+    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 }
 
 /** Prepares a new workspace for one group: the template and the group's files. */
@@ -1533,11 +1903,18 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
     writeFileSync(failFlag, "fail\n");
   if (step.raceOnModule !== undefined)
     writeFileSync(raceFlag, step.raceOnModule);
+  if (step.flipOnModule !== undefined)
+    writeFileSync(flipFlag, step.flipOnModule);
   writeDescriptor({ kind: "module", module });
   const started = performance.now();
   const result = await server.compile(incremental(moduleArguments(module, previewFolder)),
     `Module ${label}`, timeoutMs, workspace);
   const ms = performance.now() - started;
+  if (step.flipOnModule !== undefined) {
+    ok(!existsSync(flipFlag), `${label}: mr.Flip did not run`);
+    ok(readFileSync(path.join(workspace, "src", step.flipOnModule.split("|")[0] ?? ""), "utf8")
+      .includes(step.flipOnModule.split("|")[1] ?? "|"), `${label}: mr.Flip did not revert its save`);
+  }
   if (step.fails === true) {
     rmSync(failFlag, { force: true });
     ok(result.code !== 0, `${label}: the module request must fail`);
@@ -1598,6 +1975,8 @@ async function runGroup(group: Group,
     for (const [index, step] of group.steps.entries()) {
       const label = `[${group.name} ${index + 1}/${group.steps.length}] ${step.id}`;
       step.apply();
+      if (step.settleMs !== undefined)
+        await sleep(step.settleMs);
       const load = loadPerCpu();
       let outcome = "-";
       let moduleMs = 0;
@@ -1612,6 +1991,10 @@ async function runGroup(group: Group,
           ok(allowed.includes(outcome),
             `${label}: expected ${allowed.join(" or ")}, got ${outcome} (${String(report?.reason)})`);
         }
+        if (step.check !== undefined) {
+          ok(report !== null, `${label}: the module request wrote no report to check`);
+          step.check(report, label);
+        }
         if (outcome === "preview")
           previews++;
         else
@@ -1619,13 +2002,24 @@ async function runGroup(group: Group,
       }
       step.afterModule?.();
       let programMs = 0;
-      if (step.skipProgram !== true) {
+      if (step.failsFull === true) {
+        await failingProgramRequest(server, label);
+      } else if (step.skipProgram !== true) {
         const coldTree = await coldBuild(compiler, label);
         programMs = await programRequest(server, label, step.raceOnFull);
         const difference = treeDifference(hashTree(folder("program")), coldTree);
-        deepStrictEqual(difference, [],
+        const allowed = step.staleFull ?? [];
+        const unexpected = difference.filter((file) => !allowed.includes(file)
+          && !(allowed.length > 0 && file.startsWith(".genes-output-")));
+        deepStrictEqual(unexpected, [],
           `${label}: the full request after the step differs from the cold build:\n`
-          + difference.join("\n"));
+          + unexpected.join("\n"));
+        if (allowed.length > 0)
+          process.stdout.write(`${label}: the full request differs from cold in `
+            + `${difference.length === 0 ? "no file" : difference.join(", ")} (allowed: Haxe's own check)\n`);
+        if (step.fullTypedAgain !== undefined)
+          strictEqual(readRecordsReport().shapes, step.fullTypedAgain,
+            `${label}: Haxe typed another number of modules again in the full request`);
       }
       rows.push({
         group: group.name,
@@ -1634,6 +2028,9 @@ async function runGroup(group: Group,
         typedAgain: report === null ? "" : report.typedAgainModules.join(" "),
         moduleMs: Math.round(moduleMs),
         genesMs: report === null ? 0 : report.generationMs,
+        digestMs: report === null ? null : report.digestMs,
+        sources: report === null || report.trustedSources === undefined ? ""
+          : `${report.trustedSources}/${(report.hashedSources ?? []).length}`,
         programMs: Math.round(programMs),
         load: Number(load.toFixed(2))
       });
@@ -1657,10 +2054,16 @@ async function main(): Promise<void> {
     refusals += counts.refusals;
   }
   process.stdout.write("group | step | result | typed again | module request ms | "
-    + "Genes ms | full request ms | load per CPU\n");
+    + "Genes ms | source ms | trusted/read | full request ms | load per CPU\n");
   for (const row of rows)
     process.stdout.write(`${row.group} | ${row.id} | ${row.result} | ${row.typedAgain} | `
-      + `${row.moduleMs} | ${row.genesMs} | ${row.programMs} | ${row.load}\n`);
+      + `${row.moduleMs} | ${row.genesMs} | ${row.digestMs ?? "-"} | ${row.sources} | `
+      + `${row.programMs} | ${row.load}\n`);
+  const digests = rows.flatMap((row) => row.digestMs === null ? [] : [row.digestMs]);
+  const loads = rows.map((row) => row.load);
+  process.stdout.write(`module request source time (digestMs): median ${median(digests).toFixed(2)} ms `
+    + `over ${digests.length} module requests; median load per CPU ${median(loads).toFixed(2)} `
+    + `(diagnostic only)\n`);
   let control = "keep control skipped";
   if (keepControl)
     control = await runKeepControl(compiler);
