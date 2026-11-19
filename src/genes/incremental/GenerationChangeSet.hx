@@ -355,6 +355,7 @@ class GenerationChangeSet {
   static var reservedNames: Map<String, Bool> = new Map();
   static var reservedDigest: Null<String> = null;
   static var typingResources: Null<String> = null;
+  static var typingDefines: Null<String> = null;
   static var passOrder: Array<String> = [];
   static var passClassSeconds: Map<String, Float> = new Map();
   static var passDeclarationSeconds: Map<String, Float> = new Map();
@@ -489,6 +490,22 @@ class GenerationChangeSet {
   }
 
   /**
+   * Returns the sorted modules of every declaration that the after-typing
+   * callback saw in this request, stamped or not. Empty when the request
+   * added no stamp.
+   *
+   * Why: a module request (`ModuleRequest`) must know that every module of
+   * its program, other than the requested one, is the module of the last
+   * full request. It compares `epochs` of each of these modules with the
+   * stored ones.
+   */
+  public static function observedModules(): Array<String> {
+    final names = [for (name in moduleEpochs.keys()) name];
+    names.sort(compareStrings);
+    return names;
+  }
+
+  /**
    * Returns the stamp (`nonce:N`) of one declaration of `module` in this
    * request, or an empty text when the after-typing callback saw no such
    * declaration or the request added no stamp.
@@ -568,6 +585,39 @@ class GenerationChangeSet {
    */
   public static function sessionResources(): Null<String> {
     return requestNumber == 0 ? null : typingResources;
+  }
+
+  /**
+   * Returns the define lines of the session key, read at the time of the
+   * call: one line `define <name>=<value>` for each define, sorted by name.
+   */
+  public static function defineLines(): String {
+    final defines = Context.getDefines();
+    final names = [for (name in defines.keys()) name];
+    names.sort(compareStrings);
+    final buffer = new StringBuf();
+    for (name in names)
+      buffer.add('define $name=${defines.get(name)}\n');
+    return buffer.toString();
+  }
+
+  /**
+   * Returns true when the defines now differ from the define lines of the
+   * session key, which the first after-typing callback of Genes read. False
+   * before that callback, and in a request that left the incremental path.
+   *
+   * Why: a macro can call `Compiler.define` later, for example in an
+   * after-typing callback that runs after the passes of Genes. Printing
+   * reads the defines of this moment. Example:
+   * `Compiler.define('genes.disable_native_accessors', '1')` makes every
+   * module with a native accessor print another file, but the session key
+   * does not change, so a stored output or a module preview would be stale.
+   * Like `sessionResources`, the generation shadow then turns itself off
+   * for the request, and a module request is refused (`defines-changed`).
+   */
+  public static function definesChangedAfterTyping(): Bool {
+    final typed = typingDefines;
+    return requestNumber != 0 && typed != null && typed != defineLines();
   }
 
   /**
@@ -1136,11 +1186,9 @@ class GenerationChangeSet {
     // it changes the key.
     buffer.add(output == null ? 'output-slot ${Compiler.getOutput()}\n' : outputKeyLines(output,
       genes.SourceMapGenerator.projectRoot()));
-    final defines = Context.getDefines();
-    final names = [for (name in defines.keys()) name];
-    names.sort(compareStrings);
-    for (name in names)
-      buffer.add('define $name=${defines.get(name)}\n');
+    final defines = defineLines();
+    typingDefines = defines;
+    buffer.add(defines);
     for (classPath in Context.getClassPath())
       buffer.add('classpath $classPath\n');
     // The output of `haxe.Resource` holds the resource bytes, and a changed

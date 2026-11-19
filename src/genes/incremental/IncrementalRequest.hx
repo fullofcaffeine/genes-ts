@@ -10,6 +10,15 @@ import sys.io.File;
 enum IncrementalRequestKind {
   /** The whole program, as an ordinary build generates it. */
   Full;
+
+  /**
+   * A preview of one edited module (G3): Haxe types the program rooted at
+   * `module` only, and Genes prints only that module, when the checks of
+   * `ModuleRequest` prove that its files equal the files that a full
+   * request would print. Otherwise Genes publishes nothing and reports why.
+   * Example descriptor: `{"kind": "module", "module": "app.ui.Button", ...}`.
+   */
+  Module(module: String);
 }
 
 /**
@@ -124,8 +133,14 @@ enum GenerationRefusal {
  * ```json
  * {"format": 1, "programDigest": "<digest of the argument list>",
  *  "kind": "full", "afterTyping": "measure" | "reuse" | "compare",
- *  "generation": "measure" | "compare" | "reuse"}
+ *  "generation": "measure" | "compare" | "reuse", "moduleRecords": true}
  * ```
+ *
+ * A module request (G3) has `"kind": "module"` and names the edited module:
+ * `{"kind": "module", "module": "app.ui.Button", ...}`. Its
+ * `programDigest` is the digest of the full request that it previews, not of
+ * its own argument list: the session key must stay the key of that program
+ * (see `ModuleRequest`). `moduleRecords` is read only on a full request.
  *
  * `"generation": "compare"` and `"reuse"` need `"afterTyping": "reuse"`;
  * with another `afterTyping` value the generator refuses them
@@ -145,6 +160,14 @@ typedef IncrementalDescriptor = {
   final kind: IncrementalRequestKind;
   final afterTyping: AfterTypingReuse;
   final generation: GenerationReuse;
+
+  /**
+   * `"moduleRecords": true` on a full request: after the commit, Genes also
+   * keeps the facts that a later module request checks
+   * (`ModuleRequest`). Absent means false, and the request does no extra
+   * work.
+   */
+  @:optional final moduleRecords: Bool;
 }
 
 /** What one request does with the incremental path. */
@@ -422,6 +445,11 @@ class IncrementalRequest {
       return Left('the request descriptor has no kind');
     final requestKind = switch (kind : String) {
       case 'full': Full;
+      case 'module':
+        final named: Dynamic = Reflect.field(parsed, 'module');
+        if (!Std.isOfType(named, String) || (named : String).length == 0)
+          return Left('a module request descriptor has no module');
+        Module((named : String));
       case other: return Left('unknown request kind "$other"');
     }
     final digest: Dynamic = Reflect.field(parsed, 'programDigest');
@@ -450,12 +478,17 @@ class IncrementalRequest {
       case 'reuse': ReuseClean;
       case other: return Left('unknown generation value "$other"');
     }
+    final records: Dynamic = Reflect.field(parsed, 'moduleRecords');
+    if (records != null && !Std.isOfType(records, Bool))
+      return Left('the moduleRecords value of the request descriptor is not '
+        + 'true or false');
     return Right({
       path: path,
       programDigest: (digest : String),
       kind: requestKind,
       afterTyping: afterTyping,
-      generation: generation
+      generation: generation,
+      moduleRecords: records == true
     });
   }
 }

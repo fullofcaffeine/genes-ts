@@ -2,6 +2,7 @@ package genes;
 
 #if macro
 import genes.incremental.GenerationChangeSet;
+import genes.incremental.ModuleRequest;
 import genes.incremental.GenerationChangeSet.StampedDeclaration;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -223,6 +224,12 @@ typedef AfterTypingDeclarations = {
  * its error comes first. A diagnostic of the audit is fatal: it stops the
  * compilation at the first class that has one.
  *
+ * Module requests (G3): in a request with `"kind": "module"`, a class that
+ * Haxe kept and that lies outside the requested module and its parent
+ * classes and interfaces skips the `publicSurface` and `reactAudit` passes
+ * and the member-list clock (`ModuleRequest.skipsClassPass`). Only the
+ * incremental path takes this branch.
+ *
  * Lifetime: the lists are ordinary statics, not `@:persistent`. Haxe replaces
  * them at the start of each compilation on a compiler server, and each
  * `install()` of a pass adds its functions again. The walk keeps no typed
@@ -274,13 +281,21 @@ class AfterTypingPasses {
           final current = seen == null
             || record == null ? new AfterTypingClass(reference.get()) : new AfterTypingClass(record,
               seen.stamp, type, seen.parts);
-          if (current.stamp != null)
+          if (current.stamp != null && !ModuleRequest.skipsMemberRead(current))
             GenerationChangeSet.readMembers(current.memberList);
           if (classSeconds == null) {
+            // Without the incremental path no request is a module request,
+            // so no pass is skipped (`ModuleRequest.skipsClassPass` would
+            // answer false); this branch reads no clock.
             for (visit in classPasses)
               visit(current);
           } else {
             for (index => visit in classPasses) {
+              // A module request (G3) skips some passes for a class that
+              // Haxe kept; see `ModuleRequest.skipsClassPass`.
+              if (ModuleRequest.skipsClassPass(classPassNames[index], current,
+                types))
+                continue;
               final started = haxe.Timer.stamp();
               visit(current);
               classSeconds[index] += haxe.Timer.stamp() - started;

@@ -457,3 +457,103 @@ difference of their results is a mismatch. The edits whose ids start with
 The script prints, but does not judge, the clean share, projected generation
 time, shadow overhead and cache size of each edit. Times are diagnostic
 unless the 1-minute load stays at 2.0 or less.
+
+## Module requests (G3)
+
+`yarn test:compiler-server:module` uses the project `templates/module-request`
+and one warm server. A full request (`--main mr.Main`) with
+`"moduleRecords": true` stores the records of `genes.incremental.ModuleRequest`.
+After each scripted edit, a module request names the edited module as the only
+root (no `--main`) and writes into its own sibling folder. The gate requires:
+
+- the expected result for each edit: `preview`, or a refusal code such as
+  `uses-changed` (the only call of a private helper was removed: an edit
+  beyond literal values changes the module's use skeleton) or
+  `public-shape-changed` (an inline constant changed, so importing modules
+  print another value);
+- for a preview, only the module's files in the folder, each byte-identical to
+  the same file of a cold build of the edited program; for a refusal, no
+  module file in the folder (an earlier preview there is retired);
+- after each module request, a full request whose tree equals the cold tree, so
+  a module request leaves nothing behind in Haxe's cache.
+
+After the base list, each review scenario of PR #250 runs as its own group
+(its own server and copy, with extra source files): types and `Std.string`
+that keep a declaration (s02, s03b, s08), edits outside the module's imports
+(s05, s12, s14), a feature that only the edited module defined (s10), field
+types that another module's use decides (s09), a request that fails after
+Genes added its roots (s18), descriptors written for another request (S2,
+s14), a stale preview folder (s19), a use that is alive only through the
+edited module (r01), a field type that makes another module's class used
+(r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05).
+
+The last groups run a macro (`mr.CopyMacro`) that reads a string literal of
+`mr.Probe` and changes another module that Haxe does not type again:
+
+- in an after-typing callback: `@:mrTag` of `mr.Leaf` (m249), `@:ts.type`
+  of the class `mr.TsTyped` (f1), `exclude()` of the enum
+  `mr.ExclOwner.ExclE` for the literal `ext` (f2), and `@:ts.type` of a
+  typedef field of `mr.TsUser` (f3);
+- in an after-save callback (`Context.onGenerate(..., false)`): the f1 and
+  f2 changes again (a1, a2);
+- in an after-typing callback, `Compiler.define('genes.disable_native_accessors',
+  '1')` for the literal `ext`, so that cold prints `mr/Acc.ts` without its
+  native getter (d1). d1-full runs the same edit with full requests only.
+
+Each case runs twice: with the macro given after
+`--macro genes.Generator.use()` and before it. Haxe runs after-typing
+callbacks in reverse order of registration, so a macro given after
+`Generator.use()` runs before the after-typing passes of Genes, and one given
+before it runs after them. The expected refusals are:
+
+- `session-changed`: the metadata comparison or the session key saw the
+  change (m249, f1, f3 and d1 with the macro after `Generator.use()`);
+- `target-facts-changed`: the declaration facts differ (m249, f1 and f3
+  with the macro before `Generator.use()`, f2, a1 and a2 in both orders);
+- `defines-changed`: the defines differ from those of the session key (d1
+  with the macro before `Generator.use()`; also its second step, because the
+  define stays set while the literal is `ext`).
+
+Each group starts with a second full request, because the metadata
+comparison compares with the earlier request, and then previews a literal
+that the macro does not read.
+
+After each accepted preview the gate also runs the tree check: cold must
+differ from the last full tree only in the previewed module's files and
+maps. A change of any other file means that a preview left the published
+tree stale. The final line counts the previews that passed it.
+
+`--only=<text>` runs the groups whose name contains the text;
+`GENES_TEST_SOURCE=<folder>` runs them against another Genes source folder
+(for example an older commit, where they fail).
+
+How a module request relates to the full incremental path:
+
+- It shares the metadata comparison of `GenerationChangeSet` (a changed
+  metadata epoch changes the session key: `session-changed`), the define
+  check `GenerationChangeSet.definesChangedAfterTyping` (the full path then
+  turns its generation shadow off; a module request is refused with
+  `defines-changed`), and the step decision of `genes.WalkTarget`.
+- The declaration-facts check is its own. It reuses two texts of other
+  owners (`WalkTarget.inputsText` and the metadata text of
+  `ModuleFingerprint.addDeclaration`) and reads them in `afterSave`, after
+  every after-save callback that was registered before the save phase and
+  before dead-code elimination (`target-facts-changed`).
+- It never takes stored walk steps (Stage 3, slice S2) and writes nothing
+  into the generation cache, so the full request after each step still
+  checks the stored walk against a live one.
+
+Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
+metadata that only a typed body holds; a change that a macro makes by name
+to a module outside the request's program; an after-save callback that
+another after-save callback registers while the save phase runs, when it is
+registered after the callback of Genes; and a file that a macro reads in a
+module outside the request, other than `import.hx` and resources. No group
+covers a redefined extern module (a `genes.ts.imports` holder); the shadow
+gate covers its fingerprint for full requests.
+
+`--keep-control` also roots one module request with `--macro keep(<module>)`
+instead and prints whether the next full request differs from cold (it does:
+the kept class keeps a field that a cold build drops). That line is an
+observation, not a pass condition.
+

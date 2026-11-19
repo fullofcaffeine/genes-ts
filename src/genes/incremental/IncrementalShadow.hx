@@ -431,6 +431,14 @@ class IncrementalShadow {
   final reportFile: String;
   final started: Float;
   final mode: GenerationReuse;
+
+  /**
+   * True in a module request (G3, `ModuleRequest`): the shadow only records
+   * the answers, files and warnings of the printed module. It applies no
+   * clean rule, stores no cache and writes no report of its own.
+   */
+  final preview: Bool;
+
   final refusal: Null<GenerationRefusal>;
   final underReuse: Bool;
   var active: Bool;
@@ -548,6 +556,8 @@ class IncrementalShadow {
     this.underReuse = underReuse;
     this.refusal = refusal;
     this.started = haxe.Timer.stamp();
+    final descriptor = IncrementalRequest.requestedDescriptor();
+    this.preview = descriptor != null && !descriptor.kind.match(Full);
   }
 
   /**
@@ -625,12 +635,60 @@ class IncrementalShadow {
     if (GenerationChangeSet.resourceDigest() != GenerationChangeSet.sessionResources())
       return 'a macro changed the embedded resources after typing, so the '
         + 'session key does not describe them';
+    if (GenerationChangeSet.definesChangedAfterTyping())
+      return 'a macro changed the defines after typing, so the session key '
+        + 'does not describe them';
     if (generation == ReuseClean)
       for (define in EMISSION_MESSAGE_DEFINES)
         if (Context.defined(define))
           return '-D $define prints messages while Genes prints a module, '
             + 'and a replayed module is not printed';
     return null;
+  }
+
+  /**
+   * Returns why this request has no active shadow, or `null` when it has
+   * one. A module request (`ModuleRequest`) refuses its preview with this
+   * reason.
+   */
+  public static function inactiveReason(): Null<String> {
+    final shadow = current;
+    if (shadow == null)
+      return 'the request has no "generation" value';
+    if (!shadow.active) {
+      final why = shadow.reason;
+      return why == null ? 'the generation shadow is off' : why;
+    }
+    return null;
+  }
+
+  /**
+   * Returns what this request recorded for `module` so far: its answer
+   * lines and added features (sorted), the sources that its maps name by a
+   * relative path, and the relative paths of its staged files. A module
+   * request compares them with the stored entry before it publishes.
+   */
+  public static function recordedModule(module: String): {
+    answers: Array<String>,
+    additions: Array<String>,
+    mapSources: Array<String>,
+    files: Array<String>
+  } {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return {
+        answers: [],
+        additions: [],
+        mapSources: [],
+        files: []
+      };
+    final staged = shadow.files.get(module);
+    return {
+      answers: sortedLines(shadow.answers.get(module)),
+      additions: sortedLines(shadow.additions.get(module)),
+      mapSources: sortedLines(shadow.mapSources.get(module)),
+      files: staged == null ? [] : [for (file in staged) file.path]
+    };
   }
 
   /**
@@ -1115,6 +1173,53 @@ class IncrementalShadow {
     if (shadow == null || !shadow.active)
       return;
     shadow.runtimeRequestLists.set(module, requests.copy());
+  }
+
+  /**
+   * Gives the shadow of a module request (G3, `ModuleRequest`) the
+   * generator's declaration list of that request, so that `listed` answers
+   * as in a full request. It applies no clean rule and computes no
+   * fingerprint.
+   *
+   * Why: `ModuleFingerprint.members` gives a member that is not listed its
+   * full text (` late ...`). The stored member list of the full request was
+   * made with that request's list; without this call every member of a
+   * preview would count as not listed, and the member lists would always
+   * differ. Example: the class `mr.Leaf.Leaf` is in the list, so its line
+   * stays `class mr.Leaf.Leaf 0 s:label` in both requests.
+   */
+  public static function listPreview(types: Array<Type>): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active || !shadow.preview)
+      return;
+    for (type in types) {
+      final base = declarationOf(type);
+      if (base != null)
+        shadow.listedDeclarations.set(listedKey(base), true);
+    }
+  }
+
+  /**
+   * Returns the fingerprint of a module of extern classes in a module
+   * request (G3), made as `inventory` makes the stored one: the text of
+   * `ModuleFingerprint.ofExtern` for its listed classes, then the
+   * `ModuleFingerprint.unlisted` part for every other declaration of the
+   * module that Haxe typed. Call it after `listPreview`.
+   *
+   * Why: a macro can define such a module again while Haxe types the
+   * requested module (a `genes.ts.imports` holder). `ModuleRequest` accepts
+   * it only when this text equals the stored fingerprint. With only the
+   * `ofExtern` part, a stored fingerprint with an unlisted part never
+   * matches, and a printer could read metadata that the comparison left
+   * out.
+   */
+  public static function previewExternFingerprint(module: String,
+      classes: Array<ClassType>): String {
+    final text = ModuleFingerprint.ofExtern(classes);
+    final all = TypedModuleInventory.allModules();
+    final typed = all == null ? null : all.get(module);
+    return typed == null ? text : text
+      + ModuleFingerprint.unlisted(typed, listed);
   }
 
   /**
@@ -1651,6 +1756,10 @@ class IncrementalShadow {
   function finish(success: Bool, failure: Null<String>): Void {
     stopClock();
     owner = null;
+    // A module request keeps the cache of the last full request as it is;
+    // `ModuleRequest` writes its report.
+    if (preview)
+      return;
     final generationSeconds = haxe.Timer.stamp() - started;
     final emittedNames = [for (name in files.keys()) name];
     emittedNames.sort(compareStrings);
