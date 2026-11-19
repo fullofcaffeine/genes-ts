@@ -548,8 +548,9 @@ such a status. The rule trusts three things:
 On Windows the change time is the creation time, so Genes reads every file
 there.
 
-The groups, all without `server/invalidate` where Haxe's own check must not
-help:
+The groups (`stat-rule` and `stat-first-seen-after-failed-request` send no
+`server/invalidate`, so that Haxe's own whole-second check misses their
+saves):
 
 - `stat-rule`: after the files settle, a Button edit previews with every
   unchanged fixture file trusted. Then three saves of `mr/Theme.hx` that
