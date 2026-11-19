@@ -31,7 +31,10 @@
  * edited module defined (s10), field types that another module's use
  * decides (s09), a request that fails after the roots were added (s18),
  * descriptors written for another request (S2, s14), and a refused request
- * into a folder that holds an earlier preview (s19).
+ * into a folder that holds an earlier preview (s19). After them,
+ * m249 checks the metadata comparison of genes-ts #249: an after-typing
+ * macro that copies a literal of the requested module into the metadata of
+ * another module refuses the request (`session-changed`).
  *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
@@ -920,6 +923,68 @@ const groups: ReadonlyArray<Group> = [
       {
         id: "a second full request, no edit",
         apply: () => {}
+      }
+    ]
+  },
+  {
+    // m249: an after-typing macro copies a literal of the requested module
+    // into the metadata of another module that Haxe does not type again
+    // (the M2b case of genes-ts #249). The metadata comparison of
+    // `GenerationChangeSet` starts a new metadata epoch, so the session key
+    // differs from the stored one and the request is refused. A literal
+    // that the macro does not read still previews.
+    name: "m249-metadata-epoch",
+    files: {
+      "mr/Main.hx": mainWith(["trace(Probe.run());"]),
+      "mr/Probe.hx": `package mr;\n\nclass Probe {\n`
+        + `  static function tag(): String {\n    return 'one';\n  }\n\n`
+        + `  public static function run(): String {\n`
+        + `    return 'probe ' + tag() + Leaf.kindName(Leaf.Kind.Small);\n  }\n}\n`,
+      "mr/MetaMacro.hx": `package mr;\n\n#if macro\nimport haxe.macro.Context;\n`
+        + `import haxe.macro.Type;\nimport haxe.macro.TypedExprTools;\n\n`
+        + `class MetaMacro {\n`
+        + `  static function firstText(expr: TypedExpr): Null<String> {\n`
+        + `    var found: Null<String> = null;\n`
+        + `    function visit(item: TypedExpr): Void {\n`
+        + `      if (found != null)\n        return;\n`
+        + `      switch item.expr {\n`
+        + `        case TConst(TString(text)): found = text;\n`
+        + `        default: TypedExprTools.iter(item, visit);\n      }\n    }\n`
+        + `    visit(expr);\n    return found;\n  }\n\n`
+        + `  public static function install(): Void {\n`
+        + `    Context.onAfterTyping(types -> {\n`
+        + `      var tag: Null<String> = null;\n`
+        + `      var leaf: Null<ClassType> = null;\n`
+        + `      for (type in types)\n        switch type {\n`
+        + `          case TClassDecl(ref):\n            final cls = ref.get();\n`
+        + `            if (cls.module == 'mr.Probe')\n`
+        + `              for (field in cls.statics.get())\n`
+        + `                if (field.name == 'tag') {\n`
+        + `                  final value = field.expr();\n`
+        + `                  if (value != null)\n`
+        + `                    tag = firstText(value);\n                }\n`
+        + `            if (cls.module == 'mr.Leaf' && cls.name == 'Leaf')\n`
+        + `              leaf = cls;\n          default:\n        }\n`
+        + `      final found = leaf;\n      final text = tag;\n`
+        + `      if (found == null || text == null)\n        return;\n`
+        + `      found.meta.remove(':mrTag');\n`
+        + `      found.meta.add(':mrTag', [macro $v{text}], Context.currentPos());\n`
+        + `    });\n  }\n}\n#end\n`
+    },
+    extraArgs: ["--macro", "mr.MetaMacro.install()"],
+    steps: [
+      {
+        id: "the literal that the macro copies into mr.Leaf metadata",
+        apply: () => edit("Probe.hx", "return 'one';", "return 'two';"),
+        module: "mr.Probe",
+        expect: "session-changed"
+      },
+      {
+        id: "a literal that the macro does not read",
+        apply: () => edit("Probe.hx", "return 'probe ' + tag()",
+          "return 'probe! ' + tag()"),
+        module: "mr.Probe",
+        expect: "preview"
       }
     ]
   }

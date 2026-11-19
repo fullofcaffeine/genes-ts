@@ -485,9 +485,22 @@ types that another module's use decides (s09), a request that fails after
 Genes added its roots (s18), descriptors written for another request (S2,
 s14), a stale preview folder (s19), a use that is alive only through the
 edited module (r01), a field type that makes another module's class used
-(r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05). `--only=<text>` runs the groups whose
+(r02), an `@:ifFeature` field (r03), a deleted `.module-dep` file (r05), and
+an after-typing macro that copies a literal of the requested module into the
+metadata of another module (m249: refused with `session-changed`, while a
+literal that the macro does not read still previews). `--only=<text>` runs the groups whose
 name contains the text; `GENES_TEST_SOURCE=<folder>` runs them against
 another Genes source folder (for example an older commit, where they fail).
+
+A module request shares two checks with the full incremental path: the
+metadata comparison of `GenerationChangeSet` (a changed metadata epoch
+changes the session key, and the request is refused with `session-changed`;
+group m249), and the step decision of `genes.WalkTarget`. It never takes
+stored walk steps (Stage 3, slice S2) and writes nothing into the generation
+cache, so the full request after each step still checks the stored walk
+against a live one. No group covers a redefined extern module (a
+`genes.ts.imports` holder); the shadow gate covers its fingerprint for full
+requests.
 
 `--keep-control` also roots one module request with `--macro keep(<module>)`
 instead and prints whether the next full request differs from cold (it does:
