@@ -44,7 +44,7 @@
  * change, and reads every other file. The groups cover a save that keeps the
  * size and the modification time, a file replaced by another one, a status
  * read inside the grain, a save and a revert while Haxe types, a file first
- * seen in a full request (also after a failed request) and a deleted
+ * seen in a full request (unknown once, as before) and a deleted
  * `import.hx`.
  *
  * `--keep-control` also runs the older way to root a module request,
@@ -203,14 +203,6 @@ type Step = {
    * that `apply` wrote are older than the grain when a request reads them.
    */
   readonly settleMs?: number;
-  /** The full request after this step must fail (a type error), with no cold build. */
-  readonly failsFull?: boolean;
-  /**
-   * The full request after this step may differ from cold in these files
-   * only: Haxe's whole-second check missed a save of a file that an earlier
-   * failed request parsed. The next full request must equal cold again.
-   */
-  readonly staleFull?: ReadonlyArray<string>;
   /** The number of modules that Haxe must type again in the full request after this step (`shapes` of its records report). */
   readonly fullTypedAgain?: number;
   /** More checks of the module request's report. */
@@ -898,13 +890,12 @@ function readTheme(report: ModuleReport, label: string): void {
  *   whole-second check does not see these saves either.
  * - `stat-save-and-revert`: a save and a revert while Haxe types leave the
  *   digest equal; the change time shows them (`stale-source`).
- * - `stat-first-seen`: a new module and a library module used for the first
- *   time, older than the grain at the full request, are proven, so the next
- *   module request previews (before: `source-changed` once).
- * - `stat-first-seen-after-failed-request`: a failed request parsed the new
- *   module, and a second save in the same second follows. Haxe types the
- *   parse that it kept, so the full request differs from cold; Genes must
- *   not prove the file, so that the next full request parses it again.
+ * - `stat-first-seen`: a new module stays unknown after the full request
+ *   that first typed it, even when it is older than the grain: Haxe may
+ *   have parsed it outside the reads of Genes (for example in a failed
+ *   request, or in an init macro given before `genes.Generator.use()`).
+ *   The next module request is refused once (`source-changed`); after the
+ *   next full request it previews.
  * - `stat-deleted-import-hx`: a module request sees a deleted `import.hx`
  *   by its missing status (`source-changed`), and the full request after
  *   the next one does not make Haxe type its folder again.
@@ -993,53 +984,27 @@ function statGroups(): ReadonlyArray<Group> {
       name: "stat-first-seen",
       steps: [
         {
-          id: "new module Fresh and a first use of haxe.Json, older than the grain at the full request",
+          id: "new module Fresh, older than the grain when the full request first types it",
           apply: () => {
             writeFileSync(sourceFile("Fresh.hx"), freshWith("one"));
             edit("Main.hx", "    trace(Theme.size());\n",
-              "    trace(Theme.size());\n    trace(Fresh.run() + haxe.Json.stringify(1));\n");
+              "    trace(Theme.size());\n    trace(Fresh.run());\n");
           },
           settleMs
         },
         {
-          id: "Button text edit, the first module request after them",
+          id: "Button text edit, the first module request after them: Fresh is unknown",
           apply: () => edit("Button.hx", "return 'Save';", "return 'Sale';"),
           module: "mr.Button",
-          expect: "preview"
-        }
-      ]
-    },
-    {
-      name: "stat-first-seen-after-failed-request",
-      noInvalidate: true,
-      steps: [
-        {
-          id: "new module Fresh and a module with a type error: the full request fails after Haxe parsed Fresh",
-          apply: () => {
-            writeFileSync(sourceFile("Fresh.hx"), freshWith("one"));
-            writeFileSync(sourceFile("Broken.hx"), "package mr;\n\nclass Broken {\n"
-              + "  public static function value(): Int {\n    return 'not a number';\n  }\n}\n");
-            edit("Main.hx", "    trace(Theme.size());\n",
-              "    trace(Theme.size());\n    trace(Fresh.run());\n    trace(Broken.value());\n");
-          },
-          failsFull: true
+          expect: "source-changed",
+          check: (report, label) => ok(String(report.reason).includes(sourceFile("Fresh.hx")),
+            `${label}: the refusal must name mr/Fresh.hx (${String(report.reason)})`)
         },
         {
-          id: "Main stops using Broken; Fresh saved again in the same second; the files settle",
-          apply: () => {
-            edit("Main.hx", "    trace(Broken.value());\n", "");
-            editSameSecond("Fresh.hx", "return 'one';", "return 'two';");
-          },
-          settleMs,
-          // Haxe types Fresh from the parse that the failed request left in its
-          // cache: the file's whole-second time did not change.
-          staleFull: ["mr/Fresh.ts", "mr/Fresh.ts.map"]
-        },
-        {
-          id: "no edit: Fresh is not proven, so the module request is refused and the full request parses it again",
-          apply: () => {},
+          id: "Button text edit after the next full request",
+          apply: () => edit("Button.hx", "return 'Sale';", "return 'Salt';"),
           module: "mr.Button",
-          expect: "source-changed"
+          expect: "preview"
         }
       ]
     },
@@ -1822,16 +1787,6 @@ function readRecordsReport(): { readonly stored: boolean, readonly shapes: numbe
   };
 }
 
-/** Runs a full request that must fail (a type error in the sources). */
-async function failingProgramRequest(server: OwnedHaxeCompilerServer,
-    label: string): Promise<void> {
-  await invalidate(server, label);
-  writeDescriptor({ kind: "full", moduleRecords: true });
-  const result = await server.compile(incremental(programArguments(folder("program"))),
-    `Failing program ${label}`, timeoutMs, workspace);
-  ok(result.code !== 0, `${label}: the full request must fail`);
-}
-
 /** Resolves after `ms` milliseconds. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -2002,21 +1957,13 @@ async function runGroup(group: Group,
       }
       step.afterModule?.();
       let programMs = 0;
-      if (step.failsFull === true) {
-        await failingProgramRequest(server, label);
-      } else if (step.skipProgram !== true) {
+      if (step.skipProgram !== true) {
         const coldTree = await coldBuild(compiler, label);
         programMs = await programRequest(server, label, step.raceOnFull);
         const difference = treeDifference(hashTree(folder("program")), coldTree);
-        const allowed = step.staleFull ?? [];
-        const unexpected = difference.filter((file) => !allowed.includes(file)
-          && !(allowed.length > 0 && file.startsWith(".genes-output-")));
-        deepStrictEqual(unexpected, [],
+        deepStrictEqual(difference, [],
           `${label}: the full request after the step differs from the cold build:\n`
-          + unexpected.join("\n"));
-        if (allowed.length > 0)
-          process.stdout.write(`${label}: the full request differs from cold in `
-            + `${difference.length === 0 ? "no file" : difference.join(", ")} (allowed: Haxe's own check)\n`);
+          + difference.join("\n"));
         if (step.fullTypedAgain !== undefined)
           strictEqual(readRecordsReport().shapes, step.fullTypedAgain,
             `${label}: Haxe typed another number of modules again in the full request`);

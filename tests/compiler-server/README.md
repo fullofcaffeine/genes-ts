@@ -526,31 +526,33 @@ tree stale. The final line counts the previews that passed it.
 The `stat-` groups check how Genes knows that the files of the stored
 program still hold what Haxe typed (genes-f8vc.14.11). A full request reads
 and hashes every file of the program and keeps, with each proven digest, the
-file status read right after the bytes: size, modification time, change time
-and inode. A module request does not read a file again when its status
-equals the kept status and the kept modification and change times were
-older than that read by more than the grain (2 s). This is git's rule for
-its index. Every other file is read and hashed. The report lists the files
-that were read (`hashedSources`) and counts the trusted ones
-(`trustedSources`).
+file status: size, modification time, change time and inode. Genes reads the
+status before and after the bytes and keeps it only when both reads are
+equal, so a save during the read leaves no status. A module request does not
+read a file again when its status equals the kept status and the kept
+modification and change times were older than that read by more than the
+grain (2 s). This is git's rule for its index. Every other file is read and
+hashed. The report lists the files that were read (`hashedSources`) and
+counts the trusted ones (`trustedSources`).
 
 Why the rule holds: the system sets the change time to its clock at every
 change of a file (bytes, times, name or rights), and no tool can set it. A
 change after the read gives another change time. A change during the read
 gives a change time within the grain of the read, and the rule never trusts
-such a status. The rule trusts three things:
+such a status. The rule trusts four things:
 
 - the system clock is not set back;
 - file times come from this machine's clock (a local file system, not a
   network share with another clock);
+- the file system moves the change time at every change (FAT and exFAT may
+  not);
 - nobody restores a file below the file system.
 
 On Windows the change time is the creation time, so Genes reads every file
 there.
 
-The groups (`stat-rule` and `stat-first-seen-after-failed-request` send no
-`server/invalidate`, so that Haxe's own whole-second check misses their
-saves):
+The groups (`stat-rule` sends no `server/invalidate`, so that Haxe's own
+whole-second check misses its saves):
 
 - `stat-rule`: after the files settle, a Button edit previews with every
   unchanged fixture file trusted. Then three saves of `mr/Theme.hx` that
@@ -564,26 +566,27 @@ saves):
   `genes.Generator.use()`, saves `mr/Button.hx` after Genes read it and puts
   the old text back after typing. The digest is the same before and after
   typing, but Haxe typed the other text: the change time makes the file
-  unknown (`stale-source`), and the next request previews.
-- `stat-first-seen`: a new module and a first use of `haxe.Json`, older than
-  the grain when the full request runs, are proven, so the next module
-  request previews. Before, the first one was refused with a misleading
-  `source-changed`.
-- `stat-first-seen-after-failed-request`: a full request fails with a type
-  error after Haxe parsed the new module; a second save of it follows in the
-  same second. The next full request types the parse that Haxe kept, so it
-  may differ from cold in that module's files (the gate allows only those).
-  Genes must not prove that file, so the module request after it is
-  refused, and the following full request equals cold again.
+  unknown (`stale-source`), and the next request previews. This works only
+  where the change time is finer than a second (APFS, ext4); on HFS+ or
+  ext3 a save and a revert in the same second keep the change time.
+- `stat-first-seen`: a new module that the full request types for the first
+  time stays unknown, even when it is older than the grain, because Haxe may
+  have parsed it outside the reads of Genes (a failed request, or an init
+  macro given before `genes.Generator.use()`). The next module request is
+  refused once (`source-changed`), and after the next full request it
+  previews.
 - `stat-deleted-import-hx`: a module request sees a deleted `import.hx` by
   its missing status (`source-changed`), and the full request after the next
   one makes Haxe type nothing again.
 
-Limits: a file that Haxe parsed before the current macro interpreter started
-(Haxe starts a new one when a macro module changes) is not covered; every
-file that the first full request of a new interpreter proves has the same
-limit. On APFS a replaced file also gets a new change time, so the inode
-check is a second guard there, not the only one.
+Limits, not covered: an init macro given before `genes.Generator.use()` that
+types project modules (Haxe parses their files before Genes reads them, so a
+save in between, in the same second, is proven as typed); a file that Haxe
+parsed before the current macro interpreter started (Haxe starts a new one
+when a macro module changes). On APFS a replaced file also gets a new change
+time, so the inode check is a second guard there, not the only one. No group
+can force a save between the bytes and the status of one read; the two
+status reads are checked by review only.
 
 The last lines of the gate give the median `digestMs` of the module
 requests and the median load per CPU; they are diagnostic only.
@@ -609,8 +612,10 @@ How a module request relates to the full incremental path:
   checks the stored walk against a live one.
 
 Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
-metadata that only a typed body holds; a file that Haxe parsed before the
-current macro interpreter started; a change that a macro makes by name
+metadata that only a typed body holds; an init macro given before
+`genes.Generator.use()` that types project modules; a file that Haxe parsed
+before the current macro interpreter started; a change that a macro makes by
+name
 to a module outside the request's program; an after-save callback that
 another after-save callback registers while the save phase runs, when it is
 registered after the callback of Genes; and a file that a macro reads in a

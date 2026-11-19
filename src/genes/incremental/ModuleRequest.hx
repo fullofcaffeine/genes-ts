@@ -176,16 +176,17 @@ typedef SourceStat = {
 
   final ino: Int;
 
-  /** `Sys.time()` in milliseconds, read just before the bytes of the digest were read. */
+  /** `Sys.time()` in milliseconds, read before the first status and the bytes of the digest. */
   final readAt: Float;
 }
 
 /**
  * What Genes knows about the content of one source file: its digest, and
- * the file status that was read right after the bytes of that digest.
- * Example: `{digest: "3f2a...", stat: {size: 412, mtime: ..., ctime: ...,
- * ino: 1385596042, readAt: ...}}`. A missing file and an unknown digest
- * have no status.
+ * the file status that was read before and after the bytes of that digest
+ * (`ModuleRequest.readSource`). Example: `{digest: "3f2a...", stat: {size:
+ * 412, mtime: ..., ctime: ..., ino: 1385596042, readAt: ...}}`. A missing
+ * file, an unknown digest, and a read whose two statuses differ have no
+ * status.
  */
 typedef SourceContent = {
   /** The SHA-1 of the bytes as hexadecimal text, `missing`, or `unknown`. */
@@ -265,38 +266,34 @@ typedef ModuleRecordsReport = {
  * status (size, modification time, change time and inode) read before
  * typing equal the ones read after typing (`provenSource`). A save that
  * lands while Haxe types makes that file unknown, also a save and a revert
- * in the same second (the change time differs): module requests are
+ * in the same second where the change time is finer than a second (APFS,
+ * ext4; not HFS+ or ext3, which keep whole seconds): module requests are
  * refused until a full request has made Haxe parse it again, which the next
  * full request does. A file that Genes did not read before typing (a new
  * module, or a library module that the program uses for the first time) is
- * proven in a full request when its modification and change times are
- * older, by more than the grain (2 s), than the start of the request and of
- * every earlier request whose typed files Genes did not record
- * (`unrecordedSince`: a request that failed before `afterSave`, or a
- * display request; Haxe keeps the files that such a request parsed, and a
- * second save in the same second would leave that parse in use). Not
- * covered: a file that Haxe parsed before this macro interpreter started
- * (Haxe starts a new one when a macro module changes); every file that the
- * first full request of a new interpreter proves has the same limit. A
- * deleted file keeps the digest `missing`, so that later full requests do
- * not make Haxe parse it, or the folder of a deleted `import.hx`, again,
- * and a file created again at that path counts as changed.
+ * unknown too, so the first module request after it is refused. A deleted
+ * file keeps the digest `missing`, so that later full requests do not make
+ * Haxe parse it, or the folder of a deleted `import.hx`, again, and a file
+ * created again at that path counts as changed.
  *
  * The status rule of a module request (git's rule for its index): a full
  * request reads every file of the program, but a module request does not
  * read a file again when its status equals the status kept with its proven
  * digest, and the kept modification and change times were older than the
- * moment of that read by more than the grain (`holdsContent`). Any other
- * file is read and hashed. Why it holds: the system sets the change time to
- * its clock at every change of the file, and a change during the read
- * would give a change time within the grain of that moment; so an equal
- * status means that nothing changed since the bytes were read. Example: a
- * save that keeps the size and resets the modification time still changes
- * the change time, and a file replaced by another one has another inode.
- * The rule trusts that the system clock is not set back, that file times
- * come from this machine's clock (a local file system), and that nobody
- * restores a file below the file system. On Windows, where the change time
- * is the creation time, Genes reads every file.
+ * moment of that read by more than the grain (`holdsContent`). A status is
+ * kept only when the status read before the bytes equals the one read
+ * after them (`readSource`). Any other file is read and hashed. Why it
+ * holds: the system sets the change time to its clock at every change of
+ * the file, and a change during the read would give a change time within
+ * the grain of that moment; so an equal status means that nothing changed
+ * since the bytes were read. Example: a save that keeps the size and resets
+ * the modification time still changes the change time, and a file replaced
+ * by another one has another inode. The rule trusts that the system clock
+ * is not set back, that file times come from this machine's clock (a local
+ * file system), that the file system moves the change time at every change
+ * (FAT and exFAT may not), and that nobody restores a file below the file
+ * system. On Windows, where the change time is the creation time, Genes
+ * reads every file.
  *
  * The descriptor is one file for the whole session (its path is a define,
  * and a new define value starts a new Haxe cache). A server runs one request
@@ -392,8 +389,13 @@ typedef ModuleRecordsReport = {
  * (`target-facts-changed` above, or `session-changed` when
  * `GenerationChangeSet.compareMetadata` sees it first), and so is a define
  * that it sets (`defines-changed`). Not covered: metadata that only a typed
- * body holds (limit S3 of `ModuleFingerprint`); a file that Haxe parsed
- * before the current macro interpreter started; a change that a macro
+ * body holds (limit S3 of `ModuleFingerprint`); an init macro given before
+ * `genes.Generator.use()` that types project modules (Haxe parses their
+ * files before `beginRequest` reads them, so a save in between, in the same
+ * second, is proven as typed); a file that Haxe parsed before the current
+ * macro interpreter started (also outside what `provenSource` reads); the
+ * status rule on a file system whose change time does not move at every
+ * change (FAT and exFAT may not); a change that a macro
  * makes, by name, to a module outside the request's program, which the
  * request never reads; an after-save callback that another after-save
  * callback registers while the save phase runs, when it is registered after
@@ -484,26 +486,6 @@ class ModuleRequest {
   @:persistent static var typedDigests: Map<String, SourceContent> = new Map();
 
   /**
-   * The start (`Sys.time()` in milliseconds) of the request that is running
-   * or that ran last, until its `afterSave` recorded the files that Haxe
-   * typed. A value at the start of the next request means that the earlier
-   * request failed, or was a display request: Haxe may keep files that it
-   * parsed, and Genes has no digest of them.
-   */
-  @:persistent static var openRequestStart: Null<Float> = null;
-
-  /** The start of the first request of this macro interpreter. */
-  @:persistent static var firstRequestStart: Null<Float> = null;
-
-  /**
-   * The earliest start of a request whose typed files Genes did not record
-   * (see `openRequestStart`), or the start of the first request when the
-   * records were dropped. `provenSource` proves a file that it did not read
-   * before typing only when the file did not change since this moment.
-   */
-  @:persistent static var unrecordedSince = Math.POSITIVE_INFINITY;
-
-  /**
    * Files of modules that a module request typed alone and could not mark
    * for a new typing (`retypeLater` failed). The next request invalidates
    * them before typing.
@@ -558,9 +540,6 @@ class ModuleRequest {
 
   static var digestSeconds = 0.0;
 
-  /** The start of this request (`Sys.time()` in milliseconds), read in `beginRequest`. */
-  static var requestStart = 0.0;
-
   /** See `ModuleRequestReport.hashedSources` and `trustedSources`. */
   static var hashedSources: Array<String> = [];
 
@@ -588,7 +567,6 @@ class ModuleRequest {
     requestDigests = new Map();
     preDigests = new Map();
     digestSeconds = 0.0;
-    requestStart = Sys.time() * 1000;
     hashedSources = [];
     trustedSources = 0;
     targetFile = null;
@@ -632,17 +610,8 @@ class ModuleRequest {
    * not change, and the digest `missing` for a deleted file, so that the
    * next full request does not make Haxe parse it (or the folder of a
    * deleted `import.hx`) again.
-   *
-   * Every request with the define, also one without a usable descriptor,
-   * first notes its start; see `openRequestStart`.
    */
   static function beginRequest(): Void {
-    if (firstRequestStart == null)
-      firstRequestStart = requestStart;
-    final open = openRequestStart;
-    if (open != null)
-      unrecordedSince = Math.min(unrecordedSince, open);
-    openRequestStart = requestStart;
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
       return;
@@ -736,40 +705,32 @@ class ModuleRequest {
    * Returns the content of `file` if it is proven to be the content that
    * Haxe typed in this request, or the content `UNKNOWN_DIGEST`.
    *
-   * Proof for a file that `beginRequest` read before typing: the digest and
-   * the file status (`sameStatus`) read then equal the ones read now, so
-   * the file did not change while Haxe read it. The change time also
-   * catches a save and a revert in the same second, which leave the digest
-   * equal. A file whose content or status changed during the request (a
-   * save landed while Haxe typed) is unknown: a module request refuses an
-   * unknown file, and the next full request makes Haxe parse it again.
-   *
-   * A file that `beginRequest` did not read (a new module, or a library
-   * module that the program uses for the first time) is proven only when
-   * `firstSeen` is true (a module file in a full request) and its
-   * modification and change times are older, by more than the grain, than
-   * the start of this request and than `unrecordedSince`. Then the file did
-   * not change since Haxe could last parse it without Genes: a request
-   * that Genes recorded put the file into `typedDigests`, and Haxe parsed
-   * nothing of this request before its start. Otherwise it is unknown, also
-   * on Windows (`statusRuleApplies`). A missing file stays `missing`.
+   * Proof: `beginRequest` read the file before typing, and the digest and
+   * the file status (`sameStatus`) read then equal the ones read now, so the
+   * file did not change while Haxe read it. The change time also catches a
+   * save and a revert in the same second, which leave the digest equal,
+   * where the file system keeps change times finer than a second. A file
+   * whose content or status changed during the request (a save landed while
+   * Haxe typed), or whose status was not kept (`readSource`), is unknown: a
+   * module request refuses an unknown file, and the next full request makes
+   * Haxe parse it again. A file that `beginRequest` did not read (a new
+   * module, or a library module that the program uses for the first time)
+   * is unknown too: Haxe may have parsed it outside the reads of Genes. A
+   * file that is missing before and after stays `missing`.
    */
-  static function provenSource(file: String, firstSeen: Bool): SourceContent {
+  static function provenSource(file: String): SourceContent {
     final after = readSource(file);
     final before = preDigests.get(file);
-    if (before != null)
-      return before.digest == after.digest
-        && sameStatus(before.stat, after.stat) ? after : unknownSource();
-    if (after.digest == MISSING_DIGEST)
-      return after;
-    final stat = after.stat;
-    final quietSince = Math.min(requestStart, unrecordedSince);
-    if (firstSeen
-      && stat != null
-      && statusRuleApplies()
-      && olderThanGrain(stat, quietSince))
-      return after;
-    return unknownSource();
+    if (after.digest == MISSING_DIGEST) {
+      final missingBefore = before == null || before.digest == MISSING_DIGEST;
+      return missingBefore ? after : unknownSource();
+    }
+    if (before == null || before.digest != after.digest)
+      return unknownSource();
+    final beforeStat = before.stat;
+    final afterStat = after.stat;
+    return beforeStat != null && afterStat != null
+      && sameStatus(beforeStat, afterStat) ? after : unknownSource();
   }
 
   /** The content that `provenSource` gives when it cannot prove what Haxe typed. */
@@ -778,19 +739,30 @@ class ModuleRequest {
   }
 
   /**
-   * Reads `file` and returns its SHA-1 digest with the file status read
-   * right after the bytes, or `missing` without a status. The macro
+   * Reads `file` and returns its SHA-1 digest, or `missing`. The macro
    * interpreter computes SHA-1 natively. The time counts into `digestMs`.
+   *
+   * The file status is read before and after the bytes, as git reads it
+   * before the bytes, and is kept only when both reads are equal. Why: a
+   * save between the bytes and a single status read would give the old
+   * digest with the new status, and the status rule would then trust the
+   * old digest for the new file. With two equal reads, no change that moves
+   * the change time happened while the bytes were read. A missing file, or
+   * two different reads, give no status, so the file is never trusted by
+   * its status (`holdsContent`) or proven by it (`provenSource`).
    */
   static function readSource(file: String): SourceContent {
     final started = haxe.Timer.stamp();
     final readAt = Sys.time() * 1000;
+    final first = statusOf(file, readAt);
     final digest = try {
       haxe.crypto.Sha1.make(File.getBytes(file)).toHex();
     } catch (_:haxe.Exception) {
       MISSING_DIGEST;
     }
-    final stat = digest == MISSING_DIGEST ? null : statusOf(file, readAt);
+    final second = digest == MISSING_DIGEST ? null : statusOf(file, readAt);
+    final stat = first != null && second != null
+      && sameStatus(first, second) ? second : null;
     digestSeconds += haxe.Timer.stamp() - started;
     return {digest: digest, stat: stat};
   }
@@ -814,12 +786,9 @@ class ModuleRequest {
   /**
    * Returns true when two statuses describe the same file version: equal
    * size, modification time, change time and inode. `readAt` is not
-   * compared. Two missing statuses are equal.
+   * compared.
    */
-  static function sameStatus(left: Null<SourceStat>,
-      right: Null<SourceStat>): Bool {
-    if (left == null || right == null)
-      return left == null && right == null;
+  static function sameStatus(left: SourceStat, right: SourceStat): Bool {
     return left.size == right.size
       && left.mtime == right.mtime
       && left.ctime == right.ctime
@@ -838,7 +807,7 @@ class ModuleRequest {
   /**
    * Returns false on Windows, where the change time of a file is its
    * creation time and does not change when the file is saved: the status
-   * rule and the first-seen proof then never trust a file status.
+   * rule then never trusts a file status.
    */
   static function statusRuleApplies(): Bool {
     return Sys.systemName() != 'Windows';
@@ -855,8 +824,10 @@ class ModuleRequest {
    * system sets the change time to its clock at every change; a change
    * after the read gives a change time after the read; and a change during
    * the read gives a change time within the grain of the read, which the
-   * settled status does not have. Any other file is read and hashed
-   * (`hashedSources`). A file whose status cannot be read is missing.
+   * settled status does not have. A kept status exists only when the reads
+   * before and after the bytes were equal (`readSource`). Any other file is
+   * read and hashed (`hashedSources`). A file whose status cannot be read is
+   * missing.
    * Example: a save that keeps the size and sets the modification time back
    * changes the change time; a file replaced by another has another inode;
    * a file saved a moment before the full request read it is not settled.
@@ -1034,17 +1005,12 @@ class ModuleRequest {
       factsSeconds += haxe.Timer.stamp() - factsStart;
     }
     // Haxe typed these modules in this request; keep a digest only when it
-    // is proven to be the content that Haxe read (`provenSource`). A file
-    // first seen counts only in a full request: a module request makes the
-    // next full request type its modules again anyway (`retypeLater`).
-    final firstSeen = descriptor.kind.match(Full);
+    // is proven to be the content that Haxe read (`provenSource`).
     for (module in GenerationChangeSet.retypedModules()) {
       final file = moduleFiles.get(module);
       if (file != null)
-        typedDigests.set(file, provenSource(file, firstSeen));
+        typedDigests.set(file, provenSource(file));
     }
-    // This request recorded the files that Haxe typed (`openRequestStart`).
-    openRequestStart = null;
     switch descriptor.kind {
       case Module(module):
         final own = typesOf(types, module);
@@ -1077,11 +1043,9 @@ class ModuleRequest {
               typedDigests.set(file, unknownSource());
             requestDigests.set(file, typed == null ? unknownSource() : typed);
           }
-        // An `import.hx` is not a module file: a module request that parses
-        // a new one does not record it, so it is never proven first seen.
         for (file in importFilesOf([for (_ => file in moduleFiles) file]))
           if (!requestDigests.exists(file)) {
-            final typed = provenSource(file, false);
+            final typed = provenSource(file);
             typedDigests.set(file, typed);
             requestDigests.set(file, typed);
           }
@@ -1454,11 +1418,7 @@ class ModuleRequest {
       'Genes module request preview folder. Genes may empty this folder.\n');
   }
 
-  /**
-   * Forgets every record. The digests of what Haxe typed go too, so every
-   * earlier request of this macro interpreter counts as unrecorded from now
-   * on (`unrecordedSince`).
-   */
+  /** Forgets every record, also the digests of what Haxe typed. */
   public static function drop(): Void {
     storedKey = null;
     storedOutputFolder = '';
@@ -1469,9 +1429,6 @@ class ModuleRequest {
     storedFiles = new Map();
     typedDigests = new Map();
     shapeCache = new Map();
-    final first = firstRequestStart;
-    unrecordedSince = Math.min(unrecordedSince,
-      first == null ? requestStart : first);
   }
 
   /**
