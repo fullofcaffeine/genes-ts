@@ -139,8 +139,60 @@ typedef ModuleRequestReport = {
   /** Time of the shape and root step before dead-code elimination. */
   final rootMs: Float;
 
-  /** Time spent reading and hashing source files in this request. */
+  /**
+   * Time spent reading, hashing and reading the status of source files in
+   * this request.
+   */
   final digestMs: Float;
+
+  /**
+   * The files of the stored program that the source check read and hashed,
+   * because the status rule could not trust them (`ModuleRequest.holdsContent`),
+   * sorted. Example: the module's own file is never here; a file saved a
+   * moment before the full request is.
+   */
+  final hashedSources: Array<String>;
+
+  /** The number of files of the stored program that the status rule trusted without reading them. */
+  final trustedSources: Int;
+}
+
+/**
+ * The file status that Genes keeps with a proven digest (`SourceContent`),
+ * as the macro interpreter's `FileSystem.stat` reports it. Times are in
+ * milliseconds; on APFS they are finer than 1 ms.
+ */
+typedef SourceStat = {
+  final size: Int;
+
+  /** Time of the last change of the bytes. A tool can set it to any value. */
+  final mtime: Float;
+
+  /**
+   * Time of the last change of the file (bytes, times, name or rights).
+   * Only the system sets it, to its clock at the change.
+   */
+  final ctime: Float;
+
+  final ino: Int;
+
+  /** `Sys.time()` in milliseconds, read before the first status and the bytes of the digest. */
+  final readAt: Float;
+}
+
+/**
+ * What Genes knows about the content of one source file: its digest, and
+ * the file status that was read before and after the bytes of that digest
+ * (`ModuleRequest.readSource`). Example: `{digest: "3f2a...", stat: {size:
+ * 412, mtime: ..., ctime: ..., ino: 1385596042, readAt: ...}}`. A missing
+ * file, an unknown digest, and a read whose two statuses differ have no
+ * status.
+ */
+typedef SourceContent = {
+  /** The SHA-1 of the bytes as hexadecimal text, `missing`, or `unknown`. */
+  final digest: String;
+
+  final stat: Null<SourceStat>;
 }
 
 /** The report of the record step of one full request with `"moduleRecords": true`. */
@@ -159,7 +211,10 @@ typedef ModuleRecordsReport = {
   final shapeMs: Float;
   final recordMs: Float;
 
-  /** Time spent reading and hashing source files in this request. */
+  /**
+   * Time spent reading, hashing and reading the status of source files in
+   * this request. A full request reads every file of the program.
+   */
   final digestMs: Float;
 
   /**
@@ -207,11 +262,38 @@ typedef ModuleRecordsReport = {
  * `server/invalidate` for each file that it saved. Genes also checks file
  * contents itself (`beginRequest`, `stale-source`, `source-changed`),
  * because Haxe compares file times only in whole seconds. It keeps a
- * file's digest as "what Haxe typed" only when the digest read before
- * typing equals the digest after typing (`provenDigest`). A save that lands
- * while Haxe types makes that file unknown: module requests are refused
- * until a full request has made Haxe parse it again, which the next full
- * request does.
+ * file's digest as "what Haxe typed" only when the digest and the file
+ * status (size, modification time, change time and inode) read before
+ * typing equal the ones read after typing (`provenSource`). A save that
+ * lands while Haxe types makes that file unknown, also a save and a revert
+ * in the same second where the change time is finer than a second (APFS,
+ * ext4; not HFS+ or ext3, which keep whole seconds): module requests are
+ * refused until a full request has made Haxe parse it again, which the next
+ * full request does. A file that Genes did not read before typing (a new
+ * module, or a library module that the program uses for the first time) is
+ * unknown too, so the first module request after it is refused. A deleted
+ * file keeps the digest `missing`, so that later full requests do not make
+ * Haxe parse it, or the folder of a deleted `import.hx`, again, and a file
+ * created again at that path counts as changed.
+ *
+ * The status rule of a module request (git's rule for its index): a full
+ * request reads every file of the program, but a module request does not
+ * read a file again when its status equals the status kept with its proven
+ * digest, and the kept modification and change times were older than the
+ * moment of that read by more than the grain (`holdsContent`). A status is
+ * kept only when the status read before the bytes equals the one read
+ * after them (`readSource`). Any other file is read and hashed. Why it
+ * holds: the system sets the change time to its clock at every change of
+ * the file, and a change during the read would give a change time within
+ * the grain of that moment; so an equal status means that nothing changed
+ * since the bytes were read. Example: a save that keeps the size and resets
+ * the modification time still changes the change time, and a file replaced
+ * by another one has another inode. The rule trusts that the system clock
+ * is not set back, that file times come from this machine's clock (a local
+ * file system), that the file system moves the change time at every change
+ * (FAT and exFAT may not), and that nobody restores a file below the file
+ * system. On Windows, where the change time is the creation time, Genes
+ * reads every file.
  *
  * The descriptor is one file for the whole session (its path is a define,
  * and a new define value starts a new Haxe cache). A server runs one request
@@ -259,9 +341,9 @@ typedef ModuleRecordsReport = {
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
  * - no source file of the stored program other than the module's own
- *   changed since the full request (content digest; also `import.hx`
- *   files, and also files of modules that this request loads, because Haxe
- *   compares file times only in whole seconds),
+ *   changed since the full request (content digest, or the status rule
+ *   above; also `import.hx` files, and also files of modules that this
+ *   request loads, because Haxe compares file times only in whole seconds),
  *   so an edit outside the module's imports is a refusal too
  *   (`source-changed`);
  * - the module uses exactly what it used: its signature (every declaration
@@ -307,7 +389,15 @@ typedef ModuleRecordsReport = {
  * (`target-facts-changed` above, or `session-changed` when
  * `GenerationChangeSet.compareMetadata` sees it first), and so is a define
  * that it sets (`defines-changed`). Not covered: metadata that only a typed
- * body holds (limit S3 of `ModuleFingerprint`); a change that a macro
+ * body holds (limit S3 of `ModuleFingerprint`); an init macro given before
+ * `genes.Generator.use()` that types project modules: Haxe types them
+ * before `beginRequest` reads their files, so any save that Haxe's
+ * whole-second check misses (in the same second, or with the modification
+ * time kept) is typed stale in that request and proven as typed, and the
+ * full request itself can be stale (genes-v54c); a file that Haxe parsed before the current
+ * macro interpreter started (also outside what `provenSource` reads); the
+ * status rule on a file system whose change time does not move at every
+ * change (FAT and exFAT may not); a change that a macro
  * makes, by name, to a module outside the request's program, which the
  * request never reads; an after-save callback that another after-save
  * callback registers while the save phase runs, when it is registered after
@@ -379,19 +469,23 @@ class ModuleRequest {
   @:persistent static var externalUses: Map<String, Bool> = new Map();
 
   /**
-   * The content digest (`digestOf`) of each source file and `import.hx`
-   * file of the stored program, read right after typing in the full request.
+   * The proven content (`typedDigests`) of each source file and `import.hx`
+   * file of the stored program, as the full request kept it. A module
+   * request compares every file with it (`holdsContent`).
    */
-  @:persistent static var storedFiles: Map<String, String> = new Map();
+  @:persistent static var storedFiles: Map<String, SourceContent> = new Map();
 
   /**
-   * The content digest of each source file when Haxe last typed its module
-   * in a request with the define. A file whose content differs at the start
-   * of a request may hold content that Haxe's own check missed: Haxe keeps
-   * file times in whole seconds, so a second save in the same second looks
-   * unchanged. `beginRequest` makes Haxe parse such a file again.
+   * The content of each source file when Haxe last typed its module in a
+   * request with the define (`provenSource`), with the file status read
+   * with the digest. A file whose content differs at the start of a request
+   * may hold content that Haxe's own check missed: Haxe keeps file times in
+   * whole seconds, so a second save in the same second looks unchanged.
+   * `beginRequest` makes Haxe parse such a file again. A full request reads
+   * every file here before typing and keeps the newer status when the digest
+   * is the same; a deleted file keeps the digest `missing`.
    */
-  @:persistent static var typedDigests: Map<String, String> = new Map();
+  @:persistent static var typedDigests: Map<String, SourceContent> = new Map();
 
   /**
    * Files of modules that a module request typed alone and could not mark
@@ -441,12 +535,18 @@ class ModuleRequest {
   static var addedRoots: Array<MetaAccess> = [];
   static var moduleFiles: Map<String, String> = new Map();
   static var loadedModules: Map<String, Bool> = new Map();
-  static var requestDigests: Map<String, String> = new Map();
-  static var preDigests: Map<String, String> = new Map();
+  static var requestDigests: Map<String, SourceContent> = new Map();
+
+  /** The content of each file that this request read before typing. */
+  static var preDigests: Map<String, SourceContent> = new Map();
+
   static var digestSeconds = 0.0;
+
+  /** See `ModuleRequestReport.hashedSources` and `trustedSources`. */
+  static var hashedSources: Array<String> = [];
+
+  static var trustedSources = 0;
   static var targetFile: Null<String> = null;
-  static var targetDigestAtStart: Null<String> = null;
-  static var targetTypedDigest: Null<String> = null;
   static var retypeFailure: Null<String> = null;
   static var surfaceOwners: Null<Map<String, Bool>> = null;
 
@@ -469,9 +569,9 @@ class ModuleRequest {
     requestDigests = new Map();
     preDigests = new Map();
     digestSeconds = 0.0;
+    hashedSources = [];
+    trustedSources = 0;
     targetFile = null;
-    targetDigestAtStart = null;
-    targetTypedDigest = null;
     retypeFailure = null;
     surfaceOwners = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
@@ -506,8 +606,12 @@ class ModuleRequest {
    * preview of the second save shows `Sava`. A session should still send
    * `server/invalidate` for each saved file before a request.
    *
-   * In a module request it also notes the digest of the requested module's
-   * file, which `decide` compares with the file after typing.
+   * In a module request it also notes the content of the requested module's
+   * file, which `afterSave` compares with the file after typing. In a full
+   * request it keeps the newer file status of each file whose digest did
+   * not change, and the digest `missing` for a deleted file, so that the
+   * next full request does not make Haxe parse it (or the folder of a
+   * deleted `import.hx`) again.
    */
   static function beginRequest(): Void {
     final descriptor = IncrementalRequest.descriptor();
@@ -521,26 +625,30 @@ class ModuleRequest {
           + '.hx') catch (_:haxe.Exception) null;
         if (file != null) {
           targetFile = file;
-          final now = digestOf(file);
+          final now = readSource(file);
           preDigests.set(file, now);
-          targetDigestAtStart = now;
-          targetTypedDigest = typedDigests.get(file);
-          if (targetTypedDigest != now)
+          final typed = typedDigests.get(file);
+          if (typed == null || typed.digest != now.digest)
             stale.push(file);
         }
       case Full:
         // The first full request of this macro interpreter knows no file
         // yet: read every Haxe source of the class paths before typing, so
-        // that `provenDigest` can prove what Haxe typed.
+        // that `provenSource` can prove what Haxe typed.
         if (descriptor.moduleRecords == true && !typedDigests.keys().hasNext())
           for (root in Context.getClassPath())
             scanSources(root.length == 0 ? '.' : root);
-        if (descriptor.moduleRecords == true)
-          for (file => digest in typedDigests) {
-            final now = digestOf(file);
+        if (descriptor.moduleRecords == true) {
+          final newer: Array<{file: String, content: SourceContent}> = [];
+          for (file => typed in typedDigests) {
+            final now = readSource(file);
             preDigests.set(file, now);
-            if (now == digest)
+            if (now.digest == typed.digest) {
+              newer.push({file: file, content: now});
               continue;
+            }
+            if (now.digest == MISSING_DIGEST)
+              newer.push({file: file, content: now});
             stale.push(file);
             // A changed `import.hx` changes how every module of its folder
             // and the folders below is typed.
@@ -551,6 +659,9 @@ class ModuleRequest {
                   stale.push(other);
             }
           }
+          for (item in newer)
+            typedDigests.set(item.file, item.content);
+        }
     }
     if (stale.length > 0)
       haxe.macro.CompilationServer.invalidateFiles([
@@ -571,7 +682,7 @@ class ModuleRequest {
       final path = folder == '.' ? entry : Path.join([folder, entry]);
       if (StringTools.endsWith(entry, '.hx')) {
         if (!preDigests.exists(path))
-          preDigests.set(path, digestOf(path));
+          preDigests.set(path, readSource(path));
       } else if (!StringTools.startsWith(entry, '.')
         && (try FileSystem.isDirectory(path) catch (_:haxe.Exception) false))
         scanSources(path);
@@ -581,39 +692,164 @@ class ModuleRequest {
   /** The digest that `typedDigests` keeps for content that is not proven to be what Haxe typed. */
   static inline final UNKNOWN_DIGEST = 'unknown';
 
+  /** The digest of a file that does not exist (or cannot be read). */
+  static inline final MISSING_DIGEST = 'missing';
+
   /**
-   * Returns the digest of `file` if it is proven to be the content that Haxe
-   * typed in this request, or `UNKNOWN_DIGEST`.
-   *
-   * Proof: the digest read before typing (`beginRequest`) equals the digest
-   * after typing, so the file did not change while Haxe read it. A file
-   * that `beginRequest` did not read (a new file) is unknown, and so is a
-   * file whose content changed during the request (a save landed while
-   * Haxe typed): a module request refuses an unknown file, and the next
-   * full request makes Haxe parse it again. A file that is missing before
-   * and after stays `missing`.
+   * The timestamp grain in milliseconds: the coarsest step of file times
+   * on a common file system (FAT keeps modification times in 2 s steps,
+   * HFS+ in 1 s). A time that is older than a moment by more than the grain
+   * was set before that moment on every such file system.
    */
-  static function provenDigest(file: String): String {
-    final after = digestOf(file);
+  static inline final TIME_GRAIN_MS = 2000.0;
+
+  /**
+   * Returns the content of `file` if it is proven to be the content that
+   * Haxe typed in this request, or the content `UNKNOWN_DIGEST`.
+   *
+   * Proof: `beginRequest` read the file before typing, and the digest and
+   * the file status (`sameStatus`) read then equal the ones read now, so the
+   * file did not change while Haxe read it. The change time also catches a
+   * save and a revert in the same second, which leave the digest equal,
+   * where the file system keeps change times finer than a second. A file
+   * whose content or status changed during the request (a save landed while
+   * Haxe typed), or whose status was not kept (`readSource`), is unknown: a
+   * module request refuses an unknown file, and the next full request makes
+   * Haxe parse it again. A file that `beginRequest` did not read (a new
+   * module, or a library module that the program uses for the first time)
+   * is unknown too: Haxe may have parsed it outside the reads of Genes. A
+   * file that is missing before and after stays `missing`.
+   */
+  static function provenSource(file: String): SourceContent {
+    final after = readSource(file);
     final before = preDigests.get(file);
-    if (before != null)
-      return before == after ? after : UNKNOWN_DIGEST;
-    return after == 'missing' ? after : UNKNOWN_DIGEST;
+    if (after.digest == MISSING_DIGEST) {
+      final missingBefore = before == null || before.digest == MISSING_DIGEST;
+      return missingBefore ? after : unknownSource();
+    }
+    if (before == null || before.digest != after.digest)
+      return unknownSource();
+    final beforeStat = before.stat;
+    final afterStat = after.stat;
+    return beforeStat != null && afterStat != null
+      && sameStatus(beforeStat, afterStat) ? after : unknownSource();
+  }
+
+  /** The content that `provenSource` gives when it cannot prove what Haxe typed. */
+  static function unknownSource(): SourceContent {
+    return {digest: UNKNOWN_DIGEST, stat: null};
   }
 
   /**
-   * Returns the SHA-1 digest of a file's bytes as hexadecimal text, or
-   * `missing`. The macro interpreter computes SHA-1 natively.
+   * Reads `file` and returns its SHA-1 digest, or `missing`. The macro
+   * interpreter computes SHA-1 natively. The time counts into `digestMs`.
+   *
+   * The file status is read before and after the bytes, as git reads it
+   * before the bytes, and is kept only when both reads are equal. Why: a
+   * save between the bytes and a single status read would give the old
+   * digest with the new status, and the status rule would then trust the
+   * old digest for the new file. With two equal reads, no change that moves
+   * the change time happened while the bytes were read. A missing file, or
+   * two different reads, give no status, so the file is never trusted by
+   * its status (`holdsContent`) or proven by it (`provenSource`).
    */
-  static function digestOf(file: String): String {
+  static function readSource(file: String): SourceContent {
     final started = haxe.Timer.stamp();
+    final readAt = Sys.time() * 1000;
+    final first = statusOf(file, readAt);
     final digest = try {
       haxe.crypto.Sha1.make(File.getBytes(file)).toHex();
     } catch (_:haxe.Exception) {
-      'missing';
+      MISSING_DIGEST;
     }
+    final second = digest == MISSING_DIGEST ? null : statusOf(file, readAt);
+    final stat = first != null && second != null
+      && sameStatus(first, second) ? second : null;
     digestSeconds += haxe.Timer.stamp() - started;
-    return digest;
+    return {digest: digest, stat: stat};
+  }
+
+  /** Returns the status of `file` with the moment `readAt`, or `null` when it cannot be read. */
+  static function statusOf(file: String, readAt: Float): Null<SourceStat> {
+    return try {
+      final stat = FileSystem.stat(file);
+      {
+        size: stat.size,
+        mtime: stat.mtime.getTime(),
+        ctime: stat.ctime.getTime(),
+        ino: stat.ino,
+        readAt: readAt
+      };
+    } catch (_:haxe.Exception) {
+      null;
+    }
+  }
+
+  /**
+   * Returns true when two statuses describe the same file version: equal
+   * size, modification time, change time and inode. `readAt` is not
+   * compared.
+   */
+  static function sameStatus(left: SourceStat, right: SourceStat): Bool {
+    return left.size == right.size
+      && left.mtime == right.mtime
+      && left.ctime == right.ctime
+      && left.ino == right.ino;
+  }
+
+  /**
+   * Returns true when the modification and change times of `stat` are
+   * older than `moment` by more than the grain (`TIME_GRAIN_MS`).
+   */
+  static function olderThanGrain(stat: SourceStat, moment: Float): Bool {
+    return stat.mtime < moment - TIME_GRAIN_MS
+      && stat.ctime < moment - TIME_GRAIN_MS;
+  }
+
+  /**
+   * Returns false on Windows, where the change time of a file is its
+   * creation time and does not change when the file is saved: the status
+   * rule then never trusts a file status.
+   */
+  static function statusRuleApplies(): Bool {
+    return Sys.systemName() != 'Windows';
+  }
+
+  /**
+   * Returns true when `file` now holds the content `stored` of the full
+   * request (the source check of `decide`).
+   *
+   * The status rule (git's rule for its index): when the status kept with
+   * the digest is settled (its times were older than its read by more than
+   * the grain) and equals the status now, the file did not change since its
+   * bytes were read, and it is not read again (`trustedSources`). Why: the
+   * system sets the change time to its clock at every change; a change
+   * after the read gives a change time after the read; and a change during
+   * the read gives a change time within the grain of the read, which the
+   * settled status does not have. A kept status exists only when the reads
+   * before and after the bytes were equal (`readSource`). Any other file is
+   * read and hashed (`hashedSources`). A file whose status cannot be read is
+   * missing.
+   * Example: a save that keeps the size and sets the modification time back
+   * changes the change time; a file replaced by another has another inode;
+   * a file saved a moment before the full request read it is not settled.
+   */
+  static function holdsContent(file: String, stored: SourceContent): Bool {
+    final started = haxe.Timer.stamp();
+    final now = statusOf(file, Sys.time() * 1000);
+    digestSeconds += haxe.Timer.stamp() - started;
+    if (now == null)
+      return stored.digest == MISSING_DIGEST;
+    final kept = stored.stat;
+    if (kept != null
+      && statusRuleApplies()
+      && olderThanGrain(kept, kept.readAt)
+      && sameStatus(kept, now)) {
+      trustedSources++;
+      return true;
+    }
+    hashedSources.push(file);
+    return readSource(file).digest == stored.digest;
   }
 
   /**
@@ -771,11 +1007,11 @@ class ModuleRequest {
       factsSeconds += haxe.Timer.stamp() - factsStart;
     }
     // Haxe typed these modules in this request; keep a digest only when it
-    // is proven to be the content that Haxe read (`provenDigest`).
+    // is proven to be the content that Haxe read (`provenSource`).
     for (module in GenerationChangeSet.retypedModules()) {
       final file = moduleFiles.get(module);
       if (file != null)
-        typedDigests.set(file, provenDigest(file));
+        typedDigests.set(file, provenSource(file));
     }
     switch descriptor.kind {
       case Module(module):
@@ -806,12 +1042,12 @@ class ModuleRequest {
             // session keeps (a new macro interpreter): unknown, so that the
             // next full request makes Haxe parse it again.
             if (typed == null)
-              typedDigests.set(file, UNKNOWN_DIGEST);
-            requestDigests.set(file, typed == null ? UNKNOWN_DIGEST : typed);
+              typedDigests.set(file, unknownSource());
+            requestDigests.set(file, typed == null ? unknownSource() : typed);
           }
         for (file in importFilesOf([for (_ => file in moduleFiles) file]))
           if (!requestDigests.exists(file)) {
-            final typed = provenDigest(file);
+            final typed = provenSource(file);
             typedDigests.set(file, typed);
             requestDigests.set(file, typed);
           }
@@ -1184,7 +1420,7 @@ class ModuleRequest {
       'Genes module request preview folder. Genes may empty this folder.\n');
   }
 
-  /** Forgets every record. */
+  /** Forgets every record, also the digests of what Haxe typed. */
   public static function drop(): Void {
     storedKey = null;
     storedOutputFolder = '';
@@ -1368,23 +1604,24 @@ class ModuleRequest {
         return refuse('target-facts-changed', failure);
     }
     // The requested module was typed from the file's current content: the
-    // content that Haxe typed is proven (`provenDigest`) and equals the file
-    // now.
+    // content that Haxe typed is proven (`provenSource`) and equals the file
+    // now (read again: the edited file is never trusted by its status).
     final ownFile = moduleFiles.get(module);
     final typedContent = targetFile == null ? null : typedDigests.get(targetFile);
     if (targetFile == null
       || typedContent == null
-      || typedContent == UNKNOWN_DIGEST
-      || digestOf(targetFile) != typedContent)
+      || typedContent.digest == UNKNOWN_DIGEST
+      || readSource(targetFile).digest != typedContent.digest)
       return refuse('stale-source',
         'Haxe may have typed $module from other ' +
         'content than its file holds now (a save during the request, or two ' +
         'saves in one second); send the module request again');
     // Every other file of the stored program has the content that the full
     // request typed: Haxe compares file times in whole seconds, so its own
-    // check can miss an edit, also of a module that this request loads.
-    for (file => digest in storedFiles)
-      if (file != ownFile && file != targetFile && digestOf(file) != digest)
+    // check can miss an edit, also of a module that this request loads. A
+    // file whose settled status did not change is not read (`holdsContent`).
+    for (file => stored in storedFiles)
+      if (file != ownFile && file != targetFile && !holdsContent(file, stored))
         return refuse('source-changed', '$file changed since the full request');
     final failures = GenerationChangeSet.sameObjectFailures();
     if (failures.length > 0)
@@ -1641,6 +1878,8 @@ class ModuleRequest {
     final descriptor = IncrementalRequest.requestedDescriptor();
     if (descriptor == null)
       return;
+    final hashed = hashedSources.copy();
+    hashed.sort(compareStrings);
     final report: ModuleRequestReport = {
       format: REPORT_FORMAT,
       kind: 'module',
@@ -1654,7 +1893,9 @@ class ModuleRequest {
       generationMs: GenerationChangeSet.milliseconds(generationSeconds),
       checkMs: GenerationChangeSet.milliseconds(checkSeconds),
       rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds),
-      digestMs: GenerationChangeSet.milliseconds(digestSeconds)
+      digestMs: GenerationChangeSet.milliseconds(digestSeconds),
+      hashedSources: hashed,
+      trustedSources: trustedSources
     };
     save(IncrementalRequest.generationReportPath(descriptor.path),
       Json.stringify(report, null, '  ') + '\n');
