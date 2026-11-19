@@ -224,6 +224,21 @@ typedef ModuleRecordsReport = {
  * - Haxe typed no module other than the requested one, and every other
  *   module of the request has the epochs of the stored full request (so a
  *   module that an earlier module request typed again is a refusal too);
+ * - the facts of every declaration of every module of the request, read
+ *   after every after-typing macro and before dead-code elimination
+ *   (`afterSave`), are the ones that the stored full request read there
+ *   (`targetFactsOf`: the walk's target
+ *   facts `WalkTarget.inputsText`, that is kind, extern flag and metadata,
+ *   and the metadata text of `ModuleFingerprint.addDeclaration`, with the
+ *   metadata of fields, constructors, type parameters and declared
+ *   structures). So an after-typing macro that changes another module from
+ *   a literal of the requested module, whichever order its callback has,
+ *   is a refusal (`target-facts-changed`). Example: a macro copies the
+ *   literal of `mr.Probe` into `@:ts.type` of `mr.TsTyped`, or calls
+ *   `exclude()` on an enum of `mr.ExclOwner`; cold would then also change
+ *   `mr/TsUser.ts` or `mr/ExclOwner.ts`, which a preview does not print.
+ *   The requested module's own facts are checked after its signature and
+ *   skeleton, so that a structural edit keeps its own refusal code;
  * - the visible public shape before dead-code elimination (public fields
  *   with their kinds, types and metadata, private fields that another
  *   module uses or can reach through a subclass, and the bodies and
@@ -273,10 +288,15 @@ typedef ModuleRecordsReport = {
  * text or markup literal edit keeps the skeleton and can be previewed.
  *
  * Limits: the proof assumes that Haxe's elimination reads only typed trees,
- * signatures and metadata; a macro that reads literal values and changes
- * other declarations from them, and a file that a macro reads in a module
- * outside the request (other than `import.hx` and resources, which the
- * session key covers), are not covered. A class kept only because another
+ * signatures and metadata. A macro that reads literal values and changes
+ * the metadata or the extern flag of a declaration of a module in the
+ * request is covered (`target-facts-changed` above, or `session-changed`
+ * when `GenerationChangeSet.compareMetadata` sees it first). Not covered:
+ * metadata that only a typed body holds (limit S3 of
+ * `ModuleFingerprint`); a change that a macro makes, by name, to a module
+ * outside the request's program, which the request never reads; and a file
+ * that a macro reads in a module outside the request (other than
+ * `import.hx` and resources, which the session key covers). A class kept only because another
  * module names it as a type, and an edit inside an import cycle, are
  * refused. The rule refuses every structural edit: a new or removed field,
  * call, local type or class use.
@@ -376,6 +396,13 @@ class ModuleRequest {
   @:persistent static var storedEpochs: Map<String, String> = new Map();
 
   /**
+   * `targetFactsOf` of every module that the stored full request saw, read
+   * in `afterSave`: after every after-typing macro, before dead-code
+   * elimination.
+   */
+  @:persistent static var storedTargetFacts: Map<String, String> = new Map();
+
+  /**
    * The last computed shape of each module, with the epochs that it was
    * computed for, so that a full request computes the shape of a module
    * again only after Haxe typed it again. Dropped with the records.
@@ -388,6 +415,10 @@ class ModuleRequest {
   static var shapeSeconds = 0.0;
   static var rootSeconds = 0.0;
   static var requestShape: Null<String> = null;
+
+  /** `targetFactsOf` of each module of this request, read in `afterSave`. */
+  static var requestFacts: Map<String, String> = new Map();
+
   static var addedRoots: Array<MetaAccess> = [];
   static var moduleFiles: Map<String, String> = new Map();
   static var loadedModules: Map<String, Bool> = new Map();
@@ -411,6 +442,7 @@ class ModuleRequest {
     shapeSeconds = 0.0;
     rootSeconds = 0.0;
     requestShape = null;
+    requestFacts = new Map();
     addedRoots = [];
     moduleFiles = new Map();
     loadedModules = new Map();
@@ -699,6 +731,11 @@ class ModuleRequest {
         list.push(type);
       }
     }
+    // The declaration facts of every module (`targetFactsOf`): after every
+    // after-typing macro, before dead-code elimination and before the roots.
+    if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true)
+      for (module => list in grouped)
+        requestFacts.set(module, targetFactsOf(list));
     // Haxe typed these modules in this request; keep a digest only when it
     // is proven to be the content that Haxe read (`provenDigest`).
     for (module in GenerationChangeSet.retypedModules()) {
@@ -1012,6 +1049,13 @@ class ModuleRequest {
     for (module in GenerationChangeSet.observedModules())
       seen.set(module, GenerationChangeSet.epochs(module));
     storedEpochs = seen;
+    final facts = new Map<String, String>();
+    for (module in seen.keys()) {
+      final known = requestFacts.get(module);
+      if (known != null)
+        facts.set(module, known);
+    }
+    storedTargetFacts = facts;
     final uses = new Map<String, Bool>();
     for (record in made)
       for (line in record.foreignRefs)
@@ -1112,6 +1156,7 @@ class ModuleRequest {
     storedOutputFolder = '';
     records = new Map();
     storedEpochs = new Map();
+    storedTargetFacts = new Map();
     externalUses = new Map();
     storedFiles = new Map();
     typedDigests = new Map();
@@ -1265,6 +1310,23 @@ class ModuleRequest {
           '$name is not the module of ' +
           'the last full request (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
     }
+    // An after-typing macro can change the declarations of a module that
+    // Haxe did not type again: their metadata, or their extern flag
+    // (`exclude()`), with no new stamp. A macro whose callback runs after
+    // the passes of Genes is not seen by `GenerationChangeSet.compareMetadata`,
+    // and no macro sees an extern flag there. Such a change can change the
+    // output of other modules, which this request does not print, so the
+    // facts of every module of the request, read now, must be the stored
+    // ones (`target-facts-changed`). The requested module is checked after
+    // its signature and skeleton, so that an edit of its own declarations
+    // keeps its own code.
+    for (name in GenerationChangeSet.observedModules()) {
+      if (name == module)
+        continue;
+      final failure = targetFactsFailure(name);
+      if (failure != null)
+        return refuse('target-facts-changed', failure);
+    }
     // The requested module was typed from the file's current content: the
     // content that Haxe typed is proven (`provenDigest`) and equals the file
     // now.
@@ -1324,6 +1386,11 @@ class ModuleRequest {
         'the code of $module uses other fields, ' +
         'types or classes than in the full request (an edit beyond literal ' +
         'values)');
+    // The module's own declaration facts: its signature holds its metadata,
+    // but not the extern flag that a macro can set with `exclude()`.
+    final ownFailure = targetFactsFailure(module);
+    if (ownFailure != null)
+      return refuse('target-facts-changed', ownFailure);
     if (facts.exposed)
       return refuse('exposed',
         '$module is exposed or has public root entries, ' +
@@ -2032,6 +2099,57 @@ class ModuleRequest {
 
   /** The argument-less `@:keep` that Haxe adds to the `main` function. */
   static final MAIN_KEEP = ~/ @:keep(?= |$)/;
+
+  /**
+   * Returns why the declaration facts of `module` in this request
+   * (`requestFacts`) are not the stored ones, or `null` when they are.
+   */
+  static function targetFactsFailure(module: String): Null<String> {
+    final stored = storedTargetFacts.get(module);
+    if (stored != null && stored == requestFacts.get(module))
+      return null;
+    return 'an after-typing macro changed the metadata or the extern flag of '
+      + 'a declaration of $module since the full request';
+  }
+
+  /**
+   * Returns one digest of the facts of the declarations `typed` of one
+   * module. `afterSave` calls it for every module of the request, with all
+   * of its declarations, before dead-code elimination removes any field.
+   *
+   * Why: a macro can change these facts after the passes of Genes, without
+   * a new stamp, and they change what other modules print. Example: an
+   * after-typing macro writes `@:ts.type("string")` on `mr.TsTyped`, and
+   * `mr/TsUser.ts`, which names it in a typedef field, prints `string`; or
+   * it calls `exclude()` on an enum, and every module that names the enum
+   * drops its import. Both requests read the facts in `afterSave`: after
+   * every after-typing macro, and before dead-code elimination, which
+   * keeps other fields of a class in a smaller program (for example of
+   * `Array`), and before a module request adds its roots.
+   *
+   * What: for each declaration, the text of the facts that the walk of
+   * reachability reads (`WalkTarget.inputsText`: kind, extern flag, module,
+   * name and metadata), and the metadata text of the declaration, its
+   * fields, constructors, type parameters and declared structures that
+   * `GenerationChangeSet.compareMetadata` compares
+   * (`ModuleFingerprint.addDeclaration`). Both are the shared texts of their
+   * owners; this function only joins them, sorted, and takes the digest.
+   */
+  static function targetFactsOf(typed: Array<Type>): String {
+    final texts = [];
+    for (type in typed) {
+      final declaration = TypeUtil.typeToModuleType(type);
+      if (declaration == null)
+        continue;
+      final buffer = new StringBuf();
+      buffer.add(WalkTarget.inputsText(WalkTarget.inputsOf(declaration)));
+      buffer.add('\n');
+      ModuleFingerprint.addDeclaration(buffer, declaration);
+      texts.push(buffer.toString());
+    }
+    texts.sort(compareStrings);
+    return Context.signature(texts.join(''));
+  }
 
   /**
    * Returns the classes of `types` when there is at least one and every one
