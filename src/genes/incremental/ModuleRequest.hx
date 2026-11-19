@@ -1245,7 +1245,7 @@ class ModuleRequest {
       final stored = GenerationCache.storedFingerprint(name);
       final externs = externClassesOf(declarations);
       if (externs != null && stored != null
-        && ModuleFingerprint.ofExtern(externs) == stored)
+        && IncrementalShadow.previewExternFingerprint(name, externs) == stored)
         redefined.set(name, true);
       else
         others.push(name);
@@ -2035,8 +2035,8 @@ class ModuleRequest {
 
   /**
    * Returns the classes of `types` when there is at least one and every one
-   * is an extern class, or `null` otherwise. `ModuleFingerprint.ofExtern`
-   * reads the classes.
+   * is an extern class, or `null` otherwise.
+   * `IncrementalShadow.previewExternFingerprint` reads the classes.
    */
   static function externClassesOf(types: Array<Type>): Null<Array<ClassType>> {
     if (types.length == 0)

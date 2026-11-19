@@ -1197,6 +1197,29 @@ class IncrementalShadow {
   }
 
   /**
+   * Returns the fingerprint of a module of extern classes in a module
+   * request (G3), made as `inventory` makes the stored one: the text of
+   * `ModuleFingerprint.ofExtern` for its listed classes, then the
+   * `ModuleFingerprint.unlisted` part for every other declaration of the
+   * module that Haxe typed. Call it after `listPreview`.
+   *
+   * Why: a macro can define such a module again while Haxe types the
+   * requested module (a `genes.ts.imports` holder). `ModuleRequest` accepts
+   * it only when this text equals the stored fingerprint. With only the
+   * `ofExtern` part, a stored fingerprint with an unlisted part never
+   * matches, and a printer could read metadata that the comparison left
+   * out.
+   */
+  public static function previewExternFingerprint(module: String,
+      classes: Array<ClassType>): String {
+    final text = ModuleFingerprint.ofExtern(classes);
+    final all = TypedModuleInventory.allModules();
+    final typed = all == null ? null : all.get(module);
+    return typed == null ? text : text
+      + ModuleFingerprint.unlisted(typed, listed);
+  }
+
+  /**
    * Gives the shadow the generator's declaration list after the inventory
    * step, and applies the clean rules before planning starts.
    */

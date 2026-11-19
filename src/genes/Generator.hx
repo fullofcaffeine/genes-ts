@@ -1011,26 +1011,24 @@ class Generator {
                 edge.provenance.sourcePosition);
             continue;
           }
-          switch referencedType {
-            case TAbstract(_):
-              continue;
-            case TClassDecl(_.get() => {kind: KTypeParameter(_)}):
-              continue;
-            default:
+          // The same step decision as the walk of a full request: the
+          // target is read only through `WalkTarget.inputsOf`.
+          final inputs = WalkTarget.inputsOf(referencedType);
+          if (!WalkTarget.takesStep(inputs))
+            continue;
+          final moduleName = switch inputs.module {
+            case null | '':
+              CompilerDiagnostic.fail('Genes DependencyPlan (module request) cannot resolve '
+                + '${inputs.name} to an output module '
+                + '[${edge.provenance.rule}]',
+                edge.provenance.sourcePosition);
+            case name: name;
           }
           final base = DependencyPlan.moduleTypeBase(referencedType);
-          if (base.isExtern || base.module == 'StdTypes')
-            continue;
-          if (base.module == null || base.module.length == 0)
-            CompilerDiagnostic.fail('Genes DependencyPlan (module request) cannot resolve '
-              + '${base.name} to an output module '
-              + '[${edge.provenance.rule}]',
-              edge.provenance.sourcePosition);
-          var targetModule = modules.get(base.module);
+          var targetModule = modules.get(moduleName);
           if (targetModule == null) {
-            targetModule = new Module(context, base.module,
-              typesOf(base.module));
-            modules.set(base.module, targetModule);
+            targetModule = new Module(context, moduleName, typesOf(moduleName));
+            modules.set(moduleName, targetModule);
           }
           final changed = targetModule.addTypes([DependencyPlan.moduleTypeToType(referencedType)]);
           if (targetModule.getMember(base.name) == null
