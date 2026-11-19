@@ -19,7 +19,11 @@
  * - the Genes incremental report keeps records (kept > 0);
  * - the owned server was started once;
  * - two saves with the same whole-second file time are both built (the
- *   second one through `server/invalidate`);
+ *   second one through `server/invalidate`). An init macro given before
+ *   `genes.Generator.use()` (`servercase.EarlyType`) types the edited module
+ *   by name, so Haxe types it before Genes reads any file: only the
+ *   session's `server/invalidate`, sent before the request starts, makes
+ *   Haxe read the second save there (genes-v54c);
  * - the public tree equals a cold build in a new Haxe process, byte for byte;
  * - the server memory stays roughly flat;
  * - a structure change (a new module, a new `import.hx`, a new module that
@@ -111,6 +115,8 @@ const programArguments = [
   "-D helder.set=0.3.1",
   `-D genes-ts=${genesVersion}`,
   '--macro haxe.macro.Compiler.nullSafety("genes", Loose, true)',
+  // Types the module of the same-second saves before Genes runs.
+  "--macro servercase.EarlyType.install()",
   "--macro genes.Generator.use()",
   "--macro genes.js.Async.enable()",
   "--macro genes.react.InlineMarkup.enable()",
@@ -214,6 +220,15 @@ try {
     path.join(repositoryRoot, "tests/compiler-server/templates/project-a"),
     projectRoot,
     { recursive: true },
+  );
+  // An init macro that types `servercase.UnimportedLeaf` by name. It is
+  // given before `genes.Generator.use()`, so it runs before Genes reads any
+  // file.
+  writeFileSync(
+    path.join(projectRoot, "src", "servercase", "EarlyType.hx"),
+    "package servercase;\n\n#if macro\nclass EarlyType {\n  public static function install(): Void {\n" +
+      "    haxe.macro.Context.getType('servercase.UnimportedLeaf');\n  }\n}\n#end\n",
+    "utf8",
   );
   mkdirSync(path.join(projectRoot, "data"));
   writeFileSync(path.join(projectRoot, "data", "snippet.hx"), "snippet-v1", "utf8");

@@ -47,6 +47,15 @@
  * seen in a full request (unknown once, as before) and a deleted
  * `import.hx`.
  *
+ * The groups of `earlyInitMacroGroups` (genes-v54c) give an init macro
+ * before `genes.Generator.use()` that types `mr.Fresh` by name, and save
+ * `mr/Fresh.hx` so that Haxe's whole-second check misses it (modification
+ * time kept, or moved inside the same second, also with a dependency save
+ * that makes Haxe type `mr.Fresh` again from its old text). Genes then
+ * refuses the first request after the change once (`initRefusal`), and the
+ * same request sent again must equal cold. A step that does not name such a
+ * refusal fails when one happens.
+ *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
  * differs from cold (the measured cache pollution of genes-f8vc.14.1). It is
@@ -207,6 +216,18 @@ type Step = {
   readonly fullTypedAgain?: number;
   /** More checks of the module request's report. */
   readonly check?: (report: ModuleReport, label: string) => void;
+  /**
+   * The request of this step that the init macro rule of
+   * `ModuleRequest.beginRequest` refuses once (genes-v54c): an init macro
+   * given before `genes.Generator.use()` can type a module, and a file
+   * changed since Haxe last read it. `module`: the module request is refused
+   * with `init-macro-before-genes`; `full`: the full request stops with
+   * `GENES-MODULE-REQUEST-003`; `both`: each of them. The refused request
+   * must publish nothing. The driver then sends the same request again, as
+   * a session does, and checks that one. Any other init macro refusal fails
+   * the gate.
+   */
+  readonly initRefusal?: "module" | "full" | "both";
 };
 
 /** A list of steps on its own server and its own copy of the template. */
@@ -272,6 +293,29 @@ function editSameSecond(relative: string, from: string, to: string): void {
   utimesSync(file, before.atime, before.mtime);
   strictEqual(Math.floor(statSync(file).mtimeMs / 1000), Math.floor(before.mtimeMs / 1000),
     `${relative}: the file time must stay in the same second`);
+  saved.add(file);
+}
+
+/**
+ * Replaces one exact text with another of the same length and moves the
+ * modification time inside the same whole second: a second save in the
+ * same second, which Haxe's whole-second file-time check cannot see.
+ */
+function editInSameSecond(relative: string, from: string, to: string): void {
+  const file = sourceFile(relative);
+  strictEqual(from.length, to.length, `${relative}: the replacement must keep the size`);
+  const before = statSync(file);
+  const second = Math.floor(before.mtimeMs / 1000);
+  const text = readFileSync(file, "utf8");
+  ok(text.split(from).length === 2,
+    `${relative} must contain ${JSON.stringify(from)} exactly once`);
+  writeFileSync(file, text.replace(from, to));
+  const fraction = before.mtimeMs - second * 1000 < 500 ? 0.75 : 0.25;
+  utimesSync(file, before.atime, second + fraction);
+  const after = statSync(file);
+  strictEqual(Math.floor(after.mtimeMs / 1000), second,
+    `${relative}: the file time must stay in the same whole second`);
+  ok(after.mtimeMs !== before.mtimeMs, `${relative}: the file time must move inside the second`);
   saved.add(file);
 }
 
@@ -817,6 +861,11 @@ function lateMacroGroups(): ReadonlyArray<Group> {
     for (const order of ["after", "before"] as const) {
       const installer = item.phase === "save" ? "installAfterSave" : "install";
       const install = ["--macro", `mr.CopyMacro.${installer}(${JSON.stringify(item.kind)})`];
+      // Given before `genes.Generator.use()`, `mr.CopyMacro` is an init macro
+      // that Genes cannot prove to type nothing, so the init macro rule
+      // refuses the first request after each edit once (genes-v54c).
+      const editRefusal = (request: "module" | "full") =>
+        order === "before" ? { initRefusal: request } : {};
       groups.push({
         name: `${item.name}-macro-${order}-genes-use`,
         files: { ...item.files, "mr/CopyMacro.hx": copyMacro },
@@ -832,11 +881,13 @@ function lateMacroGroups(): ReadonlyArray<Group> {
           item.fullOnly === true ? {
             id: `macro ${order} Genes.use() ${item.what}: '${item.from}' -> '${item.to}', `
               + "full request only",
-            apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`)
+            apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`),
+            ...editRefusal("full")
           } : {
             id: `macro ${order} Genes.use() ${item.what}: '${item.from}' -> '${item.to}'`,
             apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`),
             module: "mr.Probe",
+            ...editRefusal("module"),
             expect: order === "after" ? item.early : item.late
           },
           item.fullOnly === true ? {
@@ -846,6 +897,7 @@ function lateMacroGroups(): ReadonlyArray<Group> {
             id: `macro ${order} Genes.use(), a literal that the macro does not read`,
             apply: () => edit("Probe.hx", "return 'probe ' + tag()", "return 'probe! ' + tag()"),
             module: "mr.Probe",
+            ...editRefusal("module"),
             // The define stays set while the literal is `ext`, and a macro
             // after the passes of Genes sets it after the session key.
             expect: item.kind === "define" && order === "before" ? "defines-changed" : "preview"
@@ -1031,6 +1083,144 @@ function statGroups(): ReadonlyArray<Group> {
           module: "mr.Button",
           expect: "preview",
           fullTypedAgain: 0
+        }
+      ]
+    }
+  ];
+}
+
+/**
+ * `mr.Early`: an init macro that types `mr.Fresh` by name. Given before
+ * `--macro genes.Generator.use()`, it runs before Genes reads any file.
+ */
+const earlyMacro = `package mr;\n\n#if macro\nclass Early {\n`
+  + `  public static function install(): Void {\n`
+  + `    haxe.macro.Context.getType('mr.Fresh');\n  }\n}\n#end\n`;
+
+/** `mr.Fresh` that also reads `Theme.size()`, so that it depends on `mr.Theme`. */
+function freshUsingTheme(text: string): string {
+  return `package mr;\n\nclass Fresh {\n  public static function run(): String {\n`
+    + `    return '${text}' + Theme.size();\n  }\n}\n`;
+}
+
+/**
+ * The groups of genes-v54c: an init macro given before
+ * `genes.Generator.use()` types a project module (`mr.Fresh`) by name, so
+ * Haxe types it before Genes reads any file. The groups save `mr/Fresh.hx`
+ * so that Haxe's whole-second file-time check cannot see the save, and send
+ * no `server/invalidate`. Before the fix, each full request after such a
+ * save published the old text of `mr/Fresh.ts`.
+ *
+ * - `early-init-mtime-kept`: the save keeps the modification time. The
+ *   full request is refused once (`GENES-MODULE-REQUEST-003`) and equals
+ *   cold when sent again. Then a text edit of another module and a second
+ *   save of `mr/Fresh.hx`: each module request is refused once
+ *   (`init-macro-before-genes`) and previews when sent again;
+ * - `early-init-same-second`: the save moves the modification time inside
+ *   the same whole second;
+ * - `early-init-dependency-changed`: `mr.Fresh` reads `mr.Theme`, and
+ *   `mr/Theme.hx` gets a save that Haxe sees in the same step, so Haxe types
+ *   `mr.Fresh` again in the init macro, from the text that it parsed before
+ *   (a new typing of a stale text, which the stamps of
+ *   `GenerationChangeSet` cannot show);
+ * - `early-init-not-typing`: the only init macro before
+ *   `genes.Generator.use()` is a `haxe.macro.Compiler` call that types
+ *   nothing (`define`), so the rule refuses nothing and Genes makes Haxe
+ *   read a save in the same second itself, as before.
+ */
+function earlyInitMacroGroups(): ReadonlyArray<Group> {
+  const early = {
+    argsBeforeGenes: ["--macro", "mr.Early.install()"],
+    noInvalidate: true
+  };
+  return [
+    {
+      name: "early-init-mtime-kept",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/Early.hx": earlyMacro
+      },
+      ...early,
+      steps: [
+        {
+          id: "no edit: the init macro rule refuses nothing",
+          apply: () => {}
+        },
+        {
+          id: "Fresh saved with its modification time kept",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        },
+        {
+          id: "Button text edit",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Sale';"),
+          module: "mr.Button",
+          initRefusal: "module",
+          expect: "preview"
+        },
+        {
+          id: "Fresh saved again with its modification time kept, preview of Fresh",
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
+          module: "mr.Fresh",
+          initRefusal: "module",
+          expect: "preview"
+        }
+      ]
+    },
+    {
+      name: "early-init-same-second",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/Early.hx": earlyMacro
+      },
+      ...early,
+      steps: [
+        {
+          id: "Fresh saved in the same whole second",
+          apply: () => editInSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        }
+      ]
+    },
+    {
+      name: "early-init-dependency-changed",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshUsingTheme("one"),
+        "mr/Early.hx": earlyMacro
+      },
+      ...early,
+      steps: [
+        {
+          id: "Theme saved (Haxe sees it); Fresh saved with its modification time kept",
+          apply: () => {
+            edit("Theme.hx", "return 12;", "return 13;");
+            editSameSecond("Fresh.hx", "return 'one'", "return 'two'");
+          },
+          initRefusal: "full"
+        }
+      ]
+    },
+    {
+      name: "early-init-not-typing",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one")
+      },
+      argsBeforeGenes: ["--macro", "define('mr_early_define')"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        },
+        {
+          id: "Fresh saved again with its modification time kept, preview of Fresh",
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
+          module: "mr.Fresh",
+          expect: "preview"
         }
       ]
     }
@@ -1609,7 +1799,8 @@ const groups: ReadonlyArray<Group> = [
     ]
   },
   ...lateMacroGroups(),
-  ...statGroups()
+  ...statGroups(),
+  ...earlyInitMacroGroups()
 ];
 
 function folder(name: string): string {
@@ -1761,28 +1952,69 @@ async function coldBuild(
   return hashTree(folder("cold"));
 }
 
+/** The diagnostic code of a full request that the init macro rule refuses (genes-v54c). */
+const initMacroCode = "GENES-MODULE-REQUEST-003";
+
+/** The refusal code of a module request that the init macro rule refuses (genes-v54c). */
+const initMacroRefusal = "init-macro-before-genes";
+
+/** The number of requests that the init macro rule refused, each as a step expected it. */
+let initRefusals = 0;
+
+/**
+ * Runs the full request and returns its time and whether the init macro rule
+ * refused it first. A refused full request must stop with
+ * `GENES-MODULE-REQUEST-003`, leave the program tree as it was and write a
+ * records report that stored nothing; the driver then sends it again, as a
+ * session does. Without `initRefusal`, that refusal fails the gate at once;
+ * the caller checks a refusal that did not happen after its tree check, so
+ * that a run on older Genes sources shows the stale file first.
+ */
 async function programRequest(server: OwnedHaxeCompilerServer,
-    label: string, race?: string): Promise<number> {
+    label: string, race?: string,
+    initRefusal = false): Promise<{ readonly ms: number, readonly refused: boolean }> {
   await invalidate(server, label);
   if (race !== undefined)
     writeFileSync(raceFlag, race);
   writeDescriptor({ kind: "full", moduleRecords: true });
+  rmSync(`${descriptorFile}.module-records.json`, { force: true });
+  const before = existsSync(folder("program")) ? hashTree(folder("program")) : [];
   const started = performance.now();
-  const result = await server.compile(incremental(programArguments(folder("program"))),
+  let result = await server.compile(incremental(programArguments(folder("program"))),
     `Program ${label}`, timeoutMs, workspace);
+  const refused = result.code !== 0
+    && `${result.stdout}\n${result.stderr}`.includes(initMacroCode);
+  ok(!refused || initRefusal,
+    `${label}: the init macro rule refused the full request, which the step does not expect\n${describe(result)}`);
+  if (refused) {
+    deepStrictEqual(existsSync(folder("program")) ? hashTree(folder("program")) : [], before,
+      `${label}: a full request that the init macro rule refused changed the program tree`);
+    const report = readRecordsReport();
+    strictEqual(report.stored, false, `${label}: a refused full request stored module records`);
+    ok(String(report.reason).includes(initMacroCode),
+      `${label}: the records report must name ${initMacroCode} (${String(report.reason)})`);
+    initRefusals++;
+    result = await server.compile(incremental(programArguments(folder("program"))),
+      `Program again ${label}`, timeoutMs, workspace);
+  }
   const elapsed = performance.now() - started;
   ok(result.code === 0, `${label}: full request failed\n${describe(result)}`);
   const records = `${descriptorFile}.module-records.json`;
   ok(existsSync(records), `${label}: the full request stored no module records`);
   strictEqual(readRecordsReport().stored, true,
     `${label}: the full request did not store its module records`);
-  return elapsed;
+  return { ms: elapsed, refused };
 }
 
 /** The parts of the records report of the last full request that this gate reads. */
-function readRecordsReport(): { readonly stored: boolean, readonly shapes: number } {
+function readRecordsReport(): {
+  readonly stored: boolean,
+  readonly reason: string | null,
+  readonly shapes: number
+} {
   return JSON.parse(readFileSync(`${descriptorFile}.module-records.json`, "utf8")) as {
     readonly stored: boolean,
+    readonly reason: string | null,
     readonly shapes: number
   };
 }
@@ -1937,7 +2169,18 @@ async function runGroup(group: Group,
       let moduleMs = 0;
       let report: ModuleReport | null = null;
       if (step.module !== undefined) {
-        const done = await moduleStep(server, compiler, step, label);
+        let done = await moduleStep(server, compiler, step, label);
+        const moduleRefusal = step.initRefusal === "module" || step.initRefusal === "both";
+        strictEqual(done.outcome === initMacroRefusal, moduleRefusal, moduleRefusal
+          ? `${label}: the init macro rule did not refuse the module request (got ${done.outcome})`
+          : `${label}: the init macro rule refused the module request, which the step does not expect `
+            + `(${String(done.report?.reason)})`);
+        if (moduleRefusal) {
+          // The refused request published nothing (`moduleStep`); a session
+          // sends it again.
+          initRefusals++;
+          done = await moduleStep(server, compiler, step, `${label} (sent again)`);
+        }
         outcome = done.outcome;
         moduleMs = done.ms;
         report = done.report;
@@ -1959,11 +2202,15 @@ async function runGroup(group: Group,
       let programMs = 0;
       if (step.skipProgram !== true) {
         const coldTree = await coldBuild(compiler, label);
-        programMs = await programRequest(server, label, step.raceOnFull);
+        const fullRefusal = step.initRefusal === "full" || step.initRefusal === "both";
+        const program = await programRequest(server, label, step.raceOnFull, fullRefusal);
+        programMs = program.ms;
         const difference = treeDifference(hashTree(folder("program")), coldTree);
         deepStrictEqual(difference, [],
           `${label}: the full request after the step differs from the cold build:\n`
           + difference.join("\n"));
+        ok(program.refused || !fullRefusal,
+          `${label}: the init macro rule did not refuse the full request`);
         if (step.fullTypedAgain !== undefined)
           strictEqual(readRecordsReport().shapes, step.fullTypedAgain,
             `${label}: Haxe typed another number of modules again in the full request`);
@@ -2018,7 +2265,9 @@ async function main(): Promise<void> {
     + `(Haxe ${compiler.version}; ${selectedGroups.length} groups; ${previews} `
     + `previews byte-identical to cold, ${refusals} refused or failed as expected, `
     + `every full request after a step equal to cold; tree check on ${treeChecks} `
-    + `previews: cold changes only the previewed module's files; ${control})\n`);
+    + `previews: cold changes only the previewed module's files; ${initRefusals} `
+    + `requests refused once by the init macro rule, as their steps expected, `
+    + `and equal to cold when sent again; ${control})\n`);
 }
 
 /**

@@ -667,7 +667,13 @@ rolled back, the other output can start normally.
   Haxe recorded (it is not after the end of the last request, not after the
   second recorded for that file, or it is ahead of the clock), the session
   sends `server/invalidate` for it first, because Haxe compares file times in
-  whole seconds. Two assumptions remain: no macro reads the source text of a
+  whole seconds. The watcher's file fingerprint holds the change time, so a
+  save that keeps the modification time is seen as an edit too. Because the
+  session sends `server/invalidate` before the request starts, it also
+  covers an init macro given before `genes.Generator.use()` that types a
+  project module by name: such a macro runs before Genes can make Haxe read
+  a changed file again (genes-v54c; the warm-server session test has one).
+  Two assumptions remain: no macro reads the source text of a
   class-path `.hx` file, and a file that the session never saw change was not
   dated ahead of the clock when Haxe read it. A created or
   removed `.hx` file can change a name lookup in an unchanged module (Haxe

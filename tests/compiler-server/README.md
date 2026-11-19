@@ -579,14 +579,53 @@ whole-second check misses its saves):
   its missing status (`source-changed`), and the full request after the next
   one makes Haxe type nothing again.
 
-Limits, not covered: an init macro given before `genes.Generator.use()` that
-types project modules. Haxe types them before Genes reads their files, so any
-save that Haxe's whole-second check misses (in the same second, or with the
-modification time kept) is typed stale in that request and proven as typed;
-the full request itself can be stale then (genes-v54c). Also not covered: a
-file that Haxe
-parsed before the current macro interpreter started (Haxe starts a new one
-when a macro module changes). On APFS a replaced file also gets a new change
+The `early-init-` groups check init macros given before
+`genes.Generator.use()` (genes-v54c). Haxe runs init macros in the order of
+the arguments, so such a macro runs before Genes reads any file. When it
+types a project module by name, Haxe types that module from its cached text,
+and a save that Haxe's whole-second check missed reaches neither the request
+nor Genes. No macro can see what an earlier macro typed, so Genes reads the
+arguments: every init macro before `genes.Generator.use()` can type a module,
+except calls of a few `haxe.macro.Compiler` functions that type nothing
+(`nullSafety`, `addMetadata`, `addGlobalMetadata`, `define`, `keep`,
+`addClassPath`, `allowPackage`, and `include` and
+`server.setModuleCheckPolicy`, which defer their typing). With such a macro,
+a request after a change of a file (digest or file status) is refused once:
+a full request stops with `GENES-MODULE-REQUEST-003`, publishes nothing and
+writes a records report with `stored: false`; a module request is refused
+with `init-macro-before-genes`. Genes has made Haxe read the changed files
+again, so the driver sends the same request again, as a session must, and
+that request is checked as usual. A step names the refusal that it expects
+(`initRefusal`); any other one fails the gate. In the groups, `mr.Early`
+calls `Context.getType('mr.Fresh')` and no `server/invalidate` is sent:
+
+- `early-init-mtime-kept`: no edit refuses nothing; a save of `mr/Fresh.hx`
+  that keeps the modification time refuses the full request once; a text
+  edit of `mr/Button.hx` and a second such save of `mr/Fresh.hx` each refuse
+  the module request once, and it previews when sent again;
+- `early-init-same-second`: a save that moves the modification time inside
+  the same whole second;
+- `early-init-dependency-changed`: `mr.Fresh` reads `mr.Theme`, and a save
+  of `mr/Theme.hx` that Haxe sees comes with the save of `mr/Fresh.hx`, so
+  Haxe types `mr.Fresh` again in the init macro from its old text. The
+  stamps of `GenerationChangeSet` cannot show this case, because the module
+  was typed again;
+- `early-init-not-typing`: the init macro before `genes.Generator.use()`
+  is `define(...)`, so nothing is refused, and Genes makes Haxe read a save
+  that keeps the modification time itself, as before.
+
+On Genes before the fix, the full request after each of the first three
+saves differs from cold in `mr/Fresh.ts` (run with `GENES_TEST_SOURCE`). The
+groups of `mr.CopyMacro` given before `genes.Generator.use()` are refused
+once after each edit too, because Genes cannot prove that `mr.CopyMacro`
+types nothing.
+
+Limits, not covered: a file that Haxe parsed before the current macro
+interpreter started (Haxe starts a new one when a macro module changes, also
+a Genes source file during a gate run). A module that Genes itself types
+before it reads files (`genes.Register` and `js.Boot`) is not covered either;
+it matters only for a project file that shadows one of them or a module that
+they import. On APFS a replaced file also gets a new change
 time, so the inode check is a second guard there, not the only one. No group
 can force a save between the bytes and the status of one read; the two
 status reads are checked by review only.
@@ -615,8 +654,8 @@ How a module request relates to the full incremental path:
   checks the stored walk against a live one.
 
 Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
-metadata that only a typed body holds; an init macro given before
-`genes.Generator.use()` that types project modules; a file that Haxe parsed
+metadata that only a typed body holds; a module that Genes itself types
+before it reads files (`genes.Register`, `js.Boot`); a file that Haxe parsed
 before the current macro interpreter started; a change that a macro makes by
 name
 to a module outside the request's program; an after-save callback that
