@@ -580,8 +580,11 @@ whole-second check misses its saves):
   one makes Haxe type nothing again.
 
 Limits, not covered: an init macro given before `genes.Generator.use()` that
-types project modules (Haxe parses their files before Genes reads them, so a
-save in between, in the same second, is proven as typed); a file that Haxe
+types project modules. Haxe types them before Genes reads their files, so any
+save that Haxe's whole-second check misses (in the same second, or with the
+modification time kept) is typed stale in that request and proven as typed;
+the full request itself can be stale then (genes-v54c). Also not covered: a
+file that Haxe
 parsed before the current macro interpreter started (Haxe starts a new one
 when a macro module changes). On APFS a replaced file also gets a new change
 time, so the inode check is a second guard there, not the only one. No group

@@ -390,9 +390,11 @@ typedef ModuleRecordsReport = {
  * `GenerationChangeSet.compareMetadata` sees it first), and so is a define
  * that it sets (`defines-changed`). Not covered: metadata that only a typed
  * body holds (limit S3 of `ModuleFingerprint`); an init macro given before
- * `genes.Generator.use()` that types project modules (Haxe parses their
- * files before `beginRequest` reads them, so a save in between, in the same
- * second, is proven as typed); a file that Haxe parsed before the current
+ * `genes.Generator.use()` that types project modules: Haxe types them
+ * before `beginRequest` reads their files, so any save that Haxe's
+ * whole-second check misses (in the same second, or with the modification
+ * time kept) is typed stale in that request and proven as typed, and the
+ * full request itself can be stale (genes-v54c); a file that Haxe parsed before the current
  * macro interpreter started (also outside what `provenSource` reads); the
  * status rule on a file system whose change time does not move at every
  * change (FAT and exFAT may not); a change that a macro
