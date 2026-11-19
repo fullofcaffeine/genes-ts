@@ -44,6 +44,19 @@
  * build with `-D genes.react_refresh_modules`, so the React edits below also
  * cover modules that Genes splits into `X.tsx` and `X.fields.tsx`.
  *
+ * Stage 3, slice S2 (stored edges): with a usable cache, compare and reuse
+ * walk clean modules with the steps recorded for their member lists, and
+ * fall back to a live walk in the same request when a stored step cannot be
+ * taken as recorded. Every request reports a walk verdict; `drift` (stored
+ * steps that differ from the live plan, or two walks of compare with other
+ * results) fails the gate, and a request with no edit must stay on the
+ * recorded path (reuse: without building the plan of a clean module). The
+ * edits whose ids start with `S2` cover the order-sensitive cases of the
+ * walk. `--modes=measure` runs the same edit list with `"generation":
+ * "measure"` and prints how often a walk with stored edges would leave the
+ * recorded path: the go/no-go number of slice S2. It is not part of the
+ * default gate.
+ *
  * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
  * the output lines of the session key (no absolute output path), the clean
  * rule for a module without a declaration stamp, and the refusal of compare
@@ -94,7 +107,7 @@ const genesVersion = (
 type Mode = "cold" | "plain" | "shadow";
 
 /** The `generation` value that one pass over the edit list uses. */
-type GenerationMode = "compare" | "reuse";
+type GenerationMode = "measure" | "compare" | "reuse";
 
 /** Command-line options; see the file comment. */
 const options = (() => {
@@ -106,7 +119,8 @@ const options = (() => {
   const modes = (value("modes") ?? "compare,reuse").split(",")
     .map((mode) => mode.trim());
   for (const mode of modes)
-    ok(mode === "compare" || mode === "reuse", `unknown mode ${mode}`);
+    ok(mode === "measure" || mode === "compare" || mode === "reuse",
+      `unknown mode ${mode}`);
   // `--only` is a list of edit ids separated by "|"; an entry matches an id
   // that contains it, or, with a leading "=", the id that equals it. Plain
   // text matching: the value never becomes a regular expression.
@@ -165,6 +179,21 @@ type ShadowReport = {
     readonly module: string;
     readonly state: string;
   }>;
+  /** The reachability walk with stored edges (slice S2; report format 4). */
+  readonly walk: {
+    readonly pass: string;
+    readonly verdict: string;
+    readonly left: string | null;
+    readonly storedVisits: number;
+    readonly liveVisits: number;
+    readonly checkedVisits: number;
+    readonly missing: number;
+    readonly differs: number;
+    readonly stale: number;
+    readonly walksDiffer: string | null;
+    readonly storedMs: number;
+    readonly liveMs: number;
+  };
 };
 
 /**
@@ -212,6 +241,11 @@ type Edit = {
    * the published trees must be equal.
    */
   readonly failsAfterCommit?: boolean;
+  /**
+   * For an edit that `fails`: the shadow request (and the plain warm request)
+   * must print exactly the errors of the cold build, no more and no fewer.
+   */
+  readonly sameErrors?: boolean;
   /** Modules that the report must list as emitted and dirty. */
   readonly dirtyModules?: ReadonlyArray<string>;
   /**
@@ -220,6 +254,17 @@ type Edit = {
    * Haxe's cache, for example after the macro interpreter was reset.
    */
   readonly settled?: boolean;
+  /**
+   * The verdict of the walk with stored edges (slice S2) that the edit
+   * expects in every mode: `on-path` or `left` (`ShadowWalkReport`).
+   */
+  readonly walk?: string;
+  /**
+   * True for an edit whose expected result depends on compare or reuse
+   * needing afterTyping reuse: the `measure` pass skips its result,
+   * reason, mode and refusal checks.
+   */
+  readonly notMeasured?: boolean;
   /**
    * Files (relative to the output folder) that the cold tree must hold, or
    * must not hold, after the edit; checked only with `--react-refresh`.
@@ -876,7 +921,8 @@ const edits: ReadonlyArray<Edit> = [
       request.afterTyping = "measure";
     },
     results: ["off"],
-    refusal: "needs-after-typing-reuse"
+    refusal: "needs-after-typing-reuse",
+    notMeasured: true
   },
   {
     id: "generation measure with afterTyping measure: clean rules without a comparison",
@@ -896,7 +942,8 @@ const edits: ReadonlyArray<Edit> = [
     },
     results: ["full"],
     reason: "afterTyping",
-    mode: "current"
+    mode: "current",
+    notMeasured: true
   },
   {
     id: "no edit after the measure cache",
@@ -929,6 +976,15 @@ const edits: ReadonlyArray<Edit> = [
     }
   },
   {
+    // Stage 3, slice S2: the same import cycle, with no edit. inc.CyChild is
+    // clean and asks whether inc.CyBase is in a cycle with it; inc.CyBase is
+    // clean too, so the answer reads its stored runtime requests.
+    id: "S2 no edit while the import cycle through a third module stands",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
     id: "that type position removed: the import cycle opens again",
     apply: () => {
       edit("inc/Leaf2.hx",
@@ -936,6 +992,303 @@ const edits: ReadonlyArray<Edit> = [
         "/*LEAF2_IMPORT*/");
       edit("inc/Leaf2.hx", "value(): String {\n    final hint: Null<Leaf2Hint> = null;",
         "value(): String {");
+    }
+  },
+  {
+    // Stage 3, slice S2, row 1: inc.Leaf2 names inc.Den.DenNote, which
+    // dead-code elimination removed, in a type position. The walk adds it
+    // to inc.Den, which stays clean; inc.Den is then visited with a
+    // member list that the record does not have.
+    id: "S2 first type-only use of a removed class in a clean module",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef DenHint = {\n  final ?note: inc.Den.DenNote;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final denHint: Null<DenHint> = null;");
+    },
+    walk: "left"
+  },
+  {
+    // inc.Den now has two recorded member lists. Only the visit with
+    // DenNote reaches inc.DenDeep, a module that only the walk creates.
+    id: "S2 no edit after that first use: two recorded member lists",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 last type-only use of that removed class",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef DenHint = {\n  final ?note: inc.Den.DenNote;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final denHint: Null<DenHint> = null;",
+        "value(): String {");
+    },
+    walk: "left"
+  },
+  {
+    id: "S2 no edit after that last use",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // Row 5: inc.GhostUser starts to name inc.GhostHint, whose typedef field
+    // names inc.Ghost; dead-code elimination removed that class, so only
+    // the walk creates the module inc.Ghost.
+    id: "S2 first use of a typedef that reaches a module only the walk creates",
+    apply: () => edit("inc/GhostUser.hx", "/*GHOST_USE*/",
+      "final hint: Null<GhostHint> = null; /*GHOST_USE*/")
+  },
+  {
+    // inc.GhostUser and inc.GhostHint are clean: a stored step of
+    // inc.GhostHint creates the module inc.Ghost.
+    id: "S2 no edit: a stored step creates the module inc.Ghost",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 last use of that typedef",
+    apply: () => edit("inc/GhostUser.hx",
+      "final hint: Null<GhostHint> = null; /*GHOST_USE*/", "/*GHOST_USE*/")
+  },
+  {
+    // Row 2: inc.PairWayA and inc.PairWayB add PairA and PairB to the clean
+    // module inc.Pair late, in the order of their visits. inc.Leaf2 names
+    // inc.PairWayB, so the walk visits it first: the order flips.
+    id: "S2 two sources add late members to one clean module; their visit order flips",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;"),
+    walk: "left"
+  },
+  {
+    id: "S2 no edit after the flipped order",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 the visit order flips back",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;",
+      "value(): String {"),
+    walk: "left"
+  },
+  {
+    // Row 3: inc.Leaf2 uses inc.Tint at run time, so the class is concrete
+    // and the generator adds the typedef inc.Tinted.TintAlias to the clean
+    // module inc.Tinted.
+    // Without #249 the walk with stored edges left the recorded path here.
+    // Since the merge with #249, inc.Tint moves from the unlisted part of its
+    // module fingerprint (`ModuleFingerprint.unlisted`) to the listed part,
+    // so the fingerprint of inc.Tint changes and the request generates in
+    // full, before any walk. Safe, but slower.
+    id: "S2 a typedef whose class becomes concrete",
+    apply: () => edit("inc/Leaf2.hx", "/*LEAF2_USE*/",
+      "+ Std.string(new inc.Tint().shade) /*LEAF2_USE*/"),
+    results: ["full"],
+    reason: "inc.Tint"
+  },
+  {
+    id: "S2 no edit after the typedef was added",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    // The class leaves the generator's list while Haxe does not type its
+    // module again: rule 6 makes the whole request fall back.
+    id: "S2 the class of the typedef stops being concrete",
+    apply: () => edit("inc/Leaf2.hx",
+      "+ Std.string(new inc.Tint().shade) /*LEAF2_USE*/", "/*LEAF2_USE*/")
+  },
+  {
+    id: "S2 no edit after the typedef was removed",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  // Review of slice S2 (genes-f8vc.9.19, probes 6a to 6e; all leave the
+  // recorded path or stay on it, never drift): one late member that two
+  // clean typedef modules name (RV6c), two late members of one clean module
+  // whose order follows the visit order (RV6b), a late member of a clean
+  // module that closes an import cycle through two clean modules (RV6d), a
+  // generic instance named in a type position and then used at run time
+  // (RV6e), and a late member that is renamed (RV6a).
+  {
+    id: "RV6c Leaf2 names inc.RvWayB: the other clean source adds the shared late member",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final rvWayB: Null<inc.RvWayB> = null;")
+  },
+  { id: "RV6c no edit after the flip", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6c the flip removed",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final rvWayB: Null<inc.RvWayB> = null;", "value(): String {")
+  },
+  { id: "RV6c no edit after the flip removed", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6b Leaf2 names inc.RvOrdWayY: two late members of a clean module in the other order",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final rvOrdY: Null<inc.RvOrdWayY> = null;")
+  },
+  { id: "RV6b no edit after the order flip", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6b the order flips back",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final rvOrdY: Null<inc.RvOrdWayY> = null;", "value(): String {")
+  },
+  { id: "RV6b no edit after the order flips back", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6d a late member of a clean module closes an import cycle through two clean modules",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef RvCyHint = {\n  final ?e: inc.RvCyQ.RvCyQExtra;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final rvCy: Null<RvCyHint> = null;");
+    }
+  },
+  { id: "RV6d no edit while that cycle stands", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6d the cycle opens again",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef RvCyHint = {\n  final ?e: inc.RvCyQ.RvCyQExtra;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final rvCy: Null<RvCyHint> = null;",
+        "value(): String {");
+    }
+  },
+  { id: "RV6d no edit after the cycle opened", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e a dirty module first names a generic instance in a type position only",
+    apply: () => {
+      edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",
+        "/*LEAF2_IMPORT*/\ntypedef RvBoxHint = {\n  final ?b: inc.RvBox<Float>;\n}\n");
+      edit("inc/Leaf2.hx", "value(): String {",
+        "value(): String {\n    final rvBox: Null<RvBoxHint> = null;");
+    }
+  },
+  { id: "RV6e no edit after that first use", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e a second dirty module uses the generic instance at run time",
+    apply: () => edit("inc/RvBoxUser.hx", "/*RVBOX_USE*/",
+      "+ new RvBox<Float>(1.5).item /*RVBOX_USE*/")
+  },
+  { id: "RV6e no edit after the run-time use", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e the run-time use removed",
+    apply: () => edit("inc/RvBoxUser.hx", "+ new RvBox<Float>(1.5).item /*RVBOX_USE*/",
+      "/*RVBOX_USE*/")
+  },
+  { id: "RV6e no edit after the run-time use removed", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6e the type-only use removed",
+    apply: () => {
+      edit("inc/Leaf2.hx",
+        "/*LEAF2_IMPORT*/\ntypedef RvBoxHint = {\n  final ?b: inc.RvBox<Float>;\n}\n",
+        "/*LEAF2_IMPORT*/");
+      edit("inc/Leaf2.hx", "value(): String {\n    final rvBox: Null<RvBoxHint> = null;",
+        "value(): String {");
+    }
+  },
+  { id: "RV6e no edit after the type-only use removed", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6a the late member named by a clean typedef module is renamed",
+    apply: () => {
+      for (const relative of ["inc/RvName.hx", "inc/RvNameWay.hx"]) {
+        const file = sourceFile(relative);
+        writeFileSync(file, readFileSync(file, "utf8").replaceAll("RvNameOld", "RvNameNew"));
+        touch(file);
+      }
+    }
+  },
+  { id: "RV6a no edit after the rename", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    id: "RV6a the rename reverted",
+    apply: () => {
+      for (const relative of ["inc/RvName.hx", "inc/RvNameWay.hx"]) {
+        const file = sourceFile(relative);
+        writeFileSync(file, readFileSync(file, "utf8").replaceAll("RvNameNew", "RvNameOld"));
+        touch(file);
+      }
+    }
+  },
+  { id: "RV6a no edit after the rename reverted", apply: () => {}, results: ["incremental"], settled: true },
+  {
+    // Review of slice S2 (cross-model), FB3: the only dirty module, inc.Ui,
+    // gets an error while every other module is clean, so the error comes
+    // inside a request whose walk takes stored edges. The request must fail
+    // with the errors of the cold build, once, and leave the cache as it
+    // was; the repaired request and the request after it stay on the
+    // recorded path.
+    id: "FB3 a dirty module gets an unknown attribute on an intrinsic element",
+    apply: () => edit("inc/Ui.hx", 'className="ui-v2"', 'bogusAttribute="ui-v2"'),
+    fails: true,
+    sameErrors: true
+  },
+  {
+    id: "FB3 the attribute repaired",
+    apply: () => edit("inc/Ui.hx", 'bogusAttribute="ui-v2"', 'className="ui-v2"'),
+    walk: "on-path"
+  },
+  { id: "FB3 no edit after the repair", apply: () => {}, results: ["incremental"], settled: true, walk: "on-path" },
+  {
+    // FB4: the same for an unknown prop of a component, which Genes checks
+    // against the props type of another module (inc.Widgets).
+    id: "FB4 a dirty module passes an unknown prop to a component",
+    apply: () => edit("inc/Ui.hx", "<WidgetStatus label={label} />",
+      '<WidgetStatus label={label} bogus="x" />'),
+    fails: true,
+    sameErrors: true
+  },
+  {
+    id: "FB4 the prop repaired",
+    apply: () => edit("inc/Ui.hx", '<WidgetStatus label={label} bogus="x" />',
+      "<WidgetStatus label={label} />"),
+    walk: "on-path"
+  },
+  { id: "FB4 no edit after the repair", apply: () => {}, results: ["incremental"], settled: true, walk: "on-path" },
+  {
+    // Review of slice S2, M1: with -D genes.extern_init_warning, Genes warns
+    // about each extern class with `__init__` (Math and String of Haxe's own
+    // library, and inc.RvExtInit) while it reads the type list. A request
+    // that leaves the walk with stored edges, and every compare request with
+    // a clean set, generates again; the warnings must still come once.
+    id: "S2 define genes.extern_init_warning added",
+    apply: () => {
+      program.defines.push("genes.extern_init_warning");
+    },
+    // Haxe selects another macro context for another define set, so the
+    // request starts with no generation cache.
+    results: ["full"]
+  },
+  {
+    id: "S2 no edit with genes.extern_init_warning",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
+  },
+  {
+    id: "S2 with genes.extern_init_warning, an edit that leaves the recorded path",
+    apply: () => edit("inc/Leaf2.hx", "value(): String {",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;"),
+    walk: "left"
+  },
+  {
+    id: "S2 with genes.extern_init_warning, that edit undone",
+    apply: () => edit("inc/Leaf2.hx",
+      "value(): String {\n    final pairHint: Null<inc.PairWayB> = null;",
+      "value(): String {"),
+    walk: "left"
+  },
+  {
+    id: "S2 define genes.extern_init_warning removed",
+    apply: () => {
+      program.defines = program.defines.filter((define) =>
+        define !== "genes.extern_init_warning");
     }
   },
   {
@@ -1143,7 +1496,37 @@ const edits: ReadonlyArray<Edit> = [
     // metadata, so the request falls back.
     id: "after-typing macro sets the type of a class that the generator adds late",
     apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
-      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n")
+      "class Leaf2 {\n  public static var markLateClassMeta = 1;\n"),
+    // Slice S2: the plan of the clean module inc.LateUser loses its edge to
+    // LateBox, with the same member list and stamps. The stored step to
+    // LateBox records the class metadata (`checkStoredTarget`), so without
+    // #249 the walk with stored edges left the recorded path there. Since
+    // the merge with #249, the metadata comparison before the passes after
+    // typing sees the change first: the session key changes and the request
+    // generates in full, before any walk. It must never be `drift`.
+    results: ["full"],
+    reason: "inc.LateEnum"
+  },
+  {
+    // The same metadata on a listed class (review of the merge of #246 into
+    // slice S2): inc.Mark3Macro adds `@:ts.type("string")` to
+    // inc.ListedTs.ListedBox, which dead-code elimination keeps. The clean
+    // module inc.ListedUser names it only in a typedef field, so its plan
+    // loses the edge to ListedBox although its member list and every stamp
+    // stay the same.
+    id: "after-typing macro sets the type of a listed class that a clean module names only in a type position",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var markListedClassMeta = 1;\n"),
+    // The fingerprint of inc.ListedTs holds the class metadata, so the
+    // request generates in full before any walk.
+    results: ["full"]
+  },
+  {
+    id: "no edit after the type of the listed class was set",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
   },
   {
     // M3 of the cross-model review of #246: a structure field can declare
@@ -1219,6 +1602,73 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var fableMixValueOnly = 1;\n")
   },
   {
+    // Stage 3 slice S2 merged with #249 (journal note 2138): inc.Mark3Macro
+    // removes `@:ts.type("number")` from the late class
+    // inc.LateEnum.LateTyped. While the class had the override, the plan of
+    // the clean module inc.LateUser had no edge to it, so no stored step
+    // names it, and `checkStoredTarget` cannot see the change. Two checks of
+    // #249 each see it: the metadata comparison before the passes after
+    // typing (`GenerationChangeSet.compareMetadata`, a new session key) and
+    // the unlisted part of the fingerprint of inc.LateEnum
+    // (`ModuleFingerprint.unlisted`). Either one makes the request fall back
+    // to a full generation. With both switched off, the walk with stored
+    // edges keeps the old path: compare reports drift and reuse publishes a
+    // stale tree.
+    id: "after-typing macro removes the type override of a late class that no stored step names",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var unmarkLateTyped = 1;\n"),
+    results: ["full"],
+    reason: "inc.LateEnum"
+  },
+  {
+    // The next request compares with the one before, so it is incremental
+    // again, and its tree must still equal the cold build.
+    id: "no edit after the type override of a late class was removed",
+    apply: () => {},
+    results: ["incremental"]
+  },
+  {
+    // Must fix of the review of genes-ts #247 (Stage 3 S2). inc.ExcludeMacro
+    // calls `exclude()` on the enum inc.ExclOwner.ExclEarly, before the
+    // after-typing passes of Genes. That makes the enum extern with no new
+    // stamp and no metadata change. inc.ExclHintUser names the enum only in
+    // a typedef field; the live walk takes no step to an extern declaration,
+    // so the enum leaves inc/ExclOwner.tsx and its type import leaves
+    // inc/ExclHintUser.tsx. The class comes first in inc.ExclOwner, and the
+    // walk visits inc.ExclHintUser first: its stored step would add the enum
+    // back before the visit of inc.ExclOwner, so the member list of that
+    // visit matches the record. Only `checkStoredTarget`, which compares the
+    // target facts of each stored step (extern flag and metadata), leaves
+    // the recorded path here. With the extern flag out of those facts,
+    // compare reported drift and reuse published a stale tree.
+    id: "after-typing macro makes an enum extern before the Genes passes",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var excludeEarly = 1;\n"),
+    results: ["full"],
+    walk: "left"
+  },
+  {
+    id: "no edit after an enum was made extern before the Genes passes",
+    apply: () => {},
+    results: ["incremental"],
+    walk: "on-path"
+  },
+  {
+    // The same with the enum inc.ExclOwner.ExclLate, excluded after the
+    // after-typing passes of Genes, so they never see the change.
+    id: "after-typing macro makes an enum extern after the Genes passes",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var excludeLate = 1;\n"),
+    results: ["full"],
+    walk: "left"
+  },
+  {
+    id: "no edit after an enum was made extern after the Genes passes",
+    apply: () => {},
+    results: ["incremental"],
+    walk: "on-path"
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1237,6 +1687,7 @@ function buildArguments(mode: Mode): string[] {
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
     "--macro", 'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
+    "--macro", "inc.ExcludeMacro.installAfter()",
     "--macro", "genes.Generator.use()",
     "--macro", "genes.js.Async.enable()",
     "--macro", "genes.react.InlineMarkup.enable()",
@@ -1253,6 +1704,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.FableMacro.install()",
     "--macro", "inc.UnlistedMacro.install()",
     "--macro", "inc.Fable3Macro.install()",
+    "--macro", "inc.ExcludeMacro.installBefore()",
     "--main", "inc.Main",
     ...program.modules,
     "-resource", `${resourceFile}@note`,
@@ -1332,6 +1784,21 @@ function treeDifference(
 }
 
 /**
+ * Returns the warnings that Genes reports while it reads the type list,
+ * sorted: today "Extern __init__ methods are not supported" with
+ * `-D genes.extern_init_warning`. A request reports each of them once, also
+ * when it generates a second time after it left the walk with stored edges
+ * (slice S2).
+ */
+function generatorWarnings(result: ProcessResult): ReadonlyArray<string> {
+  return `${result.stdout}\n${result.stderr}`
+    .split("\n")
+    .filter((line) => line.includes("Extern __init__ methods are not supported"))
+    .map((line) => line.trim())
+    .sort();
+}
+
+/**
  * Returns the `__js__` deprecation warnings of one request, sorted. Genes
  * reports them when it prints a module, so they are part of what a request
  * with stored output must still give.
@@ -1370,6 +1837,12 @@ type Row = {
   readonly cacheAnswerBytes: number;
   readonly replayed: number;
   readonly reason: string;
+  /** The walk verdict, why it left, and its pass and times (slice S2). */
+  readonly walk: string;
+  readonly walkLeft: string;
+  readonly walkPass: string;
+  readonly storedWalkMs: number;
+  readonly liveWalkMs: number;
 };
 
 /** Runs one read-only Git command in the repository and returns its output. */
@@ -1476,6 +1949,21 @@ function printTimeComparison(results: ReadonlyArray<PassResult>): void {
   if (counted > 0)
     process.stdout.write(`mean generation time saved on ${counted} replaying `
       + `edits: ${(saved / counted).toFixed(1)} ms (diagnostic)\n`);
+  // Slice S2: the walk time of the compare pass (its live walk) against
+  // the reuse pass that kept the walk with stored edges.
+  let walkSaved = 0;
+  let walkCounted = 0;
+  for (const row of reuse.rows) {
+    const other = compare.rows.find((entry) => entry.id === row.id);
+    if (other === undefined || row.walkPass !== "stored")
+      continue;
+    walkSaved += other.liveWalkMs - row.storedWalkMs - row.liveWalkMs;
+    walkCounted++;
+  }
+  if (walkCounted > 0)
+    process.stdout.write(`mean reachability time saved on ${walkCounted} `
+      + `edits that kept the walk with stored edges: `
+      + `${(walkSaved / walkCounted).toFixed(1)} ms (diagnostic)\n`);
 }
 
 /** Runs the edit list once with one `generation` value. */
@@ -1525,6 +2013,12 @@ async function runPass(
         ok(warm === null || warm.code !== 0,
           `${label}: the plain warm request must fail`);
         ok(shadowed.code !== 0, `${label}: the shadow request must fail`);
+        if (step.sameErrors === true) {
+          strictEqual(shadowed.stderr, cold.stderr,
+            `${label}: the shadow request must report the errors of the cold build`);
+          ok(warm === null || warm.stderr === cold.stderr,
+            `${label}: the plain warm request must report the errors of the cold build`);
+        }
         const report = readReport();
         ok(
           report === null || (report.result === "failed" && !report.committed),
@@ -1534,7 +2028,9 @@ async function runPass(
           id: step.id, result: report === null ? "failed before generation" : "failed",
           typedAgain: 0, emitted: 0, clean: 0, mismatches: 0,
           fallbackLookups: 0, generationMs: 0, projectedMs: 0, overheadMs: 0,
-          cacheBytes: 0, cacheAnswerBytes: 0, replayed: 0, reason: ""
+          cacheBytes: 0, cacheAnswerBytes: 0, replayed: 0, reason: "",
+          walk: "failed", walkLeft: "", walkPass: "", storedWalkMs: 0,
+          liveWalkMs: 0
         });
         continue;
       }
@@ -1622,6 +2118,14 @@ async function runPass(
       deepStrictEqual(printWarnings(shadowed), coldWarnings,
         `G1 failed at ${label}: the shadow request reported other print `
         + "warnings than the cold build");
+      const coldGeneratorWarnings = generatorWarnings(cold);
+      if (warm !== null)
+        deepStrictEqual(generatorWarnings(warm), coldGeneratorWarnings,
+          `G0 failed at ${label}: the plain warm request reported other `
+          + "generator warnings than the cold build");
+      deepStrictEqual(generatorWarnings(shadowed), coldGeneratorWarnings,
+        `G1 failed at ${label}: the shadow request reported other generator `
+        + "warnings than the cold build");
       if (report.result !== "off") {
         strictEqual(report.printWarnings, coldWarnings.length,
           `${label}: the shadow recorded ${report.printWarnings} print `
@@ -1634,25 +2138,26 @@ async function runPass(
         ok(readStampCount(shadowProbe) > 0,
           `${label}: the shadow request added no epoch stamp`);
       }
-      if (step.results !== undefined) {
+      const measured = !(mode === "measure" && step.notMeasured === true);
+      if (step.results !== undefined && measured) {
         ok(
           step.results.includes(report.result),
           `${label}: shadow result ${report.result} (${String(report.reason)}); `
           + `expected ${step.results.join(" or ")}`
         );
       }
-      if (step.reason !== undefined) {
+      if (step.reason !== undefined && measured) {
         ok(
           (report.reason ?? "").includes(step.reason),
           `${label}: shadow reason ${String(report.reason)}; expected it to `
           + `contain ${JSON.stringify(step.reason)}`
         );
       }
-      if (step.mode !== undefined) {
+      if (step.mode !== undefined && measured) {
         strictEqual(report.mode, step.mode === "current" ? mode : step.mode,
           `${label}: shadow mode`);
       }
-      if (step.refusal !== undefined) {
+      if (step.refusal !== undefined && measured) {
         strictEqual(report.refusal, `${mode}-${step.refusal}`,
           `${label}: refusal code`);
         strictEqual(report.mismatches.length, 0,
@@ -1698,6 +2203,26 @@ async function runPass(
           strictEqual(report.replayed, report.clean,
             `${label}: a clean module was not replayed`);
         }
+        // Slice S2: with no edit the walk with stored edges stays on the
+        // recorded path; reuse keeps it and builds no plan of a clean module.
+        strictEqual(report.walk.verdict, "on-path",
+          `${label}: the walk left the recorded path with no edit `
+          + `(${String(report.walk.left)})`);
+        if (mode === "reuse")
+          ok(report.walk.pass === "stored" && report.walk.storedVisits > 0,
+            `${label}: reuse did not keep the walk with stored edges `
+            + `(${report.walk.pass}, ${report.walk.storedVisits} stored visits)`);
+      }
+      if (report.result !== "off") {
+        // Slice S2: a recorded member list never has other steps than the
+        // live plan, and the two walks of compare never differ.
+        ok(report.walk.verdict !== "drift",
+          `${label}: the walk with stored edges drifts from the live walk: `
+          + `${String(report.walk.left)} ${String(report.walk.walksDiffer)}`);
+      }
+      if (step.walk !== undefined) {
+        strictEqual(report.walk.verdict, step.walk,
+          `${label}: walk verdict (${String(report.walk.left)})`);
       }
       replayedTotal += report.replayed;
       rows.push(row(step.id, report));
@@ -1712,18 +2237,32 @@ async function runPass(
   process.stdout.write(
     `[${mode}] edit | result | typed again | emitted | clean | replayed | `
     + "mismatches | generation ms | projected ms | overhead ms | cache bytes "
-    + "| answer bytes\n"
+    + "| answer bytes | walk | walk pass | stored walk ms | live walk ms\n"
   );
   for (const entry of rows) {
     process.stdout.write(
       `${entry.id} | ${entry.result} | ${entry.typedAgain} | ${entry.emitted} `
       + `| ${entry.clean} | ${entry.replayed} | ${entry.mismatches} `
       + `| ${entry.generationMs} | ${entry.projectedMs} | ${entry.overheadMs} `
-      + `| ${entry.cacheBytes} | ${entry.cacheAnswerBytes}`
+      + `| ${entry.cacheBytes} | ${entry.cacheAnswerBytes} | ${entry.walk} `
+      + `| ${entry.walkPass} | ${entry.storedWalkMs} | ${entry.liveWalkMs}`
       + (entry.reason.length > 0 ? ` | ${entry.reason}` : "")
+      + (entry.walkLeft.length > 0 ? ` | walk: ${entry.walkLeft}` : "")
       + "\n"
     );
   }
+  // Slice S2, the go/no-go number: of the requests whose walk visited a
+  // clean module, how many left (or, in measure, would leave) the
+  // recorded path.
+  const judged = rows.filter((entry) => entry.walk === "on-path"
+    || entry.walk === "left");
+  const left = judged.filter((entry) => entry.walk === "left");
+  const walkLeftEarly = left.filter((entry) =>
+    !entry.walkLeft.startsWith("checks before emission"));
+  process.stdout.write(`[${mode}] walk with stored edges: ${left.length} of `
+    + `${judged.length} requests with a clean module left the recorded path `
+    + `(${walkLeftEarly.length} during the walk, `
+    + `${left.length - walkLeftEarly.length} at the checks before emission)\n`);
   ok(
     g1Failures.length === 0,
     `G1 failed (${mode}): modules that reuse would replay changed:\n`
@@ -1776,7 +2315,12 @@ function row(id: string, report: ShadowReport): Row {
     cacheAnswerBytes: report.cacheAnswerBytes ?? 0,
     replayed: report.replayed ?? 0,
     reason: (report.reason ?? "")
-      + (report.reservedNamesChanged ? " (reserved names changed)" : "")
+      + (report.reservedNamesChanged ? " (reserved names changed)" : ""),
+    walk: report.walk?.verdict ?? "none",
+    walkLeft: report.walk?.left ?? "",
+    walkPass: report.walk?.pass ?? "",
+    storedWalkMs: report.walk?.storedMs ?? 0,
+    liveWalkMs: report.walk?.liveMs ?? 0
   };
 }
 

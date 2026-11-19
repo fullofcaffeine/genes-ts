@@ -130,6 +130,74 @@ typedef ShadowModuleReport = {
   final usedHaxePrinter: Bool;
 }
 
+/**
+ * What the reachability walk of one request did with the stored steps of
+ * clean modules (Stage 3, slice S2).
+ *
+ * Why: the walk with stored edges is worth its code only when it rarely
+ * leaves the recorded path; `measure` counts how often it would, without
+ * using any stored step.
+ */
+typedef ShadowWalkReport = {
+  /**
+   * `live` (every module built its plan), `stored` (the clean modules took
+   * stored steps and the request kept that walk), or `stored, then live`
+   * (the request left the walk with stored edges and walked again live).
+   */
+  final pass: String;
+
+  /**
+   * `none` (no clean module was visited), `on-path` (each visit of a clean
+   * module found its member list in the record with the same steps, and the
+   * checks before emission passed), `left` (a visit, a stored step or the
+   * checks before emission left the recorded path: a fallback that the
+   * request sees), or `drift` (a recorded member list had other steps than
+   * the live plan: the stored walk would differ without seeing it, which
+   * must never happen).
+   */
+  final verdict: String;
+
+  /** Why the walk left, or would leave (`measure`), the recorded path. */
+  final left: Null<String>;
+
+  /** Visits of clean modules that took stored steps. */
+  final storedVisits: Int;
+
+  /** Visits that built a dependency plan. */
+  final liveVisits: Int;
+
+  /** Live visits of clean modules that were checked against the record. */
+  final checkedVisits: Int;
+
+  /** Checked visits whose member list the record does not have. */
+  final missing: Int;
+
+  /** Checked visits whose recorded steps differ from the live ones. */
+  final differs: Int;
+
+  /**
+   * Steps of checked visits that added a declaration whose stamp differs
+   * from the recorded one, that name a declaration whose metadata differs
+   * from the recorded one, or that the inventory cannot find by its key.
+   */
+  final stale: Int;
+
+  /** "compare": the first difference between the two walks, or `null`. */
+  final walksDiffer: Null<String>;
+
+  /** Time of the walk with stored edges, and of the live walk. */
+  final storedMs: Float;
+
+  final liveMs: Float;
+}
+
+/**
+ * Thrown inside the walk with stored edges when a stored step cannot be
+ * taken exactly as recorded. `Generator` catches it (and any other error of
+ * that pass) and generates again with live edges only.
+ */
+class LeftRecordedPath extends haxe.Exception {}
+
 /** Time spent by the shadow itself, in milliseconds. */
 typedef ShadowOverhead = {
   /** Stamps and session key of `GenerationChangeSet`, shared with the passes. */
@@ -229,6 +297,10 @@ typedef ShadowReport = {
   final cacheStored: Bool;
   final stages: Array<ShadowStageReport>;
   final overhead: ShadowOverhead;
+
+  /** The reachability walk with stored edges (slice S2). */
+  final walk: ShadowWalkReport;
+
   final modules: Array<ShadowModuleReport>;
 }
 
@@ -269,7 +341,17 @@ typedef ShadowReport = {
  * `api.addFeature`, because feature flags cannot be removed):
  *
  * 1. `inventory`: the clean rules of `GenerationCache.decide`.
- * 2. The walk of reachability runs live for every module.
+ * 2. The walk of reachability (slice S2). A dirty module builds its plan
+ *    and its steps are recorded (`recordVisit`). A clean module takes the
+ *    steps recorded for its member list at that visit (`storedSteps`); a
+ *    stored step that adds a declaration finds it again by its key, with
+ *    an equal stamp (`resolveStoredStep`). The queue and `Module.addTypes`
+ *    are the code of the live walk. Clean modules then answer import-cycle
+ *    questions from their stored runtime requests. A member list that the
+ *    record does not have, a changed stamp, a member that is still missing,
+ *    or any error leaves this pass (`LeftRecordedPath`): `Generator` builds
+ *    new `Module` values and runs again from the inventory, live, with no
+ *    clean module.
  * 3. `planReplay`: for each clean module that is emitted now, its final
  *    member list and root flags must equal the stored ones, and each stored
  *    answer must equal the answer now. Any difference: the request generates
@@ -282,6 +364,14 @@ typedef ShadowReport = {
  *    module order: it checks the stored answers once more, stages the stored
  *    files, reports the stored warnings, and adds the stored features in
  *    sorted order, so that later modules see the flags of a full generation.
+ *
+ * A fallback of step 3 after a walk with stored edges also runs the request
+ * again live (`walkAgain`). `"compare"` always runs both walks: first with
+ * stored edges, then live, and any difference of the walk results, of the
+ * modules that the checks accept, or of the recorded and the live steps
+ * for one member list is a compare failure. `"measure"` walks live only and
+ * counts how often a walk with stored edges would leave the recorded path
+ * (`ShadowWalkReport`).
  *
  * After the commit, `committed` compares (only for `"compare"`), stores the
  * new plain-data cache and writes the report. A replayed module keeps its
@@ -315,9 +405,10 @@ typedef ShadowReport = {
 class IncrementalShadow {
   /**
    * The report format. Format 2 added `mode` and `refusal`; format 3 added
-   * the replay counts, `planFallback` and `sameObjectFailures`.
+   * the replay counts, `planFallback` and `sameObjectFailures`; format 4
+   * added `walk`.
    */
-  static inline final REPORT_FORMAT = 3;
+  static inline final REPORT_FORMAT = 4;
 
   static inline final LINE_LIMIT = 240;
   static inline final MISMATCH_LIMIT = 200;
@@ -364,7 +455,53 @@ class IncrementalShadow {
   final emitSeconds = new Map<String, Float>();
 
   /** Answer lines of each module (`feature <name> <0|1>`, `module <name> <0|1>`). */
-  final answers = new Map<String, Map<String, Bool>>();
+  var answers = new Map<String, Map<String, Bool>>();
+
+  /** Recorded visits of the walk of this request (slice S2), by module. */
+  var visits = new Map<String, Array<CachedVisit>>();
+
+  /** Internal runtime requests of each module printed in this request. */
+  final runtimeRequestLists = new Map<String, Array<String>>();
+
+  /** `GenerationChangeSet.stampOf` answers of this request, by declaration key. */
+  final stamps = new Map<String, String>();
+
+  /**
+   * The target facts (`WalkTarget.inputsText`) of each declaration of the
+   * modules that stored steps name, by module and declaration key, read once in this
+   * request (`TypedModuleInventory.textsByKey`).
+   */
+  final targetFactTexts = new Map<String, Map<String, String>>();
+
+  /** True in the pass that walks clean modules with stored steps. */
+  var storedPass = false;
+
+  /** True in the live pass after a pass with stored edges. */
+  var rerun = false;
+
+  /** Why the walk left (or, in `measure`, would leave) the recorded path. */
+  var walkLeft: Null<String> = null;
+
+  /** The first visit at which the live walk differs from the record. */
+  var walkDivergence: Null<String> = null;
+
+  var walkDivergenceKind = '';
+
+  /** "compare": the walk result of the pass with stored edges, if it was usable. */
+  var storedWalkResult: Null<String> = null;
+
+  /** "compare": the modules that the pass with stored edges would replay. */
+  var storedReplayable: Null<Map<String, Bool>> = null;
+
+  var walksDiffer: Null<String> = null;
+  var storedVisits = 0;
+  var liveVisits = 0;
+  var checkedVisits = 0;
+  var missingVisits = 0;
+  var differingVisits = 0;
+  var staleSteps = 0;
+  var storedWalkSeconds = 0.0;
+  var liveWalkSeconds = 0.0;
 
   /** Features that emission of each module added. */
   final additions = new Map<String, Map<String, Bool>>();
@@ -373,10 +510,10 @@ class IncrementalShadow {
   final mapSources = new Map<String, Map<String, Bool>>();
 
   /** Final member list of each module after the walk. */
-  final memberLists = new Map<String, String>();
+  var memberLists = new Map<String, String>();
 
   /** Root flags of each module after the walk. */
-  final rootFlagTexts = new Map<String, String>();
+  var rootFlagTexts = new Map<String, String>();
 
   /** Public entries that the second validation loop found for each module. */
   final publicEntries = new Map<String, Array<CachedPublicEntry>>();
@@ -631,6 +768,356 @@ class IncrementalShadow {
   }
 
   /**
+   * Returns true when the walk of this pass uses stored steps for clean
+   * modules (Stage 3, slice S2): the mode is `"compare"` or `"reuse"`, the
+   * clean rules gave a clean set that is not empty, and the request did not
+   * leave such a pass already. `Generator` calls it once in each pass,
+   * before the walk.
+   *
+   * `"measure"` never takes stored steps: it walks live and counts how often
+   * the stored walk would leave the recorded path (`recordVisit`).
+   */
+  public static function storedWalk(): Bool {
+    final shadow = current;
+    if (shadow == null || !shadow.active || shadow.rerun)
+      return false;
+    if (shadow.mode != CompareClean && shadow.mode != ReuseClean)
+      return false;
+    final clean = switch shadow.decision {
+      case Rules(clean, _): clean;
+      default: null;
+    }
+    shadow.storedPass = clean != null && clean.keys().hasNext();
+    return shadow.storedPass;
+  }
+
+  /**
+   * Returns the member list of a module as the key of a recorded visit:
+   * `ModuleFingerprint.members`, the text of the final member-list check.
+   */
+  public static function memberState(members: Array<genes.Module.Member>): Null<String> {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return null;
+    return ModuleFingerprint.members(members, listed);
+  }
+
+  /**
+   * Returns the stored visit of a clean module for the member list `state`
+   * in a pass with stored edges, or `null` when the module walks live (the
+   * pass is live, or the module is not clean). Throws `LeftRecordedPath`
+   * when the record has no visit with that member list: the walk with
+   * stored edges then cannot know the steps.
+   */
+  public static function storedSteps(module: String,
+      state: String): Null<CachedVisit> {
+    final shadow = current;
+    if (shadow == null || !shadow.active || !shadow.storedPass)
+      return null;
+    final clean = switch shadow.decision {
+      case Rules(clean, _): clean;
+      default: null;
+    }
+    if (clean == null || !clean.exists(module))
+      return null;
+    final stored = GenerationCache.entry(module);
+    if (stored == null)
+      return null;
+    for (visit in stored.visits)
+      if (visit.members == state) {
+        shadow.storedVisits++;
+        return visit;
+      }
+    throw new LeftRecordedPath('the walk visited $module with a member list '
+      + 'that the record does not have');
+  }
+
+  /**
+   * Returns the typed declaration that a stored step adds, found by its key
+   * in this request's inventory. Throws `LeftRecordedPath` when the
+   * declaration's stamp differs from the recorded `stamp` (Haxe gave a new
+   * object, so the typed ref of a live edge could hold another one) or when
+   * the inventory does not have it.
+   */
+  public static function resolveStoredStep(step: genes.WalkStep,
+      stamp: String): Type {
+    final shadow = current;
+    if (shadow == null)
+      throw new LeftRecordedPath('no incremental generator for a stored step');
+    final now = shadow.stampOf(step.module, step.key);
+    if (stamp.length == 0 || now != stamp)
+      throw new LeftRecordedPath('the stored step to ${step.key} names a '
+        + 'declaration whose stamp changed or is missing');
+    final type = TypedModuleInventory.declarationByKey(step.module, step.key);
+    if (type == null)
+      throw new LeftRecordedPath('the inventory has no declaration ${step.key}');
+    return type;
+  }
+
+  /**
+   * Checks, before the walk with stored edges takes a stored step of
+   * `module`, that the declaration it names has the target facts that the
+   * recording request saw (`facts`): the text of `WalkTarget.inputsOf`,
+   * which holds every fact of the target that the live walk reads before it
+   * takes a step (kind, extern flag, module, name) and its metadata, which
+   * the plan reads. Throws `LeftRecordedPath` when they differ or the
+   * inventory lacks the declaration. It runs for every stored step, also
+   * when the declaration is already a member, because no stamp check runs
+   * then.
+   *
+   * Why: an after-typing macro can change these facts without a new stamp,
+   * and the live walk reads them. Examples: `@:ts.type("string")` on the
+   * class `inc.LateEnum.LateBox` removes the edge from `inc.LateUser`,
+   * which names the class only in a typedef field; `exclude()` on the enum
+   * `inc.ExclOwner.ExclEarly` makes it extern, so the live walk takes no
+   * step to it from `inc.ExclHintUser`. In both cases the stored step would add a member that
+   * the live walk does not add.
+   */
+  public static function checkStoredTarget(module: String,
+      step: genes.WalkStep, facts: Null<String>): Void {
+    final shadow = current;
+    if (shadow == null)
+      throw new LeftRecordedPath('no incremental generator for a stored step');
+    if (facts == null || shadow.targetFactsOf(step.module, step.key) != facts)
+      throw new LeftRecordedPath(changedTargetReason(module, step.key));
+  }
+
+  static function changedTargetReason(module: String, key: String): String {
+    return 'the stored step of $module to $key names a declaration whose '
+      + 'target facts (kind, extern flag, module, name or metadata) '
+      + 'changed or that the inventory lacks';
+  }
+
+  /** Stops the walk with stored edges: a stored step failed a check of the walk. */
+  public static function leaveRecordedPath(message: String): Void {
+    throw new LeftRecordedPath(message);
+  }
+
+  /**
+   * Records the steps of one live visit: `state` is the module's member list
+   * when the visit started, `steps` the steps in edge order, `resolved` the
+   * keys of the steps that added a declaration or a module, and `named` the
+   * keys of the steps for which no member had the plain name, so that the
+   * walk read the second name (`WalkStep.typeName`).
+   *
+   * In a live pass with a usable cache, the visit of a clean module is also
+   * checked against the record, as the walk with stored edges would take it:
+   * a member list that the record does not have, a recorded step whose
+   * declaration has other target facts now, recorded steps that differ from
+   * the live ones, or an added declaration whose stamp changed. The first
+   * such visit gives the walk's verdict (`ShadowWalkReport`). `targets`
+   * holds the target facts (`WalkTarget.inputsText`) of each step's
+   * declaration, in the order of `steps`.
+   */
+  public static function recordVisit(module: String, state: String,
+      steps: Array<genes.WalkStep>, targets: Array<String>,
+      resolved: Array<String>, named: Array<String>): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    shadow.liveVisits++;
+    final seen = new Map<String, Bool>();
+    final unique: Array<genes.WalkStep> = [];
+    final uniqueTargets: Array<String> = [];
+    for (index => step in steps)
+      if (!seen.exists(step.key)) {
+        seen.set(step.key, true);
+        unique.push(step);
+        uniqueTargets.push(targets[index]);
+      }
+    var list = shadow.visits.get(module);
+    if (list == null) {
+      list = [];
+      shadow.visits.set(module, list);
+    }
+    if (!list.exists(visit -> visit.members == state))
+      list.push({
+        members: state,
+        steps: unique,
+        stamps: [for (step in unique) shadow.stampOf(step.module, step.key)],
+        targets: uniqueTargets
+      });
+    // Checked in a live pass: `measure`, and the live pass of `compare`.
+    if (shadow.storedPass || (shadow.rerun && shadow.mode != CompareClean))
+      return;
+    final clean = switch shadow.decision {
+      case Rules(clean, _): clean;
+      default: null;
+    }
+    if (clean == null || !clean.exists(module))
+      return;
+    final stored = GenerationCache.entry(module);
+    if (stored == null)
+      return;
+    shadow.checkedVisits++;
+    final visit = stored.visits.find(visit -> visit.members == state);
+    if (visit == null) {
+      shadow.missingVisits++;
+      shadow.diverge('left',
+        'the walk visited $module with a member list ' +
+        'that the record does not have');
+      return;
+    }
+    // The walk with stored edges checks the target facts of each stored
+    // step's declaration before it takes the step (`checkStoredTarget`), so
+    // a changed one leaves the path before different steps could matter.
+    for (index => step in visit.steps) {
+      final recorded = visit.targets == null ? null : visit.targets[index];
+      if (recorded == null
+        || shadow.targetFactsOf(step.module, step.key) != recorded) {
+        shadow.staleSteps++;
+        shadow.diverge('left', changedTargetReason(module, step.key));
+        return;
+      }
+    }
+    if (stepText(visit.steps) != stepText(unique)) {
+      shadow.differingVisits++;
+      shadow.diverge('drift',
+        'the recorded steps of $module differ from its ' +
+        'plan for the same member list');
+      return;
+    }
+    // The walk with stored edges finds a declaration by its key when a step
+    // adds it, and also when it needs the second name but the record does
+    // not hold it (`Generator.expandReachability`). Both leave the path
+    // when the stamp changed or is empty, or the inventory lacks the key.
+    final needed = resolved.copy();
+    for (key in named) {
+      final index = visit.steps.findIndex(step -> step.key == key);
+      if (index >= 0 && visit.steps[index].typeName.length == 0
+        && needed.indexOf(key) < 0)
+        needed.push(key);
+    }
+    for (key in needed) {
+      final index = visit.steps.findIndex(step -> step.key == key);
+      final step = visit.steps[index];
+      if (visit.stamps[index].length == 0
+        || shadow.stampOf(step.module, key) != visit.stamps[index]
+        || TypedModuleInventory.declarationByKey(step.module, key) == null) {
+        shadow.staleSteps++;
+        shadow.diverge('left',
+          'the stored step of $module to $key needs a ' +
+          'declaration whose stamp changed or that the inventory lacks');
+      }
+    }
+  }
+
+  /**
+   * Leaves the pass with stored edges (a stored step could not be taken, or
+   * that pass stopped with an error): the generator generates again with
+   * live edges and no clean module.
+   */
+  public static function leaveStoredPass(reason: String): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    shadow.walkLeft = reason;
+    shadow.walkDivergenceKind = 'left';
+    shadow.storedWalkResult = null;
+    shadow.startRerun();
+  }
+
+  /**
+   * Decides, after the checks before emission of a pass with stored edges,
+   * whether the generator must generate again with live edges. `"reuse"`
+   * keeps the pass when every check passed. Otherwise, and always for
+   * `"compare"` (which compares the two walks), it returns true and resets
+   * what the pass recorded.
+   */
+  public static function walkAgain(): Bool {
+    final shadow = current;
+    if (shadow == null || !shadow.active || !shadow.storedPass)
+      return false;
+    final fallback = shadow.planFallback;
+    if (fallback != null) {
+      shadow.walkLeft = 'checks before emission: $fallback';
+      shadow.walkDivergenceKind = 'left';
+      shadow.storedWalkResult = null;
+    }
+    if (shadow.mode == ReuseClean && fallback == null)
+      return false;
+    if (shadow.mode == CompareClean && fallback == null)
+      shadow.storedReplayable = shadow.replayable.copy();
+    shadow.startRerun();
+    return true;
+  }
+
+  /**
+   * Returns true when this request compares the walk with stored edges with
+   * the live walk: `"compare"` with a clean set.
+   */
+  public static function comparesWalks(): Bool {
+    final shadow = current;
+    return shadow != null
+      && shadow.active
+      && shadow.mode == CompareClean
+      && (shadow.storedPass || shadow.rerun);
+  }
+
+  /**
+   * Gives the result of one walk: the sorted reachable modules and the final
+   * member list of every module of the map. In the pass with stored edges it
+   * is kept; in the live pass after it, any difference is a compare failure.
+   */
+  public static function walkResult(names: Array<String>,
+      modules: Map<String, genes.Module>): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    final all = [for (name in modules.keys()) name];
+    all.sort(compareStrings);
+    final lines = ['reachable ${names.join(' ')}'];
+    for (name in all)
+      lines.push('$name: '
+        + ModuleFingerprint.members(modules.get(name).members, listed)
+          .split('\n')
+          .join(' | '));
+    if (shadow.storedPass) {
+      shadow.storedWalkResult = lines.join('\n');
+      return;
+    }
+    final stored = shadow.storedWalkResult;
+    if (stored == null)
+      return;
+    final storedLines = stored.split('\n');
+    for (index in 0...Std.int(Math.max(storedLines.length, lines.length))) {
+      final left = index < storedLines.length ? storedLines[index] : '<none>';
+      final right = index < lines.length ? lines[index] : '<none>';
+      if (left != right) {
+        shadow.walksDiffer = 'stored walk: $left; live walk: $right';
+        return;
+      }
+    }
+  }
+
+  /**
+   * Returns the stored internal runtime requests of a clean module in a pass
+   * with stored edges, or `null` (see `Module.replayRuntimeRequests`).
+   */
+  public static function storedRuntimeRequests(module: String): Null<Array<String>> {
+    final shadow = current;
+    if (shadow == null || !shadow.active || !shadow.storedPass)
+      return null;
+    final clean = switch shadow.decision {
+      case Rules(clean, _): clean;
+      default: null;
+    }
+    if (clean == null || !clean.exists(module))
+      return null;
+    final stored = GenerationCache.entry(module);
+    return stored == null ? null : stored.runtimeRequests;
+  }
+
+  /** Records the internal runtime requests of a module that this request printed. */
+  public static function recordRuntimeRequests(module: String,
+      requests: Array<String>): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    shadow.runtimeRequestLists.set(module, requests.copy());
+  }
+
+  /**
    * Gives the shadow the generator's declaration list after the inventory
    * step, and applies the clean rules before planning starts.
    */
@@ -638,6 +1125,10 @@ class IncrementalShadow {
       exposed: Map<String, Array<String>>, root: String): Void {
     final shadow = current;
     if (shadow == null || !shadow.active)
+      return;
+    // The live pass after a pass with stored edges keeps the decision of
+    // the first pass: the facts that it reads did not change.
+    if (shadow.rerun)
       return;
     shadow.rootModule = root;
     final fingerprintStart = haxe.Timer.stamp();
@@ -741,6 +1232,13 @@ class IncrementalShadow {
    * In `"measure"` and `"compare"` the same checks run, and their result
    * selects the modules that `"compare"` checks after the commit, but
    * nothing is replayed.
+   *
+   * After a walk with stored edges (slice S2) the checks also decide
+   * whether that walk is kept: any fallback makes `walkAgain` run the
+   * request again live, and in that live pass of `"reuse"` this function
+   * replays nothing and reports why. In the live pass of `"compare"` the
+   * modules that the checks accept must be the ones that they accepted
+   * after the walk with stored edges.
    */
   public static function planReplay(names: Array<String>,
       facts: String->ReplayModuleFacts, now: ReplayAnswers): Map<String, Bool> {
@@ -761,7 +1259,11 @@ class IncrementalShadow {
       case Rules(clean, _): clean;
       default: null;
     }
-    if (clean != null) {
+    if (clean != null && shadow.rerun && shadow.mode == ReuseClean) {
+      // The live pass after a pass with stored edges replays nothing.
+      shadow.planFallback = 'the walk with stored edges left the recorded '
+        + 'path (${shadow.walkLeft})';
+    } else if (clean != null) {
       final plan = new Map<String, Bool>();
       final fallback = planFallbackReason(shadow, names, emitted, clean, now,
         plan);
@@ -769,6 +1271,15 @@ class IncrementalShadow {
         shadow.replayable = plan;
       else
         shadow.planFallback = fallback;
+      final storedPlan = shadow.storedReplayable;
+      if (shadow.rerun
+        && storedPlan != null
+        && shadow.walksDiffer == null
+        && sortedKeys(storedPlan).join(' ') != sortedKeys(shadow.replayable)
+          .join(' '))
+        shadow.walksDiffer = 'after the stored walk the checks before '
+          + 'emission accept ${sortedKeys(storedPlan).join(' ')}; after the '
+          + 'live walk ${sortedKeys(shadow.replayable).join(' ')}';
     }
     shadow.planCheckSeconds = haxe.Timer.stamp() - started;
     return shadow.mode == ReuseClean ? shadow.replayable.copy() : none;
@@ -1011,6 +1522,86 @@ class IncrementalShadow {
     shadow.finish(false, message);
   }
 
+  /** `GenerationChangeSet.stampOf`, read once for each declaration key. */
+  function stampOf(module: String, key: String): String {
+    final known = stamps.get(key);
+    if (known != null)
+      return known;
+    final stamp = GenerationChangeSet.stampOf(module, key);
+    stamps.set(key, stamp);
+    return stamp;
+  }
+
+  /**
+   * Returns the target facts (`WalkTarget.inputsText`) of the declaration `key` of
+   * `module` in this request, or `null` when the inventory lacks it. Each
+   * module is read once.
+   */
+  function targetFactsOf(module: String, key: String): Null<String> {
+    var ofModule = targetFactTexts.get(module);
+    if (ofModule == null) {
+      final read = TypedModuleInventory.textsByKey(module,
+        type -> genes.WalkTarget.inputsText(genes.WalkTarget.inputsOf(type)));
+      ofModule = read == null ? new Map() : read;
+      targetFactTexts.set(module, ofModule);
+    }
+    return ofModule.get(key);
+  }
+
+  /** Keeps the first divergence of the live walk from the record. */
+  function diverge(kind: String, reason: String): Void {
+    if (walkDivergence != null)
+      return;
+    walkDivergence = reason;
+    walkDivergenceKind = kind;
+  }
+
+  /**
+   * Starts the live pass after a pass with stored edges: forgets what that
+   * pass recorded for modules, because the live pass makes new `Module`
+   * values and records again. The witnesses and the failed lookups by name
+   * of the first pass stay. They can only add reads: a witness that only the
+   * first pass recorded makes its module dirty for more edits, and a failed
+   * lookup keeps the old cache.
+   *
+   * The live pass must also record every read of its own, so `Generator`
+   * starts the name memo of `TypeUtil.baseTypeName` again for it. Example:
+   * in the first pass, the dirty module `inc.A` is the first to ask for a
+   * name of `inc.Pair`, because the clean module `inc.B` builds no plan.
+   * With the memo of that pass, the live pass would not search again when
+   * `inc.B` asks, and `inc.B` would miss the witness of `inc.Pair` that a
+   * generation without the first pass gives it.
+   *
+   * A stored pass that is kept has the same shift: a dirty module can record
+   * a witness that a live generation gives to a clean module. The clean
+   * module keeps its stored witnesses, so this also only adds reads.
+   */
+  function startRerun(): Void {
+    stopClock();
+    owner = null;
+    TypedModuleInventory.setAsker(null);
+    storedPass = false;
+    rerun = true;
+    answers = new Map();
+    visits = new Map();
+    memberLists = new Map();
+    rootFlagTexts = new Map();
+    replayable = new Map();
+    planFallback = null;
+  }
+
+  /**
+   * Returns steps as one text, for comparing recorded and live steps. The
+   * second name is left out: a walk stores it only when it read it, and it
+   * follows from the key.
+   */
+  static function stepText(steps: Array<genes.WalkStep>): String {
+    return [
+      for (step in steps)
+        '${step.key} ${step.module} ${step.name}'
+    ].join('\n');
+  }
+
   function record(relative: String, content: String): Void {
     final start = haxe.Timer.stamp();
     final module = owner;
@@ -1030,6 +1621,12 @@ class IncrementalShadow {
     if (module == null)
       return;
     final elapsed = haxe.Timer.stamp() - clockStart;
+    if (clockPhase == Reachability) {
+      if (storedPass)
+        storedWalkSeconds += elapsed;
+      else
+        liveWalkSeconds += elapsed;
+    }
     final target = clockPhase == Emit
       || clockPhase == Replay ? emitSeconds : planSeconds;
     final before = target.get(module);
@@ -1097,6 +1694,26 @@ class IncrementalShadow {
               (dirtyReasons.exists(why) ? dirtyReasons.get(why) : 0) + 1);
           if (mode == CompareClean) {
             final compareStart = haxe.Timer.stamp();
+            final differ = walksDiffer;
+            if (differ != null)
+              add(mismatches, {
+                module: '',
+                path: '',
+                kind: 'walks differ',
+                line: 0,
+                stored: clip(differ),
+                staged: ''
+              });
+            final divergence = walkDivergence;
+            if (walkDivergenceKind == 'drift' && divergence != null)
+              add(mismatches, {
+                module: '',
+                path: '',
+                kind: 'stored steps differ',
+                line: 0,
+                stored: clip(divergence),
+                staged: ''
+              });
             for (module in sortedKeys(replayable))
               compare(module, mismatches);
             compareSeconds = haxe.Timer.stamp() - compareStart;
@@ -1231,6 +1848,7 @@ class IncrementalShadow {
         cacheWriteMs: milliseconds(cacheWriteSeconds),
         totalMs: milliseconds(overheadSeconds)
       },
+      walk: walkReport(),
       modules: moduleReports
     };
     try {
@@ -1241,6 +1859,36 @@ class IncrementalShadow {
         + 'continues without it.',
         Context.currentPos());
     }
+  }
+
+  /** Returns the walk part of the report (`ShadowWalkReport`). */
+  function walkReport(): ShadowWalkReport {
+    final pass = rerun ? 'stored, then live' : storedVisits > 0 ? 'stored' : 'live';
+    final measured = walkDivergence;
+    final left = walkLeft != null ? walkLeft : measured != null ? measured : planFallback != null ? 'checks before emission: $planFallback' : null;
+    final clean = switch decision {
+      case Rules(clean, _): clean;
+      default: null;
+    }
+    final visitedClean = storedVisits + checkedVisits > 0;
+    final verdict = if (walkDivergenceKind == 'drift' || walksDiffer != null)
+      'drift' else if (left != null
+      && clean != null) 'left' else if (clean == null || !visitedClean)
+      'none' else 'on-path';
+    return {
+      pass: pass,
+      verdict: verdict,
+      left: left,
+      storedVisits: storedVisits,
+      liveVisits: liveVisits,
+      checkedVisits: checkedVisits,
+      missing: missingVisits,
+      differs: differingVisits,
+      stale: staleSteps,
+      walksDiffer: walksDiffer,
+      storedMs: milliseconds(storedWalkSeconds),
+      liveMs: milliseconds(liveWalkSeconds)
+    };
   }
 
   /**
@@ -1327,6 +1975,11 @@ class IncrementalShadow {
     compareText(mismatches, module, 'public entries differ',
       publicEntryText(stored.publicEntries),
       publicEntryText(publicEntries.get(module)));
+    final storedRequests = stored.runtimeRequests;
+    final printedRequests = runtimeRequestLists.get(module);
+    compareText(mismatches, module, 'runtime requests differ',
+      storedRequests == null ? '<none>' : storedRequests.join(' '),
+      printedRequests == null ? '<none>' : printedRequests.join(' '));
   }
 
   static function compareText(mismatches: Array<ShadowMismatch>,
@@ -1436,7 +2089,12 @@ class IncrementalShadow {
           final list = publicEntries.get(module);
           list == null ? [] : list;
         },
-        mapSources: earlier != null ? earlier.mapSources : sortedLines(mapSources.get(module))
+        mapSources: earlier != null ? earlier.mapSources : sortedLines(mapSources.get(module)),
+        visits: earlier != null ? earlier.visits : {
+          final list = visits.get(module);
+          list == null ? [] : list;
+        },
+        runtimeRequests: earlier != null ? earlier.runtimeRequests : runtimeRequestLists.get(module)
       });
     }
     final others = new Map<String, CachedInventoryModule>();

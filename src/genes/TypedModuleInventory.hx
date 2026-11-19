@@ -225,6 +225,82 @@ class TypedModuleInventory {
   }
 
   /**
+   * Returns the declaration of `module` whose `DependencyPlan.moduleTypeKey`
+   * is `key`, applied to its own type parameters, or `null` when the
+   * inventory has no such declaration. It never looks a module up by name
+   * and records no witness.
+   *
+   * Why: the walk with stored edges of Stage 3, slice S2 must add a
+   * declaration that a stored step names, for example
+   * `class:inc.Den.DenNote`, which dead-code elimination removed from the
+   * generator's list. The live walk takes that declaration from a typed ref
+   * of the visiting module, not by name, so this answer is no read by name
+   * either: the caller first checks that the declaration's stamp equals the
+   * recorded one (`GenerationChangeSet.stampOf`), so it is the object that
+   * the typed ref holds. A `null` answer makes the caller leave the stored
+   * walk; there is no `Context.getType` fallback.
+   */
+  public static function declarationByKey(module: String,
+      key: String): Null<Type> {
+    final indexed = known(module);
+    if (indexed == null)
+      return null;
+    for (candidate in indexed) {
+      final declaration: Null<ModuleType> = switch candidate {
+        case TInst(ref, _): TClassDecl(ref);
+        case TEnum(ref, _): TEnumDecl(ref);
+        case TType(ref, _): TTypeDecl(ref);
+        case TAbstract(ref, _): TAbstract(ref);
+        default: null;
+      }
+      if (declaration != null
+        && DependencyPlan.moduleTypeKey(declaration) == key)
+        return candidate;
+    }
+    return null;
+  }
+
+  /**
+   * Returns, for each declaration of `module`, the text that `text` gives
+   * for it, keyed by `DependencyPlan.moduleTypeKey`; `null` when the
+   * inventory has no such module. Each declaration is read once. Like
+   * `declarationByKey` it never looks a module up by name, records no
+   * witness, and keeps the first declaration of a key.
+   *
+   * Why: the walk with stored edges of Stage 3, slice S2 checks the
+   * target facts (`WalkTarget.inputsText`) of the declaration that each
+   * stored step names (`IncrementalShadow.checkStoredTarget`). Example: an
+   * after-typing macro adds `@:ts.type("string")` to `inc.LateEnum.LateBox`;
+   * the plan of a module that names `LateBox` in a type position then has
+   * no edge to it, although no stamp changed. Reading the whole module once is cheaper
+   * than one `declarationByKey` search for each step, which reads every
+   * declaration of the module again.
+   */
+  public static function textsByKey(module: String,
+      text: ModuleType->String): Null<Map<String, String>> {
+    final indexed = known(module);
+    if (indexed == null)
+      return null;
+    final texts = new Map<String, String>();
+    for (candidate in indexed) {
+      final declaration: Null<ModuleType> = switch candidate {
+        case TInst(ref, _): TClassDecl(ref);
+        case TEnum(ref, _): TEnumDecl(ref);
+        case TType(ref, _): TTypeDecl(ref);
+        case TAbstract(ref, _): TAbstract(ref);
+        default: null;
+      }
+      if (declaration == null)
+        continue;
+      final base = DependencyPlan.moduleTypeBase(declaration);
+      final key = DependencyPlan.moduleTypeKeyOf(declaration, base);
+      if (!texts.exists(key))
+        texts.set(key, text(declaration));
+    }
+    return texts;
+  }
+
+  /**
    * Returns every module that Haxe typed in this request, each with its
    * declarations in Haxe's order, also the ones that dead-code elimination
    * removes later. Returns `null` when the request did not install Genes.

@@ -27,6 +27,14 @@ import haxe.macro.Type;
  * `markLateTpMeta` write `@:ts.type("string")` on the type parameter `T` of
  * `inc.Constrained.tag`, of the class `ConstrainedBox` and of the late class
  * `LateBox`; `markLateClassMeta` writes it on the late class `LateBox`.
+ *
+ * `markListedClassMeta` writes it on the listed class
+ * `inc.ListedTs.ListedBox`, which the clean module `inc.ListedUser` names
+ * only in a type position.
+ *
+ * `unmarkLateTyped` does the opposite: it removes `@:ts.type` from the late
+ * class `inc.LateEnum.LateTyped`, which `inc.LateUser` names only in a type
+ * position (merge of Stage 3 slice S2 with genes-ts #249).
  */
 class Mark3Macro {
   public static function install(): Void {
@@ -36,6 +44,8 @@ class Mark3Macro {
       final ownParams = new Map<String, ClassType>();
       var late: Null<Type> = null;
       var lateBox: Null<ClassType> = null;
+      var lateTyped: Null<ClassType> = null;
+      var listedBox: Null<ClassType> = null;
       function keep(name: String, params: Array<TypeParameter>): Void {
         final found = [];
         for (param in params)
@@ -69,6 +79,10 @@ class Mark3Macro {
                 keep(field.name, field.params);
             if (cls.module == 'inc.Constrained' && cls.name == 'ConstrainedBox')
               keep('box', cls.params);
+            if (cls.module == 'inc.ListedTs' && cls.name == 'ListedBox')
+              listedBox = cls;
+            if (cls.module == 'inc.LateEnum' && cls.name == 'LateTyped')
+              lateTyped = cls;
             if (cls.module == 'inc.LateEnum' && cls.name == 'LateBox') {
               keep('lateBox', cls.params);
               lateBox = cls;
@@ -151,9 +165,15 @@ class Mark3Macro {
         markParam('box');
       if (marks.exists('markLateTpMeta'))
         markParam('lateBox');
+      final typed = lateTyped;
+      if (marks.exists('unmarkLateTyped') && typed != null)
+        typed.meta.remove(':ts.type');
       final box = lateBox;
       if (marks.exists('markLateClassMeta') && box != null)
         markOwn(box.meta);
+      final listed = listedBox;
+      if (marks.exists('markListedClassMeta') && listed != null)
+        markOwn(listed.meta);
     });
   }
 }

@@ -50,6 +50,52 @@ typedef CachedInventoryModule = {
   final fingerprint: String;
 }
 
+/**
+ * The steps of one visit of the reachability walk to a module, keyed by the
+ * module's member list when the visit started (Stage 3, slice S2).
+ *
+ * Why: the walk can visit a module more than once, when another module adds
+ * a declaration to it; each member list gives other steps. A later request
+ * that walks a clean module with stored edges looks up the visit with the
+ * member list of that moment, and leaves the stored walk when there is none.
+ *
+ * Example: `inc.Den` with the member list of `Den` alone has the steps
+ * of `Den`; after a late `DenNote` it has also the step to
+ * `class:inc.DenDeep.DenDeep`.
+ */
+typedef CachedVisit = {
+  /** `IncrementalShadow.memberState` of the module when the visit started. */
+  final members: String;
+
+  /** The steps of the visit, in edge order, each declaration key once. */
+  final steps: Array<genes.WalkStep>;
+
+  /**
+   * For each step, the stamp of its declaration in the recording request
+   * (`GenerationChangeSet.stampOf`; empty when it had none).
+   */
+  final stamps: Array<String>;
+
+  /**
+   * For each step, the text of the target facts of its declaration in the
+   * recording request (`WalkTarget.inputsText`). The live walk reads a
+   * target only through `WalkTarget.inputsOf`, so this text holds every
+   * fact that the walk reads before it takes the step: the kind, the extern
+   * flag, the module and the name. It also holds the metadata, which the
+   * plan of the visiting module reads. An after-typing macro can change
+   * some of these facts without a new stamp:
+   *
+   * - `@:ts.type("string")` on a class removes the edge of every module
+   *   that names the class only in a type position;
+   * - `exclude()` on an enum makes it extern, and the live walk takes no
+   *   step to an extern declaration.
+   *
+   * The walk with stored edges leaves the recorded path when the text
+   * differs (`IncrementalShadow.checkStoredTarget`).
+   */
+  final targets: Array<String>;
+}
+
 /** One module that a module read by name during generation, with its epochs then. */
 typedef CachedWitness = {
   final module: String;
@@ -127,6 +173,20 @@ typedef CachedModule = {
    * a relative path, sorted. Item 4 of the review of #243 reads them.
    */
   final mapSources: Array<String>;
+
+  /**
+   * The visits of the reachability walk to the module (slice S2), in the
+   * order of the recording request, each member list once.
+   */
+  final visits: Array<CachedVisit>;
+
+  /**
+   * The internal runtime requests of the module's printed plan
+   * (`Module.internalRuntimeRequests`), or `null` when none were recorded.
+   * A request with stored edges answers import-cycle questions about the
+   * clean module from them (slice S2).
+   */
+  final runtimeRequests: Null<Array<String>>;
 }
 
 /** What the clean rules decide for one request, before generation starts. */
@@ -257,7 +317,7 @@ typedef CacheRequestFacts = {
  */
 class GenerationCache {
   /** The entry format. A new field or meaning needs a new number. */
-  public static inline final FORMAT = 3;
+  public static inline final FORMAT = 6;
 
   /**
    * The features that emission can add while Genes prints modules, so that
@@ -564,6 +624,21 @@ class GenerationCache {
           + Std.string(entry.max).length;
       for (source in module.mapSources)
         size += source.length;
+      for (visit in module.visits) {
+        size += visit.members.length;
+        for (step in visit.steps)
+          size += step.key.length
+            + step.module.length
+            + step.name.length
+            + step.typeName.length;
+        for (stamp in visit.stamps)
+          size += stamp.length;
+        for (target in visit.targets)
+          size += target.length;
+      }
+      if (module.runtimeRequests != null)
+        for (request in module.runtimeRequests)
+          size += request.length;
     }
     size += answerSize;
     if (size > BYTE_BUDGET) {

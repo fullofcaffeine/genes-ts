@@ -489,6 +489,30 @@ class GenerationChangeSet {
   }
 
   /**
+   * Returns the stamp (`nonce:N`) of one declaration of `module` in this
+   * request, or an empty text when the after-typing callback saw no such
+   * declaration or the request added no stamp.
+   *
+   * Why: a stored step of the reachability walk (Stage 3, slice S2) names a
+   * declaration by its key. Before the walk with stored edges adds that
+   * declaration again, the stamp must equal the stamp of the recording
+   * request: then Haxe kept the declaration object, and the typed value
+   * found by the key is the one that the live edge would carry. Example:
+   * `stampOf('inc.Den', 'class:inc.Den.DenNote')` gives
+   * `ab12cd34ef567890:3`.
+   */
+  public static function stampOf(module: String, key: String): String {
+    final list = moduleEpochs.get(module);
+    if (list == null)
+      return '';
+    final prefix = '$key@';
+    for (entry in list)
+      if (StringTools.startsWith(entry, prefix))
+        return entry.substr(prefix.length);
+    return '';
+  }
+
+  /**
    * Returns the sorted modules with a declaration that arrived without a
    * valid stamp: Haxe typed them in this request, or a macro defined them.
    */

@@ -732,12 +732,16 @@ class TypeUtil {
    * search compares only the module and the name, so it already gives both
    * the same answer, and the kept answer is that answer.
    *
-   * Lifetime: `Generator.generateTransactional` calls this once, so a new
-   * empty map starts each generation. The map then stays set until the next
-   * request that installs Genes: its first `Generator.use()` calls
-   * `refreshCompilerTypes`, which sets the map to `null`, also when the
-   * earlier generation failed. A request that does not install Genes does
-   * not run this code. The map holds text only, no compiler-owned value.
+   * Lifetime: `Generator.generateTransactional` calls this at its start, so
+   * a new empty map starts each generation. When a pass with stored edges
+   * (Stage 3, slice S2) leaves the recorded path, the live pass after it
+   * calls this again, so that pass searches each name again and records the
+   * same witnesses as a generation without the first pass. The map then
+   * stays set until the next request that installs Genes: its first
+   * `Generator.use()` calls `refreshCompilerTypes`, which sets the map to
+   * `null`, also when the earlier generation failed. A request that does
+   * not install Genes does not run this code. The map holds text only, no
+   * compiler-owned value.
    */
   public static function startGenerationNames(): Void {
     generationBaseTypeNames = new Map();

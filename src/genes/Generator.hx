@@ -26,6 +26,26 @@ using Lambda;
 using StringTools;
 
 /**
+ * The facts of one generation that come from Haxe's type list alone, before
+ * any `Module` value exists: the declarations of each output module, the
+ * root exports, and the concrete class and enum names.
+ *
+ * Why: when a request leaves the walk with stored edges (Stage 3, slice S2),
+ * `Generator.generateTransactional` builds new `Module` values and walks
+ * again. It starts from these facts instead of reading the type list again,
+ * because that step reports warnings (an extern `__init__` with
+ * `-D genes.extern_init_warning`) that a request must report once.
+ * `concrete` is a copy taken before any module added a name; each pass
+ * copies it again. Request-local: it holds typed values only for the
+ * request that made it.
+ */
+private typedef GenerationProgram = {
+  final toGenerate: Map<String, Array<Type>>;
+  final expose: Map<String, ModuleExport>;
+  final concrete: Array<String>;
+}
+
+/**
  * Orchestrates the shared Haxe-to-TypeScript/classic-JavaScript pipeline.
  *
  * Why: both output profiles must consume the same typed modules, semantic
@@ -164,31 +184,60 @@ class Generator {
    * What/How: typed modules, reachability, capability checks, implementation
    * files, declarations, source maps, and TS support files are accumulated in
    * `outputTransaction`; public output changes only at the final commit.
+   *
+   * `program` is given only for the live pass after a pass with stored edges
+   * (Stage 3, slice S2; see the caller below). That pass builds new `Module`
+   * values from the program facts of the first pass instead of reading the
+   * type list again: a warning of that step, such as "Extern __init__
+   * methods are not supported" with `-D genes.extern_init_warning`, is
+   * reported once, and the plan work of the pass is timed as
+   * `genes.plan.rerun`, not as a second inventory and walk.
    */
   static function generateTransactional(api: JSGenApi, outputFile: String,
-      output: String, outputTransaction: OutputTransaction): Void {
-    final endInventoryTimer = timer('genes.plan.inventory');
+      output: String, outputTransaction: OutputTransaction,
+      ?program: GenerationProgram): Void {
+    final given = program;
+    final rerun = given != null;
+    var rerunTimerOpen = rerun;
+    final rerunTimer = rerun ? timer('genes.plan.rerun') : () -> {};
+    function endRerunTimer(): Void {
+      if (!rerunTimerOpen)
+        return;
+      rerunTimerOpen = false;
+      rerunTimer();
+    }
+    function planTimer(name: String): Void->Void {
+      return rerun ? () -> {} : timer(name);
+    }
+    final endInventoryTimer = planTimer('genes.plan.inventory');
     // Typing and Haxe's filters are complete: declaration names are final.
+    // The live pass after a pass with stored edges starts the name memo
+    // again: with the memo of the first pass, a name that pass already found
+    // is not searched again, so a module that asks for it first in the live
+    // pass records no witness of the module that holds it (see
+    // `IncrementalShadow.startRerun`).
     TypeUtil.startGenerationNames();
-    ModuleDirectivePlan.validate();
+    if (!rerun)
+      ModuleDirectivePlan.validate();
     // With `-D genes.compile_stage_profile`, `haxe --times` splits the
     // inventory stage into its whole-program loops (types, exports), the
     // `Module` values (modules) and the incremental shadow (shadow). A request
     // that replays stored output still runs the first two for every type.
     #if genes.compile_stage_profile
-    final endInventoryTypesTimer = timer('genes.plan.inventory.types');
+    final endInventoryTypesTimer = planTimer('genes.plan.inventory.types');
     #end
-    final toGenerate = typesPerModule(api.types);
+    final toGenerate = given != null ? given.toGenerate : typesPerModule(api.types);
     #if genes.compile_stage_profile
     endInventoryTypesTimer();
-    final endInventoryExportsTimer = timer('genes.plan.inventory.exports');
+    final endInventoryExportsTimer = planTimer('genes.plan.inventory.exports');
     #end
     final extension = Path.extension(outputFile);
     final outputDir = Path.directory(outputFile);
     Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
     final modules = new Map();
-    final expose: Map<String, ModuleExport> = new Map();
-    final concrete = [];
+    final expose: Map<String,
+      ModuleExport> = given != null ? given.expose : new Map();
+    final concrete = given != null ? given.concrete.copy() : [];
     function export(export: ModuleExport) {
       if (expose.exists(export.name)) {
         final duplicate = expose.get(export.name);
@@ -212,7 +261,9 @@ class Generator {
       }
       expose.set(export.name, export);
     }
-    for (type in api.types) {
+    // The live pass after a pass with stored edges has these facts already.
+    final programTypes: Array<Type> = rerun ? [] : api.types;
+    for (type in programTypes) {
       switch type {
         #if (haxe_ver >= 4.2)
         case TInst(ownerRef, _)
@@ -268,9 +319,16 @@ class Generator {
         default:
       }
     }
+    // The program facts before any `Module` adds a concrete name: the live
+    // pass after a pass with stored edges starts from them.
+    final programFacts: GenerationProgram = {
+      toGenerate: toGenerate,
+      expose: expose,
+      concrete: concrete.copy()
+    };
     #if genes.compile_stage_profile
     endInventoryExportsTimer();
-    final endInventoryModulesTimer = timer('genes.plan.inventory.modules');
+    final endInventoryModulesTimer = planTimer('genes.plan.inventory.modules');
     #end
     final context: genes.Module.ModuleContext = {
       concrete: concrete,
@@ -317,7 +375,7 @@ class Generator {
     }
     #if genes.compile_stage_profile
     endInventoryModulesTimer();
-    final endInventoryShadowTimer = timer('genes.plan.inventory.shadow');
+    final endInventoryShadowTimer = planTimer('genes.plan.inventory.shadow');
     #end
     IncrementalShadow.inventory(api.types, exposedByModule, output);
     #if genes.compile_stage_profile
@@ -340,9 +398,23 @@ class Generator {
      * imports and target globals remain leaves. Any internal edge without a
      * typed declaration is a compiler diagnostic—there is no string-to-type
      * lookup or silent catch on this path.
+     *
+     * Stage 3, slice S2 (`recorded` is true only for the implementation
+     * walk): each visit of a module turns the edges of its dependency plan
+     * into target steps (`WalkStep`), and `takeStep` applies one step. With
+     * an active incremental generator the steps of each visit are recorded,
+     * keyed by the member list of the module at that visit. In a pass with
+     * stored edges (`IncrementalShadow.storedWalk`), a clean module does not
+     * build its plan: `IncrementalShadow.storedSteps` gives the steps of its
+     * member list now, and the same `takeStep` applies them. The queue, the
+     * order and `Module.addTypes` are the same code for both kinds of step,
+     * so the walk with stored edges cannot drift from the live walk. A
+     * stored step that cannot be taken exactly as recorded throws, and the
+     * generator walks again with live edges only (see the caller).
      */
     function expandReachability(roots: Array<String>,
-        kinds: Array<DependencyEdgeKind>, profile: String): Map<String, Bool> {
+        kinds: Array<DependencyEdgeKind>, profile: String,
+        recorded: Bool): Map<String, Bool> {
       final reachable = new Map<String, Bool>();
       final pending: Array<String> = [];
       function enqueue(name: String): Void {
@@ -356,6 +428,38 @@ class Generator {
       for (root in sortedRoots)
         enqueue(root);
 
+      // Applies one target step: adds the declaration to its module (or
+      // makes the module), checks the member, and queues the module.
+      // Returns true when the step added a declaration or a module: only
+      // then did it read `resolve`. `typeName` is read only when no member
+      // has the plain name, as before slice S2.
+      function takeStep(step: WalkStep, typeName: Void->String,
+          resolve: Void->Type, fail: String->Void): Bool {
+        var target = modules.get(step.module);
+        var changed = false;
+        if (target == null) {
+          addModule(step.module, [resolve()]);
+          target = modules.get(step.module);
+          changed = true;
+        } else {
+          changed = target.addDeclaration(step.name, typeName, resolve);
+        }
+
+        final hasMember = target.getMember(step.name) != null
+          || target.getMember(typeName()) != null;
+        if (!hasMember)
+          fail('Genes DependencyPlan ($profile) retained '
+            +
+            '${step.key.substr(step.key.indexOf(":") + 1)} but could not materialize '
+            + 'its emitted declaration');
+
+        if (!reachable.exists(step.module))
+          enqueue(step.module);
+        else if (changed)
+          pending.push(step.module);
+        return changed;
+      }
+
       var index = 0;
       while (index < pending.length) {
         final moduleName = pending[index++];
@@ -366,6 +470,32 @@ class Generator {
             + moduleName,
             Context.currentPos());
 
+        // The member list when the visit starts: a step of this visit can
+        // add a declaration to this module itself.
+        final state = recorded ? IncrementalShadow.memberState(sourceModule.members) : null;
+        final stored = state == null ? null : IncrementalShadow.storedSteps(moduleName,
+          state);
+        if (stored != null) {
+          for (position => step in stored.steps) {
+            IncrementalShadow.checkStoredTarget(moduleName, step,
+              stored.targets == null ? null : stored.targets[position]);
+            final resolve = () -> IncrementalShadow.resolveStoredStep(step,
+              stored.stamps[position]);
+            takeStep(step,
+              () ->
+                step.typeName.length > 0 ? step.typeName : TypeUtil.baseTypeName(TypeUtil.typeToBaseType(resolve())),
+              resolve, IncrementalShadow.leaveRecordedPath);
+          }
+          continue;
+        }
+
+        final visitSteps: Array<WalkStep> = [];
+        // The text of the target facts of each step's declaration
+        // (`WalkTarget.inputsText`), which this walk and the plan read
+        // before a step; see `GenerationCache.CachedVisit`.
+        final visitTargets: Array<String> = [];
+        final resolvedKeys: Array<String> = [];
+        final namedKeys: Array<String> = [];
         final edges = sourceModule.dependencyPlan.edges;
         for (edge in edges) {
           if (!DependencyPlan.containsKind(kinds, edge.kind))
@@ -387,56 +517,77 @@ class Generator {
             continue;
           }
 
-          switch referencedType {
-            case TAbstract(_):
-              // Abstracts erase/project through their backing type and never own
-              // an emitted module member.
-              continue;
-            case TClassDecl(_.get() => {kind: KTypeParameter(_)}):
-              continue;
-            default:
-          }
-          final base = DependencyPlan.moduleTypeBase(referencedType);
-          if (base.isExtern || base.module == 'StdTypes')
+          // The walk reads the target only through `WalkTarget.inputsOf`,
+          // and records the text of those facts with the step, so the walk
+          // with stored edges compares every fact that this decision reads
+          // (`IncrementalShadow.checkStoredTarget`). Abstracts erase or
+          // project through their backing type and never own an emitted
+          // member; externs, type parameters and `StdTypes` get no step.
+          final inputs = WalkTarget.inputsOf(referencedType);
+          if (!WalkTarget.takesStep(inputs))
             continue;
-          if (base.module == null || base.module.length == 0)
-            CompilerDiagnostic.fail('Genes DependencyPlan ($profile) cannot resolve '
-              + '${base.name} to an output module '
-              + '[${edge.provenance.rule}]',
-              edge.provenance.sourcePosition);
-
-          var target = modules.get(base.module);
-          var changed = false;
-          if (target == null) {
-            addModule(base.module,
-              [DependencyPlan.moduleTypeToType(referencedType)]);
-            target = modules.get(base.module);
-            changed = true;
-          } else {
-            changed = target.addTypes([DependencyPlan.moduleTypeToType(referencedType)]);
+          final targetModule = switch inputs.module {
+            case null | '':
+              CompilerDiagnostic.fail('Genes DependencyPlan ($profile) cannot resolve '
+                + '${inputs.name} to an output module '
+                + '[${edge.provenance.rule}]',
+                edge.provenance.sourcePosition);
+            case module: module;
           }
 
-          final hasMember = target.getMember(base.name) != null
-            || target.getMember(TypeUtil.baseTypeName(base)) != null;
-          if (!hasMember)
-            CompilerDiagnostic.fail('Genes DependencyPlan ($profile) retained '
-              + '${TypeUtil.baseTypeFullName(base)} but could not materialize '
-              + 'its emitted declaration [${edge.provenance.rule}]',
-              edge.provenance.sourcePosition);
-
-          if (!reachable.exists(base.module))
-            enqueue(base.module);
-          else if (changed)
-            pending.push(base.module);
+          // The key is the declaration's identity: its kind and full name.
+          final base = DependencyPlan.moduleTypeBase(referencedType);
+          final key = DependencyPlan.moduleTypeKeyOf(referencedType, base);
+          var typeName: Null<String> = null;
+          final readTypeName = () -> {
+            final known = typeName;
+            if (known != null)
+              return known;
+            final name = TypeUtil.baseTypeName(base);
+            typeName = name;
+            return name;
+          };
+          final changed = takeStep({
+            key: key,
+            module: targetModule,
+            name: inputs.name,
+            typeName: ''
+          },
+            readTypeName,
+            () -> DependencyPlan.moduleTypeToType(referencedType),
+            (message: String) -> {
+              CompilerDiagnostic.fail('$message [${edge.provenance.rule}]',
+                edge.provenance.sourcePosition);
+              return;
+            });
+          if (state != null) {
+            // The second name is stored only when this walk read it; an
+            // empty text makes the stored walk read it from the declaration.
+            final known = typeName;
+            visitSteps.push({
+              key: key,
+              module: targetModule,
+              name: inputs.name,
+              typeName: known == null ? '' : known
+            });
+            visitTargets.push(WalkTarget.inputsText(inputs));
+            if (changed)
+              resolvedKeys.push(key);
+            if (known != null)
+              namedKeys.push(key);
+          }
         }
+        if (state != null)
+          IncrementalShadow.recordVisit(moduleName, state, visitSteps,
+            visitTargets, resolvedKeys, namedKeys);
       }
       IncrementalShadow.enter(null, Reachability);
       return reachable;
     }
 
-    final endReachabilityTimer = timer('genes.plan.reachability');
+    final endReachabilityTimer = planTimer('genes.plan.reachability');
     #if genes.compile_stage_profile
-    final endReachabilityRootsTimer = timer('genes.plan.reachability.roots');
+    final endReachabilityRootsTimer = planTimer('genes.plan.reachability.roots');
     #end
     final initialNames = [for (name in modules.keys()) name];
     initialNames.sort(Reflect.compare);
@@ -460,49 +611,97 @@ class Generator {
       [RuntimeValue, RuntimeSideEffect];
     #if genes.compile_stage_profile
     endReachabilityRootsTimer();
-    final endReachabilityExpandTimer = timer('genes.plan.reachability.expand');
+    final endReachabilityExpandTimer = planTimer('genes.plan.reachability.expand');
     #end
-    final implementationReachable = expandReachability(implementationRoots,
-      implementationKinds, tsMode ? 'ts-strict' : 'classic-esm');
-    #if genes.compile_stage_profile
-    endReachabilityExpandTimer();
-    #end
-    final implementationNames = [
-      for (name in implementationReachable.keys())
-        name
-    ];
-    implementationNames.sort(Reflect.compare);
-    endReachabilityTimer();
+    // Stage 3, slice S2. In a pass with stored edges
+    // (`IncrementalShadow.storedWalk`: `generation` "compare" or "reuse"
+    // with a usable cache), each clean module takes the steps that were
+    // recorded for its member list instead of building its dependency plan,
+    // and answers the import-cycle questions of other modules from its
+    // stored runtime requests. When a stored step cannot be taken exactly as
+    // recorded, or a check of `planReplay` fails, the generator leaves this
+    // pass before any `api.addFeature` and generates again with live edges
+    // and no clean module: `generateTransactional` runs once more from the
+    // start, with new `Module` values. "compare" always runs that second,
+    // live pass and compares the two walks.
+    final storedPass = IncrementalShadow.storedWalk();
+    var reachabilityTimersOpen = true;
+    function endReachabilityTimers(): Void {
+      if (!reachabilityTimersOpen)
+        return;
+      reachabilityTimersOpen = false;
+      #if genes.compile_stage_profile
+      endReachabilityExpandTimer();
+      #end
+      endReachabilityTimer();
+    }
+    var implementationNames: Array<String> = [];
+    var replayed = new Map<String, Bool>();
+    try {
+      final implementationReachable = expandReachability(implementationRoots,
+        implementationKinds, tsMode ? 'ts-strict' : 'classic-esm', true);
+      implementationNames = [
+        for (name in implementationReachable.keys())
+          name
+      ];
+      implementationNames.sort(Reflect.compare);
+      endReachabilityTimers();
+      if (IncrementalShadow.comparesWalks())
+        IncrementalShadow.walkResult(implementationNames, modules);
+      if (storedPass)
+        for (name in implementationNames) {
+          final requests = IncrementalShadow.storedRuntimeRequests(name);
+          if (requests != null)
+            modules.get(name).replayRuntimeRequests(requests);
+        }
 
-    // Stage 3, slice S1. With `generation: "reuse"` this returns the clean
-    // modules whose stored output this request stages instead of validating
-    // and printing them; otherwise (and without the define) it is empty. The
-    // checks run here, after the live walk and before the first module is
-    // printed, so a fallback is decided before any `api.addFeature`.
-    final replayed = IncrementalShadow.planReplay(implementationNames, name -> {
-      final module = modules.get(name);
-      final implementation = (tsMode && module.path != 'StdTypes'
-        && hasImplementation(module))
-        || (!tsMode && hasClassicImplementation(module));
-      final exposed = explicitlyExposedModules.exists(name);
-      {
-        emits: implementation,
-        members: genes.incremental.ModuleFingerprint.members(module.members,
-          IncrementalShadow.listed),
-        rootFlags: IncrementalShadow.rootFlags(tsMode ? isTypedImplementationRoot(module,
-          exposed) : needsGen(module),
-          exposed, module.expose.length, implementation)
-      };
-    }, {
-      feature: api.hasFeature,
-      moduleExists: name -> modules.exists(name),
-      cycle: (asker, test) -> {
-        final module = modules.get(asker);
-        module != null
-        && module.isCyclic(test);
-      },
-      anonField: genes.ts.SignatureCache.anonFieldAnswer
-    });
+      // Stage 3, slice S1. With `generation: "reuse"` this returns the clean
+      // modules whose stored output this request stages instead of validating
+      // and printing them; otherwise (and without the define) it is empty. The
+      // checks run here, after the walk and before the first module is
+      // printed, so a fallback is decided before any `api.addFeature`.
+      replayed = IncrementalShadow.planReplay(implementationNames, name -> {
+        final module = modules.get(name);
+        final implementation = (tsMode && module.path != 'StdTypes'
+          && hasImplementation(module))
+          || (!tsMode && hasClassicImplementation(module));
+        final exposed = explicitlyExposedModules.exists(name);
+        {
+          emits: implementation,
+          members: genes.incremental.ModuleFingerprint.members(module.members,
+            IncrementalShadow.listed),
+          rootFlags: IncrementalShadow.rootFlags(tsMode ? isTypedImplementationRoot(module,
+            exposed) : needsGen(module),
+            exposed, module.expose.length, implementation)
+        };
+      }, {
+        feature: api.hasFeature,
+        moduleExists: name -> modules.exists(name),
+        cycle: (asker, test) -> {
+          final module = modules.get(asker);
+          module != null
+          && module.isCyclic(test);
+        },
+        anonField: genes.ts.SignatureCache.anonFieldAnswer
+      });
+    } catch (error:haxe.Exception) {
+      endReachabilityTimers();
+      endRerunTimer();
+      if (!storedPass)
+        throw error;
+      // Any stop of the pass with stored edges is a fallback, never a
+      // diagnostic: the live pass reports a real error again.
+      IncrementalShadow.leaveStoredPass(error.message);
+      generateTransactional(api, outputFile, output, outputTransaction,
+        programFacts);
+      return;
+    }
+    endRerunTimer();
+    if (storedPass && IncrementalShadow.walkAgain()) {
+      generateTransactional(api, outputFile, output, outputTransaction,
+        programFacts);
+      return;
+    }
 
     final endValidationTimer = timer('genes.validate.modules');
     final jsxCapability = JsxCapabilityPolicy.current();
@@ -587,6 +786,12 @@ class Generator {
         }
         IncrementalShadow.enter(name, Emit);
         generateImplementation(api, module, outputDir, outputTransaction);
+        // Stage 3, slice S2: the runtime requests of the printed module. A
+        // later request with stored edges answers import-cycle questions
+        // about the module from them while it is clean (`Module.isCyclic`).
+        if (IncrementalShadow.recording())
+          IncrementalShadow.recordRuntimeRequests(name,
+            module.internalRuntimeRequests());
       }
     }
     IncrementalShadow.enter(null, Emit);
@@ -610,7 +815,7 @@ class Generator {
     // a TS implementation module merely by being reachable from public types.
     final endDeclarationPlanTimer = timer('genes.plan.declarations');
     final declarationReachable = expandReachability(implementationNames,
-      [DeclarationOnly], 'classic-dts');
+      [DeclarationOnly], 'classic-dts', false);
     final declarationNames = [
       for (name in declarationReachable.keys())
         name

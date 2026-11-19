@@ -151,6 +151,10 @@ class Module {
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
+
+  /** See `replayRuntimeRequests`; `null` reads the dependency plan. */
+  var storedRuntimeRequests: Null<Array<String>> = null;
+
   final namePlans = new Map<String, NamePlan>();
   var lexicalBindingUsePlanCache: Null<LexicalBindingUsePlan>;
   var usesJsonTypesCache: Null<Bool>;
@@ -584,8 +588,60 @@ class Module {
       reactStateInitializationPlanCache = null;
       namePlans.clear();
       cycleCache.clear();
+      storedRuntimeRequests = null;
     }
     return changed;
+  }
+
+  /**
+   * Adds one declaration that the reachability walk reached, unless the
+   * module already has a member with one of the two names (`typeName` is
+   * read only when no member has the plain `name`, as `addTypes` does).
+   * Returns true when the member list changed, like `addTypes`.
+   *
+   * Why: the walk with stored edges of Stage 3, slice S2 knows a reached
+   * declaration only by its names (`WalkStep`). Most steps reach a
+   * declaration that is a member already; then no typed value is needed.
+   * `resolve` gives the typed value only when the declaration is new, and
+   * `addTypes` makes the decision, so the live walk and the walk with stored
+   * edges share one member decision (for example the concrete-class check
+   * of a typedef).
+   */
+  public function addDeclaration(name: String, typeName: Void->String,
+      resolve: Void->Type): Bool {
+    if (getMember(name) != null || getMember(typeName()) != null)
+      return false;
+    return addTypes([resolve()]);
+  }
+
+  /**
+   * Makes `isCyclic` read `requests` as the internal runtime requests of
+   * this module instead of building its dependency plan.
+   *
+   * Why: in a request of Stage 3, slice S2 that replays this module's stored
+   * output, the module's plan is not built. Other modules still ask whether
+   * an import cycle passes through it; `requests` are the stored internal
+   * runtime requests of its last print, which equal a new plan's requests
+   * while the checks of `IncrementalShadow.planReplay` hold. Only
+   * `Generator` calls it, in a pass with stored edges, for a clean module.
+   */
+  public function replayRuntimeRequests(requests: Array<String>): Void {
+    storedRuntimeRequests = requests;
+  }
+
+  /**
+   * Returns the module paths that this module imports at run time, in
+   * request order, without external specifiers: the paths that `isCyclic`
+   * follows. Stored ones replace the plan after `replayRuntimeRequests`.
+   */
+  public function internalRuntimeRequests(): Array<String> {
+    final stored = storedRuntimeRequests;
+    if (stored != null)
+      return stored;
+    return [
+      for (requestPlan in runtimeProjection.runtimeRequests)
+        if (!requestPlan.request.external) requestPlan.request.path
+    ];
   }
 
   public function toPath(from: String) {
@@ -617,11 +673,7 @@ class Module {
       case null:
         return false;
       case v:
-        for (requestPlan in v.runtimeProjection.runtimeRequests) {
-          final request = requestPlan.request;
-          if (request.external)
-            continue;
-          final dependency = request.path;
+        for (dependency in v.internalRuntimeRequests()) {
           if (seen.exists(dependency)) {
             if (dependency == module)
               return true;
