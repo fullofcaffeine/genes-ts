@@ -635,6 +635,9 @@ class IncrementalShadow {
     if (GenerationChangeSet.resourceDigest() != GenerationChangeSet.sessionResources())
       return 'a macro changed the embedded resources after typing, so the '
         + 'session key does not describe them';
+    if (GenerationChangeSet.definesChangedAfterTyping())
+      return 'a macro changed the defines after typing, so the session key '
+        + 'does not describe them';
     if (generation == ReuseClean)
       for (define in EMISSION_MESSAGE_DEFINES)
         if (Context.defined(define))

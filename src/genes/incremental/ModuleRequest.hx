@@ -161,6 +161,12 @@ typedef ModuleRecordsReport = {
 
   /** Time spent reading and hashing source files in this request. */
   final digestMs: Float;
+
+  /**
+   * Time spent reading the declaration facts of every module
+   * (`targetFactsOf`) in this request.
+   */
+  final factsMs: Float;
 }
 
 /**
@@ -224,16 +230,23 @@ typedef ModuleRecordsReport = {
  * - Haxe typed no module other than the requested one, and every other
  *   module of the request has the epochs of the stored full request (so a
  *   module that an earlier module request typed again is a refusal too);
+ * - the defines are the ones that the session key holds: a define that a
+ *   macro sets after the first after-typing callback of Genes changes what
+ *   printing reads (`GenerationChangeSet.definesChangedAfterTyping`,
+ *   `defines-changed`; the same check turns the generation shadow of a full
+ *   request off);
  * - the facts of every declaration of every module of the request, read
- *   after every after-typing macro and before dead-code elimination
- *   (`afterSave`), are the ones that the stored full request read there
+ *   after every after-typing macro and every after-save callback that was
+ *   registered before the save phase began, and before dead-code
+ *   elimination (`afterSave`), are the ones that the stored full request
+ *   read there
  *   (`targetFactsOf`: the walk's target
  *   facts `WalkTarget.inputsText`, that is kind, extern flag and metadata,
  *   and the metadata text of `ModuleFingerprint.addDeclaration`, with the
  *   metadata of fields, constructors, type parameters and declared
- *   structures). So an after-typing macro that changes another module from
- *   a literal of the requested module, whichever order its callback has,
- *   is a refusal (`target-facts-changed`). Example: a macro copies the
+ *   structures). So a macro that changes another module from a literal of
+ *   the requested module, after typing or after save, whichever order its
+ *   callback has, is a refusal (`target-facts-changed`). Example: a macro copies the
  *   literal of `mr.Probe` into `@:ts.type` of `mr.TsTyped`, or calls
  *   `exclude()` on an enum of `mr.ExclOwner`; cold would then also change
  *   `mr/TsUser.ts` or `mr/ExclOwner.ts`, which a preview does not print.
@@ -290,13 +303,17 @@ typedef ModuleRecordsReport = {
  * Limits: the proof assumes that Haxe's elimination reads only typed trees,
  * signatures and metadata. A macro that reads literal values and changes
  * the metadata or the extern flag of a declaration of a module in the
- * request is covered (`target-facts-changed` above, or `session-changed`
- * when `GenerationChangeSet.compareMetadata` sees it first). Not covered:
- * metadata that only a typed body holds (limit S3 of
- * `ModuleFingerprint`); a change that a macro makes, by name, to a module
- * outside the request's program, which the request never reads; and a file
- * that a macro reads in a module outside the request (other than
- * `import.hx` and resources, which the session key covers). A class kept only because another
+ * request, in an after-typing or an after-save callback, is covered
+ * (`target-facts-changed` above, or `session-changed` when
+ * `GenerationChangeSet.compareMetadata` sees it first), and so is a define
+ * that it sets (`defines-changed`). Not covered: metadata that only a typed
+ * body holds (limit S3 of `ModuleFingerprint`); a change that a macro
+ * makes, by name, to a module outside the request's program, which the
+ * request never reads; an after-save callback that another after-save
+ * callback registers while the save phase runs, when it is registered after
+ * the callback of Genes (it runs after `afterSave`); and a file that a
+ * macro reads in a module outside the request (other than `import.hx` and
+ * resources, which the session key covers). A class kept only because another
  * module names it as a type, and an edit inside an import cycle, are
  * refused. The rule refuses every structural edit: a new or removed field,
  * call, local type or class use.
@@ -419,6 +436,8 @@ class ModuleRequest {
   /** `targetFactsOf` of each module of this request, read in `afterSave`. */
   static var requestFacts: Map<String, String> = new Map();
 
+  static var factsSeconds = 0.0;
+
   static var addedRoots: Array<MetaAccess> = [];
   static var moduleFiles: Map<String, String> = new Map();
   static var loadedModules: Map<String, Bool> = new Map();
@@ -443,6 +462,7 @@ class ModuleRequest {
     rootSeconds = 0.0;
     requestShape = null;
     requestFacts = new Map();
+    factsSeconds = 0.0;
     addedRoots = [];
     moduleFiles = new Map();
     loadedModules = new Map();
@@ -458,8 +478,19 @@ class ModuleRequest {
       return;
     beginRequest();
     // `false`: after Haxe saved the class state, so that the roots that
-    // `afterSave` adds never reach the server's cache.
-    Context.onGenerate(afterSave, false);
+    // `afterSave` adds never reach the server's cache. `afterSave` is
+    // registered from inside a first after-save callback: Haxe 4.3.7 runs
+    // after-save callbacks in order of registration and then, in a new
+    // round, the ones that they registered, all before dead-code
+    // elimination. So `afterSave` runs after every after-save callback that
+    // was registered before the save phase began (by an init macro, a build
+    // macro or an after-typing callback, also one given after
+    // `Generator.use()`), and it reads the declaration facts after such a
+    // macro changed them (`targetFactsOf`). Probe: an init macro whose
+    // callback registers another, and a later init macro: the order was
+    // first, later, nested, and a class field that dead-code elimination
+    // removes was still there in each.
+    Context.onGenerate(_ -> Context.onGenerate(afterSave, false), false);
   }
 
   /**
@@ -733,9 +764,12 @@ class ModuleRequest {
     }
     // The declaration facts of every module (`targetFactsOf`): after every
     // after-typing macro, before dead-code elimination and before the roots.
-    if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true)
+    if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true) {
+      final factsStart = haxe.Timer.stamp();
       for (module => list in grouped)
         requestFacts.set(module, targetFactsOf(list));
+      factsSeconds += haxe.Timer.stamp() - factsStart;
+    }
     // Haxe typed these modules in this request; keep a digest only when it
     // is proven to be the content that Haxe read (`provenDigest`).
     for (module in GenerationChangeSet.retypedModules()) {
@@ -1254,6 +1288,12 @@ class ModuleRequest {
     if (descriptor.generation != ReuseClean || descriptor.afterTyping != Reuse)
       return refuse('needs-reuse',
         'a module request needs "generation": "reuse" and "afterTyping": "reuse"');
+    // Printing reads the defines of this moment; the session key holds the
+    // ones of the first after-typing callback.
+    if (GenerationChangeSet.definesChangedAfterTyping())
+      return refuse('defines-changed',
+        'a macro changed the defines after typing, so the session key does ' +
+        'not describe them');
     final shadowOff = IncrementalShadow.inactiveReason();
     if (shadowOff != null)
       return refuse('shadow-off', shadowOff);
@@ -1632,7 +1672,8 @@ class ModuleRequest {
       shapes: shapeCount,
       shapeMs: GenerationChangeSet.milliseconds(shapeSeconds),
       recordMs: GenerationChangeSet.milliseconds(haxe.Timer.stamp() - started),
-      digestMs: GenerationChangeSet.milliseconds(digestSeconds)
+      digestMs: GenerationChangeSet.milliseconds(digestSeconds),
+      factsMs: GenerationChangeSet.milliseconds(factsSeconds)
     };
     save(descriptor.path + '.module-records.json',
       Json.stringify(report, null, '  ') + '\n');
@@ -2123,7 +2164,9 @@ class ModuleRequest {
    * `mr/TsUser.ts`, which names it in a typedef field, prints `string`; or
    * it calls `exclude()` on an enum, and every module that names the enum
    * drops its import. Both requests read the facts in `afterSave`: after
-   * every after-typing macro, and before dead-code elimination, which
+   * every after-typing macro and every after-save callback that was
+   * registered before the save phase began (see `install`), and before
+   * dead-code elimination, which
    * keeps other fields of a class in a smaller program (for example of
    * `Array`), and before a module request adds its roots.
    *

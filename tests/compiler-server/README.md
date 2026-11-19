@@ -487,40 +487,70 @@ s14), a stale preview folder (s19), a use that is alive only through the
 edited module (r01), a field type that makes another module's class used
 (r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05).
 
-The last groups run an after-typing macro (`mr.CopyMacro`) that copies a
-string literal of `mr.Probe` into another module that Haxe does not type
-again: into `@:mrTag` of `mr.Leaf` (m249), into `@:ts.type` of the class
-`mr.TsTyped` (f1), and into `@:ts.type` of a typedef field of `mr.TsUser`
-(f3); for the literal `ext` it calls `exclude()` on the enum
-`mr.ExclOwner.ExclE` (f2). Each case runs
-twice. With the macro given after `--macro genes.Generator.use()` its
-callback runs before the after-typing passes of Genes, and the metadata
-comparison refuses the request with `session-changed` (f2 changes no
-metadata: `target-facts-changed`). With the macro given before it, the
-callback runs after those passes, and only the check before dead-code elimination refuses
-it, with `target-facts-changed`. Each group then previews a literal that the
-macro does not read. Every group starts with a second full request, because
-the metadata comparison compares with the earlier request.
+The last groups run a macro (`mr.CopyMacro`) that reads a string literal of
+`mr.Probe` and changes another module that Haxe does not type again:
+
+- in an after-typing callback: `@:mrTag` of `mr.Leaf` (m249), `@:ts.type`
+  of the class `mr.TsTyped` (f1), `exclude()` of the enum
+  `mr.ExclOwner.ExclE` for the literal `ext` (f2), and `@:ts.type` of a
+  typedef field of `mr.TsUser` (f3);
+- in an after-save callback (`Context.onGenerate(..., false)`): the f1 and
+  f2 changes again (a1, a2);
+- in an after-typing callback, `Compiler.define('genes.disable_native_accessors',
+  '1')` for the literal `ext`, so that cold prints `mr/Acc.ts` without its
+  native getter (d1). d1-full runs the same edit with full requests only.
+
+Each case runs twice: with the macro given after
+`--macro genes.Generator.use()` and before it. Haxe runs after-typing
+callbacks in reverse order of registration, so a macro given after
+`Generator.use()` runs before the after-typing passes of Genes, and one given
+before it runs after them. The expected refusals are:
+
+- `session-changed`: the metadata comparison or the session key saw the
+  change (m249, f1, f3 and d1 with the macro after `Generator.use()`);
+- `target-facts-changed`: the declaration facts differ (m249, f1 and f3
+  with the macro before `Generator.use()`, f2, a1 and a2 in both orders);
+- `defines-changed`: the defines differ from those of the session key (d1
+  with the macro before `Generator.use()`; also its second step, because the
+  define stays set while the literal is `ext`).
+
+Each group starts with a second full request, because the metadata
+comparison compares with the earlier request, and then previews a literal
+that the macro does not read.
 
 After each accepted preview the gate also runs the tree check: cold must
 differ from the last full tree only in the previewed module's files and
 maps. A change of any other file means that a preview left the published
 tree stale. The final line counts the previews that passed it.
 
-`--only=<text>` runs the groups whose name contains the text; `GENES_TEST_SOURCE=<folder>` runs them against
-another Genes source folder (for example an older commit, where they fail).
+`--only=<text>` runs the groups whose name contains the text;
+`GENES_TEST_SOURCE=<folder>` runs them against another Genes source folder
+(for example an older commit, where they fail).
 
-A module request shares three checks with the full incremental path: the
-metadata comparison of `GenerationChangeSet` (a changed metadata epoch
-changes the session key, and the request is refused with `session-changed`),
-the declaration facts (`WalkTarget.inputsText` and the metadata text of
-`ModuleFingerprint.addDeclaration`, read again after the after-typing macros and before dead-code elimination for every
-module of the request, `target-facts-changed`), and the step decision of
-`genes.WalkTarget`. It never takes stored walk steps (Stage 3, slice S2) and
-writes nothing into the generation cache, so the full request after each step still checks the stored walk
-against a live one. No group covers a redefined extern module (a
-`genes.ts.imports` holder); the shadow gate covers its fingerprint for full
-requests.
+How a module request relates to the full incremental path:
+
+- It shares the metadata comparison of `GenerationChangeSet` (a changed
+  metadata epoch changes the session key: `session-changed`), the define
+  check `GenerationChangeSet.definesChangedAfterTyping` (the full path then
+  turns its generation shadow off; a module request is refused with
+  `defines-changed`), and the step decision of `genes.WalkTarget`.
+- The declaration-facts check is its own. It reuses two texts of other
+  owners (`WalkTarget.inputsText` and the metadata text of
+  `ModuleFingerprint.addDeclaration`) and reads them in `afterSave`, after
+  every after-save callback that was registered before the save phase and
+  before dead-code elimination (`target-facts-changed`).
+- It never takes stored walk steps (Stage 3, slice S2) and writes nothing
+  into the generation cache, so the full request after each step still
+  checks the stored walk against a live one.
+
+Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
+metadata that only a typed body holds; a change that a macro makes by name
+to a module outside the request's program; an after-save callback that
+another after-save callback registers while the save phase runs, when it is
+registered after the callback of Genes; and a file that a macro reads in a
+module outside the request, other than `import.hx` and resources. No group
+covers a redefined extern module (a `genes.ts.imports` holder); the shadow
+gate covers its fingerprint for full requests.
 
 `--keep-control` also roots one module request with `--macro keep(<module>)`
 instead and prints whether the next full request differs from cold (it does:
