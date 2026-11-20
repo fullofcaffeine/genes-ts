@@ -351,6 +351,10 @@ class GenerationChangeSet {
   static var arrivedStamped = 0;
   static var foreignStamps = 0;
   static var typedAgainModules: Map<String, Bool> = new Map();
+
+  /** Modules with a declaration that arrived `Kept` in this request (`keptModules`). */
+  static var keptModuleSet: Map<String, Bool> = new Map();
+
   static var moduleEpochs: Map<String, Array<String>> = new Map();
   static var reservedNames: Map<String, Bool> = new Map();
   static var reservedDigest: Null<String> = null;
@@ -442,6 +446,7 @@ class GenerationChangeSet {
       switch stamped.arrival {
         case Kept:
           arrivedStamped++;
+          keptModuleSet.set(base.module, true);
         case TypedAgain:
           typedAgain++;
           typedAgainModules.set(base.module, true);
@@ -535,6 +540,28 @@ class GenerationChangeSet {
    */
   public static function retypedModules(): Array<String> {
     final names = [for (name in typedAgainModules.keys()) name];
+    names.sort(compareStrings);
+    return names;
+  }
+
+  /**
+   * Returns the sorted modules with a declaration that arrived with its own
+   * stamp of an earlier request: Haxe kept that declaration object from its
+   * cache and did not type it again in this request. Empty when the request
+   * added no stamp.
+   *
+   * Why: `ModuleRequest` makes Haxe parse a changed file again before the
+   * program is typed, but Haxe can load a module from its cache earlier than
+   * that (genes-v54c). Example: a global `@:build` macro that called
+   * `Context.getType('app.Config')` while Haxe built a standard type in an
+   * earlier request made that type depend on `app.Config`, and Haxe loads
+   * `String`, `Array` and `StdTypes` with every dependency before any init
+   * macro. A module of a changed file that is in this list was typed from
+   * old text. A module can be here and in `retypedModules` at once when a
+   * macro added a declaration to a kept module.
+   */
+  public static function keptModules(): Array<String> {
+    final names = [for (name in keptModuleSet.keys()) name];
     names.sort(compareStrings);
     return names;
   }

@@ -1644,7 +1644,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       // the same second as the last build looks unchanged to it. The
       // compiler tells the server about such a file directly. The list is
       // taken now and given back when the request fails, so a later build
-      // still reports those files.
+      // still reports those files. It is sent before the request starts, so
+      // it also covers an init macro given before `genes.Generator.use()`
+      // that types a project module by name, which runs before Genes can
+      // make Haxe read a changed file again (genes-v54c).
       const changedFiles = bytewise(this.#pendingInvalidations);
       this.#pendingInvalidations.clear();
       const changedSeconds = changedFiles.map((file) => fileSeconds(file));
