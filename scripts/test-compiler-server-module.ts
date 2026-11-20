@@ -241,6 +241,19 @@ type Step = {
    * generates nothing (see `displayRequest`).
    */
   readonly display?: { readonly when: "before-save" | "after-save", readonly form: DisplayForm };
+  /**
+   * After `apply` and before an after-save `display`, a cold `haxe` process
+   * builds the program with the session's descriptor define, which breaks
+   * the rule "one Haxe process per descriptor path" (review of genes-ts
+   * #255). It writes the stored cache facts with its own process token.
+   */
+  readonly coldWithDescriptor?: boolean;
+  /**
+   * Stop the server and start a new one before `apply`, so the step's full
+   * request is the first request of a new process, which finds the stored
+   * cache facts of the old one.
+   */
+  readonly restartServer?: boolean;
 };
 
 /**
@@ -1397,6 +1410,16 @@ function earlyInitMacroGroups(): ReadonlyArray<Group> {
  * - `display-none-no-edit`: five full requests without an edit and
  *   without an editor request: Haxe types no module again, and the rows give
  *   the time of such a request;
+ * - `display-cold-run`: a save that keeps the modification time, then a cold
+ *   `haxe` run with the session's descriptor define (it breaks the rule
+ *   "one Haxe process per descriptor path" and writes the stored facts with
+ *   its own process token), then an editor request. The full request makes
+ *   Haxe parse every file again, is refused once because of the standard
+ *   types that Haxe loaded before Genes ran, and equals cold when sent
+ *   again; the request after it types no module again;
+ * - `display-new-server`: the server is restarted and `mr/Fresh.hx` saved
+ *   in between, with an init macro before Genes that types `mr.Fresh`. The
+ *   first request of the new process holds no module, so it is not refused;
  * - `display-global-build-all`: the global build macro of
  *   `early-init-global-build-all`, so Haxe loads `mr.Fresh` with the
  *   standard types before any init macro. The full request is refused once
@@ -1515,6 +1538,48 @@ function displayRequestGroups(): ReadonlyArray<Group> {
         fullTypedAgain: 0,
         fullTypedAgainModules: []
       }))
+    },
+    {
+      // Review of genes-ts #255: a cold run with the session's descriptor
+      // define writes the stored facts with its own process token; the
+      // server's next new macro state must not use them.
+      name: "display-cold-run",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept, cold run with the descriptor, CLI diagnostics request",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          coldWithDescriptor: true,
+          display: { when: "after-save", form: "cli" },
+          // Genes makes Haxe parse every file again; the standard types
+          // that Haxe loaded before Genes ran are then refused once.
+          initRefusal: "full"
+        },
+        {
+          id: "no edit after the facts of the server were written again",
+          display: { when: "before-save", form: "cli" },
+          apply: () => {},
+          fullTypedAgainModules: []
+        }
+      ]
+    },
+    {
+      // Review of genes-ts #255: the first request of a new server process
+      // finds the stored facts of the old one, while an init macro before
+      // Genes can type a module; a file changed while no server ran. The
+      // new process holds no module, so nothing is refused.
+      name: "display-new-server",
+      files: { ...files, "mr/Early.hx": earlyMacro },
+      argsBeforeGenes: ["--macro", "mr.Early.install()"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "server restarted, Fresh saved with its modification time kept",
+          restartServer: true,
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        }
+      ]
     },
     {
       name: "display-global-build-all",
@@ -2496,16 +2561,26 @@ async function runGroup(group: Group,
     compiler: ReturnType<typeof selectedHaxeCompiler>,
     rows: Row[]): Promise<{ previews: number, refusals: number }> {
   prepare(group);
-  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  let server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   let previews = 0;
   let refusals = 0;
   try {
     await programRequest(server, `${group.name} first`);
     for (const [index, step] of group.steps.entries()) {
       const label = `[${group.name} ${index + 1}/${group.steps.length}] ${step.id}`;
+      if (step.restartServer === true) {
+        await server.stop();
+        server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+      }
       if (step.display?.when === "before-save")
         await displayRequest(server, step.display.form, label);
       step.apply();
+      if (step.coldWithDescriptor === true) {
+        const cold = await runBoundedProcess(compiler.binary,
+          incremental(programArguments(folder("cold-session"))),
+          { cwd: workspace, timeoutMs, label: `Cold with the descriptor ${label}` });
+        ok(cold.code === 0, `${label}: the cold run with the descriptor failed\n${describe(cold)}`);
+      }
       if (step.display?.when === "after-save")
         await displayRequest(server, step.display.form, label);
       if (step.settleMs !== undefined)

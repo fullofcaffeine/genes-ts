@@ -205,6 +205,9 @@ typedef CacheFacts = {
   /** The defines key of the request that wrote the facts (`definesKey`). */
   final defines: String;
 
+  /** The process token of the Haxe process that wrote the facts (`claimProcessToken`). */
+  final process: String;
+
   /** `typedDigests`: the content that Haxe last typed for each file. */
   final typed: Array<{file: String, content: SourceContent}>;
 
@@ -313,9 +316,16 @@ typedef ModuleRecordsReport = {
  * saved with `'two'` and its modification time kept. The next full request
  * reads the stored digest of `'one'`, sees that the file changed, and makes
  * Haxe parse it again, so it publishes `'two'` at once. Before, it knew no
- * file and published `'one'`. Only a request with the same defines reads
- * the facts (`definesKey`); a request that finds no usable facts knows no
- * file, as the first request of a session.
+ * file and published `'one'`. Only a request with the same defines
+ * (`definesKey`) in the same Haxe process (`claimProcessToken`, a token in
+ * the process environment, which Haxe does not reset) reads the facts. The
+ * first such request of a new process knows no file, which is exact,
+ * because that process holds no module yet. A later new macro state that
+ * finds no facts of its own process (missing, damaged, or written by
+ * another process) makes Haxe parse every source file again once, and can
+ * be refused once (`GENES-MODULE-REQUEST-003`). Rule: one Haxe process per
+ * descriptor path; a cold `haxe` run must not pass the session's descriptor
+ * define. Only module records and module requests read or write the facts.
  *
  * Init macros given before `genes.Generator.use()` (genes-v54c). Haxe runs
  * init macros in the order of the arguments, so such a macro runs before
@@ -493,9 +503,9 @@ typedef ModuleRecordsReport = {
  * a module that Haxe keeps from its cache before Genes reads the files, in a
  * program with an `@:rtti` class (no stamps, see above); a module that
  * Haxe typed in a request whose cache facts Genes did not keep (a full
- * request without module records, or before a new macro state that found
- * no stored facts for its defines, for example because the file was
- * deleted or could not be written); the status rule on a file system whose change time does not move at every
+ * request without module records in the same process before the first
+ * request with them); a process that a macro of the server starts, which
+ * inherits the process token; the status rule on a file system whose change time does not move at every
  * change (FAT and exFAT may not); a change that a macro
  * makes, by name, to a module outside the request's program, which the
  * request never reads; an after-save callback that another after-save
@@ -625,6 +635,17 @@ class ModuleRequest {
   /** The defines key of this request (`definesKey`), set with `cacheFactsFile`. */
   static var cacheFactsKey = '';
 
+  /** The process token of this request (`claimProcessToken`), set with `cacheFactsFile`. */
+  static var cacheFactsToken = '';
+
+  /**
+   * True when this request runs in a Haxe process that already ran a
+   * request with these defines, but the macro state is new and no stored
+   * cache facts of this process were found (`beginRequest`): Genes then
+   * makes Haxe parse every source file again.
+   */
+  static var cacheFactsLost = false;
+
   /** The class (`TypeUtil.baseTypeFullName`) of the stored full request's `--main` function, or empty. */
   @:persistent static var storedMain = '';
 
@@ -727,6 +748,8 @@ class ModuleRequest {
     invalidatedFiles = new Map();
     cacheFactsFile = null;
     cacheFactsKey = '';
+    cacheFactsToken = '';
+    cacheFactsLost = false;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
     beginRequest();
@@ -800,17 +823,44 @@ class ModuleRequest {
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
       return;
-    cacheFactsFile = descriptor.path + CACHE_FACTS_SUFFIX;
-    cacheFactsKey = definesKey();
-    if (!cacheFactsRead) {
-      cacheFactsRead = true;
-      readCacheFacts();
+    // Only module records and module requests use the cache facts.
+    if (descriptor.moduleRecords == true || descriptor.kind.match(Module(_))) {
+      cacheFactsFile = descriptor.path + CACHE_FACTS_SUFFIX;
+      cacheFactsKey = definesKey();
+      final fresh = claimProcessToken();
+      if (!cacheFactsRead) {
+        cacheFactsRead = true;
+        // A new process holds no module for these defines, so knowing no
+        // file is exact there, and facts of another process are not read.
+        cacheFactsLost = !fresh && !readCacheFacts();
+      }
     }
     final alone = typedAlone.copy();
     final stale = alone.copy();
     if (alone.length > 0) {
       typedAlone = [];
       cacheFactsChanged = true;
+    }
+    if (cacheFactsLost) {
+      // This process typed modules with these defines before, and Genes
+      // lost what it knew about them: make Haxe parse every source file of
+      // the class paths again, and store facts of this process.
+      for (root in Context.getClassPath())
+        scanSources(root.length == 0 ? '.' : root);
+      for (file in preDigests.keys())
+        stale.push(file);
+      cacheFactsChanged = true;
+      Context.warning('[GENES-MODULE-REQUEST-004] Genes has no usable record '
+        + 'of what this Haxe process typed with these defines '
+        + '(${cacheFactsFile ?? ''} is missing, damaged, or was written by '
+        + 'another Haxe process). Without it, a file saved without a new '
+        + 'modification time could keep its old text in the output, so Genes '
+        + 'makes Haxe parse every source file again in this request; the '
+        + 'request is slower and can be refused once with '
+        + 'GENES-MODULE-REQUEST-003. Use one Haxe process per descriptor '
+        + 'path: a cold haxe run must not pass the session\'s '
+        + '-D genes.dev_incremental define.',
+        Context.currentPos());
     }
     // Files that differ from what Haxe last read, with their content now.
     final changed: Array<{file: String, content: SourceContent}> = [];
@@ -828,7 +878,7 @@ class ModuleRequest {
           if (typed == null || !sameSinceRead(typed, now))
             changed.push({file: file, content: now});
         }
-        if (changed.length + alone.length > 0) {
+        if (changed.length + alone.length > 0 || cacheFactsLost) {
           final early = typingMacrosBeforeGenes();
           if (early.length > 0) {
             for (item in changed)
@@ -869,7 +919,7 @@ class ModuleRequest {
                   stale.push(other);
             }
           }
-          final differs = changed.length + alone.length > 0;
+          final differs = changed.length + alone.length > 0 || cacheFactsLost;
           final early = differs ? typingMacrosBeforeGenes() : [];
           if (early.length > 0) {
             for (item in changed)
@@ -991,27 +1041,25 @@ class ModuleRequest {
    * that kept the modification time), did not make Haxe parse it again, and
    * published the old text (genes-lnrv).
    *
-   * Facts with another defines key or another format, and a damaged file,
-   * are not used; the request then knows no file, as the first request of a
-   * session (a warning names a damaged file). Facts of an earlier server
-   * describe a cache that is gone; using them is safe, because Haxe parses
-   * every file that it does not hold.
+   * Returns true when it used facts: the file exists and decodes, and it
+   * has this request's defines key and this process's token
+   * (`claimProcessToken`). Otherwise it reads nothing and returns false;
+   * `beginRequest` then makes Haxe parse every source file again
+   * (`cacheFactsLost`), because this process may hold old text. Rule: one
+   * Haxe process per descriptor path. A cold `haxe` run with the session's
+   * descriptor define writes facts with its own token; the server then
+   * parses every file again once after its next new macro state, and can
+   * refuse that request once (`GENES-MODULE-REQUEST-003`).
    */
-  static function readCacheFacts(): Void {
+  static function readCacheFacts(): Bool {
     final file = cacheFactsFile;
     if (file == null || !FileSystem.exists(file))
-      return;
+      return false;
     final text = try File.getContent(file) catch (_:haxe.Exception) null;
     final facts = text == null ? null : decodeCacheFacts(text);
-    if (facts == null) {
-      Context.warning('[GENES-MODULE-REQUEST-004] Genes cannot read its '
-        + 'record of what Haxe typed ($file). This request knows no source '
-        + 'file, as the first request of a session.',
-        Context.currentPos());
-      return;
-    }
-    if (facts.defines != cacheFactsKey)
-      return;
+    if (facts == null || facts.defines != cacheFactsKey
+      || facts.process != cacheFactsToken)
+      return false;
     for (entry in facts.typed)
       if (!typedDigests.exists(entry.file))
         typedDigests.set(entry.file, entry.content);
@@ -1021,6 +1069,44 @@ class ModuleRequest {
     for (item in facts.leftoverRoots)
       if (leftoverRoots.indexOf(item) < 0)
         leftoverRoots = leftoverRoots.concat([item]);
+    return true;
+  }
+
+  /** The start of the environment variable that holds the process token (`claimProcessToken`). */
+  static inline final PROCESS_TOKEN_VARIABLE = 'GENES_TYPED_SOURCES_';
+
+  /**
+   * Sets `cacheFactsToken` to the token of this Haxe process for the defines
+   * key of this request, and returns true when this process had none yet:
+   * it never ran such a request with these defines, so Haxe holds no module
+   * for them and knowing no file is exact.
+   *
+   * Why the process environment: Haxe resets every `@:persistent` field when
+   * it types the macro classes of Genes again, but it keeps its module cache
+   * and its environment while the server runs, and a new process starts
+   * without the variable. So the token names one Haxe process, also across
+   * new macro states. Example: `GENES_TYPED_SOURCES_<key>=<token>`. Facts
+   * that another process wrote (a cold `haxe` run, or a second server, with
+   * the same descriptor define) have another token, and `readCacheFacts`
+   * does not use them. Limit: a process that a macro of the server starts
+   * inherits the variable.
+   */
+  static function claimProcessToken(): Bool {
+    final name = PROCESS_TOKEN_VARIABLE + cacheFactsKey;
+    final known = Sys.getEnv(name);
+    if (known != null && known.length > 0) {
+      cacheFactsToken = known;
+      return false;
+    }
+    final token = haxe.crypto.Sha1.encode(Std.string(Sys.time())
+      + ':'
+      + Std.string(Std.random(0x3FFFFFFF))
+      + ':'
+      + Std.string(Std.random(0x3FFFFFFF)))
+      .substr(0, 16);
+    Sys.putEnv(name, token);
+    cacheFactsToken = token;
+    return true;
   }
 
   /**
@@ -1029,31 +1115,40 @@ class ModuleRequest {
    * explains why). Called at the end of each step that changes them, also
    * before a refusal stops the request.
    *
-   * If the file cannot be written, Genes warns and deletes the older file,
-   * so that a new macro state cannot read facts that are no longer true. It
-   * tries again at the next step.
+   * It writes a temporary file beside the facts and renames it, so a
+   * reader sees the old or the new file, never a part. If the file cannot
+   * be written, Genes warns and deletes the older file, so that a new macro
+   * state cannot read facts that are no longer true (it then parses every
+   * file again once). It tries again at the next step.
    */
   static function storeCacheFacts(): Void {
     final file = cacheFactsFile;
     if (file == null || !cacheFactsChanged)
       return;
+    // A whole new file, then a rename: a reader never sees part of a file.
+    final temporary = '$file.$cacheFactsToken.tmp';
     try {
-      File.saveContent(file, encodeCacheFacts());
+      File.saveContent(temporary, encodeCacheFacts());
+      FileSystem.rename(temporary, file);
       cacheFactsChanged = false;
     } catch (error:haxe.Exception) {
+      try
+        FileSystem.deleteFile(temporary)
+      catch (_:haxe.Exception) {}
       try
         FileSystem.deleteFile(file)
       catch (_:haxe.Exception) {}
       Context.warning('[GENES-MODULE-REQUEST-004] Genes cannot write its '
         + 'record of what Haxe typed ($file: ${error.message}). After Haxe '
-        + 'types the macro classes of Genes again, the next request knows no '
-        + 'source file, as the first request of a session.',
+        + 'types the macro classes of Genes again, Genes makes Haxe parse '
+        + 'every source file again once.',
         Context.currentPos());
     }
   }
 
   /**
-   * Returns the cache facts as JSON text: the format, the defines key, one
+   * Returns the cache facts as JSON text: the format, the defines key, the
+   * process token (`claimProcessToken`), one
    * entry per file of `typedDigests` (`[file, digest]`, or `[file, digest,
    * size, mtime, ctime, ino, readAt]` when a status is kept; sorted by
    * file), `typedAlone` and `leftoverRoots`. Times are milliseconds, and
@@ -1073,6 +1168,7 @@ class ModuleRequest {
     return Json.stringify({
       format: CACHE_FACTS_FORMAT,
       defines: cacheFactsKey,
+      process: cacheFactsToken,
       typed: typed,
       typedAlone: typedAlone,
       leftoverRoots: leftoverRoots
@@ -1095,13 +1191,14 @@ class ModuleRequest {
       return null;
     final format: Dynamic = Reflect.field(parsed, 'format');
     final defines: Dynamic = Reflect.field(parsed, 'defines');
+    final process: Dynamic = Reflect.field(parsed, 'process');
     final entries: Dynamic = Reflect.field(parsed, 'typed');
     final alone = stringsOf(Reflect.field(parsed, 'typedAlone'));
     final roots = stringsOf(Reflect.field(parsed, 'leftoverRoots'));
     if (!Std.isOfType(format, Int)
       || (format : Int) != CACHE_FACTS_FORMAT
-        || !Std.isOfType(defines, String) || !Std.isOfType(entries, Array)
-        || alone == null || roots == null)
+        || !Std.isOfType(defines, String) || !Std.isOfType(process, String)
+        || !Std.isOfType(entries, Array) || alone == null || roots == null)
       return null;
     final typed: Array<{file: String, content: SourceContent}> = [];
     for (entry in (entries : Array<Dynamic>)) {
@@ -1140,6 +1237,7 @@ class ModuleRequest {
     }
     return {
       defines: (defines : String),
+      process: (process : String),
       typed: typed,
       typedAlone: alone,
       leftoverRoots: roots
@@ -1299,8 +1397,12 @@ class ModuleRequest {
     final named = [for (text in macros.slice(0, 3)) '`$text`'].join(', ');
     return '[GENES-MODULE-REQUEST-003] An init macro given before '
       + '`--macro genes.Generator.use()` ($named) can make Haxe type a module '
-      + 'before Genes reads its file, and these files changed since Haxe last '
-      + 'read them: ${listOf(files)}. Haxe may have typed their old text, so '
+      + 'before Genes reads its file, and '
+      + (cacheFactsLost ? 'Genes has no record of what Haxe last read '
+        +
+        '(GENES-MODULE-REQUEST-004). ' : 'these files changed since Haxe last '
+        + 'read them: ${listOf(files)}. ')
+      + 'Haxe may have typed their old text, so '
       + 'Genes published nothing. $RESEND_ONCE Give '
       + '`--macro genes.Generator.use()` before such init macros to avoid '
       + 'this extra request.';
@@ -1324,13 +1426,17 @@ class ModuleRequest {
   /** The reason of a full request that stops because of `keptStaleModules`. */
   static function keptStaleReason(modules: Array<String>): String {
     final files = [for (module in modules) moduleFiles.get(module) ?? module];
+    final why = cacheFactsLost ? 'although Genes has no record of the text '
+      + 'that Haxe read for these files then (GENES-MODULE-REQUEST-004): '
+      +
+      '${listOf(files)}. Genes made Haxe parse every source file again, but ' : 'although these files changed since Haxe last read them: '
+      + '${listOf(files)}. Haxe\'s whole-second file-time check missed the '
+      + 'save, and ';
     return '[GENES-MODULE-REQUEST-003] Haxe used its typing of '
-      + '${listOf(modules)} from an earlier request, although these files '
-      + 'changed since Haxe last read them: ${listOf(files)}. Haxe\'s '
-      + 'whole-second file-time check missed the save, and Haxe loaded the '
-      + 'modules before Genes could make it read the files again (for example '
-      + 'as dependencies of the standard types, which Haxe loads before any '
-      + 'init macro). Genes published nothing. $RESEND_ONCE';
+      + '${listOf(modules)} from an earlier request, $why'
+      + 'Haxe loaded the modules before Genes could make it read the files '
+      + 'again (for example as dependencies of the standard types, which Haxe '
+      + 'loads before any init macro). Genes published nothing. $RESEND_ONCE';
   }
 
   /** Returns up to five items of `items`, joined with commas, and `...` when there are more. */
@@ -1729,10 +1835,9 @@ class ModuleRequest {
           if (!requestDigests.exists(file)) {
             final typed = typedDigests.get(file);
             // Haxe kept this module from a request whose content Genes did
-            // not note (a request without module records, or before a new
-            // macro state that found no stored cache facts for its defines,
-            // `readCacheFacts`): unknown, so that the next full request
-            // makes Haxe parse it again.
+            // not note (a request without module records in this process
+            // before the first one with them): unknown, so that the next
+            // full request makes Haxe parse it again.
             if (typed == null)
               noteTyped(file, unknownSource());
             requestDigests.set(file, typed == null ? unknownSource() : typed);

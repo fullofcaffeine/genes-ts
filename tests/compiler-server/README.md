@@ -672,7 +672,29 @@ stores what it knows about Haxe's cache beside the descriptor
 (`<descriptor>.typed-sources.json`: the content that Haxe last typed for
 each file, the files that a module request typed alone, and the modules
 whose roots a failed request left) and reads it again in the first request
-of a new macro state, if that request has the same defines:
+of a new macro state, if that request has the same defines and runs in the
+same Haxe process. The process is named by a token in the process
+environment (`GENES_TYPED_SOURCES_<defines key>`), which Haxe does not
+reset; a new process starts without it and holds no module, so its first
+request knows no file, which is exact. A new macro state that finds no facts
+of its own process makes Haxe parse every source file again once. Rule: one
+Haxe process per descriptor path; a cold `haxe` run must not pass the
+session's descriptor define. The file is written as a temporary file and
+renamed.
+
+- `display-cold-run`: a save that keeps the modification time, then a cold
+  `haxe` run with the session's descriptor define, which writes the facts
+  with its own token, then an editor request. The full request makes Haxe
+  parse every file again and is refused once with
+  `GENES-MODULE-REQUEST-003` (the standard types that Haxe loaded before
+  Genes ran), then equals cold; the next request types no module again. On
+  f8627591 (the first version of this fix) every full request published the
+  old `mr/Fresh.ts`;
+- `display-new-server`: the server is restarted and `mr/Fresh.hx` saved
+  while it is down, with an init macro before Genes that types `mr.Fresh`.
+  The first request of the new process is not refused and equals cold. On
+  f8627591 it read the facts of the old process and was refused by the init
+  macro rule;
 
 - `display-cli`: `--display Main.hx@0@diagnostics` before a save, after a
   second save, and once without an edit. Each full request equals cold at
@@ -702,10 +724,9 @@ group except `display-json-session` and `display-none-no-edit` differed
 from cold in `mr/Fresh.ts`, and the request after it was right.
 
 Limits, not covered: a module that Haxe typed in a request whose cache facts
-Genes did not keep (a full request without module records), or before a
-new macro state that found no stored facts for its defines (the file was
-deleted, could not be written, or a define changed); such a request knows
-no file, as the first request of a session. A program with an `@:rtti` class
+Genes did not keep (a full request without module records in the same
+process before the first one with them); and a process that a macro of the
+server starts, which inherits the process token. A program with an `@:rtti` class
 adds no stamps and leaves the incremental path, so a module that Haxe keeps
 from its cache there is not checked. On APFS a replaced file also gets a new change
 time, so the inode check is a second guard there, not the only one. No group
