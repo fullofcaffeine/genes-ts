@@ -195,6 +195,26 @@ typedef SourceContent = {
   final stat: Null<SourceStat>;
 }
 
+/**
+ * What `ModuleRequest` knows about Haxe's module cache, as stored beside the
+ * descriptor (`<descriptor>.typed-sources.json`) so that a new macro state
+ * of Genes can read it again (`ModuleRequest.readCacheFacts`). Plain text and
+ * numbers only.
+ */
+typedef CacheFacts = {
+  /** The defines key of the request that wrote the facts (`definesKey`). */
+  final defines: String;
+
+  /** `typedDigests`: the content that Haxe last typed for each file. */
+  final typed: Array<{file: String, content: SourceContent}>;
+
+  /** `typedAlone`: files that a module request typed alone and could not mark. */
+  final typedAlone: Array<String>;
+
+  /** `leftoverRoots`: modules whose roots a failed request left. */
+  final leftoverRoots: Array<String>;
+}
+
 /** The report of the record step of one full request with `"moduleRecords": true`. */
 typedef ModuleRecordsReport = {
   final format: Int;
@@ -275,6 +295,27 @@ typedef ModuleRecordsReport = {
  * file keeps the digest `missing`, so that later full requests do not make
  * Haxe parse it, or the folder of a deleted `import.hx`, again, and a file
  * created again at that path counts as changed.
+ *
+ * The cache facts (genes-lnrv). `typedDigests`, `typedAlone` and
+ * `leftoverRoots` say what Haxe's module cache holds, and Haxe keeps that
+ * cache while the server runs. Genes keeps them in `@:persistent` fields,
+ * and Haxe sets those back to their first values when it types the macro
+ * classes of Genes again: after a request with other defines, when a macro
+ * module changes, or after a macro error. An editor's diagnostics request
+ * (`--display Main.hx@0@diagnostics`, or the JSON-RPC method
+ * `display/diagnostics`) without the descriptor define is such a request:
+ * Haxe types the whole program for it and generates nothing. So Genes also
+ * stores the three facts beside the descriptor
+ * (`<descriptor>.typed-sources.json`, `storeCacheFacts`) whenever they
+ * change, and the first request of a new macro state reads them again
+ * (`readCacheFacts`) before it compares any file. Example: a full request
+ * types `mr/Fresh.hx` with `'one'`; an editor request comes; the file is
+ * saved with `'two'` and its modification time kept. The next full request
+ * reads the stored digest of `'one'`, sees that the file changed, and makes
+ * Haxe parse it again, so it publishes `'two'` at once. Before, it knew no
+ * file and published `'one'`. Only a request with the same defines reads
+ * the facts (`definesKey`); a request that finds no usable facts knows no
+ * file, as the first request of a session.
  *
  * Init macros given before `genes.Generator.use()` (genes-v54c). Haxe runs
  * init macros in the order of the arguments, so such a macro runs before
@@ -450,10 +491,11 @@ typedef ModuleRecordsReport = {
  * macro rule above, for full and module requests (genes-v54c). Not covered:
  * metadata that only a typed body holds (limit S3 of `ModuleFingerprint`);
  * a module that Haxe keeps from its cache before Genes reads the files, in a
- * program with an `@:rtti` class (no stamps, see above); a
- * file that Haxe parsed before the current
- * macro interpreter started (also outside what `provenSource` reads); the
- * status rule on a file system whose change time does not move at every
+ * program with an `@:rtti` class (no stamps, see above); a module that
+ * Haxe typed in a request whose cache facts Genes did not keep (a full
+ * request without module records, or before a new macro state that found
+ * no stored facts for its defines, for example because the file was
+ * deleted or could not be written); the status rule on a file system whose change time does not move at every
  * change (FAT and exFAT may not); a change that a macro
  * makes, by name, to a module outside the request's program, which the
  * request never reads; an after-save callback that another after-save
@@ -540,7 +582,9 @@ class ModuleRequest {
    * whole seconds, so a second save in the same second looks unchanged.
    * `beginRequest` makes Haxe parse such a file again. A full request reads
    * every file here before typing and keeps the newer status when the digest
-   * is the same; a deleted file keeps the digest `missing`.
+   * is the same; a deleted file keeps the digest `missing`. A cache fact:
+   * also stored beside the descriptor (`storeCacheFacts`), so that a new
+   * macro state reads it again (`readCacheFacts`).
    */
   @:persistent static var typedDigests: Map<String, SourceContent> = new Map();
 
@@ -556,6 +600,30 @@ class ModuleRequest {
    * before the generator ran). The next request removes them.
    */
   @:persistent static var leftoverRoots: Array<String> = [];
+
+  /**
+   * Whether this macro state has read the stored cache facts
+   * (`readCacheFacts`). It starts `false` in each new macro state, so the
+   * first request of a new state reads them once.
+   */
+  @:persistent static var cacheFactsRead = false;
+
+  /**
+   * Whether `typedDigests`, `typedAlone` or `leftoverRoots` changed since
+   * `storeCacheFacts` last wrote them. A request that changes nothing
+   * writes nothing.
+   */
+  @:persistent static var cacheFactsChanged = false;
+
+  /**
+   * The file of the stored cache facts of this request
+   * (`<descriptor>.typed-sources.json`), set by `beginRequest`; `null` when
+   * the request has no descriptor.
+   */
+  static var cacheFactsFile: Null<String> = null;
+
+  /** The defines key of this request (`definesKey`), set with `cacheFactsFile`. */
+  static var cacheFactsKey = '';
 
   /** The class (`TypeUtil.baseTypeFullName`) of the stored full request's `--main` function, or empty. */
   @:persistent static var storedMain = '';
@@ -657,6 +725,8 @@ class ModuleRequest {
     surfaceOwners = null;
     earlyRefusal = null;
     invalidatedFiles = new Map();
+    cacheFactsFile = null;
+    cacheFactsKey = '';
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
     beginRequest();
@@ -730,9 +800,18 @@ class ModuleRequest {
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
       return;
+    cacheFactsFile = descriptor.path + CACHE_FACTS_SUFFIX;
+    cacheFactsKey = definesKey();
+    if (!cacheFactsRead) {
+      cacheFactsRead = true;
+      readCacheFacts();
+    }
     final alone = typedAlone.copy();
     final stale = alone.copy();
-    typedAlone = [];
+    if (alone.length > 0) {
+      typedAlone = [];
+      cacheFactsChanged = true;
+    }
     // Files that differ from what Haxe last read, with their content now.
     final changed: Array<{file: String, content: SourceContent}> = [];
     switch descriptor.kind {
@@ -753,15 +832,16 @@ class ModuleRequest {
           final early = typingMacrosBeforeGenes();
           if (early.length > 0) {
             for (item in changed)
-              typedDigests.set(item.file, item.content);
+              noteTyped(item.file, item.content);
             earlyRefusal = earlyMacroReason(early,
               [for (item in changed) item.file].concat(alone));
           }
         }
       case Full:
-        // The first full request of this macro interpreter knows no file
-        // yet: read every Haxe source of the class paths before typing, so
-        // that `provenSource` can prove what Haxe typed.
+        // A full request that knows no file yet (the first of the session,
+        // or of a macro state that found no stored cache facts): read every
+        // Haxe source of the class paths before typing, so that
+        // `provenSource` can prove what Haxe typed.
         if (descriptor.moduleRecords == true && !typedDigests.keys().hasNext())
           for (root in Context.getClassPath())
             scanSources(root.length == 0 ? '.' : root);
@@ -793,18 +873,20 @@ class ModuleRequest {
           final early = differs ? typingMacrosBeforeGenes() : [];
           if (early.length > 0) {
             for (item in changed)
-              typedDigests.set(item.file, item.content);
+              noteTyped(item.file, item.content);
             invalidate(stale);
+            storeCacheFacts();
             final reason = earlyMacroReason(early,
               [for (item in changed) item.file].concat(alone));
             writeRecordsReport(descriptor, false, reason, 0, 0, started);
             Context.fatalError(reason, Context.currentPos());
           }
           for (item in newer)
-            typedDigests.set(item.file, item.content);
+            noteTyped(item.file, item.content);
         }
     }
     invalidate(stale);
+    storeCacheFacts();
   }
 
   /**
@@ -842,6 +924,242 @@ class ModuleRequest {
     final nowStat = now.stat;
     return typedStat != null && nowStat != null
       && sameStatus(typedStat, nowStat);
+  }
+
+  /** The suffix of the stored cache facts, after the descriptor path. */
+  static inline final CACHE_FACTS_SUFFIX = '.typed-sources.json';
+
+  /** The format of the stored cache facts (`encodeCacheFacts`). */
+  static inline final CACHE_FACTS_FORMAT = 1;
+
+  /**
+   * Notes `content` as what Haxe holds for `file` (`typedDigests`), and marks
+   * the cache facts as changed when its digest or file status differs from
+   * the noted content. A newer `readAt` alone is kept in memory and not
+   * stored: the stored copy then has an older read moment, which only makes
+   * the status rule (`holdsContent`) read a file more often after a new
+   * macro state, and a request without a change writes nothing.
+   */
+  static function noteTyped(file: String, content: SourceContent): Void {
+    final known = typedDigests.get(file);
+    typedDigests.set(file, content);
+    if (known == null || !sameContent(known, content))
+      cacheFactsChanged = true;
+  }
+
+  /** Returns true when two contents have the same digest and the same status, or both no status. */
+  static function sameContent(left: SourceContent, right: SourceContent): Bool {
+    final leftStat = left.stat;
+    final rightStat = right.stat;
+    if (left.digest != right.digest)
+      return false;
+    if (leftStat == null || rightStat == null)
+      return leftStat == null && rightStat == null;
+    return sameStatus(leftStat, rightStat);
+  }
+
+  /**
+   * Returns the SHA-1 of the sorted `name=value` lines of every define at the
+   * start of this request. The stored cache facts are read only by a request
+   * with the same key.
+   *
+   * Why: Haxe keeps one module cache for each set of defines. Facts that a
+   * request wrote with other defines describe another cache. Example: an
+   * editor request without the descriptor define, or a session that changes
+   * a define and keeps its descriptor path.
+   */
+  static function definesKey(): String {
+    final lines = [for (name => value in Context.getDefines()) '$name=$value'];
+    lines.sort(compareStrings);
+    return haxe.crypto.Sha1.encode(lines.join('\n'));
+  }
+
+  /**
+   * Reads the stored cache facts (`<descriptor>.typed-sources.json`) into
+   * `typedDigests`, `typedAlone` and `leftoverRoots`. `beginRequest` calls it
+   * once in each macro state, before it compares any file.
+   *
+   * Why: these three facts say what Haxe's module cache holds, and Haxe keeps
+   * that cache as long as the server runs. Genes keeps them in `@:persistent`
+   * fields, which Haxe sets back to their first values when it types the
+   * macro classes of Genes again: after a request with other defines (an
+   * editor's `--display ...@diagnostics` or `display/diagnostics` request
+   * without the descriptor define), when a macro module changes, or after a
+   * macro error. Haxe then still holds the modules of earlier requests.
+   * Without these facts, the first full request of the new macro state did
+   * not know that `mr/Fresh.hx` had changed since Haxe parsed it (a save
+   * that kept the modification time), did not make Haxe parse it again, and
+   * published the old text (genes-lnrv).
+   *
+   * Facts with another defines key or another format, and a damaged file,
+   * are not used; the request then knows no file, as the first request of a
+   * session (a warning names a damaged file). Facts of an earlier server
+   * describe a cache that is gone; using them is safe, because Haxe parses
+   * every file that it does not hold.
+   */
+  static function readCacheFacts(): Void {
+    final file = cacheFactsFile;
+    if (file == null || !FileSystem.exists(file))
+      return;
+    final text = try File.getContent(file) catch (_:haxe.Exception) null;
+    final facts = text == null ? null : decodeCacheFacts(text);
+    if (facts == null) {
+      Context.warning('[GENES-MODULE-REQUEST-004] Genes cannot read its '
+        + 'record of what Haxe typed ($file). This request knows no source '
+        + 'file, as the first request of a session.',
+        Context.currentPos());
+      return;
+    }
+    if (facts.defines != cacheFactsKey)
+      return;
+    for (entry in facts.typed)
+      if (!typedDigests.exists(entry.file))
+        typedDigests.set(entry.file, entry.content);
+    for (item in facts.typedAlone)
+      if (typedAlone.indexOf(item) < 0)
+        typedAlone = typedAlone.concat([item]);
+    for (item in facts.leftoverRoots)
+      if (leftoverRoots.indexOf(item) < 0)
+        leftoverRoots = leftoverRoots.concat([item]);
+  }
+
+  /**
+   * Writes `typedDigests`, `typedAlone` and `leftoverRoots` to the stored
+   * cache facts when they changed since the last write (`readCacheFacts`
+   * explains why). Called at the end of each step that changes them, also
+   * before a refusal stops the request.
+   *
+   * If the file cannot be written, Genes warns and deletes the older file,
+   * so that a new macro state cannot read facts that are no longer true. It
+   * tries again at the next step.
+   */
+  static function storeCacheFacts(): Void {
+    final file = cacheFactsFile;
+    if (file == null || !cacheFactsChanged)
+      return;
+    try {
+      File.saveContent(file, encodeCacheFacts());
+      cacheFactsChanged = false;
+    } catch (error:haxe.Exception) {
+      try
+        FileSystem.deleteFile(file)
+      catch (_:haxe.Exception) {}
+      Context.warning('[GENES-MODULE-REQUEST-004] Genes cannot write its '
+        + 'record of what Haxe typed ($file: ${error.message}). After Haxe '
+        + 'types the macro classes of Genes again, the next request knows no '
+        + 'source file, as the first request of a session.',
+        Context.currentPos());
+    }
+  }
+
+  /**
+   * Returns the cache facts as JSON text: the format, the defines key, one
+   * entry per file of `typedDigests` (`[file, digest]`, or `[file, digest,
+   * size, mtime, ctime, ino, readAt]` when a status is kept; sorted by
+   * file), `typedAlone` and `leftoverRoots`. Times are milliseconds, and
+   * Haxe's JSON keeps them exactly.
+   */
+  static function encodeCacheFacts(): String {
+    final files = [for (file in typedDigests.keys()) file];
+    files.sort(compareStrings);
+    final typed: Array<Array<haxe.extern.EitherType<String, Float>>> = [];
+    for (file in files) {
+      final content = typedDigests.get(file);
+      if (content == null)
+        continue;
+      final stat = content.stat;
+      typed.push(stat == null ? [file, content.digest] : [file, content.digest, stat.size, stat.mtime, stat.ctime, stat.ino, stat.readAt]);
+    }
+    return Json.stringify({
+      format: CACHE_FACTS_FORMAT,
+      defines: cacheFactsKey,
+      typed: typed,
+      typedAlone: typedAlone,
+      leftoverRoots: leftoverRoots
+    }) + '\n';
+  }
+
+  /**
+   * Decodes the text of `encodeCacheFacts`, or returns `null` when any part
+   * of it is not as `encodeCacheFacts` writes it.
+   *
+   * BOUNDARY_DYNAMIC: `haxe.Json.parse` returns an untyped value, and the
+   * standard library has no typed JSON decoder. This function checks the
+   * runtime type of every value before use and returns only typed values.
+   * One bad entry rejects the whole file, because a missing file entry would
+   * read as a file that Haxe does not hold.
+   */
+  static function decodeCacheFacts(text: String): Null<CacheFacts> {
+    final parsed: Dynamic = try Json.parse(text) catch (_:haxe.Exception) null;
+    if (parsed == null)
+      return null;
+    final format: Dynamic = Reflect.field(parsed, 'format');
+    final defines: Dynamic = Reflect.field(parsed, 'defines');
+    final entries: Dynamic = Reflect.field(parsed, 'typed');
+    final alone = stringsOf(Reflect.field(parsed, 'typedAlone'));
+    final roots = stringsOf(Reflect.field(parsed, 'leftoverRoots'));
+    if (!Std.isOfType(format, Int)
+      || (format : Int) != CACHE_FACTS_FORMAT
+        || !Std.isOfType(defines, String) || !Std.isOfType(entries, Array)
+        || alone == null || roots == null)
+      return null;
+    final typed: Array<{file: String, content: SourceContent}> = [];
+    for (entry in (entries : Array<Dynamic>)) {
+      if (!Std.isOfType(entry, Array))
+        return null;
+      final parts: Array<Dynamic> = entry;
+      if (parts.length != 2 && parts.length != 7)
+        return null;
+      final file: Dynamic = parts[0];
+      final digest: Dynamic = parts[1];
+      if (!Std.isOfType(file, String) || !Std.isOfType(digest, String))
+        return null;
+      var stat: Null<SourceStat> = null;
+      if (parts.length == 7) {
+        final size: Dynamic = parts[2];
+        final mtime: Dynamic = parts[3];
+        final ctime: Dynamic = parts[4];
+        final ino: Dynamic = parts[5];
+        final readAt: Dynamic = parts[6];
+        if (!Std.isOfType(size, Int) || !Std.isOfType(mtime, Float)
+          || !Std.isOfType(ctime, Float) || !Std.isOfType(ino, Int)
+          || !Std.isOfType(readAt, Float))
+          return null;
+        stat = {
+          size: (size : Int),
+          mtime: (mtime : Float),
+          ctime: (ctime : Float),
+          ino: (ino : Int),
+          readAt: (readAt : Float)
+        };
+      }
+      typed.push({
+        file: (file : String),
+        content: {digest: (digest : String), stat: stat}
+      });
+    }
+    return {
+      defines: (defines : String),
+      typed: typed,
+      typedAlone: alone,
+      leftoverRoots: roots
+    };
+  }
+
+  /**
+   * Returns `value` as an array of strings, or `null` when it is not one.
+   * BOUNDARY_DYNAMIC: see `decodeCacheFacts`.
+   */
+  static function stringsOf(value: Dynamic): Null<Array<String>> {
+    if (!Std.isOfType(value, Array))
+      return null;
+    final items: Array<String> = [];
+    for (item in (value : Array<Dynamic>)) {
+      if (!Std.isOfType(item, String))
+        return null;
+      items.push((item : String));
+    }
+    return items;
   }
 
   /** The init macro call of Genes itself (`--macro genes.Generator.use()`). */
@@ -1327,6 +1645,12 @@ class ModuleRequest {
    * that Haxe typed again.
    */
   static function afterSave(types: Array<Type>): Void {
+    afterSaveSteps(types);
+    storeCacheFacts();
+  }
+
+  /** The steps of `afterSave`, which then stores the cache facts that they changed. */
+  static function afterSaveSteps(types: Array<Type>): Void {
     removeLeftoverRoots(types);
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
@@ -1367,6 +1691,7 @@ class ModuleRequest {
       final kept = keptStaleModules();
       if (kept.length > 0) {
         final reason = keptStaleReason(kept);
+        storeCacheFacts();
         writeRecordsReport(descriptor, false, reason, 0, 0, started);
         Context.fatalError(reason, Context.currentPos());
       }
@@ -1376,7 +1701,7 @@ class ModuleRequest {
     for (module in GenerationChangeSet.retypedModules()) {
       final file = moduleFiles.get(module);
       if (file != null)
-        typedDigests.set(file, provenSource(file));
+        noteTyped(file, provenSource(file));
     }
     switch descriptor.kind {
       case Module(module):
@@ -1403,17 +1728,19 @@ class ModuleRequest {
         for (_ => file in moduleFiles)
           if (!requestDigests.exists(file)) {
             final typed = typedDigests.get(file);
-            // Haxe kept this module from before the digests that this
-            // session keeps (a new macro interpreter): unknown, so that the
-            // next full request makes Haxe parse it again.
+            // Haxe kept this module from a request whose content Genes did
+            // not note (a request without module records, or before a new
+            // macro state that found no stored cache facts for its defines,
+            // `readCacheFacts`): unknown, so that the next full request
+            // makes Haxe parse it again.
             if (typed == null)
-              typedDigests.set(file, unknownSource());
+              noteTyped(file, unknownSource());
             requestDigests.set(file, typed == null ? unknownSource() : typed);
           }
         for (file in importFilesOf([for (_ => file in moduleFiles) file]))
           if (!requestDigests.exists(file)) {
             final typed = provenSource(file);
-            typedDigests.set(file, typed);
+            noteTyped(file, typed);
             requestDigests.set(file, typed);
           }
         // A module needs a new shape when its epochs differ from the ones
@@ -1483,8 +1810,10 @@ class ModuleRequest {
         + '(${error.message})';
       for (module in modules) {
         final file = moduleFiles.get(module);
-        if (file != null)
+        if (file != null) {
           typedAlone = typedAlone.concat([file]);
+          cacheFactsChanged = true;
+        }
       }
       Context.warning(retypeFailure, Context.currentPos());
     }
@@ -1538,6 +1867,7 @@ class ModuleRequest {
     // Noted before the first entry is added: a request that fails before
     // `removeRoots` leaves them to the next request.
     leftoverRoots = leftoverRoots.concat([module]);
+    cacheFactsChanged = true;
     for (meta in roots) {
       meta.add(':keep', [macro $v{ROOT_MARK}], pos);
       addedRoots.push(meta);
@@ -1552,7 +1882,11 @@ class ModuleRequest {
     for (meta in addedRoots)
       removeMarked(meta);
     addedRoots = [];
-    leftoverRoots = [];
+    if (leftoverRoots.length > 0) {
+      leftoverRoots = [];
+      cacheFactsChanged = true;
+      storeCacheFacts();
+    }
   }
 
   /** Removes the `@:keep` entries with `ROOT_MARK` from `meta`, and keeps the others. */
@@ -1603,6 +1937,8 @@ class ModuleRequest {
       }
     }
     leftoverRoots = [for (module in pending) if (!cleaned.exists(module)) module];
+    if (leftoverRoots.length != pending.length)
+      cacheFactsChanged = true;
   }
 
   /**
@@ -1785,7 +2121,12 @@ class ModuleRequest {
       'Genes module request preview folder. Genes may empty this folder.\n');
   }
 
-  /** Forgets every record, also the digests of what Haxe typed. */
+  /**
+   * Forgets every record of the last full request. It keeps the cache facts
+   * (`typedDigests`, `typedAlone`, `leftoverRoots`): they say what Haxe's
+   * cache holds, which does not depend on the records, and an empty
+   * `typedDigests` would read as a cache that holds no module.
+   */
   public static function drop(): Void {
     storedKey = null;
     storedOutputFolder = '';
@@ -1794,7 +2135,6 @@ class ModuleRequest {
     storedTargetFacts = new Map();
     externalUses = new Map();
     storedFiles = new Map();
-    typedDigests = new Map();
     shapeCache = new Map();
   }
 

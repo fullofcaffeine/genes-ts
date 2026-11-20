@@ -661,9 +661,51 @@ the macro, and its write of the typedef field's metadata stays on the
 cached declaration, so the metadata comparison sees it first. Either code
 refuses the preview; the other cases keep their code.
 
-Limits, not covered: a file that Haxe parsed before the current macro
-interpreter started (Haxe starts a new one when a macro module changes, also
-a Genes source file during a gate run). A program with an `@:rtti` class
+The `display-` groups check an editor request between two full requests
+(genes-lnrv), with a save of `mr/Fresh.hx` that keeps the modification time
+and no `server/invalidate`. The editor request types the whole program and
+generates nothing. Without the descriptor define it has other defines, so
+Haxe types the macro classes of Genes again for it, and their
+`@:persistent` fields start again from their first values in the next full
+request, while Haxe keeps the modules of the full requests. Genes therefore
+stores what it knows about Haxe's cache beside the descriptor
+(`<descriptor>.typed-sources.json`: the content that Haxe last typed for
+each file, the files that a module request typed alone, and the modules
+whose roots a failed request left) and reads it again in the first request
+of a new macro state, if that request has the same defines:
+
+- `display-cli`: `--display Main.hx@0@diagnostics` before a save, after a
+  second save, and once without an edit. Each full request equals cold at
+  once, nothing is refused, and Haxe types no module again after the
+  request without an edit (`fullTypedAgainModules`), nor in the next one
+  (`fullTypedAgain`);
+- `display-json`: the JSON-RPC method `display/diagnostics`, before and
+  after a save;
+- `display-json-session`: `display/diagnostics` with the descriptor define,
+  so Genes runs in it and Haxe keeps its typing in the cache of the full
+  requests; with saves and saves back. It passed before the fix too; it
+  guards that such a request does not count as a published one;
+- `display-dependency-changed`: a save of `mr/Theme.hx` that Haxe sees
+  makes Haxe type `mr.Fresh` again from the text that it parsed before; no
+  stamp can show this case;
+- `display-none-no-edit`: five full requests without an edit or an editor
+  request. Haxe types no module again; the rows give the time of such a
+  request;
+- `display-global-build-all`: the global build macro of
+  `early-init-global-build-all`, so Haxe loads `mr.Fresh` with the standard
+  types before Genes runs. The full request is refused once with
+  `GENES-MODULE-REQUEST-003` (`keptStaleModules`), as without the editor
+  request, and equals cold when sent again.
+
+On Genes before the fix, the full request after the editor request in each
+group except `display-json-session` and `display-none-no-edit` differed
+from cold in `mr/Fresh.ts`, and the request after it was right.
+
+Limits, not covered: a module that Haxe typed in a request whose cache facts
+Genes did not keep (a full request without module records), or before a
+new macro state that found no stored facts for its defines (the file was
+deleted, could not be written, or a define changed); such a request knows
+no file, as the first request of a session. A program with an `@:rtti` class
 adds no stamps and leaves the incremental path, so a module that Haxe keeps
 from its cache there is not checked. On APFS a replaced file also gets a new change
 time, so the inode check is a second guard there, not the only one. No group
@@ -695,9 +737,9 @@ How a module request relates to the full incremental path:
 
 Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
 metadata that only a typed body holds; a module that Haxe keeps from its
-cache in a program with an `@:rtti` class; a file that Haxe parsed
-before the current macro interpreter started; a change that a macro makes by
-name
+cache in a program with an `@:rtti` class; a module that Haxe typed in a
+request whose cache facts Genes did not keep (see above); a change that a
+macro makes by name
 to a module outside the request's program; an after-save callback that
 another after-save callback registers while the save phase runs, when it is
 registered after the callback of Genes; and a file that a macro reads in a
