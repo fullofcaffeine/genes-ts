@@ -723,9 +723,47 @@ On Genes before the fix, the full request after the editor request in each
 group except `display-json-session` and `display-none-no-edit` differed
 from cold in `mr/Fresh.ts`, and the request after it was right.
 
+The `failed-` groups check a request that fails with a type error
+(genes-u8fq). `mr/Fresh.hx` gets a type error, and a request fails. Then
+the file is saved back to the text of the last successful request, with the
+modification time of the failed save kept, and no `server/invalidate` is
+sent. Haxe keeps the parse of a file also when the request fails, and its
+whole-second check cannot see the second save. The digest of the file now
+equals the one that Genes last proved. So Genes now notes each file that it
+makes Haxe parse again as unknown before typing (`unproveParsed`), and only
+a request that types the program proves it again. A step with `typeError`
+expects the cold build, its module request and its full request to fail;
+the warm full request must report each error line of the cold build and
+publish nothing.
+
+- `failed-revert-full`: a full request fails; the next full request equals
+  cold at once; a request without an edit types no module again; then a
+  text edit of `mr.Fresh` previews as usual;
+- `failed-revert-module`: the module request and the full request of the
+  failed text fail; the next module request previews, and so does one
+  without an edit;
+- `failed-then-other-edit`: an edit of `mr/Button.hx` while `mr/Fresh.hx`
+  still has the error fails again, as cold does; the save back then equals
+  cold;
+- `failed-display-session`: `display/diagnostics` with the session's
+  defines after the failed save and after the save back. It passed before
+  the fix too; it guards that the editor request does not hide the old
+  parse;
+- `failed-display-cli`: `--display ...@diagnostics` without the descriptor
+  define after the save back, so the next full request starts Genes with
+  new macro state and reads the unknown mark from the stored cache facts.
+
+On Genes before the fix (f3a1a8ed), every group except
+`failed-display-session` failed at the step after the save back: the
+request failed again with the old error `Float should be String`.
+
 Limits, not covered: a module that Haxe typed in a request whose cache facts
 Genes did not keep (a full request without module records in the same
-process before the first one with them); and a process that a macro of the
+process before the first one with them); a file that Genes does not know
+yet (a new module) and that Haxe first parsed in a request that failed,
+then saved again in the same whole second without `server/invalidate`; a
+request that fails right after Genes lost its cache facts
+(`GENES-MODULE-REQUEST-004`), when a file is then saved back the same way; and a process that a macro of the
 server starts, which inherits the process token. A program with an `@:rtti` class
 adds no stamps and leaves the incremental path, so a module that Haxe keeps
 from its cache there is not checked. On APFS a replaced file also gets a new change
