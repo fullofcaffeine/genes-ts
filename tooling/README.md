@@ -677,7 +677,18 @@ rolled back, the other output can start normally.
   send module requests yet. A client that does must send a request again
   once after `GENES-MODULE-REQUEST-003` or the refusal
   `init-macro-before-genes`, and report a second refusal instead of
-  looping (see `genes.incremental.ModuleRequest`). Two assumptions remain: no macro reads the source text of a
+  looping (see `genes.incremental.ModuleRequest`). Such a client may share
+  its server with an editor: an editor request with other defines (for
+  example `--display ...@diagnostics` without the descriptor define) makes
+  Haxe type the macro classes of Genes again, and Genes then reads what it
+  knows about Haxe's cache from `<descriptor>.typed-sources.json`, which it
+  writes beside the descriptor only for module records and module
+  requests, so the next full request is still checked (genes-lnrv). Rule:
+  one Haxe process per descriptor path. A cold `haxe` run must not pass the
+  session's `-D genes.dev_incremental` define: its facts carry another
+  process token, so the server then makes Haxe parse every file again once
+  and can refuse that request once.
+  Two assumptions remain: no macro reads the source text of a
   class-path `.hx` file, and a file that the session never saw change was not
   dated ahead of the clock when Haxe read it. A created or
   removed `.hx` file can change a name lookup in an unchanged module (Haxe

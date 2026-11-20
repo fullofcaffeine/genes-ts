@@ -214,6 +214,13 @@ type Step = {
   readonly settleMs?: number;
   /** The number of modules that Haxe must type again in the full request after this step (`shapes` of its records report). */
   readonly fullTypedAgain?: number;
+  /**
+   * The modules that Haxe must type again in the full request after this
+   * step (`typedAgainModules` of its after-typing report). Unlike
+   * `fullTypedAgain`, it also holds after Genes started with new macro state,
+   * whose shape cache is empty.
+   */
+  readonly fullTypedAgainModules?: ReadonlyArray<string>;
   /** More checks of the module request's report. */
   readonly check?: (report: ModuleReport, label: string) => void;
   /**
@@ -228,7 +235,39 @@ type Step = {
    * such refusal fails the gate.
    */
   readonly initRefusal?: "module" | "full" | "both";
+  /**
+   * An editor request that the same server answers before or after `apply`
+   * (genes-lnrv): a diagnostics request that types the program and
+   * generates nothing (see `displayRequest`).
+   */
+  readonly display?: { readonly when: "before-save" | "after-save", readonly form: DisplayForm };
+  /**
+   * After `apply` and before an after-save `display`, a cold `haxe` process
+   * builds the program with the session's descriptor define, which breaks
+   * the rule "one Haxe process per descriptor path" (review of genes-ts
+   * #255). It writes the stored cache facts with its own process token.
+   */
+  readonly coldWithDescriptor?: boolean;
+  /**
+   * Stop the server and start a new one before `apply`, so the step's full
+   * request is the first request of a new process, which finds the stored
+   * cache facts of the old one.
+   */
+  readonly restartServer?: boolean;
 };
+
+/**
+ * The form of an editor request (genes-lnrv):
+ *
+ * - `cli`: `--display <Main.hx>@0@diagnostics`, with the session's
+ *   arguments but without the descriptor define, as an editor sends it;
+ * - `json`: the JSON-RPC method `display/diagnostics`, also without the
+ *   descriptor define;
+ * - `json-session`: `display/diagnostics` with the descriptor define, so
+ *   with the defines of the full requests: Genes runs in it and Haxe keeps
+ *   its typing in the cache of the full requests.
+ */
+type DisplayForm = "cli" | "json" | "json-session";
 
 /** A list of steps on its own server and its own copy of the template. */
 type Group = {
@@ -1346,6 +1385,219 @@ function earlyInitMacroGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/**
+ * The groups of genes-lnrv: an editor request (`displayRequest`) reaches
+ * the same server between two full requests, before or after a save of
+ * `mr/Fresh.hx` that keeps the modification time, and no
+ * `server/invalidate` is sent. An editor request without the descriptor
+ * define has other defines, so Haxe types the macro classes of Genes again
+ * for it, and their `@:persistent` state starts empty in the next full
+ * request. Haxe still keeps the modules of the full requests. Before the
+ * fix, that full request published the old `mr/Fresh.ts` and the request
+ * after it was right.
+ *
+ * - `display-cli`: `--display Main.hx@0@diagnostics` before the save, then
+ *   after a second save, then a step without an edit;
+ * - `display-json`: the JSON-RPC method `display/diagnostics`, before and
+ *   after a save;
+ * - `display-json-session`: `display/diagnostics` with the descriptor
+ *   define, so Genes runs in it and Haxe keeps its typing in the cache of
+ *   the full requests; it must not count as a published request;
+ * - `display-dependency-changed`: `mr.Fresh` reads `mr.Theme`, and a save of
+ *   `mr/Theme.hx` that Haxe sees comes with the save of `mr/Fresh.hx`, so
+ *   Haxe types `mr.Fresh` again from the text that it parsed before; a
+ *   stamp of `GenerationChangeSet` cannot show this case;
+ * - `display-none-no-edit`: five full requests without an edit and
+ *   without an editor request: Haxe types no module again, and the rows give
+ *   the time of such a request;
+ * - `display-cold-run`: a save that keeps the modification time, then a cold
+ *   `haxe` run with the session's descriptor define (it breaks the rule
+ *   "one Haxe process per descriptor path" and writes the stored facts with
+ *   its own process token), then an editor request. The full request makes
+ *   Haxe parse every file again, is refused once because of the standard
+ *   types that Haxe loaded before Genes ran, and equals cold when sent
+ *   again; the request after it types no module again;
+ * - `display-new-server`: the server is restarted and `mr/Fresh.hx` saved
+ *   in between, with an init macro before Genes that types `mr.Fresh`. The
+ *   first request of the new process holds no module, so it is not refused;
+ * - `display-global-build-all`: the global build macro of
+ *   `early-init-global-build-all`, so Haxe loads `mr.Fresh` with the
+ *   standard types before any init macro. The full request is refused once
+ *   (`keptStaleModules`), as without the editor request.
+ *
+ * Every full request must equal cold, and only the step of
+ * `display-global-build-all` may be refused.
+ */
+function displayRequestGroups(): ReadonlyArray<Group> {
+  const files = {
+    "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+    "mr/Fresh.hx": freshWith("one")
+  };
+  return [
+    {
+      name: "display-cli",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "CLI diagnostics request, then Fresh saved with its modification time kept",
+          display: { when: "before-save", form: "cli" },
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        },
+        {
+          id: "Fresh saved again with its modification time kept, then CLI diagnostics request",
+          display: { when: "after-save", form: "cli" },
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';")
+        },
+        {
+          id: "CLI diagnostics request, no edit",
+          display: { when: "before-save", form: "cli" },
+          apply: () => {},
+          fullTypedAgainModules: []
+        },
+        {
+          id: "no edit after the editor requests",
+          apply: () => {},
+          fullTypedAgain: 0
+        }
+      ]
+    },
+    {
+      name: "display-json",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "JSON-RPC diagnostics request, then Fresh saved with its modification time kept",
+          display: { when: "before-save", form: "json" },
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        },
+        {
+          id: "Fresh saved again with its modification time kept, then JSON-RPC diagnostics request",
+          display: { when: "after-save", form: "json" },
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';")
+        }
+      ]
+    },
+    {
+      name: "display-json-session",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept, then JSON-RPC diagnostics with the session's defines",
+          display: { when: "after-save", form: "json-session" },
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        },
+        {
+          id: "JSON-RPC diagnostics with the session's defines, then Fresh saved back",
+          display: { when: "before-save", form: "json-session" },
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'one';")
+        },
+        {
+          id: "Fresh saved, JSON-RPC diagnostics with the session's defines, Fresh saved back",
+          apply: () => {
+            editSameSecond("Fresh.hx", "return 'one';", "return 'six';");
+          },
+          display: { when: "after-save", form: "json-session" }
+        },
+        {
+          id: "Fresh saved back to the text of the last full request",
+          apply: () => editSameSecond("Fresh.hx", "return 'six';", "return 'one';")
+        }
+      ]
+    },
+    {
+      name: "display-dependency-changed",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshUsingTheme("one")
+      },
+      noInvalidate: true,
+      steps: [
+        {
+          id: "CLI diagnostics request; Theme saved (Haxe sees it); Fresh saved with its modification time kept",
+          display: { when: "before-save", form: "cli" },
+          apply: () => {
+            edit("Theme.hx", "return 12;", "return 13;");
+            editSameSecond("Fresh.hx", "return 'one'", "return 'two'");
+          }
+        }
+      ]
+    },
+    {
+      // No editor request and no edit: the stored cache facts add no new
+      // typing, and their rows give the time of a warm full request without
+      // an edit (diagnostic only).
+      name: "display-none-no-edit",
+      files,
+      noInvalidate: true,
+      steps: [1, 2, 3, 4, 5].map((round) => ({
+        id: `no edit, round ${round}`,
+        apply: () => {},
+        fullTypedAgain: 0,
+        fullTypedAgainModules: []
+      }))
+    },
+    {
+      // Review of genes-ts #255: a cold run with the session's descriptor
+      // define writes the stored facts with its own process token; the
+      // server's next new macro state must not use them.
+      name: "display-cold-run",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept, cold run with the descriptor, CLI diagnostics request",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          coldWithDescriptor: true,
+          display: { when: "after-save", form: "cli" },
+          // Genes makes Haxe parse every file again; the standard types
+          // that Haxe loaded before Genes ran are then refused once.
+          initRefusal: "full"
+        },
+        {
+          id: "no edit after the facts of the server were written again",
+          display: { when: "before-save", form: "cli" },
+          apply: () => {},
+          fullTypedAgainModules: []
+        }
+      ]
+    },
+    {
+      // Review of genes-ts #255: the first request of a new server process
+      // finds the stored facts of the old one, while an init macro before
+      // Genes can type a module; a file changed while no server ran. The
+      // new process holds no module, so nothing is refused.
+      name: "display-new-server",
+      files: { ...files, "mr/Early.hx": earlyMacro },
+      argsBeforeGenes: ["--macro", "mr.Early.install()"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "server restarted, Fresh saved with its modification time kept",
+          restartServer: true,
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        }
+      ]
+    },
+    {
+      name: "display-global-build-all",
+      files: { ...files, "mr/EarlyBuild.hx": earlyBuildMacro },
+      argsBeforeGenes: ["--macro", "addGlobalMetadata('', '@:build(mr.EarlyBuild.build())')"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "CLI diagnostics request, then Fresh saved with its modification time kept",
+          display: { when: "before-save", form: "cli" },
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        }
+      ]
+    }
+  ];
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   {
@@ -1919,7 +2171,8 @@ const groups: ReadonlyArray<Group> = [
   },
   ...lateMacroGroups(),
   ...statGroups(),
-  ...earlyInitMacroGroups()
+  ...earlyInitMacroGroups(),
+  ...displayRequestGroups()
 ];
 
 function folder(name: string): string {
@@ -2125,6 +2378,41 @@ async function programRequest(server: OwnedHaxeCompilerServer,
   return { ms: elapsed, refused };
 }
 
+/**
+ * Sends one editor request (`DisplayForm`) for `mr/Main.hx` to the server.
+ * Haxe types the whole program and generates nothing. The forms without
+ * the descriptor define have other defines than the full requests, so Haxe
+ * types the macro classes of Genes again for them; the next full request
+ * then starts Genes with new macro state, while Haxe keeps the modules of
+ * the full requests in their own cache. The request must not fail, and it
+ * must leave the program tree as it was.
+ */
+async function displayRequest(server: OwnedHaxeCompilerServer, form: DisplayForm,
+    label: string): Promise<void> {
+  const main = path.join(workspace, "src/mr/Main.hx");
+  const args = programArguments(folder("display"));
+  const request = form === "cli" ? `${main}@0@diagnostics` : JSON.stringify({
+    jsonrpc: "2.0", id: 1, method: "display/diagnostics", params: { file: main }
+  });
+  const before = existsSync(folder("program")) ? hashTree(folder("program")) : [];
+  const result = await server.compile([...(form === "json-session" ? incremental(args) : args),
+    "--display", request], `Display (${form}) ${label}`, timeoutMs, workspace);
+  ok(result.code === 0, `${label}: the ${form} display request failed\n${describe(result)}`);
+  ok(!`${result.stdout}\n${result.stderr}`.includes("GENES-"),
+    `${label}: the ${form} display request reported a Genes diagnostic\n${describe(result)}`);
+  deepStrictEqual(existsSync(folder("program")) ? hashTree(folder("program")) : [], before,
+    `${label}: the ${form} display request changed the program tree`);
+  ok(!existsSync(folder("display")) || publishedFiles(folder("display")).length === 0,
+    `${label}: the ${form} display request published output`);
+}
+
+/** The part of the after-typing report of the last request that this gate reads. */
+function readAfterTypingReport(): { readonly typedAgainModules: ReadonlyArray<string> } {
+  return JSON.parse(readFileSync(`${descriptorFile}.after-typing.json`, "utf8")) as {
+    readonly typedAgainModules: ReadonlyArray<string>
+  };
+}
+
 /** The parts of the records report of the last full request that this gate reads. */
 function readRecordsReport(): {
   readonly stored: boolean,
@@ -2273,14 +2561,28 @@ async function runGroup(group: Group,
     compiler: ReturnType<typeof selectedHaxeCompiler>,
     rows: Row[]): Promise<{ previews: number, refusals: number }> {
   prepare(group);
-  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  let server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   let previews = 0;
   let refusals = 0;
   try {
     await programRequest(server, `${group.name} first`);
     for (const [index, step] of group.steps.entries()) {
       const label = `[${group.name} ${index + 1}/${group.steps.length}] ${step.id}`;
+      if (step.restartServer === true) {
+        await server.stop();
+        server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+      }
+      if (step.display?.when === "before-save")
+        await displayRequest(server, step.display.form, label);
       step.apply();
+      if (step.coldWithDescriptor === true) {
+        const cold = await runBoundedProcess(compiler.binary,
+          incremental(programArguments(folder("cold-session"))),
+          { cwd: workspace, timeoutMs, label: `Cold with the descriptor ${label}` });
+        ok(cold.code === 0, `${label}: the cold run with the descriptor failed\n${describe(cold)}`);
+      }
+      if (step.display?.when === "after-save")
+        await displayRequest(server, step.display.form, label);
       if (step.settleMs !== undefined)
         await sleep(step.settleMs);
       const load = loadPerCpu();
@@ -2333,6 +2635,9 @@ async function runGroup(group: Group,
         if (step.fullTypedAgain !== undefined)
           strictEqual(readRecordsReport().shapes, step.fullTypedAgain,
             `${label}: Haxe typed another number of modules again in the full request`);
+        if (step.fullTypedAgainModules !== undefined)
+          deepStrictEqual(readAfterTypingReport().typedAgainModules, step.fullTypedAgainModules,
+            `${label}: Haxe typed other modules again in the full request`);
       }
       rows.push({
         group: group.name,
