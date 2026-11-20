@@ -1361,9 +1361,19 @@ class Generator {
     #if !genes.disable
     if (Context.defined('js')) {
       final alreadyInstalled = Context.defined(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
-      if (!alreadyInstalled)
-        TypeUtil.refreshCompilerTypes();
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
+      if (!alreadyInstalled) {
+        // Module requests (G3) only: Genes reads the source files before this
+        // request types any module, also before the lookups below. Those
+        // lookups type `genes.Register` and `js.Boot`, and a `@:build` or
+        // `@:using` that an earlier init macro added to them can type a
+        // project module (genes-v54c). The lookups stay eager on Haxe 4:
+        // later lookups change generated code (see `refreshCompilerTypes`).
+        // Neither module nor anything that they import reads
+        // `genes.generator.active`, so defining it first changes no text.
+        ModuleRequest.begin();
+        TypeUtil.refreshCompilerTypes();
+      }
       isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
       ReactRefreshModulePlan.validateProfile();
@@ -1372,7 +1382,8 @@ class Generator {
       if (!alreadyInstalled) {
         TypedModuleInventory.install();
         // Module requests (G3) only; without the incremental define this
-        // registers nothing.
+        // registers nothing. Registered here, after the other installers,
+        // as before; `ModuleRequest.begin` above only read the files.
         ModuleRequest.install();
       }
       ModuleDirectivePlan.install();

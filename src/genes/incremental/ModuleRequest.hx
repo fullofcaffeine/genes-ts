@@ -286,17 +286,49 @@ typedef ModuleRecordsReport = {
  * (`typingMacrosBeforeGenes`): an init macro before `genes.Generator.use()`
  * that is not a call of a few `haxe.macro.Compiler` functions that type
  * nothing (`INIT_ONLY_CALLS`, for example `nullSafety`) can type a module.
- * When there is one and a file differs from what Haxe last read (its digest
- * or its file status, `sameSinceRead`), Genes makes Haxe parse the changed
- * files again, notes their current content, and refuses the request once:
- * a full request stops before typing the program with
- * `GENES-MODULE-REQUEST-003` and publishes nothing; a module request is
- * refused with `init-macro-before-genes`. The same request sent again is
- * correct, because Haxe then holds no other text for those files; if a file
- * changed again in between, that request is refused once more. The
- * refusal does not depend on what the macro really does: a session with
- * such a macro pays one extra request after each change. A session that
- * gives `--macro genes.Generator.use()` first pays nothing.
+ * Such a function can add a `@:build` or `@:using` that loads a module when
+ * a type is built, so Genes itself reads the files (`begin`) before it types
+ * anything: before `Generator.use()` looks up `genes.Register` and
+ * `js.Boot`. When there is a macro that can type and a file differs from
+ * what Haxe last read (its digest or its file status, `sameSinceRead`),
+ * Genes makes Haxe parse the changed files again, notes their current
+ * content, and refuses the request once: a full request stops before typing
+ * the program with `GENES-MODULE-REQUEST-003` and publishes nothing; a
+ * module request is refused with `init-macro-before-genes`. The same
+ * request sent again is correct, because Haxe then holds no other text for
+ * those files; if a file changed again in between, that request is refused
+ * once more.
+ *
+ * Haxe also loads modules before any init macro: when it creates its typer,
+ * it loads `StdTypes`, `String`, `Array` and `haxe.EnumTools` from its
+ * cache together with every module that they depend on. A project module
+ * can be among them: for example, a global `@:build` macro that called
+ * `Context.getType('app.Config')` while Haxe built a standard type in an
+ * earlier request made that type depend on `app.Config`. Haxe then reuses
+ * the cached `app.Config` object as a whole; it does not type it again
+ * there, because no init macro or build macro has run yet. Its declarations
+ * keep their stamps of the earlier request (`GenerationChangeSet`), so after
+ * typing, a full request whose changed file has such a kept module
+ * (`keptStaleModules`) stops with `GENES-MODULE-REQUEST-003` before it
+ * publishes, with no digest noted. Making Haxe parse the file again also
+ * marked the cached object as changed, so the request sent again types the
+ * module from the file. A module request already refuses such a module: a
+ * kept requested module with `stale-source`, any other with
+ * `source-changed`. A program with an `@:rtti` class adds no stamps and
+ * leaves the incremental path, so this check does not apply there.
+ *
+ * What a client must do (no shipping client asks for module records yet;
+ * the Genes development session in `tooling/` does not): after
+ * `GENES-MODULE-REQUEST-003` or `init-macro-before-genes`, send the same
+ * request again once, and if it is refused again, report the refusal
+ * instead of looping. A second refusal means that a file changed again in
+ * between; an init macro or a tool that writes a class-path `.hx` file at
+ * every request makes every request refuse. The refusal does not depend on
+ * what the macro really does, so a session with such a macro pays one extra
+ * request after each change (a refused full request took about 0.3 to 0.55
+ * s and the request sent again 0.75 to 1.1 s in a review run on a loaded
+ * host). Give `--macro genes.Generator.use()` before every other init macro
+ * to avoid the refusal.
  *
  * The status rule of a module request (git's rule for its index): a full
  * request reads every file of the program, but a module request does not
@@ -417,9 +449,8 @@ typedef ModuleRecordsReport = {
  * `genes.Generator.use()` that types project modules is covered by the init
  * macro rule above, for full and module requests (genes-v54c). Not covered:
  * metadata that only a typed body holds (limit S3 of `ModuleFingerprint`);
- * a module that Genes itself types before `beginRequest` (`Generator.use()`
- * types `genes.Register` and `js.Boot` first), which matters only for a
- * project file that shadows one of them or a module that they import; a
+ * a module that Haxe keeps from its cache before Genes reads the files, in a
+ * program with an `@:rtti` class (no stamps, see above); a
  * file that Haxe parsed before the current
  * macro interpreter started (also outside what `provenSource` reads); the
  * status rule on a file system whose change time does not move at every
@@ -585,11 +616,27 @@ class ModuleRequest {
   static var earlyRefusal: Null<String> = null;
 
   /**
-   * Registers the step after Haxe saved the class state and before dead-code
-   * elimination. `Generator.use()` calls it once per request; without the
-   * define it registers nothing.
+   * The files that `beginRequest` made Haxe parse again in this request
+   * (`invalidate`): their content differs from what Haxe last typed, or an
+   * earlier module request typed their module alone. A module of one of them
+   * that arrives as an object of an earlier request was typed from old text
+   * (`keptStaleModules`).
    */
-  public static function install(): Void {
+  static var invalidatedFiles: Map<String, Bool> = new Map();
+
+  /**
+   * Starts the file check of this request: forgets the facts of the last
+   * request and, with the define, reads the source files (`beginRequest`).
+   * `Generator.use()` calls it once per request, as its first step that can
+   * lead to typing: before it looks up `genes.Register` and `js.Boot`.
+   *
+   * Why first: a module that Haxe types before `beginRequest` reads its file
+   * may be typed from Haxe's cached text (genes-v54c). Example: an init macro
+   * `addGlobalMetadata('genes.Register', '@:build(app.Setup.build())')` only
+   * records metadata, but when Genes types `genes.Register`, that build
+   * macro runs and can type `app.Config` by name.
+   */
+  public static function begin(): Void {
     shapes = new Map();
     shapesComputed = 0;
     shapeSeconds = 0.0;
@@ -609,9 +656,20 @@ class ModuleRequest {
     retypeFailure = null;
     surfaceOwners = null;
     earlyRefusal = null;
+    invalidatedFiles = new Map();
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
     beginRequest();
+  }
+
+  /**
+   * Registers the step after Haxe saved the class state and before dead-code
+   * elimination. `Generator.use()` calls it once per request, after `begin`;
+   * without the define it registers nothing.
+   */
+  public static function install(): Void {
+    if (!Context.defined(IncrementalRequest.DEFINE))
+      return;
     // `false`: after Haxe saved the class state, so that the roots that
     // `afterSave` adds never reach the server's cache. `afterSave` is
     // registered from inside a first after-save callback: Haxe 4.3.7 runs
@@ -749,8 +807,14 @@ class ModuleRequest {
     invalidate(stale);
   }
 
-  /** Makes Haxe parse each of `files` again before it types them (`CompilationServer.invalidateFiles`). */
+  /**
+   * Makes Haxe parse each of `files` again before it types them
+   * (`CompilationServer.invalidateFiles`), and notes them in
+   * `invalidatedFiles`.
+   */
   static function invalidate(files: Array<String>): Void {
+    for (file in files)
+      invalidatedFiles.set(file, true);
     if (files.length > 0)
       haxe.macro.CompilationServer.invalidateFiles([
         for (file in files)
@@ -790,9 +854,19 @@ class ModuleRequest {
    * package rule, or registers its typing with `Context.onAfterInitMacros`
    * (`include`, `setModuleCheckPolicy`), which runs after Genes read the
    * files (read in the standard library of Haxe 4.3.7). Haxe accepts only
-   * constant arguments in an init macro call (`Argument should be a
    * constant`), so an argument cannot run code. Example: the Genes haxelib
    * gives `nullSafety("genes", Loose, true)` before `genes.Generator.use()`.
+   *
+   * Metadata can still load a module later: `addGlobalMetadata` or
+   * `addMetadata` can add `@:build(...)`, `@:autoBuild(...)`,
+   * `@:genericBuild(...)` or `@:using(...)`, which run or resolve when Haxe
+   * builds the type that carries it. That is safe because nothing builds a
+   * type before `beginRequest` reads the files: Haxe types the program after
+   * the init macros, and `Generator.use()` calls `begin` before it types its
+   * own helpers (`genes.Register`, `js.Boot`). Example:
+   * `addGlobalMetadata('genes.Register', '@:using(mr.Fresh)')` loads
+   * `mr.Fresh` only after Genes made Haxe parse a changed `mr/Fresh.hx`
+   * again.
    */
   static final INIT_ONLY_CALLS = [
     'haxe.macro.Compiler.addClassPath',
@@ -822,7 +896,10 @@ class ModuleRequest {
    * `-lib` arguments already expanded. A macro whose call Genes cannot read
    * counts as one that can type, and so does every macro when no
    * `genes.Generator.use()` is among the arguments (another macro then
-   * called it).
+   * called it). So does a macro whose text has conditional compilation
+   * (`#`): Haxe parsed it with the defines of its own moment, and Genes would
+   * parse it with the defines of a later moment, which an init macro between
+   * them can change (`initMacroCall`).
    */
   static function typingMacrosBeforeGenes(): Array<String> {
     final configuration = haxe.macro.Compiler.getConfiguration();
@@ -853,9 +930,14 @@ class ModuleRequest {
    * `haxe.macro.Compiler.nullSafety`, `server.setModuleCheckPolicy(...)`
    * calls `haxe.macro.CompilationServer.setModuleCheckPolicy`, and
    * `genes.Generator.use()` calls `genes.Generator.use`. Returns `null` when
-   * the text is not a call of a dotted path.
+   * the text is not a call of a dotted path, and when it holds a `#`: Genes
+   * parses with the defines of its own moment, so the conditional
+   * compilation of `#if x define("a") #else mr.Typer.run() #end` could read
+   * otherwise than Haxe read it when `x` was set by an init macro between.
    */
   static function initMacroCall(text: String): Null<String> {
+    if (text.indexOf('#') >= 0)
+      return null;
     final pos = Context.currentPos();
     final parsed = try Context.parse(text, pos) catch (_:haxe.Exception) null;
     final callee = parsed == null ? null : switch parsed.expr {
@@ -883,19 +965,59 @@ class ModuleRequest {
     }
   }
 
+  /**
+   * What a client must do after a `GENES-MODULE-REQUEST-003` refusal: send
+   * the request again once, and report a second refusal instead of looping.
+   */
+  static inline final RESEND_ONCE = 'Genes made Haxe read them again: send '
+    + 'the request again, once. If the request sent again is refused too, a '
+    + 'file changed again in between (for example a tool or an init macro '
+    + 'that writes a source file at every request): report this refusal '
+    + 'instead of sending the request again.';
+
   /** The reason of a request that the init macro rule of `beginRequest` refuses. */
   static function earlyMacroReason(macros: Array<String>,
       files: Array<String>): String {
     final named = [for (text in macros.slice(0, 3)) '`$text`'].join(', ');
-    final listed = files.slice(0, 5).join(', ')
-      + (files.length > 5 ? ', ...' : '');
     return '[GENES-MODULE-REQUEST-003] An init macro given before '
       + '`--macro genes.Generator.use()` ($named) can make Haxe type a module '
       + 'before Genes reads its file, and these files changed since Haxe last '
-      + 'read them: $listed. Haxe may have typed their old text, so Genes '
-      + 'published nothing. Genes made Haxe read them again: send the request '
-      + 'again. Give `--macro genes.Generator.use()` before such init macros '
-      + 'to avoid this extra request.';
+      + 'read them: ${listOf(files)}. Haxe may have typed their old text, so '
+      + 'Genes published nothing. $RESEND_ONCE Give '
+      + '`--macro genes.Generator.use()` before such init macros to avoid '
+      + 'this extra request.';
+  }
+
+  /**
+   * Returns the modules of this request whose file `beginRequest` made Haxe
+   * parse again (`invalidatedFiles`) but that have a declaration that Haxe
+   * kept from an earlier request (`GenerationChangeSet.keptModules`), so
+   * Haxe typed them from old text. Example: `["mr.Fresh"]` when Haxe loaded
+   * `mr.Fresh` from its cache as a dependency of `String` before
+   * `mr/Fresh.hx`, saved with its modification time kept, was parsed again.
+   */
+  static function keptStaleModules(): Array<String> {
+    return [
+      for (module in GenerationChangeSet.keptModules())
+        if (invalidatedFiles.exists(moduleFiles.get(module) ?? '')) module
+    ];
+  }
+
+  /** The reason of a full request that stops because of `keptStaleModules`. */
+  static function keptStaleReason(modules: Array<String>): String {
+    final files = [for (module in modules) moduleFiles.get(module) ?? module];
+    return '[GENES-MODULE-REQUEST-003] Haxe used its typing of '
+      + '${listOf(modules)} from an earlier request, although these files '
+      + 'changed since Haxe last read them: ${listOf(files)}. Haxe\'s '
+      + 'whole-second file-time check missed the save, and Haxe loaded the '
+      + 'modules before Genes could make it read the files again (for example '
+      + 'as dependencies of the standard types, which Haxe loads before any '
+      + 'init macro). Genes published nothing. $RESEND_ONCE';
+  }
+
+  /** Returns up to five items of `items`, joined with commas, and `...` when there are more. */
+  static function listOf(items: Array<String>): String {
+    return items.slice(0, 5).join(', ') + (items.length > 5 ? ', ...' : '');
   }
 
   /**
@@ -1233,6 +1355,21 @@ class ModuleRequest {
       for (module => list in grouped)
         requestFacts.set(module, targetFactsOf(list));
       factsSeconds += haxe.Timer.stamp() - factsStart;
+    }
+    // Haxe can load a module from its cache before `beginRequest` made it
+    // parse the module's changed file again (genes-v54c): with the standard
+    // types, which it loads with every dependency before any init macro, or
+    // in an init macro given before Genes. Such a module arrives as an object
+    // of an earlier request. A full request stops here, before it publishes
+    // or notes any digest. A module request refuses such a target with
+    // `stale-source` and such another module with `source-changed`.
+    if (descriptor.kind.match(Full) && descriptor.moduleRecords == true) {
+      final kept = keptStaleModules();
+      if (kept.length > 0) {
+        final reason = keptStaleReason(kept);
+        writeRecordsReport(descriptor, false, reason, 0, 0, started);
+        Context.fatalError(reason, Context.currentPos());
+      }
     }
     // Haxe typed these modules in this request; keep a digest only when it
     // is proven to be the content that Haxe read (`provenSource`).

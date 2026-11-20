@@ -673,7 +673,11 @@ rolled back, the other output can start normally.
   covers an init macro given before `genes.Generator.use()` that types a
   project module by name: such a macro runs before Genes can make Haxe read
   a changed file again (genes-v54c; the warm-server session test has one).
-  Two assumptions remain: no macro reads the source text of a
+  The session does not ask for module records (`"moduleRecords": true`) or
+  send module requests yet. A client that does must send a request again
+  once after `GENES-MODULE-REQUEST-003` or the refusal
+  `init-macro-before-genes`, and report a second refusal instead of
+  looping (see `genes.incremental.ModuleRequest`). Two assumptions remain: no macro reads the source text of a
   class-path `.hx` file, and a file that the session never saw change was not
   dated ahead of the clock when Haxe read it. A created or
   removed `.hx` file can change a name lookup in an unchanged module (Haxe

@@ -589,15 +589,25 @@ arguments: every init macro before `genes.Generator.use()` can type a module,
 except calls of a few `haxe.macro.Compiler` functions that type nothing
 (`nullSafety`, `addMetadata`, `addGlobalMetadata`, `define`, `keep`,
 `addClassPath`, `allowPackage`, and `include` and
-`server.setModuleCheckPolicy`, which defer their typing). With such a macro,
-a request after a change of a file (digest or file status) is refused once:
+`server.setModuleCheckPolicy`, which defer their typing). Metadata that
+these calls add, such as `@:build(...)` or `@:using(...)`, runs only when a
+type is built, and Genes reads the files before anything is built, also
+before it types its own helpers `genes.Register` and `js.Boot`. Macro text
+with conditional compilation (`#`) counts as able to type. With such a
+macro, a request after a change of a file (digest or file status) is
+refused once:
 a full request stops with `GENES-MODULE-REQUEST-003`, publishes nothing and
 writes a records report with `stored: false`; a module request is refused
 with `init-macro-before-genes`. Genes has made Haxe read the changed files
-again, so the driver sends the same request again, as a session must, and
-that request is checked as usual. A step names the refusal that it expects
-(`initRefusal`); any other one fails the gate. In the groups, `mr.Early`
-calls `Context.getType('mr.Fresh')` and no `server/invalidate` is sent:
+again, so the driver sends the same request again, once, as a client must,
+and that request is checked as usual. A client reports a second refusal
+instead of sending the request again: it means that a file changed again in
+between, for example because an init macro or a tool writes a source file
+at every request, which makes every request refuse. No shipping client asks
+for module records yet. A step names the refusal that it expects
+(`initRefusal`); any other one fails the gate. In the first groups,
+`mr.Early` calls `Context.getType('mr.Fresh')` and no `server/invalidate` is
+sent:
 
 - `early-init-mtime-kept`: no edit refuses nothing; a save of `mr/Fresh.hx`
   that keeps the modification time refuses the full request once; a text
@@ -614,8 +624,35 @@ calls `Context.getType('mr.Fresh')` and no `server/invalidate` is sent:
   is `define(...)`, so nothing is refused, and Genes makes Haxe read a save
   that keeps the modification time itself, as before.
 
-On Genes before the fix, the full request after each of the first three
-saves differs from cold in `mr/Fresh.ts` (run with `GENES_TEST_SOURCE`). The
+The `early-init-global-` groups give only an allowed `addGlobalMetadata`
+call before `genes.Generator.use()`, whose metadata loads `mr.Fresh` when a
+type is built (review of genes-ts #254), with a save that keeps the
+modification time:
+
+- `early-init-global-build-register`: `@:build(mr.EarlyBuild.build())` on
+  `genes.Register`, where the build macro calls `Context.getType('mr.Fresh')`.
+  Genes reads the files before it types `genes.Register`, so nothing is
+  refused and the full request equals cold. A later module request of
+  `mr.Fresh` is refused with `other-modules-typed`, because
+  `genes.Register` depends on `mr.Fresh`;
+- `early-init-global-using`: `@:using(mr.Fresh)` on `genes.Register`;
+  nothing is refused;
+- `early-init-global-build-all`: the same build macro on every type. In
+  the first request it also ran for standard types, so they depend on
+  `mr.Fresh`. Haxe loads `StdTypes`, `String`, `Array` and `haxe.EnumTools`
+  from its cache with every dependency before any init macro, so `mr.Fresh`
+  arrives as the object of the first request, with its old stamp
+  (`GenerationChangeSet.keptModules`). The full request stops once with
+  `GENES-MODULE-REQUEST-003` before it publishes (`keptStaleModules`), and
+  equals cold when sent again;
+- `kept-stale-global-build-after-genes`: the same macro given after
+  `genes.Generator.use()`, with a save that keeps the modification time and
+  one in the same whole second: each full request is refused once the same
+  way, because this path does not depend on init macro order.
+
+On Genes before the fix, the full request after each of these saves
+(except in `early-init-not-typing`) differs from cold in `mr/Fresh.ts` (run
+with `GENES_TEST_SOURCE`). The
 groups of `mr.CopyMacro` given before `genes.Generator.use()` are refused
 once after each edit too, because Genes cannot prove that `mr.CopyMacro`
 types nothing. When sent again, f3 is refused with `session-changed`
@@ -626,10 +663,9 @@ refuses the preview; the other cases keep their code.
 
 Limits, not covered: a file that Haxe parsed before the current macro
 interpreter started (Haxe starts a new one when a macro module changes, also
-a Genes source file during a gate run). A module that Genes itself types
-before it reads files (`genes.Register` and `js.Boot`) is not covered either;
-it matters only for a project file that shadows one of them or a module that
-they import. On APFS a replaced file also gets a new change
+a Genes source file during a gate run). A program with an `@:rtti` class
+adds no stamps and leaves the incremental path, so a module that Haxe keeps
+from its cache there is not checked. On APFS a replaced file also gets a new change
 time, so the inode check is a second guard there, not the only one. No group
 can force a save between the bytes and the status of one read; the two
 status reads are checked by review only.
@@ -658,8 +694,8 @@ How a module request relates to the full incremental path:
   checks the stored walk against a live one.
 
 Not covered (the same list as `ModuleRequest` and docs/ARCHITECTURE.md):
-metadata that only a typed body holds; a module that Genes itself types
-before it reads files (`genes.Register`, `js.Boot`); a file that Haxe parsed
+metadata that only a typed body holds; a module that Haxe keeps from its
+cache in a program with an `@:rtti` class; a file that Haxe parsed
 before the current macro interpreter started; a change that a macro makes by
 name
 to a module outside the request's program; an after-save callback that

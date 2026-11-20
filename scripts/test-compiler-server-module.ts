@@ -217,15 +217,15 @@ type Step = {
   /** More checks of the module request's report. */
   readonly check?: (report: ModuleReport, label: string) => void;
   /**
-   * The request of this step that the init macro rule of
-   * `ModuleRequest.beginRequest` refuses once (genes-v54c): an init macro
-   * given before `genes.Generator.use()` can type a module, and a file
-   * changed since Haxe last read it. `module`: the module request is refused
-   * with `init-macro-before-genes`; `full`: the full request stops with
-   * `GENES-MODULE-REQUEST-003`; `both`: each of them. The refused request
-   * must publish nothing. The driver then sends the same request again, as
-   * a session does, and checks that one. Any other init macro refusal fails
-   * the gate.
+   * The request of this step that Genes refuses once because Haxe may have
+   * typed old text of a changed file (genes-v54c): an init macro given
+   * before `genes.Generator.use()` can type a module (`init-macro-before-
+   * genes` for a module request), or Haxe kept a module of a changed file
+   * from its cache (a full request stops with `GENES-MODULE-REQUEST-003` in
+   * both cases). `module`, `full` or `both` name the refused requests. The
+   * refused request must publish nothing. The driver then sends the same
+   * request again, once, as a session must, and checks that one. Any other
+   * such refusal fails the gate.
    */
   readonly initRefusal?: "module" | "full" | "both";
 };
@@ -1105,6 +1105,14 @@ const earlyMacro = `package mr;\n\n#if macro\nclass Early {\n`
   + `  public static function install(): Void {\n`
   + `    haxe.macro.Context.getType('mr.Fresh');\n  }\n}\n#end\n`;
 
+/**
+ * `mr.EarlyBuild`: a build macro that types `mr.Fresh` by name and leaves the
+ * fields of the type that it builds as they are.
+ */
+const earlyBuildMacro = `package mr;\n\n#if macro\nclass EarlyBuild {\n`
+  + `  public static function build(): Array<haxe.macro.Expr.Field> {\n`
+  + `    haxe.macro.Context.getType('mr.Fresh');\n    return null;\n  }\n}\n#end\n`;
+
 /** `mr.Fresh` that also reads `Theme.size()`, so that it depends on `mr.Theme`. */
 function freshUsingTheme(text: string): string {
   return `package mr;\n\nclass Fresh {\n  public static function run(): String {\n`
@@ -1135,6 +1143,23 @@ function freshUsingTheme(text: string): string {
  *   `genes.Generator.use()` is a `haxe.macro.Compiler` call that types
  *   nothing (`define`), so the rule refuses nothing and Genes makes Haxe
  *   read a save in the same second itself, as before.
+ *
+ * The `early-init-global-` groups (review of genes-ts #254) give only an
+ * allowed `addGlobalMetadata` call before `genes.Generator.use()`, so
+ * nothing is refused, but its metadata loads `mr.Fresh` when a type is
+ * built: `@:build(mr.EarlyBuild.build())` on `genes.Register` (`-build-
+ * register`) or on every type (`-build-all`), where the build macro calls
+ * `Context.getType('mr.Fresh')`, and `@:using(mr.Fresh)` on
+ * `genes.Register` (`-using`). `Generator.use()` types `genes.Register`
+ * itself, so before Genes read the files first (`ModuleRequest.begin`), the
+ * full request after a save that keeps the modification time published the
+ * old `mr/Fresh.ts`. With `-build-all`, the build macro also ran for
+ * standard types in the first request, so they depend on `mr.Fresh`, and
+ * Haxe loads them from its cache with every dependency before any init
+ * macro: `mr.Fresh` arrives as the object of the first request, and the
+ * full request is refused once (`keptStaleModules`).
+ * `kept-stale-global-build-after-genes` gives the same macro after
+ * `genes.Generator.use()`, where it is refused the same way.
  */
 function earlyInitMacroGroups(): ReadonlyArray<Group> {
   const early = {
@@ -1229,6 +1254,92 @@ function earlyInitMacroGroups(): ReadonlyArray<Group> {
           apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
           module: "mr.Fresh",
           expect: "preview"
+        }
+      ]
+    },
+    {
+      name: "early-init-global-build-register",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/EarlyBuild.hx": earlyBuildMacro
+      },
+      argsBeforeGenes: ["--macro",
+        "addGlobalMetadata('genes.Register', '@:build(mr.EarlyBuild.build())')"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        },
+        {
+          id: "Fresh saved again with its modification time kept, module request of Fresh",
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
+          module: "mr.Fresh",
+          // The build macro of `genes.Register` types `mr.Fresh`, so
+          // `genes.Register` depends on it and Haxe types it again.
+          expect: "other-modules-typed"
+        }
+      ]
+    },
+    {
+      name: "early-init-global-build-all",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/EarlyBuild.hx": earlyBuildMacro
+      },
+      argsBeforeGenes: ["--macro", "addGlobalMetadata('', '@:build(mr.EarlyBuild.build())')"],
+      noInvalidate: true,
+      steps: [
+        {
+          // The build macro ran for standard types in the first request, so
+          // they depend on `mr.Fresh`, and Haxe loads them from its cache
+          // with every dependency before any init macro: `mr.Fresh` arrives
+          // as the object of the first request (`keptStaleModules`).
+          id: "Fresh saved with its modification time kept",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        }
+      ]
+    },
+    {
+      name: "early-init-global-using",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one")
+      },
+      argsBeforeGenes: ["--macro", "addGlobalMetadata('genes.Register', '@:using(mr.Fresh)')"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';")
+        }
+      ]
+    },
+    {
+      // The same global build macro, given after `genes.Generator.use()`:
+      // the standard types still depend on `mr.Fresh`, so init macro order
+      // does not matter here.
+      name: "kept-stale-global-build-after-genes",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/EarlyBuild.hx": earlyBuildMacro
+      },
+      extraArgs: ["--macro", "addGlobalMetadata('', '@:build(mr.EarlyBuild.build())')"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        },
+        {
+          id: "Fresh saved in the same whole second",
+          apply: () => editInSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
+          initRefusal: "full"
         }
       ]
     }
@@ -1966,7 +2077,7 @@ const initMacroCode = "GENES-MODULE-REQUEST-003";
 /** The refusal code of a module request that the init macro rule refuses (genes-v54c). */
 const initMacroRefusal = "init-macro-before-genes";
 
-/** The number of requests that the init macro rule refused, each as a step expected it. */
+/** The number of requests refused once for old text (genes-v54c), each as a step expected it. */
 let initRefusals = 0;
 
 /**
@@ -2274,8 +2385,8 @@ async function main(): Promise<void> {
     + `previews byte-identical to cold, ${refusals} refused or failed as expected, `
     + `every full request after a step equal to cold; tree check on ${treeChecks} `
     + `previews: cold changes only the previewed module's files; ${initRefusals} `
-    + `requests refused once by the init macro rule, as their steps expected, `
-    + `and equal to cold when sent again; ${control})\n`);
+    + `requests refused once because Haxe may have typed old text (genes-v54c), `
+    + `as their steps expected, and equal to cold when sent again; ${control})\n`);
 }
 
 /**
