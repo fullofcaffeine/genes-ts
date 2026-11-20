@@ -618,7 +618,11 @@ On Genes before the fix, the full request after each of the first three
 saves differs from cold in `mr/Fresh.ts` (run with `GENES_TEST_SOURCE`). The
 groups of `mr.CopyMacro` given before `genes.Generator.use()` are refused
 once after each edit too, because Genes cannot prove that `mr.CopyMacro`
-types nothing.
+types nothing. When sent again, f3 is refused with `session-changed`
+instead of `target-facts-changed`: the refused first request already ran
+the macro, and its write of the typedef field's metadata stays on the
+cached declaration, so the metadata comparison sees it first. Either code
+refuses the preview; the other cases keep their code.
 
 Limits, not covered: a file that Haxe parsed before the current macro
 interpreter started (Haxe starts a new one when a macro module changes, also

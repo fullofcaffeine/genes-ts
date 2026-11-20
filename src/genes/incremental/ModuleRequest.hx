@@ -292,7 +292,8 @@ typedef ModuleRecordsReport = {
  * a full request stops before typing the program with
  * `GENES-MODULE-REQUEST-003` and publishes nothing; a module request is
  * refused with `init-macro-before-genes`. The same request sent again is
- * correct, because Haxe then holds no other text for those files. The
+ * correct, because Haxe then holds no other text for those files; if a file
+ * changed again in between, that request is refused once more. The
  * refusal does not depend on what the macro really does: a session with
  * such a macro pays one extra request after each change. A session that
  * gives `--macro genes.Generator.use()` first pays nothing.
@@ -660,8 +661,8 @@ class ModuleRequest {
    * request stops here with `GENES-MODULE-REQUEST-003` and publishes
    * nothing; a module request is refused by `decide`
    * (`init-macro-before-genes`). The same request sent again is correct:
-   * the files now equal `typedDigests`, so Haxe holds no other text for
-   * them. Example: `--macro mr.Early.install()` calls
+   * when the files still equal `typedDigests`, Haxe holds no other text for
+   * them, and a file that changed again refuses that request too. Example: `--macro mr.Early.install()` calls
    * `Context.getType('mr.Fresh')` and is given before
    * `--macro genes.Generator.use()`; `mr/Fresh.hx` is saved in the same
    * second as the last request and no `server/invalidate` is sent; the next
@@ -764,8 +765,8 @@ class ModuleRequest {
    * time, change time and inode). A file without a kept status is never the
    * same. The change time moves at every change, so an equal status means
    * that the file did not change since that read, also not with a save and
-   * a revert. Example: a save that keeps the modification time keeps the
-   * digest's size but not the change time, so it is not the same.
+   * a revert. Example: a save that keeps the size and the modification
+   * time still moves the change time, so it is not the same.
    */
   static function sameSinceRead(typed: SourceContent,
       now: SourceContent): Bool {

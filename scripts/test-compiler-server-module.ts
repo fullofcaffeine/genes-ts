@@ -866,6 +866,14 @@ function lateMacroGroups(): ReadonlyArray<Group> {
       // refuses the first request after each edit once (genes-v54c).
       const editRefusal = (request: "module" | "full") =>
         order === "before" ? { initRefusal: request } : {};
+      // The refused first request already ran the macro. Its write of a
+      // typedef field's metadata (f3) stays on the cached declaration, so the
+      // metadata comparison of the request sent again sees it first
+      // (`session-changed`; observed). Either code refuses the preview. The
+      // other cases keep their code when sent again.
+      const late = order === "before" && item.kind === "field-meta"
+        ? [item.late, "session-changed"].flat()
+        : item.late;
       groups.push({
         name: `${item.name}-macro-${order}-genes-use`,
         files: { ...item.files, "mr/CopyMacro.hx": copyMacro },
@@ -888,7 +896,7 @@ function lateMacroGroups(): ReadonlyArray<Group> {
             apply: () => edit("Probe.hx", `return '${item.from}';`, `return '${item.to}';`),
             module: "mr.Probe",
             ...editRefusal("module"),
-            expect: order === "after" ? item.early : item.late
+            expect: order === "after" ? item.early : late
           },
           item.fullOnly === true ? {
             id: `macro ${order} Genes.use(), a second full request, no edit`,
