@@ -1,5 +1,6 @@
 import type {JSX} from "react"
-import {Tone, Counter, Panel_Fields_, Panel} from "./Panel.js"
+import {Panel} from "./Panel.js"
+import {Tone, Counter, Panel_Fields_} from "./Panel.fields.js"
 import {Std} from "../Std.js"
 import {Greeting} from "./Greeting.js"
 import {Label, Registry} from "./Unsplit.js"

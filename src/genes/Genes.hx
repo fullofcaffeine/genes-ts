@@ -19,6 +19,13 @@ private typedef ImportedModule = {
   name: String,
   importType: String,
   importExpr: Expr,
+
+  /**
+   * The `DynamicImportMarker.typeOf` call that the emitter prints as the
+   * namespace type, or `null` when the Genes generator is not active.
+   */
+  typeMarker: Null<Expr>,
+
   types: Array<{
     localName: String,
     exportName: String,
@@ -107,11 +114,28 @@ class Genes {
     };
   }
 
-  static function dynamicImportAccess(receiver: String, importType: String,
-      localName: String, exportName: String): String {
-    return if (Context.defined('genes.ts'))
-      'var $localName = ($receiver as $importType).$exportName'; else
-      'var $localName = $receiver.$exportName';
+  /**
+   * Returns the raw declaration of one callback binding: it reads
+   * `exportName` from the loaded namespace `receiver`.
+   *
+   * In TypeScript output the namespace gets a type. With the Genes generator
+   * active, that type is the `{0}` argument `module.typeMarker`, so the
+   * emitter prints it from the current output profile, as it prints the
+   * `import()` request. A module that is split for React Fast Refresh then
+   * gets the type of both files (`genes.ReactRefreshModulePlan`).
+   */
+  static function dynamicImportAccess(receiver: String,
+      module: ImportedModule, localName: String, exportName: String): Expr {
+    if (!Context.defined('genes.ts'))
+      return macro js.Syntax.code($v{'var $localName = $receiver.$exportName'});
+    final marker = module.typeMarker;
+    if (marker == null)
+      return macro js.Syntax.code($v{
+        'var $localName = ($receiver as ${module.importType}).$exportName'
+      });
+    return
+      macro js.Syntax.code($v{'var $localName = ($receiver as {0}).$exportName'},
+        $marker);
   }
   #end
 
@@ -167,11 +191,15 @@ class Genes {
           }
           final path = basePath + runtimeImportExtension(artifactExtension);
           final sourcePosition = Context.getPosInfos(pos);
-          final importExpr = if (Context.defined(CompilerInternal.GENERATOR_ACTIVE_DEFINE))
+          final generatorActive = Context.defined(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
+          final importExpr = if (generatorActive)
             macro @:pos(pos) genes.internal.DynamicImportMarker.load($v{basePath},
               $v{sourcePosition.file}, $v{sourcePosition.min},
             $v{sourcePosition.max}); else macro js.Syntax.code('import({0})',
             $v{path});
+          final typeMarker = if (generatorActive)
+            macro @:pos(pos) genes.internal.DynamicImportMarker.typeOf($v{basePath}); else
+            null;
 
           switch modules.find(m -> m.name == module) {
             case null:
@@ -179,6 +207,7 @@ class Genes {
                 name: module,
                 importType: 'typeof import(${tsStringLiteral(path)})',
                 importExpr: importExpr,
+                typeMarker: typeMarker,
                 types: [
                   {
                     localName: arg.name,
@@ -264,10 +293,10 @@ class Genes {
             final setup = [
               for (entry in entries)
                 macro genes.internal.DynamicBindingDeclarationMarker.declare($v{entry.encoded()},
-                  js.Syntax.code($v{
-                  dynamicImportAccess('module', module.importType,
-                    entry.localName(), entry.exportName())
-                }))
+                  ${
+                  dynamicImportAccess('module', module, entry.localName(),
+                    entry.exportName())
+                })
             ];
             final list = [
               for (entry in entries)
@@ -291,10 +320,10 @@ class Genes {
             for (i in 0...modules.length) {
               for (entry in bindingPlan.entriesForModule(i)) {
                 setup.push(macro genes.internal.DynamicBindingDeclarationMarker.declare($v{entry.encoded()},
-                  js.Syntax.code($v{
-                  dynamicImportAccess('modules[$i]', modules[i].importType,
+                  ${
+                  dynamicImportAccess('modules[$i]', modules[i],
                     entry.localName(), entry.exportName())
-                })));
+                }));
                 ignores.push(macro $v{entry.encoded()});
               }
             }

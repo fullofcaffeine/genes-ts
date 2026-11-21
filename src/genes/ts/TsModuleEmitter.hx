@@ -82,7 +82,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   /**
    * Returns the top-level bindings that this emitter declared while it wrote
    * the `Fields` part of a split React module. The `Components` part imports
-   * them all and re-exports the ones that one ordinary file exports.
+   * them all and re-exports, as types only, the declarations with a type side
+   * that one ordinary file exports.
    */
   public function reactRefreshBindings(): Array<ReactRefreshBinding> {
     return refreshBindings.copy();
@@ -95,11 +96,12 @@ class TsModuleEmitter extends JsModuleEmitter {
    * a type and a function); only the first piece is recorded.
    */
   override function noteTopLevelBinding(name: String, isType: Bool,
-      exported: Bool): Void {
+      exported: Bool, typeSide = false): Void {
     if (!refreshPart.match(Fields) || refreshBindingNames.exists(name))
       return;
     refreshBindingNames.set(name, true);
-    refreshBindings.push(new ReactRefreshBinding(name, isType, exported));
+    refreshBindings.push(new ReactRefreshBinding(name, isType,
+      exported, isType || typeSide));
   }
 
   /**
@@ -128,10 +130,13 @@ class TsModuleEmitter extends JsModuleEmitter {
    * Writes `export ` before one top-level declaration when the module
    * exports it, or when it is in the sibling of a split React module: the
    * component file must be able to import every declaration.
+   *
+   * `typeSide` is true for a runtime declaration that also names a
+   * TypeScript type (a class, an interface or an enum).
    */
-  function writeTopLevelExport(name: String, isType: Bool,
-      exported: Bool): Void {
-    noteTopLevelBinding(name, isType, exported);
+  function writeTopLevelExport(name: String, isType: Bool, exported: Bool,
+      typeSide = false): Void {
+    noteTopLevelBinding(name, isType, exported, typeSide);
     if (exported || refreshPart.match(Fields))
       write('export ');
   }
@@ -355,7 +360,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       final where = request.external ? request.path : module.toPath(request.path);
       if (!declaration.typeOnly && requestPlan.bindings.length == 0)
         emitTsSideEffectImport(request, where, importExtension);
-      else
+      else if (declaration.typeOnly
+        || !emitReactRefreshSplitImports(module, request, where,
+          [for (binding in requestPlan.bindings) binding], importExtension))
         emitTsImports(where, [for (binding in requestPlan.bindings) binding],
           importExtension, declaration.typeOnly);
     }
@@ -441,8 +448,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitReactRefreshReexports();
 
     for (export in module.expose)
-      emitExport(export, module.toPath(export.module), importExtension,
-        export.isType);
+      emitTsExport(module, export, importExtension);
 
     return endTimer();
   }
@@ -497,6 +503,139 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Returns the Haxe module that a `Genes.dynamicImport` path names. The
+   * macro writes the path relative to the calling module, which is the
+   * module that this emitter prints.
+   */
+  function dynamicImportTarget(path: String): Null<String> {
+    if (currentModule == null)
+      return null;
+    final file = haxe.io.Path.normalize(haxe.io.Path.join([haxe.io.Path.directory(currentModule.path), path]));
+    return file.split('/').join('.');
+  }
+
+  /**
+   * Writes the `import()` of a `Genes.dynamicImport` request. For a module
+   * that is split for React Fast Refresh, it loads both files and merges the
+   * two namespaces, so the callback finds every binding of the Haxe module:
+   *
+   * ```ts
+   * import("./Lazy.js").then(components => import("./Lazy.fields.js")
+   *   .then(fields => ({...fields, ...components})))
+   * ```
+   *
+   * The component file loads first, so it has set its slots
+   * (`ReactRefreshModulePlan.readsThroughSlot`) before the callback runs.
+   */
+  override function emitDynamicImportRequest(path: String): Void {
+    final target = dynamicImportTarget(path);
+    if (target == null || currentModule.reactRefreshSplitOf(target) == null) {
+      super.emitDynamicImportRequest(path);
+      return;
+    }
+    final extension = Genes.runtimeImportExtension(Genes.outExtension);
+    write('import(');
+    emitString(path + extension);
+    write(').then(components => import(');
+    emitString(path + ReactRefreshModulePlan.FIELDS_SUFFIX + extension);
+    write(').then(fields => ({...fields, ...components})))');
+  }
+
+  /**
+   * Writes the namespace type of a `Genes.dynamicImport` binding. For a
+   * module that is split for React Fast Refresh, the namespace is the merge
+   * of both files (`emitDynamicImportRequest`), so the type is
+   * `typeof import("./Lazy.js") & typeof import("./Lazy.fields.js")`.
+   */
+  override function emitDynamicImportType(path: String): Void {
+    final target = dynamicImportTarget(path);
+    if (target == null || currentModule.reactRefreshSplitOf(target) == null) {
+      super.emitDynamicImportType(path);
+      return;
+    }
+    write('(');
+    super.emitDynamicImportType(path);
+    write(' & ');
+    super.emitDynamicImportType(path + ReactRefreshModulePlan.FIELDS_SUFFIX);
+    write(')');
+  }
+
+  /**
+   * Writes one `export {name} from` line of the module's public entries.
+   *
+   * When the source module is split for React Fast Refresh and the entry is
+   * not one of its components, the value comes from the sibling
+   * `X.fields.tsx`. An `import "./X.js"` comes first, so that the component
+   * file loads and sets its slots before any code can call the value (see
+   * `emitReactRefreshSplitImports`).
+   */
+  function emitTsExport(module: Module, export: ModuleExport,
+      extension: Null<String>): Void {
+    final from = module.toPath(export.module);
+    final components = export.isType ? null : module.reactRefreshSplitOf(export.module);
+    if (components == null || components.indexOf(export.name) >= 0) {
+      emitExport(export, from, extension, export.isType);
+      return;
+    }
+    writeNewline();
+    write('import ');
+    emitString(extension != null ? from + extension : from);
+    emitExport(export, from + ReactRefreshModulePlan.FIELDS_SUFFIX, extension,
+      false);
+  }
+
+  /**
+   * Writes the value imports from a module that Genes splits for React Fast
+   * Refresh, and returns true; returns false when the ordinary import is
+   * right (an external module, a module that is one file, or only component
+   * bindings).
+   *
+   * The component file `X.tsx` exports only its components, so each other
+   * value comes from the sibling `X.fields.tsx`. Example, for `App` that
+   * uses the component `Panel` and the class `Counter` of `Panel.hx`:
+   *
+   * ```ts
+   * import {Panel} from "./Panel.js"
+   * import {Counter} from "./Panel.fields.js"
+   * ```
+   *
+   * The import of `X` comes first, also when no component is used
+   * (`import "./Panel.js"`): it loads the sibling and then sets the slots
+   * through which sibling code reads a component
+   * (`ReactRefreshModulePlan.readsThroughSlot`). So module load order is the
+   * same as with one file. Type-only imports keep the path of `X`, which
+   * re-exports the types.
+   */
+  function emitReactRefreshSplitImports(module: Module,
+      request: DependencyModuleRequest, where: String,
+      bindings: Array<genes.Dependencies.Dependency>,
+      extension: Null<String>): Bool {
+    if (request.external)
+      return false;
+    final components = module.reactRefreshSplitOf(request.path);
+    if (components == null)
+      return false;
+    final fromComponents = [];
+    final fromFields = [];
+    for (binding in bindings)
+      switch binding.type {
+        case DName if (components.indexOf(binding.name) < 0):
+          fromFields.push(binding);
+        default:
+          fromComponents.push(binding);
+      }
+    if (fromFields.length == 0)
+      return false;
+    if (fromComponents.length > 0)
+      emitTsImports(where, fromComponents, extension, false);
+    else
+      emitTsSideEffectImport(request, where, extension);
+    emitTsImports(where + ReactRefreshModulePlan.FIELDS_SUFFIX, fromFields,
+      extension, false);
+    return true;
+  }
+
   function emitReactRefreshPartImport(names: Array<String>, where: String,
       extension: Null<String>, typeOnly: Bool): Void {
     write(typeOnly ? 'import type {' : 'import {');
@@ -507,28 +646,27 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Re-exports, from the `Components` part, every `Fields` binding that the
-   * ordinary single file exports. Importers keep their import path, and the
-   * values stay the same objects while only the component part changes.
+   * Re-exports, from the `Components` part, the type side of every `Fields`
+   * declaration that the ordinary single file exports: typedefs, and the
+   * type of each class, interface and enum. Type-only imports of the module
+   * (`import type {Model, PanelProps} from "./Panel.js"`) keep their path.
+   *
+   * `export type` creates no runtime export. It re-exports no runtime value. React Fast Refresh accepts an update of
+   * this file only when each runtime export is a component or the same
+   * object as before. An edit of the sibling makes new objects of all its
+   * values, so a re-exported value would make the dev server reload the
+   * page. Importers read those values from the sibling
+   * (`emitReactRefreshSplitImports`).
    */
   function emitReactRefreshReexports(): Void {
     switch refreshPart {
       case Components(bindings):
-        final values = [
-          for (binding in bindings)
-            if (!binding.isType && binding.wasExported) binding.name
-        ];
         final types = [
           for (binding in bindings)
-            if (binding.isType && binding.wasExported) binding.name
+            if (binding.hasTypeSide && binding.wasExported) binding.name
         ];
-        if (values.length > 0 || types.length > 0)
-          writeNewline();
-        if (values.length > 0) {
-          write('export {' + values.join(', ') + '}');
-          writeNewline();
-        }
         if (types.length > 0) {
+          writeNewline();
           write('export type {' + types.join(', ') + '}');
           writeNewline();
         }
@@ -1282,7 +1420,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
-    writeTopLevelExport(TypeUtil.className(cl), false, export);
+    writeTopLevelExport(TypeUtil.className(cl), false, export, true);
     write('class ');
     write(TypeUtil.className(cl));
     if (cl.params != null && cl.params.length > 0)
@@ -4632,7 +4770,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitComment(cl.doc);
     emitPos(cl.pos);
     // The runtime marker below gives the interface name a value too.
-    writeTopLevelExport(TypeUtil.className(cl), false, export);
+    writeTopLevelExport(TypeUtil.className(cl), false, export, true);
     write('interface ');
     write(TypeUtil.className(cl));
     if (params.length > 0)
@@ -4699,7 +4837,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     // Runtime marker (Genes runtime compatibility).
-    writeTopLevelExport(TypeUtil.className(cl), false, export);
+    writeTopLevelExport(TypeUtil.className(cl), false, export, true);
     write('const ');
     write(TypeUtil.className(cl));
     write(' = function() {};');
@@ -4751,7 +4889,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // `export declare namespace EnumName` (duplicate identifier). A function
     // works as the runtime enum container while still allowing type namespace
     // merging.
-    writeTopLevelExport(et.name, false, export);
+    writeTopLevelExport(et.name, false, export, true);
     write('declare namespace ');
     write(et.name);
     write(' {');
@@ -4879,7 +5017,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
-    writeTopLevelExport(et.name, false, export);
+    writeTopLevelExport(et.name, false, export, true);
     write('type ');
     write(et.name);
     emitTypeParamDecls(enumParams, true);
@@ -4900,7 +5038,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     emitPos(et.pos);
-    writeTopLevelExport(et.name, false, export);
+    writeTopLevelExport(et.name, false, export, true);
     write('function ');
     write(et.name);
     write('() {}');

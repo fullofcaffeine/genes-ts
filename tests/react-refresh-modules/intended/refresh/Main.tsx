@@ -1,6 +1,8 @@
 import type {JSX} from "react"
+import {Genes} from "../genes/Genes.js"
 import {LoadLog} from "./LoadLog.js"
-import {App_Fields_, App} from "./App.js"
+import {App} from "./App.js"
+import {App_Fields_} from "./App.fields.js"
 import {Std} from "../Std.js"
 import {Holder} from "./Transitive.js"
 import {renderOmitted} from "./Omitted.js"
@@ -16,6 +18,17 @@ import {Register} from "../genes/Register.js"
  * Mounts `App` in a browser; does nothing in Node.
  */
 export class Main {
+
+	/**
+	 * Loads the split module `Lazy` with a dynamic import and passes the
+	 * element that it makes to `onLoaded` (the probe renders it).
+	 */
+	static loadLazy(onLoaded: ((arg0: JSX.Element) => void)): void {
+		import("./Lazy.js").then(components => import("./Lazy.fields.js").then(fields => ({...fields, ...components}))).then(function (module: unknown) {
+			var LazyEntry = (module as (typeof import("./Lazy.js") & typeof import("./Lazy.fields.js"))).LazyEntry;
+			onLoaded(LazyEntry.render());
+		});
+	}
 	static main(): void {
 		LoadLog.record("Main:" + App_Fields_.appTitle());
 		LoadLog.record("Transitive:" + Std.string(Holder.cached != null));

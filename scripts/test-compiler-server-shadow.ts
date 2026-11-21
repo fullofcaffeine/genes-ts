@@ -612,12 +612,44 @@ const edits: ReadonlyArray<Edit> = [
     apply: () => create("inc/RefreshPanel.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction refreshLabel(): String {\n  return \"label\";\n}\n")
   },
   {
+    // With --react-refresh, RefreshDce is split while RefreshDceUser uses its
+    // component. RefreshDceLabel uses only its function, so it imports it
+    // from RefreshDce.fields.tsx.
+    id: "React split module and an importer of its function",
+    apply: () => {
+      create("inc/RefreshDce.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\n\n@:keep\nfunction dceLabel(): String {\n  return \"dce\";\n}\n\n@:genes.reactComponent\nfunction RefreshDceView(): Element {\n  return <i>{dceLabel()}</i>;\n}\n");
+      create("inc/RefreshDceUser.hx", "package inc;\n\nimport genes.react.Element;\nimport genes.react.JSX.*;\nimport inc.RefreshDce.RefreshDceView;\n\n@:keep\nfunction dceView(): Element {\n  return <RefreshDceView />;\n}\n");
+      create("inc/RefreshDceLabel.hx", "package inc;\n\n@:keep\nfunction dceShout(): String {\n  return inc.RefreshDce.dceLabel() + \"!\";\n}\n");
+      addModule("inc.RefreshDce");
+      addModule("inc.RefreshDceUser");
+      addModule("inc.RefreshDceLabel");
+    },
+    refreshFiles: { present: ["inc/RefreshDce.fields.tsx"], absent: [] }
+  },
+  {
+    // Dead-code elimination removes the component, so RefreshDce is one file
+    // again. Haxe types only RefreshDceUser again. RefreshDceLabel is not
+    // typed again, but its stored import names RefreshDce.fields, so it must
+    // not be replayed. Today the changed fingerprint of RefreshDce already
+    // makes the request generate in full; the split answer that
+    // RefreshDceLabel recorded (`refreshSplit`) would stop the replay too.
+    id: "React split module loses its component to dead-code elimination",
+    apply: () => edit("inc/RefreshDceUser.hx", "<RefreshDceView />", "<b>none</b>"),
+    refreshFiles: { present: [], absent: ["inc/RefreshDce.fields.tsx"] }
+  },
+  {
     id: "React modules deleted",
     apply: () => {
       dropModule("inc.RefreshPanel");
       dropModule("inc.RefreshPlain");
+      dropModule("inc.RefreshDce");
+      dropModule("inc.RefreshDceUser");
+      dropModule("inc.RefreshDceLabel");
       remove("inc/RefreshPanel.hx");
       remove("inc/RefreshPlain.hx");
+      remove("inc/RefreshDce.hx");
+      remove("inc/RefreshDceUser.hx");
+      remove("inc/RefreshDceLabel.hx");
     }
   },
   {

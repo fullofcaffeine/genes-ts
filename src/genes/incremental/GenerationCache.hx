@@ -158,7 +158,11 @@ typedef CachedModule = {
    *   (`Module.isCyclic`; review of #244, M1);
    * - `anonTs` and `anonSource`: a `SignatureCache` fact keyed by the source
    *   position of an anonymous-structure field. The capture of another
-   *   module's declaration can write it (review of #244, M2).
+   *   module's declaration can write it (review of #244, M2);
+   * - `refreshSplit`: the component names of the named module when
+   *   `-D genes.react_refresh_modules` splits it, or `-`
+   *   (`Module.reactRefreshSplitOf`). An importer of a split module imports
+   *   its other bindings from `X.fields`.
    */
   final answers: Array<String>;
 

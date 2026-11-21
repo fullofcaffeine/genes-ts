@@ -454,6 +454,26 @@ source-positioned capability diagnostic before files are emitted.
 
 See `docs/typescript-target/REACT_HXX.md`.
 
+### React Fast Refresh in a dev server
+
+React Fast Refresh (for example Vite with `@vitejs/plugin-react`) keeps React
+state across an edit only when each runtime export of the changed module is a
+component. Genes writes one Haxe module as one file, so a module with a
+component and a class, an enum or a helper function makes the dev server
+reload the page. Add `-D genes.react_refresh_modules` (TypeScript profile) to
+the development build. Genes then writes such a module `X` as two files:
+
+- `X.tsx`: only the `@:genes.reactComponent` functions (and type-only
+  re-exports);
+- `X.fields.tsx`: every other declaration.
+
+Generated importers take each component from `X` and each other value from
+`X.fields`. An edit of a component or of a helper then hot-updates the page
+and keeps state. Hand-written TypeScript that imports a non-component value of
+a split module must import it from `X.fields` (after `import "./X.js"`). See
+`tests/react-refresh-modules/README.md` for the rules, the evidence and the
+limits.
+
 ## Async/await sugar (optional)
 
 genes-ts includes an `@:async` + `await(...)` macro that emits native
@@ -583,6 +603,9 @@ See `docs/SECURITY.md`.
   `-D dts` declarations contain an unqualified `JSX` type, import that module's
   `JSX` namespace. Use `react` with React 19; unrelated modules receive no
   import.
+- `-D genes.react_refresh_modules` — split React modules into `X.tsx`
+  (components) and `X.fields.tsx` (everything else) for React Fast Refresh;
+  see [React Fast Refresh in a dev server](#react-fast-refresh-in-a-dev-server).
 
 React/markup:
 - `-D genes.react.no_inline_markup` — disable the default inline-markup rewrite.

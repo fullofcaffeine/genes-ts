@@ -250,6 +250,24 @@ class CompilerInternal {
     }
   }
 
+  /**
+   * Returns the path of one exact `DynamicImportMarker.typeOf` call, or
+   * `null` for any other call. The emitter prints it as the TypeScript type
+   * of a loaded namespace (`Genes.dynamicImport`).
+   */
+  public static function dynamicImportTypeMarkerPath(callee: TypedExpr,
+      arguments: Array<TypedExpr>): Null<String> {
+    return switch [callee.expr, arguments] {
+      case [
+        TField(_, FStatic(_.get() => owner, _.get() => {name: 'typeOf'})),
+        [{expr: TConst(TString(path))}]
+      ] if (owner.module == DYNAMIC_IMPORT_MARKER_MODULE):
+        path;
+      default:
+        null;
+    }
+  }
+
   /** Returns whether a callee is the exact compiler-owned marker field. */
   public static function isDynamicImportMarkerCallee(callee: TypedExpr): Bool {
     return switch callee.expr {
