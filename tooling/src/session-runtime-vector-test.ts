@@ -142,6 +142,8 @@ interface CompileStep {
   readonly hold?: Deferred<void>;
   readonly emitFallback?: boolean;
   readonly expectPrivateHxml?: boolean;
+  /** Modules that the fake Genes rolling replay audit reports as stale. */
+  readonly replayAudit?: readonly string[];
 }
 
 class VectorCompiler implements SessionCompiler {
@@ -198,6 +200,22 @@ class VectorCompiler implements SessionCompiler {
       ]);
     }
     if (step!.fail) throw new Error("fixture compile failed");
+    if (step!.replayAudit !== undefined) {
+      const define = invocation.arguments.find((argument) =>
+        argument.startsWith("genes.dev_incremental="),
+      );
+      assert.notEqual(define, undefined, "a replay audit needs the incremental descriptor");
+      writeFileSync(
+        `${define!.slice("genes.dev_incremental=".length)}.report.json`,
+        JSON.stringify({
+          audit: {
+            audited: step!.replayAudit,
+            mismatches: step!.replayAudit.map((module) => ({ module })),
+          },
+        }),
+        "utf8",
+      );
+    }
     mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
     writeFileSync(candidateOutputFile, step!.content, "utf8");
     const owner = path.basename(candidateOutputFile);
@@ -347,6 +365,7 @@ function compileSteps(
     if (
       step !== "compile-connected" &&
       step !== "compile-connected-private-hxml" &&
+      step !== "compile-connected-replay-audit-differs" &&
       step !== "compile-direct" &&
       step !== "compile-failed"
     ) {
@@ -366,6 +385,9 @@ function compileSteps(
         mode: step === "compile-direct" ? "direct" : "connected",
         content: `export const value = ${unchanged ? 1 : current + 1};\n`,
         expectPrivateHxml: step === "compile-connected-private-hxml",
+        ...(step === "compile-connected-replay-audit-differs"
+          ? { replayAudit: ["inc.Stale"] }
+          : {}),
         ...(shouldHold ? { hold } : {}),
         emitFallback:
           vector.id === "late-attach-observes-compiler-fallback" && current === 0,
@@ -717,6 +739,9 @@ async function execute(vector: Vector): Promise<void> {
           }
         : {}),
       validatorPolicyFacts: { vector: vector.id },
+      ...(vector.id === "replay-audit-difference-is-never-published"
+        ? { generationReuse: { coldCheckEvery: 0 } }
+        : {}),
       ...(existingImport === undefined
         ? {}
         : { existingGeneration: usesReplacement
@@ -752,6 +777,7 @@ async function execute(vector: Vector): Promise<void> {
       case "publish-failure-rolls-back":
       case "supplemental-files-publish-and-delete":
       case "unchanged-candidate-advances-generation":
+      case "replay-audit-difference-is-never-published":
         await session.waitForIdle();
         watch().change(treeExtraInput ?? source);
         await session.waitForIdle();
@@ -850,6 +876,13 @@ async function execute(vector: Vector): Promise<void> {
         eventFileDeltas(expectedEvent),
         `${vector.id}: event ${expectedEvent.sequence} file changes differ`,
       );
+      if (expectedEvent.event.kind === "output-check") {
+        assert.deepEqual(
+          actualEvent.event,
+          expectedEvent.event,
+          `${vector.id}: event ${expectedEvent.sequence} output check differs`,
+        );
+      }
       if (
         expectedEvent.event.kind === "inputs-changed" &&
         actualEvent.event.kind === "inputs-changed"

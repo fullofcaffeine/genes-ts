@@ -603,7 +603,7 @@ try {
     hxml: { allowedRoots: [projectRoot, genesSourceRoot, helderSourceRoot] },
     publicOutputFile: "src-gen-reuse/index.ts",
     stateDirectory: ".genes/reuse",
-    generationReuse: { auditModules: 1_000, coldCheckEvery: 1 },
+    generationReuse: { auditModules: 1_000, coldCheckEvery: 1, coldCheckIdleMs: 0 },
     resolveInvocation: () => ({
       executable: haxeExecutable,
       cwd: projectRoot,
@@ -653,6 +653,7 @@ try {
     await reuseSession.firstAccepted;
     assert.deepEqual((await coldChecks(1, "reuse first build"))[0], {
       check: "cold-build",
+      revision: 1,
       generation: 1,
       result: "equal",
       paths: [],
@@ -662,6 +663,7 @@ try {
     const second = await coldChecks(2, "reuse leaf edit");
     assert.deepEqual(second[1], {
       check: "cold-build",
+      revision: 2,
       generation: 2,
       result: "equal",
       paths: [],

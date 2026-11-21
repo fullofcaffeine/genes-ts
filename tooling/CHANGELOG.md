@@ -8,16 +8,25 @@ it.
 
 - Add `generationReuse`, which asks Genes to replay the stored output of
   modules that its clean rules call unchanged (Stage 3 generation reuse,
-  genes-f8vc.9.23). Two checks come with it and are on by default: Genes
-  prints `auditModules` replayed modules again after each build and compares
-  the bytes (default 2), and after every `coldCheckEvery` accepted warm
-  generations (default 20) the session builds the accepted revision in a new
-  Haxe process, while no edit waits, and compares that tree with the
-  published one. An edit cancels the cold build. A difference is reported as
-  a new `output-check` event and rebuilds the same revision (after a cold
-  build difference with a new server). Without the option, builds and events
-  are unchanged. `SessionCompiler.compileCold` is the new optional adapter
-  method for the cold build.
+  genes-f8vc.9.23). Two checks come with it and are on by default:
+  - the rolling replay audit (`auditModules`, default 2): Genes prints
+    replayed modules again and compares the bytes; the session never
+    publishes a candidate with a difference and rebuilds the revision at
+    once; a module that differs again turns reuse off (`AUDIT_REPEATED`);
+  - the cold build (`coldCheckEvery`, default 20; `coldCheckIdleMs`, default
+    5,000): after every Nth accepted warm generation and an idle time, the
+    session builds the accepted revision in a new Haxe process and compares
+    that tree with the published one; an edit cancels it, also one that only
+    a reconciliation finds; a difference or a cold failure starts a new
+    server, rebuilds and checks again; a difference that survives stops
+    further repairs (`COLD_DIFFERS_AFTER_REPAIR`).
+  `DevelopmentEventBody` gains the `output-check` member (`OutputCheck`,
+  `ReplayAuditCheck`, `ColdBuildCheck`), and the v1 protocol schema and
+  vectors gain the same kind. A TypeScript host with an exhaustive `switch`
+  over event kinds needs a case for it; every host must ignore unknown kinds.
+  Without the option, builds and events are unchanged.
+  `SessionCompiler.compileCold` is the new optional adapter method for the
+  cold build.
 - Add `impact.keepCache` for an extra input that Haxe and its macros never
   read directly. A change to such an input keeps the owned Haxe server and
   its cache. Before, every change to an extra input that is not a class-path

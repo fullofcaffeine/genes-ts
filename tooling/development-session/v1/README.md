@@ -172,19 +172,27 @@ One JSON-lines event can therefore be consumed directly by automation:
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":8,"at":1785520800000,"event":{"kind":"generation-accepted","accepted":{"generation":2,"revision":3,"acceptedAt":1785520800000,"manifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","compilerMode":"connected","files":{"created":[],"updated":["src-gen/index.tsx"],"deleted":[]},"entryChanged":true}}}
 ```
 
+A host must ignore an event whose `kind` it does not know. Version 1 can
+gain a kind that a host did not opt into; the session emits such a kind only
+when the host asks for the feature that produces it.
+
 A session with `generationReuse` (Genes replays the output of unchanged
-modules) also emits `output-check` events. One reports either a difference
-that the Genes rolling replay audit found during a build (`check:
-"replay-audit"`, `paths` names the Haxe modules), or the result of a cold
-build of an accepted revision in a new Haxe process (`check: "cold-build"`,
-`result` `equal`, `differs`, `cancelled` or `failed`; `paths` lists up to 50
-project-relative files that differ). After `differs`, the session builds the
-same revision again, so the next `generation-accepted` event can name the
-revision of the generation that the check found stale. A session without
-`generationReuse` never emits this kind.
+modules) emits `output-check` events. `check: "replay-audit"` reports a
+candidate whose Genes rolling replay audit found stale modules (`modules`
+names them, `revision` is the input revision): the session never validates or
+publishes that candidate and builds the same revision again at once.
+`check: "cold-build"` reports the result of a cold build of an accepted
+generation in a new Haxe process (`result` `equal`, `differs`, `cancelled` or
+`failed`; `paths` lists up to 50 project-relative files that differ). After
+a cold-build `differs`, the session builds the same revision again with a new
+Haxe server, so the next `generation-accepted` event can name the revision of
+the generation that the check found stale. A session without
+`generationReuse` never emits this kind. The vector
+`replay-audit-difference-is-never-published` is the executable contract of
+the replay-audit case.
 
 ```json
-{"protocol":"genes.tooling.development-session-event","version":1,"sequence":12,"at":1785520900000,"event":{"kind":"output-check","outputCheck":{"check":"cold-build","generation":5,"result":"differs","paths":["src-gen/inc/ArgMeta.tsx"]}}}
+{"protocol":"genes.tooling.development-session-event","version":1,"sequence":12,"at":1785520900000,"event":{"kind":"output-check","outputCheck":{"check":"cold-build","revision":5,"generation":5,"result":"differs","paths":["src-gen/inc/ArgMeta.tsx"]}}}
 ```
 
 The diagnostic inside a validation failure is host-owned JSON. Before it enters

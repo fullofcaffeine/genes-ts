@@ -118,6 +118,8 @@ interface CompileStep {
    * written to the generation report beside the incremental descriptor.
    */
   readonly replayAudit?: readonly string[];
+  /** Modules that the fake audit printed again (default: `replayAudit`). */
+  readonly audited?: readonly string[];
 }
 
 /** One cold build of the output check (`SessionCompiler.compileCold`). */
@@ -354,12 +356,16 @@ class FakeCompiler implements SessionCompiler {
     this.incrementalDescriptors.push(
       descriptorPath === undefined ? null : readFileSync(descriptorPath, "utf8"),
     );
-    if (descriptorPath !== undefined && step.replayAudit !== undefined) {
+    if (
+      descriptorPath !== undefined &&
+      (step.replayAudit !== undefined || step.audited !== undefined)
+    ) {
       writeFileSync(
         `${descriptorPath}.report.json`,
         JSON.stringify({
           audit: {
-            mismatches: step.replayAudit.map((module) => ({
+            audited: step.audited ?? step.replayAudit ?? [],
+            mismatches: (step.replayAudit ?? []).map((module) => ({
               module,
               path: "",
               kind: "text differs",
@@ -7654,7 +7660,14 @@ await withHarness("generation-reuse-off", async (harness) => {
 });
 
 // A wrong `generationReuse` value fails when the session is constructed.
-{
+// An audit count above the Haxe `Int` range would make Genes refuse the
+// descriptor and turn incremental work off without an error.
+for (const [generationReuse, message] of [
+  [{ auditModules: -1 }, /generationReuse\.auditModules must be a whole number from 0 to 1000000/u],
+  [{ auditModules: 1_000_001 }, /generationReuse\.auditModules must be a whole number from 0 to 1000000/u],
+  [{ coldCheckIdleMs: 600_001 }, /generationReuse\.coldCheckIdleMs must be a whole number from 0 to 600000/u],
+  [{ coldCheckEvery: 1.5 }, /generationReuse\.coldCheckEvery must be a whole number of 0 or more/u],
+] as const) {
   const invalidRoot = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-reuse-invalid-")),
   );
@@ -7664,26 +7677,46 @@ await withHarness("generation-reuse-off", async (harness) => {
         makeHarness(
           "reuse-invalid",
           undefined,
-          (options) => ({ ...options, generationReuse: { auditModules: -1 } }),
+          (options) => ({ ...options, generationReuse }),
           invalidRoot,
         ),
-      /generationReuse\.auditModules must be a whole number/u,
+      message,
     );
   } finally {
     rmSync(invalidRoot, { recursive: true, force: true });
   }
 }
 
+/** Replaces the fixture source and reports the edit through the fake watcher. */
+function editSource(harness: Harness, value: number | string): void {
+  writeFileSync(
+    harness.source,
+    `class Main { static var v = ${JSON.stringify(value)}; }\n`,
+    "utf8",
+  );
+  currentWatch(harness).change(harness.source);
+}
+
+/** The accepted generations announced so far, in order. */
+function acceptedEvents(harness: Harness): AcceptedGeneration[] {
+  return harness.events.flatMap((event) =>
+    event.event.kind === "generation-accepted" ? [event.event.accepted] : [],
+  );
+}
+
 // The rolling replay audit: Genes reports, in its generation report, a
-// replayed module whose new print differs. The session announces it and
-// builds the same revision again on the same server (Genes has dropped its
-// cache, so that build prints every module).
+// replayed module whose new print differs. The session never publishes that
+// candidate: it announces the difference and builds the same revision again
+// on the same server (Genes dropped its cache, so that build prints every
+// module). A clean audit of the module clears it; a second difference of
+// the same module with no clean audit between them is AUDIT_REPEATED, and
+// the session turns reuse off (review of genes-ts #259, should fix 3 and 6).
 await withHarness(
   "generation-reuse-replay-audit",
   async (harness) => {
     harness.compiler.steps.push(
       { content: "export const value = 1;\n" },
-      { content: "export const value = 2;\n", replayAudit: ["inc.Stale"] },
+      { content: "export const value = 'stale-2';\n", replayAudit: ["inc.Stale"] },
       { content: "export const value = 3;\n" },
     );
     await harness.session.start();
@@ -7696,17 +7729,21 @@ await withHarness(
     assert.equal(descriptor.afterTyping, "reuse");
     assert.equal(descriptor.generation, "reuse");
     assert.deepEqual(descriptor.audit, { modules: 2, seed: 0 });
-    writeFileSync(harness.source, "class Main { static var v = 2; }\n", "utf8");
-    currentWatch(harness).change(harness.source);
+    editSource(harness, 2);
     const [audit] = await outputChecks(harness, 1);
     assert.deepEqual(audit, {
       check: "replay-audit",
-      generation: 2,
+      revision: 2,
       result: "differs",
-      paths: ["inc.Stale"],
+      modules: ["inc.Stale"],
     });
-    const repaired = await acceptedGeneration(harness, 3);
+    const repaired = await acceptedGeneration(harness, 2);
     assert.equal(repaired.revision, 2, "the repair builds the same revision");
+    assert.deepEqual(
+      acceptedEvents(harness).map((accepted) => accepted.revision),
+      [1, 2],
+      "the stale candidate never became a generation",
+    );
     assert.equal(
       readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
       "export const value = 3;\n",
@@ -7716,6 +7753,51 @@ await withHarness(
       1,
       "an audit difference keeps the server",
     );
+
+    // A clean audit of inc.Stale clears it; the next difference is new.
+    harness.compiler.steps.push(
+      { content: "export const value = 4;\n", audited: ["inc.Stale"] },
+      { content: "export const value = 'stale-5';\n", replayAudit: ["inc.Stale"] },
+      { content: "export const value = 6;\n" },
+    );
+    editSource(harness, 4);
+    await acceptedGeneration(harness, 3);
+    editSource(harness, 5);
+    const second = (await outputChecks(harness, 2))[1];
+    assert.deepEqual(second, {
+      check: "replay-audit",
+      revision: 4,
+      result: "differs",
+      modules: ["inc.Stale"],
+    });
+    await acceptedGeneration(harness, 4);
+
+    // The same module again, with no clean audit between: reuse goes off.
+    harness.compiler.steps.push(
+      { content: "export const value = 'stale-7';\n", replayAudit: ["inc.Stale"] },
+      { content: "export const value = 8;\n" },
+      { content: "export const value = 9;\n" },
+    );
+    editSource(harness, 7);
+    const repeated = (await outputChecks(harness, 3))[2];
+    assert.deepEqual(repeated, {
+      check: "replay-audit",
+      revision: 5,
+      result: "differs",
+      modules: ["inc.Stale"],
+      code: "AUDIT_REPEATED",
+    });
+    await acceptedGeneration(harness, 5);
+    editSource(harness, 9);
+    await acceptedGeneration(harness, 6);
+    const descriptors = harness.compiler.incrementalDescriptors.map((text) =>
+      (JSON.parse(text!) as { readonly afterTyping: string }).afterTyping,
+    );
+    assert.deepEqual(
+      descriptors.slice(-2),
+      ["measure", "measure"],
+      "after AUDIT_REPEATED the session asks Genes for measure only",
+    );
     assert.equal(harness.compiler.coldInvocations.length, 0, "no cold build");
   },
   undefined,
@@ -7724,19 +7806,12 @@ await withHarness(
 
 // The cold build of the output check: after every second accepted warm
 // generation the session builds the accepted revision in a new process and
-// compares the trees. An edit cancels it (the check stays due), and a
-// difference starts a new server and builds the revision again.
+// compares the trees. An edit cancels it (the check stays due). A
+// difference starts a new server, builds the revision again, and checks the
+// generation of that rebuild at once.
 await withHarness(
   "generation-reuse-cold-check",
   async (harness) => {
-    const edit = (value: number): void => {
-      writeFileSync(
-        harness.source,
-        `class Main { static var v = ${value}; }\n`,
-        "utf8",
-      );
-      currentWatch(harness).change(harness.source);
-    };
     harness.compiler.steps.push({ content: "export const value = 1;\n" });
     await harness.session.start();
     await acceptedGeneration(harness, 1);
@@ -7744,11 +7819,12 @@ await withHarness(
 
     harness.compiler.steps.push({ content: "export const value = 2;\n" });
     harness.compiler.coldSteps.push({ content: "export const value = 2;\n" });
-    edit(2);
+    editSource(harness, 2);
     await acceptedGeneration(harness, 2);
     const [equal] = await outputChecks(harness, 1);
     assert.deepEqual(equal, {
       check: "cold-build",
+      revision: 2,
       generation: 2,
       result: "equal",
       paths: [],
@@ -7773,7 +7849,7 @@ await withHarness(
     );
 
     harness.compiler.steps.push({ content: "export const value = 3;\n" });
-    edit(3);
+    editSource(harness, 3);
     await acceptedGeneration(harness, 3);
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(harness.compiler.coldInvocations.length, 1, "the count starts again");
@@ -7783,20 +7859,22 @@ await withHarness(
     harness.compiler.coldSteps.push(
       { started, hold },
       { content: "export const value = 'cold';\n" },
+      { content: "export const value = 6;\n" },
     );
     harness.compiler.steps.push(
       { content: "export const value = 4;\n" },
       { content: "export const value = 5;\n" },
       { content: "export const value = 6;\n" },
     );
-    edit(4);
+    editSource(harness, 4);
     await acceptedGeneration(harness, 4);
     await started.promise;
     const serversBefore = new Set(harness.compiler.compatibilityDigests).size;
-    edit(5);
+    editSource(harness, 5);
     const cancelled = (await outputChecks(harness, 2))[1];
     assert.deepEqual(cancelled, {
       check: "cold-build",
+      revision: 4,
       generation: 4,
       result: "cancelled",
       paths: [],
@@ -7805,6 +7883,7 @@ await withHarness(
     const differs = (await outputChecks(harness, 3))[2];
     assert.deepEqual(differs, {
       check: "cold-build",
+      revision: 5,
       generation: 5,
       result: "differs",
       paths: ["src-gen/index.ts"],
@@ -7816,16 +7895,178 @@ await withHarness(
       serversBefore + 1,
       "a cold-build difference starts a new server",
     );
-    assert.equal(
-      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
-      "export const value = 6;\n",
-    );
-    assert.equal(harness.compiler.coldInvocations.length, 3);
+    const verified = (await outputChecks(harness, 4))[3];
+    assert.deepEqual(verified, {
+      check: "cold-build",
+      revision: 5,
+      generation: 6,
+      result: "equal",
+      paths: [],
+    }, "the repaired generation is checked at once");
+    assert.equal(harness.compiler.coldInvocations.length, 4);
   },
   undefined,
   (options) => ({
     ...options,
-    generationReuse: { auditModules: 0, coldCheckEvery: 2 },
+    generationReuse: { auditModules: 0, coldCheckEvery: 2, coldCheckIdleMs: 0 },
+  }),
+);
+
+// A cold Haxe failure while the warm build passed is a divergence: it is
+// reported with its output (private paths removed) and repaired like a
+// difference. A difference that survives the repair with a new server is
+// COLD_DIFFERS_AFTER_REPAIR, and the session repairs no cold difference
+// again (review of genes-ts #259, should fix 5 and 6).
+await withHarness(
+  "generation-reuse-cold-failure-and-breaker",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 1;\n" },
+    );
+    harness.compiler.coldSteps.push(
+      { fail: `${harness.root}/src/Main.hx:1: characters 1-5 : Type not found : Missing` },
+      { content: "export const value = 'cold-b';\n" },
+    );
+    await harness.session.start();
+    const [failed] = await outputChecks(harness, 1);
+    assert.deepEqual(failed, {
+      check: "cold-build",
+      revision: 1,
+      generation: 1,
+      result: "differs",
+      paths: [],
+      code: "COLD_BUILD_FAILED",
+      message: "<project>/src/Main.hx:1: characters 1-5 : Type not found : Missing",
+    });
+    await acceptedGeneration(harness, 2);
+    const survived = (await outputChecks(harness, 2))[1];
+    assert.deepEqual(survived, {
+      check: "cold-build",
+      revision: 1,
+      generation: 2,
+      result: "differs",
+      paths: ["src-gen/index.ts"],
+      code: "COLD_DIFFERS_AFTER_REPAIR",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.inspect().accepted?.generation, 2, "no second repair");
+    const servers = new Set(harness.compiler.compatibilityDigests).size;
+    assert.equal(servers, 2, "one repair with a new server");
+
+    harness.compiler.steps.push({ content: "export const value = 3;\n" });
+    harness.compiler.coldSteps.push({ content: "export const value = 'cold-c';\n" });
+    editSource(harness, 3);
+    await acceptedGeneration(harness, 3);
+    const later = (await outputChecks(harness, 3))[2];
+    assert.equal(later!.check === "cold-build" && later!.code, "COLD_DIFFERS_AFTER_REPAIR");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.inspect().accepted?.generation, 3, "still no repair");
+    assert.equal(new Set(harness.compiler.compatibilityDigests).size, servers);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    generationReuse: { auditModules: 0, coldCheckEvery: 1, coldCheckIdleMs: 0 },
+  }),
+);
+
+// The idle delay: a due cold build waits until the session has been idle
+// for coldCheckIdleMs. An edit in that time postpones it, without an event,
+// to the next accepted generation (review of genes-ts #259, should fix 4).
+await withHarness(
+  "generation-reuse-cold-check-idle-delay",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 2;\n" },
+    );
+    harness.compiler.coldSteps.push({ content: "export const value = 2;\n" });
+    await harness.session.start();
+    await acceptedGeneration(harness, 1);
+    editSource(harness, 2);
+    await acceptedGeneration(harness, 2);
+    assert.equal(
+      harness.compiler.coldInvocations.length,
+      0,
+      "the edit inside the idle time postponed the cold build of generation 1",
+    );
+    const [check] = await outputChecks(harness, 1);
+    assert.deepEqual(check, {
+      check: "cold-build",
+      revision: 2,
+      generation: 2,
+      result: "equal",
+      paths: [],
+    });
+    assert.equal(harness.compiler.coldInvocations.length, 1);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    generationReuse: { auditModules: 0, coldCheckEvery: 1, coldCheckIdleMs: 300 },
+  }),
+);
+
+// Review of genes-ts #259, must fix 2: an edit that the watcher has not
+// reported yet when the cold build ends must cancel the check. The cold
+// build read the edited source; comparing it with the older published tree
+// would report a false difference and start a new server. The session
+// reconciles the inputs under a read lease before it starts the cold build
+// and again before the result counts.
+await withHarness(
+  "generation-reuse-cold-check-reconciles",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    const started = deferred<void>();
+    const hold = deferred<void>();
+    harness.compiler.coldSteps.push({
+      started,
+      hold,
+      content: "export const value = 2;\n",
+    });
+    await harness.session.start();
+    await acceptedGeneration(harness, 1);
+    await started.promise;
+    writeFileSync(harness.source, "class Main { static var v = 2; }\n", "utf8");
+    currentWatch(harness).reconciliationChanges.push(harness.source);
+    harness.compiler.steps.push({ content: "export const value = 2;\n" });
+    // The cold build of generation 2, which the edit makes due, is equal.
+    harness.compiler.coldSteps.push({ content: "export const value = 2;\n" });
+    hold.resolve();
+    const [check] = await outputChecks(harness, 1);
+    assert.deepEqual(
+      check,
+      {
+        check: "cold-build",
+        revision: 1,
+        generation: 1,
+        result: "cancelled",
+        paths: [],
+      },
+      `an unreported edit must cancel the cold build: ${JSON.stringify(check)}`,
+    );
+    await acceptedGeneration(harness, 2);
+    const next = (await outputChecks(harness, 2))[1];
+    assert.deepEqual(next, {
+      check: "cold-build",
+      revision: 2,
+      generation: 2,
+      result: "equal",
+      paths: [],
+    });
+    assert.equal(
+      new Set(harness.compiler.compatibilityDigests).size,
+      1,
+      "a cancelled cold build keeps the server",
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    generationReuse: { auditModules: 0, coldCheckEvery: 1, coldCheckIdleMs: 0 },
   }),
 );
 

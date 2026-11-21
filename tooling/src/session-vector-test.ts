@@ -38,6 +38,7 @@ type EventKind =
   | "generation-accepted"
   | "failed"
   | "compiler-lifecycle"
+  | "output-check"
   | "closed";
 
 interface EventRun {
@@ -262,13 +263,18 @@ assert.equal(
 const validateProtocolEvent = ajv.getSchema(protocolSchema.$id);
 assert.notEqual(validateProtocolEvent, undefined);
 for (const [outputCheck, valid] of [
-  [{ check: "cold-build", generation: 3, result: "differs", paths: ["src-gen/index.ts"] }, true],
-  [{ check: "replay-audit", generation: 2, result: "differs", paths: ["inc.Stale"] }, true],
-  [{ check: "cold-build", generation: 4, result: "cancelled", paths: [] }, true],
-  [{ check: "cold-build", generation: 5, result: "failed", paths: [], code: "COLD_BUILD_FAILED" }, true],
-  [{ check: "cold-build", generation: 5, result: "unknown", paths: [] }, false],
-  [{ check: "cold-build", generation: 0, result: "equal", paths: [] }, false],
-  [{ check: "replay-audit", generation: 2, result: "differs", paths: [], extra: 1 }, false],
+  [{ check: "cold-build", revision: 3, generation: 3, result: "differs", paths: ["src-gen/index.ts"] }, true],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: ["inc.Stale"] }, true],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: ["inc.Stale"], code: "AUDIT_REPEATED" }, true],
+  [{ check: "cold-build", revision: 4, generation: 4, result: "cancelled", paths: [] }, true],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "differs", paths: [], code: "COLD_BUILD_FAILED", message: "Main.hx:1: Type not found" }, true],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "failed", paths: [], code: "PREPARED_FILES_CHANGED" }, true],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "unknown", paths: [] }, false],
+  [{ check: "cold-build", revision: 5, generation: 0, result: "equal", paths: [] }, false],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "differs", paths: ["/private/candidate/index.ts"] }, false],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: [] }, false],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: ["inc.Stale"], extra: 1 }, false],
+  [{ check: "replay-audit", revision: 2, result: "differs", paths: ["inc.Stale"] }, false],
 ] as const) {
   assert.equal(
     validateProtocolEvent!({
@@ -376,6 +382,7 @@ const events = new Set<EventKind>([
   "generation-accepted",
   "failed",
   "compiler-lifecycle",
+  "output-check",
   "closed",
 ]);
 const scriptSteps = new Set([
@@ -393,9 +400,11 @@ const scriptSteps = new Set([
   "compile-connected-private-hxml",
   "compile-direct",
   "compile-failed",
+  "compile-connected-replay-audit-differs",
   "private-hxml-removed-before-validation",
   "inventory-failed-fatal",
   "candidate-generated",
+  "output-check-replay-audit",
   "validate-accepted",
   "validate-rejected",
   "reconcile-current",
@@ -559,6 +568,7 @@ assert.deepEqual(
     "publication-waits-for-reader",
     "publish-failure-rolls-back",
     "recovery-before-initial-build",
+    "replay-audit-difference-is-never-published",
     "supplemental-files-publish-and-delete",
     "unchanged-candidate-advances-generation",
     "validation-failure-retains-last-good",
@@ -594,6 +604,7 @@ for (const required of [
   "rollback",
   "single-active-build",
   "snapshot-current-facts",
+  "stale-candidate-not-published",
   "supplemental-publication",
   "supplemental-rollback",
   "supplemental-stale-deletion",

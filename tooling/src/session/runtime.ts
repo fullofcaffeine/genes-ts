@@ -120,6 +120,7 @@ import {
   type GenesDevelopmentOptions,
   type HaxeInvocation,
   type JsonValue,
+  type ColdBuildCheck,
   type OutputCheck,
   type SessionFailure,
   type ValidationTree,
@@ -131,14 +132,40 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 const DEFAULT_AUDIT_MODULES = 2;
 /** `GenerationReuseOptions.coldCheckEvery` when the host gives none. */
 const DEFAULT_COLD_CHECK_EVERY = 20;
+/** `GenerationReuseOptions.coldCheckIdleMs` when the host gives none. */
+const DEFAULT_COLD_CHECK_IDLE_MS = 5_000;
+/**
+ * The largest `auditModules`. Genes decodes the descriptor value as a Haxe
+ * `Int`; a larger JSON number arrives as a float, and Genes then refuses the
+ * whole descriptor, which would turn incremental work off without an error.
+ */
+const MAX_AUDIT_MODULES = 1_000_000;
+/** The largest `coldCheckIdleMs` (ten minutes). */
+const MAX_COLD_CHECK_IDLE_MS = 600_000;
 /** The most paths or modules that one `output-check` event lists. */
 const OUTPUT_CHECK_PATH_LIMIT = 50;
+/** The longest cold-build output that one `output-check` event carries. */
+const OUTPUT_CHECK_MESSAGE_LIMIT = 2_000;
 
 /** The checked `GenerationReuseOptions` of one session. */
 interface GenerationReuseSettings {
   readonly auditModules: number;
   readonly coldCheckEvery: number;
+  readonly coldCheckIdleMs: number;
 }
+
+/** What the Genes rolling replay audit of one build reported. */
+interface ReplayAuditReport {
+  /** The replayed modules that Genes printed again. */
+  readonly audited: readonly string[];
+  /** The audited modules whose new print differs (sorted, at most 50). */
+  readonly differing: readonly string[];
+}
+
+const NO_REPLAY_AUDIT: ReplayAuditReport = Object.freeze({
+  audited: Object.freeze([]),
+  differing: Object.freeze([]),
+});
 
 /**
  * Copies and checks the host's `generationReuse` option once, at session
@@ -151,55 +178,89 @@ function snapshotGenerationReuse(
   if (options === undefined) return null;
   const auditModules = options.auditModules ?? DEFAULT_AUDIT_MODULES;
   const coldCheckEvery = options.coldCheckEvery ?? DEFAULT_COLD_CHECK_EVERY;
-  for (const [name, value] of [
-    ["auditModules", auditModules],
-    ["coldCheckEvery", coldCheckEvery],
+  const coldCheckIdleMs = options.coldCheckIdleMs ?? DEFAULT_COLD_CHECK_IDLE_MS;
+  for (const [name, value, max] of [
+    ["auditModules", auditModules, MAX_AUDIT_MODULES],
+    ["coldCheckEvery", coldCheckEvery, Number.MAX_SAFE_INTEGER],
+    ["coldCheckIdleMs", coldCheckIdleMs, MAX_COLD_CHECK_IDLE_MS],
   ] as const) {
-    if (!Number.isSafeInteger(value) || value < 0) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > max) {
       throw new Error(
-        `generationReuse.${name} must be a whole number of 0 or more`,
+        max === Number.MAX_SAFE_INTEGER
+          ? `generationReuse.${name} must be a whole number of 0 or more`
+          : `generationReuse.${name} must be a whole number from 0 to ${max}`,
       );
     }
   }
-  return Object.freeze({ auditModules, coldCheckEvery });
+  return Object.freeze({ auditModules, coldCheckEvery, coldCheckIdleMs });
 }
 
 /**
- * Returns the Haxe modules whose new print the rolling replay audit found
- * different, from the Genes generation report at `reportPath` (sorted, each
- * once, at most `OUTPUT_CHECK_PATH_LIMIT`). An absent or unreadable report
- * gives none: the report is evidence of Genes, not an input that the session
- * trusts for anything else.
+ * Returns what the rolling replay audit of one build reported, from the Genes
+ * generation report at `reportPath`: the modules it printed again and those
+ * whose new print differs. An absent or unreadable report gives neither: the
+ * report is evidence of Genes, not an input that the session trusts for
+ * anything else.
  *
  * BOUNDARY_DYNAMIC: the report is JSON that Genes writes
- * (`IncrementalShadow.ShadowAuditReport`); only `audit.mismatches[].module`
- * is read, each checked as a string.
+ * (`IncrementalShadow.ShadowAuditReport`); only `audit.audited[]` and
+ * `audit.mismatches[].module` are read, each checked as a string.
  */
-function readReplayAuditModules(reportPath: string): readonly string[] {
+function readReplayAudit(reportPath: string): ReplayAuditReport {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(reportPath, "utf8"));
   } catch {
-    return Object.freeze([]);
+    return NO_REPLAY_AUDIT;
   }
   const audit =
     typeof parsed === "object" && parsed !== null
       ? (parsed as { readonly audit?: unknown }).audit
       : undefined;
-  const mismatches =
-    typeof audit === "object" && audit !== null
-      ? (audit as { readonly mismatches?: unknown }).mismatches
-      : undefined;
-  if (!Array.isArray(mismatches)) return Object.freeze([]);
-  const modules = new Set<string>();
-  for (const mismatch of mismatches) {
-    const module =
+  if (typeof audit !== "object" || audit === null) return NO_REPLAY_AUDIT;
+  const { audited, mismatches } = audit as {
+    readonly audited?: unknown;
+    readonly mismatches?: unknown;
+  };
+  const names = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+      : [];
+  const differing = new Set<string>(
+    (Array.isArray(mismatches) ? mismatches : []).flatMap((mismatch) =>
       typeof mismatch === "object" && mismatch !== null
-        ? (mismatch as { readonly module?: unknown }).module
-        : undefined;
-    if (typeof module === "string" && module.length > 0) modules.add(module);
-  }
-  return Object.freeze(bytewise(modules).slice(0, OUTPUT_CHECK_PATH_LIMIT));
+        ? names([(mismatch as { readonly module?: unknown }).module])
+        : [],
+    ),
+  );
+  return Object.freeze({
+    audited: Object.freeze(names(audited)),
+    differing: Object.freeze(bytewise(differing).slice(0, OUTPUT_CHECK_PATH_LIMIT)),
+  });
+}
+
+/**
+ * Returns `message` for an `output-check` event: private paths already
+ * removed by the caller, cut to `OUTPUT_CHECK_MESSAGE_LIMIT` characters.
+ */
+function boundedMessage(message: string): string {
+  return message.length <= OUTPUT_CHECK_MESSAGE_LIMIT
+    ? message
+    : `${message.slice(0, OUTPUT_CHECK_MESSAGE_LIMIT - 1)}…`;
+}
+
+/** Resolves after `ms`, or at once when `signal` aborts. */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 /**
@@ -574,6 +635,17 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   readonly #compiler: SessionCompiler;
   /** The checked `generationReuse` option, or `null` without reuse. */
   readonly #generationReuse: GenerationReuseSettings | null;
+  /**
+   * False after `AUDIT_REPEATED`: the session then asks Genes for measure
+   * only, as without `generationReuse`, and runs no cold build.
+   */
+  #reuseActive = true;
+  /** The modules of the last replay-audit difference not yet audited clean. */
+  #auditSuspects = new Set<string>();
+  /** A cold-build difference was repaired; the next accepted generation checks again. */
+  #coldVerifyPending = false;
+  /** A cold difference survived a repair: later ones are reported, not repaired. */
+  #coldRepairStopped = false;
   /** Accepted warm generations since the last cold build (output check). */
   #generationsSinceColdCheck = 0;
   /** The scheduled or running cold build, until it ends. */
@@ -1736,7 +1808,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         recursive: true,
         mode: 0o700,
       });
-      const reuse = this.#generationReuse;
+      const reuse = this.#reuseActive ? this.#generationReuse : null;
       const incremental: IncrementalBinding = reuse === null
         ? Object.freeze({ kind: "measure" })
         : Object.freeze({ kind: "reuse", auditModules: reuse.auditModules });
@@ -1844,10 +1916,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         }
       }
       if (this.#closing !== null || abort.signal.aborted) return;
-      // The rolling replay audit runs inside the Genes request; its
-      // differences are in the generation report beside the descriptor.
-      const auditDifferences =
-        reuse === null ? Object.freeze([]) : readReplayAuditModules(generationReport);
+      // The rolling replay audit runs inside the Genes request; what it
+      // printed and found is in the generation report beside the descriptor.
+      const replayAudit =
+        reuse === null ? NO_REPLAY_AUDIT : readReplayAudit(generationReport);
       const candidate = readGenesOutput(
         outputRoot,
         this.#layout.outputIdentity,
@@ -1868,6 +1940,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         capturedCompilerData.dispose();
         return;
       }
+      if (replayAudit.differing.length > 0) {
+        // Genes found stale replayed output in this candidate: never publish
+        // it. Genes dropped its cache, so the rebuild prints every module.
+        capturedCompilerData.dispose();
+        this.#onReplayAuditDifference(cause.revision, replayAudit.differing);
+        return;
+      }
+      for (const module of replayAudit.audited) this.#auditSuspects.delete(module);
       failurePhase = "validate";
       let admission: AdmissionResult<Diagnostic>;
       try {
@@ -2031,7 +2111,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#closing === null &&
         !abort.signal.aborted
       ) {
-        this.#afterReuseGeneration(accepted, compiler.mode, auditDifferences);
+        this.#afterReuseGeneration(accepted, compiler.mode);
       }
     } catch (error) {
       if (this.#closing !== null || abort.signal.aborted) return;
@@ -2074,64 +2154,79 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   /**
-   * Runs the session side of the output checks after one accepted
-   * generation built with `generationReuse` (see `GenerationReuseOptions`).
-   * Without that option it does nothing.
+   * Handles a build whose candidate the Genes rolling replay audit found
+   * stale: reports a `replay-audit` event and builds the same revision again
+   * at once, on the same server (Genes dropped its generation cache, so the
+   * rebuild prints every module). The caller has discarded the candidate.
    *
-   * A replay-audit difference (`auditDifferences`, the modules that Genes
-   * reported) is announced as an `output-check` event and repaired at once:
-   * Genes dropped its generation cache, so a new build of the same revision
-   * on the same server prints every module. Otherwise the generation counts
-   * towards the next cold build: a direct build (no server) is cold already
-   * and starts the count again.
+   * When a module of this difference was also in the last one, with no clean
+   * audit of it in between, the defect stays. The session then reports
+   * `AUDIT_REPEATED` and turns generation reuse off for the rest of its life,
+   * so that the defect cannot make every later build run twice.
+   */
+  #onReplayAuditDifference(revision: number, modules: readonly string[]): void {
+    const repeated = modules.some((module) => this.#auditSuspects.has(module));
+    if (repeated) {
+      this.#reuseActive = false;
+      this.#auditSuspects = new Set();
+      this.#coldCheckAbort?.abort();
+    } else {
+      this.#auditSuspects = new Set(modules);
+    }
+    this.#emitOutputCheck({
+      check: "replay-audit",
+      revision,
+      result: "differs",
+      modules,
+      ...(repeated ? { code: "AUDIT_REPEATED" as const } : {}),
+    });
+    this.#requestRepair(false);
+  }
+
+  /**
+   * Counts one accepted generation towards the next cold build, and schedules
+   * it when it is due: after `coldCheckEvery` warm generations, or at once
+   * after a generation that repaired a cold-build difference (to see whether
+   * the repair worked). A direct build (no server) is cold already and starts
+   * the count again. Does nothing without active generation reuse.
    */
   #afterReuseGeneration(
     accepted: AcceptedGeneration,
     mode: "connected" | "direct",
-    auditDifferences: readonly string[],
   ): void {
     const reuse = this.#generationReuse;
-    if (reuse === null) return;
-    if (auditDifferences.length > 0) {
-      this.#emitOutputCheck({
-        check: "replay-audit",
-        generation: accepted.generation,
-        result: "differs",
-        paths: auditDifferences,
-      });
-      this.#requestRepair(false);
-      return;
-    }
+    if (reuse === null || !this.#reuseActive || reuse.coldCheckEvery === 0) return;
     if (mode === "direct") {
       this.#generationsSinceColdCheck = 0;
       return;
     }
     this.#generationsSinceColdCheck += 1;
     if (
-      reuse.coldCheckEvery > 0 &&
-      this.#generationsSinceColdCheck >= reuse.coldCheckEvery
+      !this.#coldVerifyPending &&
+      this.#generationsSinceColdCheck < reuse.coldCheckEvery
     ) {
-      // At most one cold build runs: a new one waits for the one before,
-      // which ends at once when its generation is no longer public.
-      const previous = this.#coldCheck;
-      const scheduled = (async () => {
-        await previous?.catch(() => undefined);
-        await this.#scheduleColdCheck(accepted);
-      })();
-      this.#coldCheck = scheduled;
-      void scheduled
-        .catch(() => undefined)
-        .finally(() => {
-          if (this.#coldCheck === scheduled) this.#coldCheck = null;
-        });
+      return;
     }
+    // At most one cold build runs: a new one waits for the one before,
+    // which ends at once when its generation is no longer public.
+    const previous = this.#coldCheck;
+    const scheduled = (async () => {
+      await previous?.catch(() => undefined);
+      await this.#scheduleColdCheck(accepted, reuse.coldCheckIdleMs);
+    })();
+    this.#coldCheck = scheduled;
+    void scheduled
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.#coldCheck === scheduled) this.#coldCheck = null;
+      });
   }
 
   /**
    * Builds the current revision again although no input changed, after an
-   * output check found a published tree that differs from the reference.
-   * `freshCache` also starts a new Haxe server, whose caches are empty
-   * (after a cold-build difference, which can come from any cache).
+   * output check found a candidate or a published tree that differs from the
+   * reference. `freshCache` also starts a new Haxe server, whose caches are
+   * empty (after a cold-build difference, which can come from any cache).
    */
   #requestRepair(freshCache: boolean): void {
     if (this.#closing !== null) return;
@@ -2148,21 +2243,61 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   /**
-   * Waits until no build is active or waiting, then runs the cold build for
-   * `accepted` if it is still the public generation and no edit that needs
-   * a build arrived since. Otherwise it does nothing, and the next accepted
-   * generation schedules the cold build again (the count stays due).
+   * Waits until no build is active or waiting, then `idleMs` more, then runs
+   * the cold build for `accepted` if it is still the public generation and
+   * no edit that needs a build arrived. An edit in the idle time aborts the
+   * wait (`#coldCheckAbort`) without an event; the check stays due, and the
+   * next accepted generation schedules it again.
    */
-  async #scheduleColdCheck(accepted: AcceptedGeneration): Promise<void> {
+  async #scheduleColdCheck(
+    accepted: AcceptedGeneration,
+    idleMs: number,
+  ): Promise<void> {
     await this.#loop.waitForIdle();
-    if (
-      this.#closing !== null ||
-      this.#accepted !== accepted ||
-      this.#newestRebuildRevision > accepted.revision
-    ) {
-      return;
+    if (this.#closing !== null || !this.#reuseActive) return;
+    const abort = new AbortController();
+    this.#coldCheckAbort = abort;
+    try {
+      await abortableDelay(idleMs, abort.signal);
+      if (
+        abort.signal.aborted ||
+        this.#closing !== null ||
+        this.#accepted !== accepted ||
+        this.#newestRebuildRevision > accepted.revision ||
+        this.#loop.state !== "idle"
+      ) {
+        return;
+      }
+      await this.#runColdCheck(accepted, abort);
+    } finally {
+      if (this.#coldCheckAbort === abort) this.#coldCheckAbort = null;
     }
-    await this.#runColdCheck(accepted);
+  }
+
+  /**
+   * Returns true when the inputs still describe `accepted`: no edit is
+   * waiting, also none that only a reconciliation of the watched inputs
+   * finds (such an edit is then reported, which aborts `abort`), and
+   * `accepted` is still the public generation. Runs under a publication read
+   * lease, so no publication can happen while it looks.
+   */
+  async #coldInputsCurrent(
+    accepted: AcceptedGeneration,
+    abort: AbortController,
+  ): Promise<boolean> {
+    const release = await this.#gate.acquireRead();
+    try {
+      const reconciled = this.reconcile();
+      return (
+        reconciled.ok &&
+        !reconciled.changed &&
+        !abort.signal.aborted &&
+        this.#accepted === accepted &&
+        this.#newestRebuildRevision <= accepted.revision
+      );
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -2172,29 +2307,44 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    * of a candidate folder (source maps hold paths relative to the folder
    * that Genes wrote), and compares that Genes tree with the published one.
    *
-   * An edit or `close` aborts it (`#coldCheckAbort`): the process is stopped
-   * and the result is `cancelled`, which keeps the count due. `differs`
-   * starts a new server and builds the revision again (`#requestRepair`).
-   * Every result is announced as one `output-check` event, except during
-   * `close`. The private folder is removed in every case.
+   * The inputs are reconciled under a read lease before the build starts and
+   * again before the result counts (`#coldInputsCurrent`): an edit that the
+   * watcher had not reported yet would otherwise make the cold tree, built
+   * from the edited source, differ from the older public tree. Any change
+   * gives `cancelled`, which keeps the check due. An edit or `close` also
+   * aborts the build (`abort`).
+   *
+   * A difference, or a cold Haxe failure while the warm build passed
+   * (`COLD_BUILD_FAILED`), starts a new server and rebuilds the revision; the
+   * generation of that rebuild is checked again at once. If the difference
+   * survives (`COLD_DIFFERS_AFTER_REPAIR`), it is reported and no cold
+   * difference is repaired any more. Every result is one `output-check`
+   * event, except during `close`. The private folder is removed in every
+   * case.
    */
-  async #runColdCheck(accepted: AcceptedGeneration): Promise<void> {
+  async #runColdCheck(
+    accepted: AcceptedGeneration,
+    abort: AbortController,
+  ): Promise<void> {
     const plan = this.#effectivePlan;
     if (plan === null || this.#closing !== null) return;
-    const abort = new AbortController();
-    this.#coldCheckAbort = abort;
     const stageRelative = `${this.#layout.candidatesRelative}/cold-${accepted.generation}-${this.#dependencies.nonce()}`;
     const stageRoot = path.join(
       this.#layout.projectRoot,
       ...stageRelative.split("/"),
     );
-    let result: OutputCheck["result"] = "failed";
-    let code: string | undefined;
+    let result: ColdBuildCheck["result"] = "failed";
+    let code: ColdBuildCheck["code"];
+    let message: string | undefined;
     let paths: readonly string[] = Object.freeze([]);
     try {
       const compileCold = this.#compiler.compileCold?.bind(this.#compiler);
       if (compileCold === undefined) {
         code = "COLD_BUILD_UNSUPPORTED";
+        return;
+      }
+      if (!(await this.#coldInputsCurrent(accepted, abort))) {
+        result = "cancelled";
         return;
       }
       const outputRoot = path.join(stageRoot, "output");
@@ -2267,6 +2417,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       ]) {
         await replaceRequestFile(input.path, input.contents);
       }
+      let coldFailure: string | null = null;
       try {
         await compileCold(
           bound,
@@ -2279,15 +2430,18 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
               }),
         );
       } catch (error) {
-        if (abort.signal.aborted) {
-          result = "cancelled";
-          return;
-        }
-        code = "COLD_BUILD_FAILED";
+        coldFailure = asError(error).message;
+      }
+      // The cold build read the inputs while it ran: an edit that arrived
+      // meanwhile, reported or not, makes its result meaningless.
+      if (abort.signal.aborted || !(await this.#coldInputsCurrent(accepted, abort))) {
+        result = "cancelled";
         return;
       }
-      if (abort.signal.aborted) {
-        result = "cancelled";
+      if (coldFailure !== null) {
+        result = "differs";
+        code = "COLD_BUILD_FAILED";
+        message = boundedMessage(this.#sanitizeCoreMessage(coldFailure));
         return;
       }
       const cold = readGenesOutput(outputRoot, this.#layout.outputIdentity, true)!;
@@ -2314,24 +2468,54 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       result = paths.length === 0 ? "equal" : "differs";
     } catch {
       result = abort.signal.aborted ? "cancelled" : "failed";
-      if (result === "failed") code = "COLD_BUILD_FAILED";
+      if (result === "failed") code = "COLD_CHECK_ERROR";
     } finally {
-      if (this.#coldCheckAbort === abort) this.#coldCheckAbort = null;
       rmSync(stageRoot, { recursive: true, force: true });
-      if (this.#closing === null) {
-        // A cancelled check stays due; every other result starts the count
-        // again, so a failing cold build does not run after every build.
-        if (result !== "cancelled") this.#generationsSinceColdCheck = 0;
-        this.#emitOutputCheck({
-          check: "cold-build",
-          generation: accepted.generation,
-          result,
-          paths: result === "differs" ? paths : Object.freeze([]),
-          ...(result === "failed" && code !== undefined ? { code } : {}),
-        });
-        if (result === "differs") this.#requestRepair(true);
-      }
+      if (this.#closing === null) this.#finishColdCheck(accepted, result, code, paths, message);
     }
+  }
+
+  /**
+   * Reports one cold-build result and decides the repair. A cancelled check
+   * stays due; every other result starts the count again. A difference is
+   * repaired with a new server unless a difference already survived such a
+   * repair (`COLD_DIFFERS_AFTER_REPAIR`), so a defect that a new server does
+   * not remove cannot make the session restart its server again and again.
+   */
+  #finishColdCheck(
+    accepted: AcceptedGeneration,
+    result: ColdBuildCheck["result"],
+    failureCode: ColdBuildCheck["code"],
+    paths: readonly string[],
+    message: string | undefined,
+  ): void {
+    if (result !== "cancelled") this.#generationsSinceColdCheck = 0;
+    let code = failureCode;
+    let repair = false;
+    if (result === "differs") {
+      if (this.#coldRepairStopped || this.#coldVerifyPending) {
+        code = "COLD_DIFFERS_AFTER_REPAIR";
+        this.#coldRepairStopped = true;
+        this.#coldVerifyPending = false;
+      } else {
+        repair = true;
+        this.#coldVerifyPending = true;
+      }
+    } else if (result !== "cancelled") {
+      this.#coldVerifyPending = false;
+    }
+    this.#emitOutputCheck({
+      check: "cold-build",
+      revision: accepted.revision,
+      generation: accepted.generation,
+      result,
+      paths: result === "differs" ? paths : Object.freeze([]),
+      ...(code === undefined || result === "equal" || result === "cancelled"
+        ? {}
+        : { code }),
+      ...(message === undefined ? {} : { message }),
+    });
+    if (repair) this.#requestRepair(true);
   }
 
   /** Emits one `output-check` event (`OutputCheck`). */
@@ -2339,10 +2523,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (this.#closing !== null) return;
     this.#emit({
       kind: "output-check",
-      outputCheck: Object.freeze({
-        ...check,
-        paths: Object.freeze([...check.paths]),
-      }),
+      outputCheck: Object.freeze(
+        check.check === "replay-audit"
+          ? { ...check, modules: Object.freeze([...check.modules]) }
+          : { ...check, paths: Object.freeze([...check.paths]) },
+      ),
     });
   }
 

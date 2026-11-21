@@ -5,6 +5,7 @@ export type {
   CandidateFile,
   ChangeImpact,
   CompilerDataDeclaration,
+  ColdBuildCheck,
   CompilerDataFile,
   DevelopmentEvent,
   DevelopmentEventBody,
@@ -29,6 +30,7 @@ export type {
   PreparedRevisionFile,
   PreparationResult,
   PublishedReadLease,
+  ReplayAuditCheck,
   SessionFailure,
   ValidationTree,
 } from "./types.js";
