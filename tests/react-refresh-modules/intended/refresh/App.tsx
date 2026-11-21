@@ -18,3 +18,4 @@ export function App(): JSX.Element {
 	return <main>{tmp}{tmp1}{tmp2}{tmp3}{tmp4}<footer data-summary="">{summary}</footer></main>;
 }
 App_Fields_.App = App;
+export type {App_Fields_}

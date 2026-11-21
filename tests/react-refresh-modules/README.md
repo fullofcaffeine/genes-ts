@@ -27,9 +27,12 @@ With the define, a module that has at least one `@:genes.reactComponent`
 module function and at least one other runtime declaration becomes:
 
 - `Panel.tsx`: the component functions, the `Panel_Fields_.Panel = Panel`
-  slot assignments, and a type-only re-export of the exported types
-  (`export type {PanelProps, BadgeProps}`). Its only runtime exports are
-  components.
+  slot assignments, and a type-only re-export of each exported typedef and of
+  the type side of each exported class, interface and enum
+  (`export type {PanelProps, BadgeProps, Tone, Counter, Formatter,
+  Panel_Fields_}`). `export type` is erased, so its only runtime exports are
+  components, and a type-only import such as `import type {Model, Kind,
+  Named} from "./Widget.js"` (`TypeUser.hx`) keeps working.
 - `Panel.fields.tsx`: every other declaration, each one exported. It never
   imports `Panel.tsx`: only the component file imports the other one. The
   sibling's own code reads a component through the slot
@@ -173,8 +176,8 @@ reloads when no importer accepts the update.
 
 - TypeScript profile only.
 - Hand-written TypeScript that imports a non-component value of a split
-  module must import it from `X.fields.js` and import `X.js` first. Type
-  imports from `X.js` still work.
+  module must import it from `X.fields.js` and import `X.js` first.
+  Type-only imports from `X.js` still work.
 - An importer that is not a component module (for example the entry module)
   and that uses a non-component value of `X` imports `X.fields.tsx`
   directly. An edit of that value then reaches the entry module and reloads

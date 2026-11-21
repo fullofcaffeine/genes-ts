@@ -25,20 +25,26 @@ enum ReactRefreshPart {
  * One top-level binding that the `Fields` part declares.
  *
  * `isType` is true for a declaration that exists only as a TypeScript type
- * (a typedef). `wasExported` tells whether the same declaration is exported
- * from the ordinary single file. The `Components` part re-exports exactly
- * the exported types, so type imports of the module do not change. It does
- * not re-export a runtime value: importers read those from the sibling.
+ * (a typedef). `hasTypeSide` is true when the name is also a type: a typedef,
+ * a class, an interface or an enum, but not a function or a value.
+ * `wasExported` tells whether the same declaration is exported from the
+ * ordinary single file. The `Components` part re-exports the type side of
+ * each exported binding with `export type`, so type-only imports of the
+ * module do not change. It re-exports no runtime value: importers read those
+ * from the sibling.
  */
 class ReactRefreshBinding {
   public final name: String;
   public final isType: Bool;
   public final wasExported: Bool;
+  public final hasTypeSide: Bool;
 
-  public function new(name: String, isType: Bool, wasExported: Bool) {
+  public function new(name: String, isType: Bool, wasExported: Bool,
+      hasTypeSide: Bool) {
     this.name = name;
     this.isType = isType;
     this.wasExported = wasExported;
+    this.hasTypeSide = hasTypeSide;
   }
 }
 
@@ -59,7 +65,8 @@ class ReactRefreshBinding {
  * at least one other runtime declaration becomes two files:
  *
  * - `X.tsx` (public path): the component functions, which are its only
- *   runtime exports, and a type-only re-export of the exported types;
+ *   runtime exports, and a type-only re-export (`export type`) of each
+ *   exported typedef, class, interface and enum;
  * - `X.fields.tsx` (sibling): every other declaration, each one exported.
  *
  * Importers that Genes writes import each component from `X` and each other

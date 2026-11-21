@@ -22,4 +22,4 @@ function Badge(props: BadgeProps): JSX.Element {
 }
 Panel_Fields_.Panel = Panel;
 Panel_Fields_.Badge = Badge;
-export type {PanelProps, BadgeProps}
+export type {PanelProps, BadgeProps, Tone, Counter, Formatter, Panel_Fields_}

@@ -332,7 +332,8 @@ JSX/TSX:
 
 - `-D genes.react_refresh_modules` — split each React module that has a
   `@:genes.reactComponent` function and another runtime declaration into
-  `X.tsx` (the components, and a type-only re-export of the exported types)
+  `X.tsx` (the components, and `export type` of each exported typedef,
+  class, interface and enum)
   and `X.fields.tsx` (everything else). `X.tsx` has no other runtime export,
   so React Fast Refresh (for example Vite with `@vitejs/plugin-react`) can
   hot-update an edit of a component and an edit of a non-component

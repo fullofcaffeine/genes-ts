@@ -350,10 +350,11 @@ class ModuleEmitter extends ExprEmitter {
    * Hook for one top-level declaration of a module, called before it is
    * written. Classic output ignores it; the TypeScript emitter records the
    * declarations of a split React Fast Refresh module
-   * (`genes.ReactRefreshModulePlan`).
+   * (`genes.ReactRefreshModulePlan`). `typeSide` is true for a runtime
+   * declaration that also names a type (a class, an interface or an enum).
    */
-  function noteTopLevelBinding(name: String, isType: Bool,
-    exported: Bool): Void {}
+  function noteTopLevelBinding(name: String, isType: Bool, exported: Bool,
+    typeSide = false): Void {}
 
   function staticName(cl: ClassType, field: Field)
     return EmittedMemberName.staticField(cl, field);

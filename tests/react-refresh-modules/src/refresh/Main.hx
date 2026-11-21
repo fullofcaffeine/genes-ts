@@ -9,6 +9,7 @@ import refresh.CallbackIface;
 import refresh.CallbackSuper;
 import refresh.CallbackString;
 import refresh.Lazy.LazyEntry;
+import refresh.TypeUser;
 
 @:jsRequire("react-dom/client")
 extern class ReactDomClient {

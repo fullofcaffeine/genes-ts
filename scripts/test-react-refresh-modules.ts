@@ -100,15 +100,17 @@ const singleFiles = [
   "Omitted.tsx",
   "Panel.tsx",
   "Transitive.tsx",
-  "Unsplit.tsx"
+  "TypeUser.tsx",
+  "Unsplit.tsx",
+  "Widget.tsx"
 ];
-deepStrictEqual(generatedFiles("tsx"), [...singleFiles, "App.fields.tsx", "Lazy.fields.tsx", "Panel.fields.tsx"].sort());
+deepStrictEqual(generatedFiles("tsx"), [...singleFiles, "App.fields.tsx", "Lazy.fields.tsx", "Panel.fields.tsx", "Widget.fields.tsx"].sort());
 deepStrictEqual(generatedFiles("tsx-off"), singleFiles);
 
 // The sibling must not import its component file. With that import cycle,
 // Vite loads the sibling again on each component update, and the re-exported
 // values are then new objects, which Fast Refresh rejects.
-for (const name of ["Panel", "App", "Lazy"]) {
+for (const name of ["Panel", "App", "Lazy", "Widget"]) {
   const sibling = readFileSync(path.join(fixtureRoot, `out/tsx/src-gen/refresh/${name}.fields.tsx`), "utf8");
   ok(!sibling.includes(`from "./${name}.js"`), `${name}.fields.tsx imports its component file`);
 }
@@ -164,7 +166,15 @@ const singleFileMixed = [
   "Unsplit"
 ];
 deepStrictEqual(Object.keys(split.mixedExports).filter((name) => !name.endsWith(".fields")), singleFileMixed);
-deepStrictEqual(Object.keys(single.mixedExports), [...singleFileMixed, "App", "Lazy", "Panel"].sort());
+deepStrictEqual(Object.keys(single.mixedExports), [...singleFileMixed, "App", "Lazy", "Panel", "Widget"].sort());
+
+// TypeUser uses the class, enum and interface of the split module Widget only
+// as types. Its type-only import keeps the path of Widget.tsx, which
+// re-exports their type side; the TypeScript lanes above check it.
+match(readFileSync(path.join(fixtureRoot, "out/tsx/src-gen/refresh/TypeUser.tsx"), "utf8"),
+  /^import type \{Model, Kind, Named, WidgetProps\} from "\.\/Widget\.js"$/m);
+match(readFileSync(path.join(fixtureRoot, "out/tsx/src-gen/refresh/Widget.tsx"), "utf8"),
+  /^export type \{WidgetProps, Named, Model, Kind\}$/m);
 
 // An edit of Panel.fields.tsx (a non-component function). Every importer of
 // the sibling that exports a component accepts the update, and the new

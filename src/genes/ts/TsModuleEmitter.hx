@@ -82,7 +82,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   /**
    * Returns the top-level bindings that this emitter declared while it wrote
    * the `Fields` part of a split React module. The `Components` part imports
-   * them all and re-exports the types that one ordinary file exports.
+   * them all and re-exports, as types only, the declarations with a type side
+   * that one ordinary file exports.
    */
   public function reactRefreshBindings(): Array<ReactRefreshBinding> {
     return refreshBindings.copy();
@@ -95,11 +96,12 @@ class TsModuleEmitter extends JsModuleEmitter {
    * a type and a function); only the first piece is recorded.
    */
   override function noteTopLevelBinding(name: String, isType: Bool,
-      exported: Bool): Void {
+      exported: Bool, typeSide = false): Void {
     if (!refreshPart.match(Fields) || refreshBindingNames.exists(name))
       return;
     refreshBindingNames.set(name, true);
-    refreshBindings.push(new ReactRefreshBinding(name, isType, exported));
+    refreshBindings.push(new ReactRefreshBinding(name, isType,
+      exported, isType || typeSide));
   }
 
   /**
@@ -128,10 +130,13 @@ class TsModuleEmitter extends JsModuleEmitter {
    * Writes `export ` before one top-level declaration when the module
    * exports it, or when it is in the sibling of a split React module: the
    * component file must be able to import every declaration.
+   *
+   * `typeSide` is true for a runtime declaration that also names a
+   * TypeScript type (a class, an interface or an enum).
    */
-  function writeTopLevelExport(name: String, isType: Bool,
-      exported: Bool): Void {
-    noteTopLevelBinding(name, isType, exported);
+  function writeTopLevelExport(name: String, isType: Bool, exported: Bool,
+      typeSide = false): Void {
+    noteTopLevelBinding(name, isType, exported, typeSide);
     if (exported || refreshPart.match(Fields))
       write('export ');
   }
@@ -641,11 +646,12 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Re-exports, from the `Components` part, every `Fields` type that the
-   * ordinary single file exports, so type imports of the module keep their
-   * path.
+   * Re-exports, from the `Components` part, the type side of every `Fields`
+   * declaration that the ordinary single file exports: typedefs, and the
+   * type of each class, interface and enum. Type-only imports of the module
+   * (`import type {Model, PanelProps} from "./Panel.js"`) keep their path.
    *
-   * It re-exports no runtime value. React Fast Refresh accepts an update of
+   * `export type` creates no runtime export. It re-exports no runtime value. React Fast Refresh accepts an update of
    * this file only when each runtime export is a component or the same
    * object as before. An edit of the sibling makes new objects of all its
    * values, so a re-exported value would make the dev server reload the
@@ -657,7 +663,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case Components(bindings):
         final types = [
           for (binding in bindings)
-            if (binding.isType && binding.wasExported) binding.name
+            if (binding.hasTypeSide && binding.wasExported) binding.name
         ];
         if (types.length > 0) {
           writeNewline();
@@ -1414,7 +1420,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
-    writeTopLevelExport(TypeUtil.className(cl), false, export);
+    writeTopLevelExport(TypeUtil.className(cl), false, export, true);
     write('class ');
     write(TypeUtil.className(cl));
     if (cl.params != null && cl.params.length > 0)
@@ -4764,7 +4770,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitComment(cl.doc);
     emitPos(cl.pos);
     // The runtime marker below gives the interface name a value too.
-    writeTopLevelExport(TypeUtil.className(cl), false, export);
+    writeTopLevelExport(TypeUtil.className(cl), false, export, true);
     write('interface ');
     write(TypeUtil.className(cl));
     if (params.length > 0)
@@ -4831,7 +4837,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     // Runtime marker (Genes runtime compatibility).
-    writeTopLevelExport(TypeUtil.className(cl), false, export);
+    writeTopLevelExport(TypeUtil.className(cl), false, export, true);
     write('const ');
     write(TypeUtil.className(cl));
     write(' = function() {};');
@@ -4883,7 +4889,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // `export declare namespace EnumName` (duplicate identifier). A function
     // works as the runtime enum container while still allowing type namespace
     // merging.
-    writeTopLevelExport(et.name, false, export);
+    writeTopLevelExport(et.name, false, export, true);
     write('declare namespace ');
     write(et.name);
     write(' {');
@@ -5011,7 +5017,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
-    writeTopLevelExport(et.name, false, export);
+    writeTopLevelExport(et.name, false, export, true);
     write('type ');
     write(et.name);
     emitTypeParamDecls(enumParams, true);
@@ -5032,7 +5038,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     emitPos(et.pos);
-    writeTopLevelExport(et.name, false, export);
+    writeTopLevelExport(et.name, false, export, true);
     write('function ');
     write(et.name);
     write('() {}');

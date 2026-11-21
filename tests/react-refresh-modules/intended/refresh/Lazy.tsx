@@ -7,3 +7,4 @@ export function LazyView(): JSX.Element {
 	return <em data-lazy="">{tmp}</em>;
 }
 Lazy_Fields_.LazyView = LazyView;
+export type {LazyEntry, Lazy_Fields_}
