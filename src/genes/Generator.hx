@@ -865,6 +865,50 @@ class Generator {
     final endPublicationTimer = timer('genes.publish.transaction');
     outputTransaction.commit();
     endPublicationTimer();
+    // Stage 3, the rolling replay audit (genes-f8vc.9.23): with
+    // `generation: "reuse"`, print a few replayed modules again into memory
+    // and compare them with what this request replayed. It runs after the
+    // tree is public, so it never delays the files that a dev server reads.
+    // Without a replayed module this list is empty.
+    final audited = IncrementalShadow.auditCandidates();
+    if (audited.length > 0) {
+      final endAuditTimer = timer('genes.audit.replay');
+      // The new print must not change this request's feature flags.
+      final auditApi: JSGenApi = {
+        outputFile: api.outputFile,
+        types: api.types,
+        main: api.main,
+        generateStatement: api.generateStatement,
+        generateValue: api.generateValue,
+        setTypeAccessor: api.setTypeAccessor,
+        isKeyword: api.isKeyword,
+        addFeature: _ -> true,
+        hasFeature: api.hasFeature,
+        quoteString: api.quoteString,
+        buildMetaData: api.buildMetaData,
+        setCurrentClass: api.setCurrentClass
+      };
+      final scratch = OutputTransaction.scratch(outputDir,
+        Path.withoutDirectory(Path.normalize(outputFile)));
+      for (name in audited) {
+        final module = modules.get(name);
+        IncrementalShadow.auditModule(name, scratch, () -> {
+          // The same checks and the same print as for a module that is not
+          // replayed (the two validation loops and the emission loop above).
+          jsxCapability.validate(module.jsxPlan);
+          jsxCapability.resolveRuntimeBinding(module.codeDependencies,
+            module.jsxPlan);
+          for (entry in module.moduleFunctionPlan.rootPublicEntries()) {
+            final publicName = entry.publicExportName;
+            if (publicName != null)
+              IncrementalShadow.publicEntry(name, publicName,
+                entry.requestedPos);
+          }
+          generateImplementation(auditApi, module, outputDir, scratch);
+        });
+      }
+      endAuditTimer();
+    }
     // Stage 3: compare and store only after the complete tree is public, so
     // a failed request keeps the cache of the last successful generation.
     IncrementalShadow.committed();

@@ -57,6 +57,19 @@
  * recorded path: the go/no-go number of slice S2. It is not part of the
  * default gate.
  *
+ * The rolling replay audit (genes-f8vc.9.23): after a reuse request has
+ * published its tree, Genes prints replayed modules again into memory and
+ * compares the bytes. `--audit=<n|all|off>` sets how many replayed modules
+ * each reuse request prints again (descriptor field `audit.modules`); the
+ * default `all` prints every replayed module, so the reuse pass also proves
+ * that the audit reports no difference on any edit of the list (no false
+ * mismatch). An edit with `auditMismatch` reaches a known hole of the clean
+ * rules (limit L3: metadata on a local variable of a typed body): compare
+ * must report the named modules, and in reuse the audit must report them,
+ * drop the cache, and the next request must equal the cold tree again.
+ * `--audit=off` shows the red case: the stale replay is not seen and stays
+ * in the cache for the next request.
+ *
  * Before the edits, `CleanRuleProbe` checks three rules with made-up inputs:
  * the output lines of the session key (no absolute output path), the clean
  * rule for a module without a declaration stamp, and the refusal of compare
@@ -125,8 +138,14 @@ const options = (() => {
   // that contains it, or, with a leading "=", the id that equals it. Plain
   // text matching: the value never becomes a regular expression.
   const only = value("only");
+  const audit = value("audit") ?? "all";
+  ok(audit === "all" || audit === "off" || /^[0-9]+$/.test(audit),
+    `--audit must be all, off or a whole number: ${audit}`);
   return {
     modes: modes as GenerationMode[],
+    // The descriptor's `audit.modules` of the reuse pass (see the file
+    // comment); `all` is more than any fixture replays.
+    auditModules: audit === "all" ? 1_000_000 : audit === "off" ? 0 : Number(audit),
     only: only === undefined ? null : only.split("|").filter((part) => part.length > 0),
     skipPlain: process.argv.includes("--skip-plain"),
     skipProbe: process.argv.includes("--skip-probe"),
@@ -164,6 +183,7 @@ type ShadowReport = {
   readonly projectedGenerationMs: number;
   readonly cacheBytes: number;
   readonly cacheAnswerBytes: number;
+  readonly cacheStored: boolean;
   readonly replayable: number;
   readonly replayed: number;
   readonly replayedFiles: number;
@@ -179,6 +199,15 @@ type ShadowReport = {
     readonly module: string;
     readonly state: string;
   }>;
+  /** The rolling replay audit (report format 5). */
+  readonly audit: {
+    readonly modules: number;
+    readonly seed: number;
+    readonly audited: ReadonlyArray<string>;
+    readonly mismatches: ShadowReport["mismatches"];
+    readonly ms: number;
+    readonly cacheDropped: boolean;
+  };
   /** The reachability walk with stored edges (slice S2; report format 4). */
   readonly walk: {
     readonly pass: string;
@@ -265,6 +294,16 @@ type Edit = {
    * reason, mode and refusal checks.
    */
   readonly notMeasured?: boolean;
+  /**
+   * Modules whose stored output this edit makes stale through a known hole
+   * of the clean rules (limit L3). Compare must report a mismatch for each
+   * of them (and only for them). In reuse the published tree may differ from
+   * the cold tree only in their files, and the rolling replay audit must
+   * report each of them, drop the generation cache and warn with
+   * `GENES-INCREMENTAL-AUDIT-001`; the next request must then equal the
+   * cold tree. Needs the audit on for these modules (`--audit=all`).
+   */
+  readonly auditMismatch?: ReadonlyArray<string>;
   /**
    * Files (relative to the output folder) that the cold tree must hold, or
    * must not hold, after the edit; checked only with `--react-refresh`.
@@ -1634,6 +1673,42 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var fableMixValueOnly = 1;\n")
   },
   {
+    // genes-f8vc.9.23, limit L3 of the round-3 review of genes-ts #244:
+    // inc.ArgMetaMacro writes `@:ts.type("string")` on the local variable of
+    // the argument `count` of inc.ArgMeta.show, which only the typed body of
+    // `show` holds. Haxe does not type inc.ArgMeta again and no clean rule
+    // reads that metadata, so reuse replays `count: number` where cold
+    // prints `count: string`. The rolling replay audit prints inc.ArgMeta
+    // again, sees the difference and drops the cache.
+    id: "L3 after-typing macro writes metadata on the local variable of a method argument",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var argMetaType = 1;\n"),
+    auditMismatch: ["inc.ArgMeta"]
+  },
+  {
+    // Before the audit evicted it, the stale entry stayed: this request
+    // replayed `count: number` again. Now reuse must generate in full here
+    // (checked for every request after an audit difference).
+    id: "L3 no edit after the audit dropped the cache",
+    apply: () => {}
+  },
+  {
+    id: "L3 no edit with the new cache",
+    apply: () => {},
+    results: ["incremental"]
+  },
+  {
+    // The macro removes the metadata again: the same hole the other way.
+    id: "L3 after-typing macro removes the metadata of the method argument",
+    apply: () => edit("inc/Leaf2.hx",
+      "class Leaf2 {\n  public static var argMetaType = 1;\n", "class Leaf2 {"),
+    auditMismatch: ["inc.ArgMeta"]
+  },
+  {
+    id: "L3 no edit after the second audit difference",
+    apply: () => {}
+  },
+  {
     // Stage 3 slice S2 merged with #249 (journal note 2138): inc.Mark3Macro
     // removes `@:ts.type("number")` from the late class
     // inc.LateEnum.LateTyped. While the class had the override, the plan of
@@ -1733,6 +1808,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.MarkMacro.install()",
     "--macro", "inc.Mark2Macro.install()",
     "--macro", "inc.Mark3Macro.install()",
+    "--macro", "inc.ArgMetaMacro.install()",
     "--macro", "inc.FableMacro.install()",
     "--macro", "inc.UnlistedMacro.install()",
     "--macro", "inc.Fable3Macro.install()",
@@ -1789,7 +1865,8 @@ function writeDescriptor(): void {
       programDigest: digest,
       kind: "full",
       afterTyping: request.afterTyping,
-      generation: request.generation
+      generation: request.generation,
+      audit: { modules: options.auditModules, seed: 0 }
     })
   );
 }
@@ -1875,6 +1952,9 @@ type Row = {
   readonly walkPass: string;
   readonly storedWalkMs: number;
   readonly liveWalkMs: number;
+  /** Modules that the rolling replay audit printed again, and its time. */
+  readonly audited: number;
+  readonly auditMs: number;
 };
 
 /** Runs one read-only Git command in the repository and returns its output. */
@@ -1941,9 +2021,10 @@ async function main(): Promise<void> {
     JSON.stringify({ loadAtStart, loadAtEnd, results }, null, 2));
   printTimeComparison(results);
   const partial = options.only !== null || options.skipPlain
-    || options.skipProbe;
+    || options.skipProbe || options.auditModules < 1_000_000;
   const counts = results.map((result) =>
-    `${result.mode}: ${result.edits} edits, ${result.replayed} replayed modules`)
+    `${result.mode}: ${result.edits} edits, ${result.replayed} replayed modules`
+    + (result.mode === "reuse" ? `, audit ${options.auditModules === 0 ? "off" : options.auditModules >= 1_000_000 ? "all" : String(options.auditModules)}` : ""))
     .join("; ");
   process.stdout.write(
     `compiler-server-shadow:${partial ? "partial" : "ok"} (Haxe `
@@ -1967,16 +2048,20 @@ function printTimeComparison(results: ReadonlyArray<PassResult>): void {
   const reuse = results.find((result) => result.mode === "reuse");
   if (compare === undefined || reuse === undefined)
     return;
-  process.stdout.write("edit | compare generation ms | reuse generation ms | replayed\n");
+  process.stdout.write("edit | compare generation ms | reuse generation ms "
+    + "without the audit | replayed\n");
   let saved = 0;
   let counted = 0;
   for (const row of reuse.rows) {
     const other = compare.rows.find((entry) => entry.id === row.id);
     if (other === undefined || row.replayed === 0)
       continue;
-    saved += other.generationMs - row.generationMs;
+    // The audit runs after publication: leave its time out of the
+    // comparison (it is printed per request in the reuse table).
+    const reuseMs = row.generationMs - row.auditMs;
+    saved += other.generationMs - reuseMs;
     counted++;
-    process.stdout.write(`${row.id} | ${other.generationMs} | ${row.generationMs} | ${row.replayed}\n`);
+    process.stdout.write(`${row.id} | ${other.generationMs} | ${reuseMs} | ${row.replayed}\n`);
   }
   if (counted > 0)
     process.stdout.write(`mean generation time saved on ${counted} replaying `
@@ -2012,7 +2097,11 @@ async function runPass(
   const plainProbe = path.join(tempRoot, "plain.stamps.txt");
   const shadowProbe = path.join(tempRoot, "shadow.stamps.txt");
   let replayedTotal = 0;
+  let auditedTotal = 0;
   let editsRun = 0;
+  // True after a reuse request whose audit dropped the cache: the next
+  // request must generate in full and equal the cold tree.
+  let afterAuditDrop = false;
   try {
     for (const [index, step] of edits.entries()) {
       if (index > 0 && options.only !== null && !selected(options.only, step.id))
@@ -2062,7 +2151,7 @@ async function runPass(
           fallbackLookups: 0, generationMs: 0, projectedMs: 0, overheadMs: 0,
           cacheBytes: 0, cacheAnswerBytes: 0, replayed: 0, reason: "",
           walk: "failed", walkLeft: "", walkPass: "", storedWalkMs: 0,
-          liveWalkMs: 0
+          liveWalkMs: 0, audited: 0, auditMs: 0
         });
         continue;
       }
@@ -2122,8 +2211,15 @@ async function runPass(
       // G1: the shadow published the cold tree; in compare mode every module
       // that reuse would replay also had the bytes that the full generation
       // staged.
+      // A known hole (`auditMismatch`) leaves stale files of the named
+      // modules in the tree of a reuse request: the audit runs after
+      // publication. Every other file must equal the cold tree.
+      const holeModules = step.auditMismatch ?? [];
+      const holeFile = (file: string): boolean => mode === "reuse"
+        && holeModules.some((module) =>
+          file.startsWith(`${module.split(".").join("/")}.`));
       const shadowDifference = treeDifference(hashTree(outputRoot("shadow")),
-        coldTree);
+        coldTree).filter((file) => !holeFile(file));
       deepStrictEqual(
         shadowDifference,
         [],
@@ -2131,12 +2227,67 @@ async function runPass(
         + `differs from the cold build:\n${shadowDifference.join("\n")}`
       );
       // Mismatches are collected over all edits, so that one run lists every
-      // cause; the gate fails at the end.
+      // cause; the gate fails at the end. Compare must report the modules of
+      // a known hole, and only those.
+      const compareHole = new Set<string>();
       for (const mismatch of report.mismatches) {
+        if (holeModules.includes(mismatch.module)) {
+          compareHole.add(mismatch.module);
+          continue;
+        }
         g1Failures.push(`${label}: ${mismatch.module} ${mismatch.path} `
           + `${mismatch.kind} at line ${mismatch.line}\n  stored: `
           + `${mismatch.stored}\n  staged: ${mismatch.staged}`);
       }
+      if (mode === "compare" && report.result !== "off")
+        deepStrictEqual([...compareHole].sort(), [...holeModules].sort(),
+          `${label}: compare must report the stale output of the known hole`);
+      // The rolling replay audit (reuse): no difference except the modules
+      // of a known hole, and those must be found, evicted and warned about.
+      const auditFound = new Set<string>();
+      for (const mismatch of report.audit?.mismatches ?? []) {
+        if (holeModules.includes(mismatch.module)) {
+          auditFound.add(mismatch.module);
+          process.stdout.write(`${label}: the replay audit found the known `
+            + `hole: ${mismatch.module} ${mismatch.path} ${mismatch.kind} at `
+            + `line ${mismatch.line}; stored: ${mismatch.stored}; printed: `
+            + `${mismatch.staged}\n`);
+          continue;
+        }
+        g1Failures.push(`${label}: the replay audit found ${mismatch.module} `
+          + `${mismatch.path} ${mismatch.kind} at line ${mismatch.line}\n  `
+          + `stored: ${mismatch.stored}\n  printed: ${mismatch.staged}`);
+      }
+      // With `--audit=off` nothing is printed again: the stale files stay
+      // published, and the next request shows that they stay in the cache.
+      if (mode === "reuse" && holeModules.length > 0
+        && options.auditModules > 0) {
+        deepStrictEqual([...auditFound].sort(), [...holeModules].sort(),
+          `${label}: the rolling replay audit did not report the stale `
+          + `output of the known hole (audited: `
+          + `${(report.audit?.audited ?? []).join(" ")})`);
+        ok(report.audit.cacheDropped && !report.cacheStored,
+          `${label}: the audit difference did not drop the generation cache`);
+        ok(`${shadowed.stdout}\n${shadowed.stderr}`
+          .includes("GENES-INCREMENTAL-AUDIT-001"),
+          `${label}: the request did not warn with GENES-INCREMENTAL-AUDIT-001`);
+      }
+      if (afterAuditDrop) {
+        // The tree comparison above already required the cold tree.
+        strictEqual(report.result, "full",
+          `${label}: the request after an audit difference must generate in `
+          + `full (${String(report.reason)})`);
+        strictEqual(report.replayed, 0,
+          `${label}: the request after an audit difference replayed modules`);
+      }
+      afterAuditDrop = mode === "reuse" && (report.audit?.cacheDropped ?? false);
+      if (mode === "reuse" && report.result !== "off"
+        && options.auditModules > 0)
+        strictEqual(report.audit.audited.length,
+          Math.min(options.auditModules, report.replayed),
+          `${label}: the audit printed ${report.audit.audited.length} of `
+          + `${report.replayed} replayed modules`);
+      auditedTotal += report.audit?.audited.length ?? 0;
       // Diagnostics are output too: each request reports the warnings of the
       // cold build, also for a module that Haxe did not type again or whose
       // stored output was replayed.
@@ -2269,7 +2420,8 @@ async function runPass(
   process.stdout.write(
     `[${mode}] edit | result | typed again | emitted | clean | replayed | `
     + "mismatches | generation ms | projected ms | overhead ms | cache bytes "
-    + "| answer bytes | walk | walk pass | stored walk ms | live walk ms\n"
+    + "| answer bytes | walk | walk pass | stored walk ms | live walk ms "
+    + "| audited | audit ms\n"
   );
   for (const entry of rows) {
     process.stdout.write(
@@ -2277,7 +2429,8 @@ async function runPass(
       + `| ${entry.clean} | ${entry.replayed} | ${entry.mismatches} `
       + `| ${entry.generationMs} | ${entry.projectedMs} | ${entry.overheadMs} `
       + `| ${entry.cacheBytes} | ${entry.cacheAnswerBytes} | ${entry.walk} `
-      + `| ${entry.walkPass} | ${entry.storedWalkMs} | ${entry.liveWalkMs}`
+      + `| ${entry.walkPass} | ${entry.storedWalkMs} | ${entry.liveWalkMs} `
+      + `| ${entry.audited} | ${entry.auditMs}`
       + (entry.reason.length > 0 ? ` | ${entry.reason}` : "")
       + (entry.walkLeft.length > 0 ? ` | walk: ${entry.walkLeft}` : "")
       + "\n"
@@ -2302,6 +2455,14 @@ async function runPass(
   );
   if (mode === "reuse")
     ok(replayedTotal > 0, "the reuse pass replayed no module");
+  if (mode === "reuse" && options.auditModules > 0)
+    ok(auditedTotal > 0, "the reuse pass audited no module");
+  const auditRows = rows.filter((entry) => entry.audited > 0);
+  if (auditRows.length > 0)
+    process.stdout.write(`[${mode}] rolling replay audit: ${auditedTotal} `
+      + `modules printed again in ${auditRows.length} requests, mean `
+      + `${(auditRows.reduce((sum, entry) => sum + entry.auditMs, 0)
+        / auditRows.length).toFixed(1)} ms per request (diagnostic)\n`);
   return { mode, rows, replayed: replayedTotal, edits: editsRun };
 }
 
@@ -2352,7 +2513,9 @@ function row(id: string, report: ShadowReport): Row {
     walkLeft: report.walk?.left ?? "",
     walkPass: report.walk?.pass ?? "",
     storedWalkMs: report.walk?.storedMs ?? 0,
-    liveWalkMs: report.walk?.liveMs ?? 0
+    liveWalkMs: report.walk?.liveMs ?? 0,
+    audited: report.audit?.audited.length ?? 0,
+    auditMs: report.audit?.ms ?? 0
   };
 }
 

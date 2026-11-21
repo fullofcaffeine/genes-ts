@@ -51,6 +51,7 @@ class Main {
       MetaTarget.value(),
       ColorFacts.value(),
       ExtUser.run(),
+      ArgMeta.value(),
       AnonSig.value(),
       Constrained.value(),
       LateUser.run(),

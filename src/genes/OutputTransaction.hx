@@ -59,6 +59,13 @@ class OutputTransaction {
   var committed = false;
 
   /**
+   * True for a scratch transaction (`scratch`): files are given to
+   * `onRegister` and kept nowhere else, and the transaction can never be
+   * committed.
+   */
+  var memoryOnly = false;
+
+  /**
    * Receives the relative path and the final text of each registered file,
    * or `null` (the default) for no observer.
    *
@@ -93,6 +100,29 @@ class OutputTransaction {
     final scope = safeScope(ownerIdentity);
     manifestRelative = '.genes-output-$scope.manifest';
     stageRelative = '.genes-output-$scope.stage';
+  }
+
+  /**
+   * Returns a scratch transaction for the same output folder and entry file:
+   * writers and `writeContent` work as in a real transaction and give each
+   * final file text to `onRegister`, but nothing is written to disk, and
+   * `commit` refuses.
+   *
+   * Why: the rolling replay audit (`genes.incremental.IncrementalShadow
+   * .auditModule`) prints a module again after the real transaction has
+   * published the tree. It needs the exact bytes that a real print stages,
+   * with the same relative paths and the same end-of-file rule, without a
+   * second staging folder beside the published output.
+   *
+   * Example: `OutputTransaction.scratch('out', 'index.tsx')` with
+   * `onRegister` set; `writer('out/inc/A.tsx')` then reports `inc/A.tsx`.
+   */
+  public static function scratch(outputDirectory: String,
+      entrypointIdentity: String): OutputTransaction {
+    final transaction = new OutputTransaction(outputDirectory,
+      entrypointIdentity);
+    transaction.memoryOnly = true;
+    return transaction;
   }
 
   /**
@@ -141,7 +171,7 @@ class OutputTransaction {
    * after a failed commit rollback.
    */
   public function abort(): Void {
-    if (committed)
+    if (committed || memoryOnly)
       return;
     // A rejected pre-existing stage link is not compiler-owned cleanup. Skip
     // it instead of following it and turning a safe diagnostic into data loss.
@@ -161,6 +191,8 @@ class OutputTransaction {
   public function commit(): Void {
     if (committed)
       throw new haxe.Exception('Genes output transaction was already committed');
+    if (memoryOnly)
+      throw new haxe.Exception('A Genes scratch transaction cannot be committed');
 
     final mutated: Map<String, Bool> = new Map();
     final backups: Map<String, Bytes> = new Map();
@@ -272,6 +304,14 @@ class OutputTransaction {
       throw new haxe.Exception('Cannot register output after commit: $relative');
     if (staged.exists(relative))
       throw new haxe.Exception('Two emitters own the same output path: $relative');
+    if (memoryOnly) {
+      // A scratch transaction keeps no file: the observer gets the text.
+      staged.set(relative, true);
+      final observer = onRegister;
+      if (observer != null)
+        observer(relative, content);
+      return;
+    }
     // Staging writes the complete file. Its own timer in `haxe --times`
     // (`genes.publish.stage`, beside `genes.publish.transaction`) shows what
     // a request pays to stage files, also files whose text did not change.
