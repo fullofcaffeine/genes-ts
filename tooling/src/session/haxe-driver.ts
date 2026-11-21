@@ -48,6 +48,22 @@ export interface SessionCompiler {
     prepared?: PreparedCompilerRequest,
     invalidatedFiles?: readonly string[],
   ): Promise<CompilerResult>;
+
+  /**
+   * Runs one Haxe request in a new process that this call starts and stops,
+   * never on the owned compiler server, and rejects when Haxe fails or
+   * `signal` aborts (the process is then stopped).
+   *
+   * Why: the cold build of the output check (`GenerationReuseOptions`) needs
+   * a tree that no cache produced, while the warm server keeps its cache.
+   * Optional, so that an adapter without it simply has no cold build.
+   */
+  compileCold?(
+    invocation: BoundHaxeInvocation,
+    signal: AbortSignal,
+    prepared?: PreparedCompilerRequest,
+  ): Promise<void>;
+
   close(): Promise<void>;
 }
 
@@ -515,6 +531,22 @@ export class HaxeSessionCompiler implements SessionCompiler {
     return this.#freshServers === 0
       ? compatibilityDigest
       : `${compatibilityDigest}:fresh-${this.#freshServers}`;
+  }
+
+  async compileCold(
+    invocation: BoundHaxeInvocation,
+    signal: AbortSignal,
+    prepared?: PreparedCompilerRequest,
+  ): Promise<void> {
+    const result = await runCommand(
+      invocation,
+      commandArgs(invocation, null, prepared),
+      signal,
+      this.#shutdownTimeoutMs,
+    );
+    if (result.code !== 0) {
+      throw new HaxeCommandError(result, invocation.candidateRoot);
+    }
   }
 
   async close(): Promise<void> {

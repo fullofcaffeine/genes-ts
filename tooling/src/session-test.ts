@@ -85,12 +85,14 @@ import {
   claimSessionRootOwner,
 } from "./session/session-lock.js";
 import type {
+  AcceptedGeneration,
   DevelopmentEvent,
   DevelopmentSession,
   ExistingGenerationImport,
   ExistingGenerationReplacement,
   GenesDevelopmentOptions,
   JsonValue,
+  OutputCheck,
 } from "./session/types.js";
 
 interface TestDiagnostic {
@@ -111,6 +113,21 @@ interface CompileStep {
   readonly beforeInvocationGuard?: () => void;
   readonly compilerData?: Readonly<Record<string, string>>;
   readonly afterCompilerData?: (slots: readonly FakeCompilerDataSlot[]) => void;
+  /**
+   * Modules that the fake Genes rolling replay audit reports as different,
+   * written to the generation report beside the incremental descriptor.
+   */
+  readonly replayAudit?: readonly string[];
+}
+
+/** One cold build of the output check (`SessionCompiler.compileCold`). */
+interface ColdStep {
+  readonly content?: string;
+  readonly fail?: string;
+  /** Resolved when the cold build has started. */
+  readonly started?: Deferred<void>;
+  /** The cold build waits for this, or for its abort signal. */
+  readonly hold?: Deferred<void>;
 }
 
 interface FakeCompilerDataSlot {
@@ -269,8 +286,36 @@ assert.match(
   "tooling must use the compiler's UTF-16 manifest scope spelling",
 );
 
+/** Writes one fake Genes candidate: the entry file and its ownership manifest. */
+function writeFakeCandidate(
+  candidateOutputFile: string,
+  content: string,
+  extraFiles: Readonly<Record<string, string>> = {},
+): void {
+  mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
+  writeFileSync(candidateOutputFile, content, "utf8");
+  const entries = [path.basename(candidateOutputFile)];
+  for (const [relative, bytes] of Object.entries(extraFiles)) {
+    const absolute = path.join(path.dirname(candidateOutputFile), ...relative.split("/"));
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, bytes, "utf8");
+    entries.push(relative);
+  }
+  entries.sort();
+  const owner = path.basename(candidateOutputFile);
+  writeFileSync(
+    path.join(path.dirname(candidateOutputFile), manifestName(owner)),
+    `genes-output-manifest-v2\nowner-base64:${Buffer.from(owner).toString("base64")}\n${entries.join("\n")}\n`,
+    "utf8",
+  );
+}
+
 class FakeCompiler implements SessionCompiler {
   readonly steps: CompileStep[] = [];
+  readonly coldSteps: ColdStep[] = [];
+  readonly coldInvocations: Parameters<SessionCompiler["compile"]>[0][] = [];
+  /** The text of the incremental descriptor that each warm request read. */
+  readonly incrementalDescriptors: (string | null)[] = [];
   readonly modes: Array<"connected" | "direct"> = [];
   readonly compatibilityDigests: string[] = [];
   readonly invocations: Parameters<SessionCompiler["compile"]>[0][] = [];
@@ -302,6 +347,31 @@ class FakeCompiler implements SessionCompiler {
       }
     }
     const step = this.steps.shift() ?? { content: "export const value = 1;\n" };
+    const incrementalArgument = _invocation.arguments.find((argument) =>
+      argument.startsWith("genes.dev_incremental="),
+    );
+    const descriptorPath = incrementalArgument?.slice("genes.dev_incremental=".length);
+    this.incrementalDescriptors.push(
+      descriptorPath === undefined ? null : readFileSync(descriptorPath, "utf8"),
+    );
+    if (descriptorPath !== undefined && step.replayAudit !== undefined) {
+      writeFileSync(
+        `${descriptorPath}.report.json`,
+        JSON.stringify({
+          audit: {
+            mismatches: step.replayAudit.map((module) => ({
+              module,
+              path: "",
+              kind: "text differs",
+              line: 1,
+              stored: "",
+              staged: "",
+            })),
+          },
+        }),
+        "utf8",
+      );
+    }
     step.beforeInvocationGuard?.();
     await assertInvocationCurrent?.();
     if (step.hold !== undefined) {
@@ -378,6 +448,33 @@ class FakeCompiler implements SessionCompiler {
     const mode = step.mode ?? "connected";
     this.modes.push(mode);
     return { mode };
+  }
+
+  async compileCold(
+    invocation: Parameters<SessionCompiler["compile"]>[0],
+    signal: AbortSignal,
+  ): Promise<void> {
+    this.coldInvocations.push(invocation);
+    const step = this.coldSteps.shift() ?? {};
+    step.started?.resolve();
+    if (step.hold !== undefined) {
+      await Promise.race([
+        step.hold.promise,
+        new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) reject(new Error("fake cold build cancelled"));
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("fake cold build cancelled")),
+            { once: true },
+          );
+        }),
+      ]);
+    }
+    if (step.fail !== undefined) throw new Error(step.fail);
+    writeFakeCandidate(
+      invocation.candidateOutputFile,
+      step.content ?? "export const value = 1;\n",
+    );
   }
 
   async close(): Promise<void> {
@@ -7500,6 +7597,236 @@ await withHarness(
       ],
     };
   },
+);
+
+/** Returns the `output-check` events so far, waiting until there are `count`. */
+async function outputChecks(
+  harness: Harness,
+  count: number,
+): Promise<OutputCheck[]> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const checks = harness.events.flatMap((event) =>
+      event.event.kind === "output-check" ? [event.event.outputCheck] : [],
+    );
+    if (checks.length >= count) return checks;
+    assert.ok(
+      Date.now() < deadline,
+      `expected ${count} output checks, got ${JSON.stringify(checks)}`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/** Waits until the session has accepted `generation`, then until it is idle. */
+async function acceptedGeneration(
+  harness: Harness,
+  generation: number,
+): Promise<AcceptedGeneration> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    await harness.session.waitForIdle();
+    const accepted = harness.session.inspect().accepted;
+    if (accepted !== null && accepted.generation >= generation) return accepted;
+    assert.ok(
+      Date.now() < deadline,
+      `expected generation ${generation}: ${JSON.stringify(harness.session.inspect())}`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+// Without `generationReuse` the session asks Genes for measure only, and
+// reports no output check (genes-f8vc.9.23).
+await withHarness("generation-reuse-off", async (harness) => {
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  const descriptor = JSON.parse(harness.compiler.incrementalDescriptors[0]!) as {
+    readonly afterTyping: string;
+    readonly generation?: string;
+  };
+  assert.equal(descriptor.afterTyping, "measure");
+  assert.equal(descriptor.generation, undefined);
+  assert.equal(
+    harness.events.some((event) => event.event.kind === "output-check"),
+    false,
+  );
+});
+
+// A wrong `generationReuse` value fails when the session is constructed.
+{
+  const invalidRoot = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-reuse-invalid-")),
+  );
+  try {
+    assert.throws(
+      () =>
+        makeHarness(
+          "reuse-invalid",
+          undefined,
+          (options) => ({ ...options, generationReuse: { auditModules: -1 } }),
+          invalidRoot,
+        ),
+      /generationReuse\.auditModules must be a whole number/u,
+    );
+  } finally {
+    rmSync(invalidRoot, { recursive: true, force: true });
+  }
+}
+
+// The rolling replay audit: Genes reports, in its generation report, a
+// replayed module whose new print differs. The session announces it and
+// builds the same revision again on the same server (Genes has dropped its
+// cache, so that build prints every module).
+await withHarness(
+  "generation-reuse-replay-audit",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 2;\n", replayAudit: ["inc.Stale"] },
+      { content: "export const value = 3;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const descriptor = JSON.parse(harness.compiler.incrementalDescriptors[0]!) as {
+      readonly afterTyping: string;
+      readonly generation: string;
+      readonly audit: { readonly modules: number; readonly seed: number };
+    };
+    assert.equal(descriptor.afterTyping, "reuse");
+    assert.equal(descriptor.generation, "reuse");
+    assert.deepEqual(descriptor.audit, { modules: 2, seed: 0 });
+    writeFileSync(harness.source, "class Main { static var v = 2; }\n", "utf8");
+    currentWatch(harness).change(harness.source);
+    const [audit] = await outputChecks(harness, 1);
+    assert.deepEqual(audit, {
+      check: "replay-audit",
+      generation: 2,
+      result: "differs",
+      paths: ["inc.Stale"],
+    });
+    const repaired = await acceptedGeneration(harness, 3);
+    assert.equal(repaired.revision, 2, "the repair builds the same revision");
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const value = 3;\n",
+    );
+    assert.equal(
+      new Set(harness.compiler.compatibilityDigests).size,
+      1,
+      "an audit difference keeps the server",
+    );
+    assert.equal(harness.compiler.coldInvocations.length, 0, "no cold build");
+  },
+  undefined,
+  (options) => ({ ...options, generationReuse: { coldCheckEvery: 0 } }),
+);
+
+// The cold build of the output check: after every second accepted warm
+// generation the session builds the accepted revision in a new process and
+// compares the trees. An edit cancels it (the check stays due), and a
+// difference starts a new server and builds the revision again.
+await withHarness(
+  "generation-reuse-cold-check",
+  async (harness) => {
+    const edit = (value: number): void => {
+      writeFileSync(
+        harness.source,
+        `class Main { static var v = ${value}; }\n`,
+        "utf8",
+      );
+      currentWatch(harness).change(harness.source);
+    };
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await acceptedGeneration(harness, 1);
+    assert.equal(harness.compiler.coldInvocations.length, 0, "one generation is not due");
+
+    harness.compiler.steps.push({ content: "export const value = 2;\n" });
+    harness.compiler.coldSteps.push({ content: "export const value = 2;\n" });
+    edit(2);
+    await acceptedGeneration(harness, 2);
+    const [equal] = await outputChecks(harness, 1);
+    assert.deepEqual(equal, {
+      check: "cold-build",
+      generation: 2,
+      result: "equal",
+      paths: [],
+    });
+    const cold = harness.compiler.coldInvocations[0]!;
+    assert.equal(
+      cold.arguments.some((argument) => argument.startsWith("genes.dev_incremental=")),
+      false,
+      "the cold build has no incremental define",
+    );
+    const candidates = path.join(harness.root, ".genes/dev/candidates");
+    assert.deepEqual(
+      path.relative(candidates, cold.candidateOutputFile).split(path.sep).slice(1),
+      ["output", "index.ts"],
+      "the cold tree is at the depth of a candidate folder",
+    );
+    assert.match(path.relative(candidates, cold.candidateOutputFile), /^cold-2-/u);
+    assert.equal(
+      existsSync(path.dirname(path.dirname(cold.candidateOutputFile))),
+      false,
+      "the private cold folder is removed",
+    );
+
+    harness.compiler.steps.push({ content: "export const value = 3;\n" });
+    edit(3);
+    await acceptedGeneration(harness, 3);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(harness.compiler.coldInvocations.length, 1, "the count starts again");
+
+    const started = deferred<void>();
+    const hold = deferred<void>();
+    harness.compiler.coldSteps.push(
+      { started, hold },
+      { content: "export const value = 'cold';\n" },
+    );
+    harness.compiler.steps.push(
+      { content: "export const value = 4;\n" },
+      { content: "export const value = 5;\n" },
+      { content: "export const value = 6;\n" },
+    );
+    edit(4);
+    await acceptedGeneration(harness, 4);
+    await started.promise;
+    const serversBefore = new Set(harness.compiler.compatibilityDigests).size;
+    edit(5);
+    const cancelled = (await outputChecks(harness, 2))[1];
+    assert.deepEqual(cancelled, {
+      check: "cold-build",
+      generation: 4,
+      result: "cancelled",
+      paths: [],
+    });
+    await acceptedGeneration(harness, 5);
+    const differs = (await outputChecks(harness, 3))[2];
+    assert.deepEqual(differs, {
+      check: "cold-build",
+      generation: 5,
+      result: "differs",
+      paths: ["src-gen/index.ts"],
+    });
+    const repaired = await acceptedGeneration(harness, 6);
+    assert.equal(repaired.revision, 5, "the repair builds the same revision");
+    assert.equal(
+      new Set(harness.compiler.compatibilityDigests).size,
+      serversBefore + 1,
+      "a cold-build difference starts a new server",
+    );
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const value = 6;\n",
+    );
+    assert.equal(harness.compiler.coldInvocations.length, 3);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    generationReuse: { auditModules: 0, coldCheckEvery: 2 },
+  }),
 );
 
 console.log("genes tooling development session runtime: ok");

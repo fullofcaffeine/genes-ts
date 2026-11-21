@@ -172,6 +172,21 @@ One JSON-lines event can therefore be consumed directly by automation:
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":8,"at":1785520800000,"event":{"kind":"generation-accepted","accepted":{"generation":2,"revision":3,"acceptedAt":1785520800000,"manifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","compilerMode":"connected","files":{"created":[],"updated":["src-gen/index.tsx"],"deleted":[]},"entryChanged":true}}}
 ```
 
+A session with `generationReuse` (Genes replays the output of unchanged
+modules) also emits `output-check` events. One reports either a difference
+that the Genes rolling replay audit found during a build (`check:
+"replay-audit"`, `paths` names the Haxe modules), or the result of a cold
+build of an accepted revision in a new Haxe process (`check: "cold-build"`,
+`result` `equal`, `differs`, `cancelled` or `failed`; `paths` lists up to 50
+project-relative files that differ). After `differs`, the session builds the
+same revision again, so the next `generation-accepted` event can name the
+revision of the generation that the check found stale. A session without
+`generationReuse` never emits this kind.
+
+```json
+{"protocol":"genes.tooling.development-session-event","version":1,"sequence":12,"at":1785520900000,"event":{"kind":"output-check","outputCheck":{"check":"cold-build","generation":5,"result":"differs","paths":["src-gen/inc/ArgMeta.tsx"]}}}
+```
+
 The diagnostic inside a validation failure is host-owned JSON. Before it enters
 an event, tooling removes private candidate, state, and project paths from
 every string and object key. It otherwise preserves the host's values. The

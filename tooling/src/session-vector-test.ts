@@ -257,6 +257,31 @@ assert.equal(
     { separator: "\n" },
   )}`,
 );
+// The output-check event (genes-f8vc.9.23) is emitted only with
+// `generationReuse`; its released shape is checked here.
+const validateProtocolEvent = ajv.getSchema(protocolSchema.$id);
+assert.notEqual(validateProtocolEvent, undefined);
+for (const [outputCheck, valid] of [
+  [{ check: "cold-build", generation: 3, result: "differs", paths: ["src-gen/index.ts"] }, true],
+  [{ check: "replay-audit", generation: 2, result: "differs", paths: ["inc.Stale"] }, true],
+  [{ check: "cold-build", generation: 4, result: "cancelled", paths: [] }, true],
+  [{ check: "cold-build", generation: 5, result: "failed", paths: [], code: "COLD_BUILD_FAILED" }, true],
+  [{ check: "cold-build", generation: 5, result: "unknown", paths: [] }, false],
+  [{ check: "cold-build", generation: 0, result: "equal", paths: [] }, false],
+  [{ check: "replay-audit", generation: 2, result: "differs", paths: [], extra: 1 }, false],
+] as const) {
+  assert.equal(
+    validateProtocolEvent!({
+      protocol: DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+      version: DEVELOPMENT_SESSION_EVENT_VERSION,
+      sequence: 1,
+      at: 1,
+      event: { kind: "output-check", outputCheck },
+    }),
+    valid,
+    `output-check ${JSON.stringify(outputCheck)} must be ${valid ? "valid" : "rejected"}`,
+  );
+}
 const invalidSequenceCorpus = structuredClone(corpus) as unknown as {
   vectors: Array<{
     expected: { eventChecks: Array<{ sequence: number }> };

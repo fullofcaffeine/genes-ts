@@ -173,6 +173,29 @@
         }
       ]
     },
+    "outputCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "generation", "result", "paths"],
+      "properties": {
+        "check": { "enum": ["replay-audit", "cold-build"] },
+        "generation": { "$ref": "#/$defs/positiveInteger" },
+        "result": { "enum": ["equal", "differs", "cancelled", "failed"] },
+        "paths": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "code": {
+          "enum": [
+            "PREPARED_FILES_CHANGED",
+            "COLD_BUILD_FAILED",
+            "COLD_BUILD_UNSUPPORTED"
+          ]
+        }
+      }
+    },
     "compilerLifecycle": {
       "oneOf": [
         {
@@ -344,6 +367,15 @@
           "properties": {
             "kind": { "const": "compiler-lifecycle" },
             "event": { "$ref": "#/$defs/compilerLifecycle" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "outputCheck"],
+          "properties": {
+            "kind": { "const": "output-check" },
+            "outputCheck": { "$ref": "#/$defs/outputCheck" }
           }
         },
         {
