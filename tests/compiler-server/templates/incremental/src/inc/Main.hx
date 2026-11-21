@@ -60,6 +60,7 @@ class Main {
       TsTypedUser.run(),
       ShadeUser.value(),
       FableMixUser.value(),
+      BodyMeta.value(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

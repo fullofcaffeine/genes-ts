@@ -58,6 +58,8 @@ class CleanRuleProbe {
     checkReplayRules();
     checkEmissionFeatures();
     checkExcludedMetadata();
+    checkMetadataHolders();
+    checkBodyHolderReads();
     checkMetadataFingerprint();
     checkStepInputs();
     Sys.println('clean-rule-probe:ok ($cases cases)');
@@ -243,6 +245,101 @@ class CleanRuleProbe {
             'no reader outside genes.incremental', 'a reader in $file');
       }
     }
+  }
+
+  /**
+   * The macro API of the running Haxe has exactly four kinds of metadata
+   * holder, `ClassField`, `EnumField`, `BaseType` and `TVar`, and one more
+   * writer after typing, `BaseType.exclude()` (genes-f8vc.9.27).
+   *
+   * Why: the replay is sound for macro writes only if each holder kind has
+   * a check. Declarations, their fields, constructors, type parameters and
+   * declared structures are compared by `GenerationChangeSet
+   * .compareMetadata` and the fingerprints (#249); `exclude()` by the
+   * fingerprints and the stored walk; the holders that only a typed body
+   * declares or names by the recorded answers of `SignatureCache` (local
+   * function type parameters, structures of the declared types of locals);
+   * the metadata of a `TVar` itself is a documented limit. A Haxe version
+   * with another holder or writer must fail here first, so that someone
+   * gives it a check.
+   */
+  static function checkMetadataHolders(): Void {
+    final source = sys.io.File.getContent(Context.resolvePath('haxe/macro/Type.hx'));
+    final owners = [];
+    var owner = '';
+    final declaration = ~/^\s*typedef\s+(\w+)/;
+    final holder = ~/\bmeta\b[^;]*:\s*(Null<)?MetaAccess\b/;
+    final writer = ~/\bfunction\s+exclude\s*\(/;
+    for (line in source.split('\n')) {
+      if (declaration.match(line))
+        owner = declaration.matched(1);
+      if (holder.match(line))
+        owners.push(owner);
+      if (writer.match(line))
+        owners.push('$owner.exclude');
+    }
+    cases++;
+    expectText('metadata holders and writers of the macro API',
+      'ClassField EnumField BaseType BaseType.exclude TVar', owners.join(' '));
+  }
+
+  /**
+   * The type parameters that a local function declares (`TVar.extra`) are
+   * read only through `SignatureCache.localTypeParameters`, which records
+   * their metadata for the replay; and the readers of a local variable's
+   * own metadata (`TVar.meta`), which the replay cannot ask again, are the
+   * listed ones (genes-f8vc.9.27).
+   *
+   * Why: a read of `.extra` beside the accessor could print metadata that no
+   * answer records, so a clean module could replay stale output. Haxe 4.3.7
+   * gives the metadata of a `TVar` only as a copy made when a typed body is
+   * decoded; asking it again would read every body, so it stays a limit
+   * ("Body metadata" in `docs/INCREMENTAL_AFTER_TYPING.md`). A new reader of
+   * it must update that limit and this list. The scan reads the sources
+   * under `src/genes` without their comments, by the variable names that
+   * Genes uses for a `TVar` (`v`, `variable`, `local`, `tvar`, `<...>.v`).
+   *
+   * It also checks `ModuleFingerprint.holdsStructure`, which decides which
+   * declared types `SignatureCache` keeps.
+   */
+  static function checkBodyHolderReads(): Void {
+    final generator = Context.resolvePath('genes/Generator.hx');
+    final root = haxe.io.Path.directory(sys.FileSystem.absolutePath(generator));
+    final extra = ~/\.extra\b/;
+    final localMeta = ~/(\b(v|variable|local|tvar)|\.v)\.meta\b/;
+    final allowedMeta = [
+      'DependencyPlanBuilder.hx' => 2,
+      'TsModuleEmitter.hx' => 3,
+      'DefinitionEmitter.hx' => 1
+    ];
+    final comment = ~/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+    for (file in haxeFiles(root)) {
+      final name = haxe.io.Path.withoutDirectory(file);
+      final text = comment.replace(sys.io.File.getContent(file), '');
+      if (name != 'SignatureCache.hx' && extra.match(text))
+        fail('local function type parameters',
+          'no read of .extra outside SignatureCache', 'one in $file');
+      var count = 0;
+      var rest = text;
+      while (localMeta.match(rest)) {
+        count++;
+        rest = localMeta.matchedRight();
+      }
+      final allowed = allowedMeta.exists(name) ? allowedMeta.get(name) : 0;
+      if (count != allowed)
+        fail('readers of local variable metadata in $name', '$allowed',
+          '$count');
+    }
+    cases += 2;
+    final pos = Context.currentPos();
+    final holds = (text: String) ->
+      genes.incremental.ModuleFingerprint.holdsStructure(Context.typeof(Context.parse('(null : $text)',
+        pos)));
+    expectBool('a structure in Null<...> is a body holder', true,
+      holds('Null<{bv: Int}>'));
+    expectBool('a structure in a function result is a body holder', true,
+      holds('Int -> {av: Int}'));
+    expectBool('Array<Int> holds no structure', false, holds('Array<Int>'));
   }
 
   /**

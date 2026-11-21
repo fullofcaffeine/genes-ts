@@ -504,7 +504,9 @@ typedef ModuleRecordsReport = {
  * that it sets (`defines-changed`). An init macro given before
  * `genes.Generator.use()` that types project modules is covered by the init
  * macro rule above, for full and module requests (genes-v54c). Not covered:
- * metadata that only a typed body holds (limit S3 of `ModuleFingerprint`);
+ * metadata that only a typed body holds of a module that the request does
+ * not print (S3 of `ModuleFingerprint`; the requested module is printed from
+ * its new typed bodies);
  * a module that Haxe keeps from its cache before Genes reads the files, in a
  * program with an `@:rtti` class (no stamps, see above); a file that Genes
  * does not know yet (a new module) and that Haxe first parsed in a request
@@ -2664,6 +2666,12 @@ class ModuleRequest {
    *   must have the stored answers. A fact that another module's capture
    *   wrote at such a key in the full build and that this request lacks
    *   shows as a different answer.
+   * - `bodyParams` and `bodyType` (genes-f8vc.9.27): not compared. They
+   *   are about holders of the requested module's own typed bodies, which
+   *   Haxe typed again in this request (with new variable ids, so the keys
+   *   differ from the stored ones). The module is printed now, from those
+   *   bodies, so its output follows their metadata. The answers matter only
+   *   for a later replay of a module that Haxe did not type again.
    * - `anonTs`, `anonSource` with another key, and any other kind: the
    *   stored full request must have asked the same question with the same
    *   answer.
@@ -2717,6 +2725,9 @@ class ModuleRequest {
     for (line in now) {
       final answer = GenerationCache.parseAnswer(line);
       if (moved(answer, line, new Map()))
+        continue;
+      if (answer.kind == genes.ts.SignatureCache.BODY_PARAMS
+        || answer.kind == genes.ts.SignatureCache.BODY_TYPE)
         continue;
       final before = storedAnswers.get('${answer.kind}\x01${answer.name}');
       switch answer.kind {

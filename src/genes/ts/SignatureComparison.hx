@@ -87,7 +87,8 @@ class SignatureComparison {
     for (fact in bucket) {
       kept.put(fact);
       switch fact {
-        case LocalSourceType(id, _) | DirectEnumLocalSourceType(id, _):
+        case LocalSourceType(id, _) | DirectEnumLocalSourceType(id, _) |
+          LocalTypeParameters(_, id, _) | LocalDeclaredType(_, id, _):
           keptLocalOwners.set(id, owner);
         default:
       }
@@ -97,7 +98,8 @@ class SignatureComparison {
   /** Notes which declaration owns the local variable of a new fact. */
   public function noteNew(owner: String, fact: SignatureFact): Void {
     switch fact {
-      case LocalSourceType(id, _) | DirectEnumLocalSourceType(id, _):
+      case LocalSourceType(id, _) | DirectEnumLocalSourceType(id, _) |
+        LocalTypeParameters(_, id, _) | LocalDeclaredType(_, id, _):
         newLocalOwners.set(id, owner);
       default:
     }
@@ -142,10 +144,26 @@ class SignatureComparison {
    */
   public function locals(query: String, id: Int, keptAnswer: Null<Type>,
       newAnswer: Null<Type>): Void {
+    localAnswers(query, id, keptAnswer == null ? null : typeText(keptAnswer),
+      newAnswer == null ? null : typeText(newAnswer));
+  }
+
+  /**
+   * Compares two text answers about the local variable `id`, with the rule
+   * of `locals`: a difference is explained only when the kept answer is
+   * `null`, the new answer is not, and the kept bucket of the owner is the
+   * first read of an earlier request that typed the owner.
+   *
+   * `SignatureCache` passes the metadata texts of the body holders here
+   * (genes-f8vc.9.27): a kept holder must give the same text as the holder
+   * of a new capture, read at the same moment.
+   */
+  public function localAnswers(query: String, id: Int,
+      keptAnswer: Null<String>, newAnswer: Null<String>): Void {
     if (!first(query, Std.string(id)))
       return;
-    final keptText = typeText(keptAnswer);
-    final newText = typeText(newAnswer);
+    final keptText = textOf(keptAnswer);
+    final newText = textOf(newAnswer);
     if (keptText == newText)
       return;
     final owner = keptLocalOwners.get(id) ?? newLocalOwners.get(id);
