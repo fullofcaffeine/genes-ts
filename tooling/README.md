@@ -683,8 +683,12 @@ rolled back, the other output can start normally.
   Haxe type the macro classes of Genes again, and Genes then reads what it
   knows about Haxe's cache from `<descriptor>.typed-sources.json`, which it
   writes beside the descriptor only for module records and module
-  requests, so the next full request is still checked (genes-lnrv). Rule:
-  one Haxe process per descriptor path. A cold `haxe` run must not pass the
+  requests, so the next full request is still checked (genes-lnrv). After
+  a request that fails with a type error, the next request makes Haxe
+  parse again each file that Genes made it parse in the failed one, so a
+  file saved back with the modification time of the failed save does not
+  repeat the old error (genes-u8fq). Rule: one Haxe process per descriptor
+  path. A cold `haxe` run must not pass the
   session's `-D genes.dev_incremental` define: its facts carry another
   process token, so the server then makes Haxe parse every file again once
   and can refuse that request once.

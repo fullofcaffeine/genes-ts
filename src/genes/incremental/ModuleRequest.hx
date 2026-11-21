@@ -294,8 +294,13 @@ typedef ModuleRecordsReport = {
  * refused until a full request has made Haxe parse it again, which the next
  * full request does. A file that Genes did not read before typing (a new
  * module, or a library module that the program uses for the first time) is
- * unknown too, so the first module request after it is refused. A deleted
- * file keeps the digest `missing`, so that later full requests do not make
+ * unknown too, so the first module request after it is refused. A file that
+ * Genes makes Haxe parse again is unknown from that moment until the request
+ * proves it after typing (`unproveParsed`, genes-u8fq): Haxe keeps the parse
+ * also when the request fails with a type error, so after such a failure the
+ * next request makes Haxe parse the file again, also when it was saved back
+ * to its last proven text with the modification time of the failed save. A
+ * deleted file keeps the digest `missing`, so that later full requests do not make
  * Haxe parse it, or the folder of a deleted `import.hx`, again, and a file
  * created again at that path counts as changed.
  *
@@ -501,7 +506,12 @@ typedef ModuleRecordsReport = {
  * macro rule above, for full and module requests (genes-v54c). Not covered:
  * metadata that only a typed body holds (limit S3 of `ModuleFingerprint`);
  * a module that Haxe keeps from its cache before Genes reads the files, in a
- * program with an `@:rtti` class (no stamps, see above); a module that
+ * program with an `@:rtti` class (no stamps, see above); a file that Genes
+ * does not know yet (a new module) and that Haxe first parsed in a request
+ * that failed, then saved again in the same whole second without a
+ * `server/invalidate`; a request that fails right after Genes lost its cache
+ * facts (`GENES-MODULE-REQUEST-004`), when such a file is saved back the
+ * same way; a module that
  * Haxe typed in a request whose cache facts Genes did not keep (a full
  * request without module records in the same process before the first
  * request with them); a process that a macro of the server starts, which
@@ -592,7 +602,10 @@ class ModuleRequest {
    * whole seconds, so a second save in the same second looks unchanged.
    * `beginRequest` makes Haxe parse such a file again. A full request reads
    * every file here before typing and keeps the newer status when the digest
-   * is the same; a deleted file keeps the digest `missing`. A cache fact:
+   * is the same; a deleted file keeps the digest `missing`. A file that
+   * `beginRequest` makes Haxe parse again is `unknown` until `afterSave`
+   * proves it (`unproveParsed`), so a request that fails with a type error
+   * leaves it `unknown`. A cache fact:
    * also stored beside the descriptor (`storeCacheFacts`), so that a new
    * macro state reads it again (`readCacheFacts`).
    */
@@ -792,6 +805,13 @@ class ModuleRequest {
    * preview of the second save shows `Sava`. A session should still send
    * `server/invalidate` for each saved file before a request.
    *
+   * Each file that this step makes Haxe parse again is noted as unknown
+   * until `afterSave` proves it (`unproveParsed`), because a request that
+   * fails with a type error never reaches `afterSave`, and Haxe keeps the
+   * parse of the failed text (genes-u8fq). A file that the init macro rule
+   * below refuses keeps the content that the rule notes instead, so the
+   * same request sent again is not refused again.
+   *
    * In a module request it also notes the content of the requested module's
    * file, which `afterSave` compares with the file after typing. In a full
    * request it keeps the newer file status of each file whose digest did
@@ -935,8 +955,40 @@ class ModuleRequest {
             noteTyped(item.file, item.content);
         }
     }
+    // The init macro rule of a module request has already noted the
+    // content that Haxe reads next for the files that it refuses (above).
+    final noted = earlyRefusal == null ? [] : [for (item in changed) item.file];
+    unproveParsed([for (file in stale) if (noted.indexOf(file) < 0) file]);
     invalidate(stale);
     storeCacheFacts();
+  }
+
+  /**
+   * Notes each of `files` that Genes knows (`typedDigests`) as unknown,
+   * before `beginRequest` makes Haxe parse them again, and keeps the digest
+   * `missing` of a deleted file. `afterSave` proves the content again
+   * (`provenSource`) when the request types the program.
+   *
+   * Why (genes-u8fq): Haxe keeps the parse of a file in its cache also when
+   * the request then fails with a type error, and such a request never
+   * reaches `afterSave`. The digest that Genes proved before is then no
+   * longer what Haxe holds. Example: `mr/Fresh.hx` gets a type error and a
+   * full request fails; the file is saved back to its proven text with the
+   * modification time of the failed save, which Haxe's whole-second check
+   * cannot see. With the old digest kept, the next request found the file
+   * unchanged, did not make Haxe parse it again, and failed with the old
+   * error, and so did every later request. With `unknown`, the next request
+   * makes Haxe parse it again. The mark is a cache fact, so it is stored
+   * (`storeCacheFacts`) before Haxe types anything and survives a new macro
+   * state. Cost: after a failed request, the next request makes Haxe parse
+   * these files again once, which it does anyway for a file that changed.
+   */
+  static function unproveParsed(files: Array<String>): Void {
+    for (file in files) {
+      final known = typedDigests.get(file);
+      if (known != null && known.digest != MISSING_DIGEST)
+        noteTyped(file, unknownSource());
+    }
   }
 
   /**

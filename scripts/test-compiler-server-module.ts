@@ -56,6 +56,12 @@
  * same request sent again must equal cold. A step that does not name such a
  * refusal fails when one happens.
  *
+ * The groups of `failedRequestGroups` (genes-u8fq) let a request fail with
+ * a type error in `mr/Fresh.hx`, then save the file back with the
+ * modification time of the failed save: the next request must equal cold
+ * at once, after a full request, a module request, an edit of another file
+ * and editor requests.
+ *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
  * differs from cold (the measured cache pollution of genes-f8vc.14.1). It is
@@ -254,6 +260,13 @@ type Step = {
    * cache facts of the old one.
    */
   readonly restartServer?: boolean;
+  /**
+   * The text after `apply` has a type error (genes-u8fq): the cold build,
+   * the step's module request and its full request must each fail, and the
+   * warm full request must report the errors of the cold build. Neither
+   * request may publish anything.
+   */
+  readonly typeError?: boolean;
 };
 
 /**
@@ -1598,6 +1611,156 @@ function displayRequestGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/**
+ * The groups of genes-u8fq: a request fails with a type error in
+ * `mr/Fresh.hx`, and the file is then saved back to the text of the last
+ * successful request with the modification time of the failed save kept. No
+ * `server/invalidate` is sent, so Haxe's whole-second file-time check
+ * cannot see the second save, and Haxe still holds its parse of the failed
+ * text. The digest of the file equals the one that Genes last proved, so
+ * before the fix Genes did not make Haxe parse the file again, and every
+ * later full request failed with the old error.
+ *
+ * - `failed-revert-full`: a full request fails; the next one must equal cold
+ *   at once; then a request without an edit types no module again, and a
+ *   normal text edit previews as usual;
+ * - `failed-revert-module`: the module request and the full request of the
+ *   failed text both fail; the next module request previews;
+ * - `failed-then-other-edit`: after the failure, an edit of `mr/Button.hx`
+ *   while `mr/Fresh.hx` still has the error fails again as cold does; the
+ *   save back is then equal to cold;
+ * - `failed-display-session`: `display/diagnostics` with the session's
+ *   defines answers between the requests, also on the failed text;
+ * - `failed-display-cli`: `--display ...@diagnostics` without the descriptor
+ *   define answers between the requests, so the next full request starts
+ *   Genes with new macro state and reads the stored cache facts.
+ */
+function failedRequestGroups(): ReadonlyArray<Group> {
+  const files = {
+    "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+    "mr/Fresh.hx": freshWith("one")
+  };
+  // The same length as `return 'one';`, so the save back keeps the size too.
+  const broken = (): void => edit("Fresh.hx", "return 'one';", "return 1.000;");
+  const savedBack = (): void => editSameSecond("Fresh.hx", "return 1.000;", "return 'one';");
+  return [
+    {
+      name: "failed-revert-full",
+      files,
+      noInvalidate: true,
+      steps: [
+        { id: "Fresh gets a type error", apply: broken, typeError: true },
+        {
+          id: "Fresh saved back with the modification time of the failed save",
+          apply: savedBack
+        },
+        {
+          id: "no edit after the recovery",
+          apply: () => {},
+          fullTypedAgain: 0,
+          fullTypedAgainModules: []
+        },
+        {
+          id: "Fresh text edit after the recovery",
+          apply: () => edit("Fresh.hx", "return 'one';", "return 'two';"),
+          module: "mr.Fresh",
+          expect: "preview"
+        }
+      ]
+    },
+    {
+      name: "failed-revert-module",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh gets a type error, module request of Fresh",
+          apply: broken,
+          module: "mr.Fresh",
+          typeError: true
+        },
+        {
+          id: "Fresh saved back with the modification time of the failed save, module request of Fresh",
+          apply: savedBack,
+          module: "mr.Fresh",
+          expect: "preview"
+        },
+        {
+          id: "no edit after the recovery",
+          apply: () => {},
+          module: "mr.Fresh",
+          expect: "preview",
+          fullTypedAgain: 0
+        }
+      ]
+    },
+    {
+      name: "failed-then-other-edit",
+      files,
+      noInvalidate: true,
+      steps: [
+        { id: "Fresh gets a type error", apply: broken, typeError: true },
+        {
+          id: "Button text edit while Fresh still has the error",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Sale';"),
+          typeError: true
+        },
+        {
+          id: "Fresh saved back with the modification time of the failed save",
+          apply: savedBack
+        },
+        {
+          id: "no edit after the recovery",
+          apply: () => {},
+          fullTypedAgain: 0,
+          fullTypedAgainModules: []
+        }
+      ]
+    },
+    {
+      name: "failed-display-session",
+      files,
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh gets a type error, then JSON-RPC diagnostics with the session's defines",
+          apply: broken,
+          display: { when: "after-save", form: "json-session" },
+          typeError: true
+        },
+        {
+          id: "Fresh saved back with the modification time of the failed save, then JSON-RPC diagnostics with the session's defines",
+          display: { when: "after-save", form: "json-session" },
+          apply: savedBack
+        },
+        {
+          id: "no edit after the recovery",
+          apply: () => {},
+          fullTypedAgain: 0
+        }
+      ]
+    },
+    {
+      name: "failed-display-cli",
+      files,
+      noInvalidate: true,
+      steps: [
+        { id: "Fresh gets a type error", apply: broken, typeError: true },
+        {
+          id: "Fresh saved back with the modification time of the failed save, then CLI diagnostics request",
+          apply: savedBack,
+          display: { when: "after-save", form: "cli" }
+        },
+        {
+          id: "no edit after the recovery",
+          apply: () => {},
+          fullTypedAgainModules: []
+        }
+      ]
+    }
+  ];
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   {
@@ -2172,7 +2335,8 @@ const groups: ReadonlyArray<Group> = [
   ...lateMacroGroups(),
   ...statGroups(),
   ...earlyInitMacroGroups(),
-  ...displayRequestGroups()
+  ...displayRequestGroups(),
+  ...failedRequestGroups()
 ];
 
 function folder(name: string): string {
@@ -2322,6 +2486,45 @@ async function coldBuild(
     });
   ok(cold.code === 0, `${label}: cold build failed\n${describe(cold)}`);
   return hashTree(folder("cold"));
+}
+
+/**
+ * Runs the full request of a step whose text has a type error (genes-u8fq)
+ * and returns its time. The cold build must fail, and the warm full request
+ * must fail too, report every error line of the cold build (the lines that
+ * name a file of the workspace), and leave the program tree as it was. A
+ * warm request that reports an older error, or none, fails the gate.
+ */
+async function failingProgramRequest(server: OwnedHaxeCompilerServer,
+    compiler: ReturnType<typeof selectedHaxeCompiler>, label: string): Promise<number> {
+  rmSync(folder("cold"), { recursive: true, force: true });
+  const cold = await runBoundedProcess(compiler.binary,
+    programArguments(folder("cold")), {
+      cwd: workspace,
+      timeoutMs,
+      label: `Cold (type error) ${label}`,
+      reportProgress: true
+    });
+  ok(cold.code !== 0, `${label}: the cold build of a text with a type error must fail\n${describe(cold)}`);
+  const errors = `${cold.stdout}\n${cold.stderr}`.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.includes(workspace));
+  ok(errors.length > 0, `${label}: the cold build reported no error in the workspace\n${describe(cold)}`);
+  await invalidate(server, label);
+  writeDescriptor({ kind: "full", moduleRecords: true });
+  const before = existsSync(folder("program")) ? hashTree(folder("program")) : [];
+  const started = performance.now();
+  const result = await server.compile(incremental(programArguments(folder("program"))),
+    `Program (type error) ${label}`, timeoutMs, workspace);
+  const elapsed = performance.now() - started;
+  const output = `${result.stdout}\n${result.stderr}`;
+  ok(result.code !== 0, `${label}: the full request of a text with a type error must fail\n${describe(result)}`);
+  for (const error of errors)
+    ok(output.includes(error),
+      `${label}: the full request must report the error of the cold build ${JSON.stringify(error)}\n${describe(result)}`);
+  deepStrictEqual(existsSync(folder("program")) ? hashTree(folder("program")) : [], before,
+    `${label}: a full request that failed with a type error changed the program tree`);
+  return elapsed;
 }
 
 /** The diagnostic code of a full request that the init macro rule refuses (genes-v54c). */
@@ -2514,6 +2717,14 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
     ok(result.code !== 0, `${label}: the module request must fail`);
     return { outcome: "failed", ms, report: null };
   }
+  if (step.typeError === true) {
+    ok(result.code !== 0, `${label}: the module request of a text with a type error must fail\n${describe(result)}`);
+    ok(!`${result.stdout}\n${result.stderr}`.includes("GENES-"),
+      `${label}: the module request must fail with the type error, not a Genes diagnostic\n${describe(result)}`);
+    deepStrictEqual(publishedFiles(previewFolder), [],
+      `${label}: a module request that failed with a type error published files`);
+    return { outcome: "type-error", ms, report: null };
+  }
   ok(result.code === 0, `${label}: module request failed\n${describe(result)}`);
   const report = readReport();
   strictEqual(report.kind, "module", `${label}: report kind`);
@@ -2621,7 +2832,9 @@ async function runGroup(group: Group,
       }
       step.afterModule?.();
       let programMs = 0;
-      if (step.skipProgram !== true) {
+      if (step.skipProgram !== true && step.typeError === true) {
+        programMs = await failingProgramRequest(server, compiler, label);
+      } else if (step.skipProgram !== true) {
         const coldTree = await coldBuild(compiler, label);
         const fullRefusal = step.initRefusal === "full" || step.initRefusal === "both";
         const program = await programRequest(server, label, step.raceOnFull, fullRefusal);
