@@ -29,8 +29,10 @@ package genes.incremental;
  * request audits `a` (never audited) and then the older of `b` and `c`.
  *
  * Lifetime: the ages are `@:persistent` plain data (module name to request
- * number) for one compiler server. `forget` clears them when the generation
- * cache is dropped. Nothing here holds a typed compiler value.
+ * number) for one compiler server. They stay when the generation cache is
+ * dropped after an audit difference: the rotation then goes on where it was,
+ * instead of starting again at the same first modules after every drop.
+ * Nothing here holds a typed compiler value.
  */
 class ReplayAudit {
   /** Replayed modules that a request prints again when the descriptor names no count. */
@@ -99,9 +101,10 @@ class ReplayAudit {
   }
 
   /**
-   * Forgets every remembered audit. Called when the generation cache is
-   * dropped: the next cache holds new entries, and each of them waits from
-   * the start.
+   * Forgets every remembered audit, so that every module counts as never
+   * audited again. Genes itself never calls it: a dropped cache keeps the
+   * ages (see the class comment). `tests.replayaudit.ReplayAuditProbe` calls
+   * it to start each case from a known state.
    */
   public static function forget(): Void {
     lastAudited = new Map();

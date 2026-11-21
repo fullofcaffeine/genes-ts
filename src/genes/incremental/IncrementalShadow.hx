@@ -252,8 +252,8 @@ typedef ShadowAuditReport = {
 
   /**
    * Time of the new prints and their comparison. It is part of
-   * `generationMs`, which ends when the report is written, but it comes
-   * after the output was published.
+   * `generationMs`, which ends when the report is written. It comes after
+   * Genes committed its output, but before the Haxe request returns.
    */
   final ms: Float;
 
@@ -421,7 +421,9 @@ typedef ShadowReport = {
  *    a scratch transaction and compares the bytes (`auditCandidates`,
  *    `auditModule`; `ReplayAudit` chooses the modules). A difference reports
  *    `GENES-INCREMENTAL-AUDIT-001` and drops the cache, so the stale entry
- *    is evicted and the next request generates in full.
+ *    is evicted and the next request generates in full. It cannot see a
+ *    stale fact that the request itself took from the cache, such as a
+ *    member list of the walk with stored edges (`auditModule`).
  *
  * A fallback of step 3 after a walk with stored edges also runs the request
  * again live (`walkAgain`). `"compare"` always runs both walks: first with
@@ -1716,12 +1718,27 @@ class IncrementalShadow {
    * walk with stored edges changes that order, so equal output could still
    * show other answer lines.
    *
+   * What it cannot see (review of genes-ts #259): the new print uses the
+   * `Module` value of this request, so a stale fact that the request itself
+   * took from the cache is in both prints. That covers the final member list
+   * and the module set that the walk with stored edges made, the stored
+   * runtime requests that answer import-cycle questions, the kept facts of
+   * the passes after typing, and the Haxe cache. Example: with
+   * `checkStoredTarget` switched off, a stored step adds an enum that an
+   * after-typing `exclude()` made extern; the audit then finds only the
+   * importer `inc.ExclHintUser`, because `inc.ExclOwner` prints the enum
+   * again from the same member list. Only a cold build (the session's
+   * `coldCheckEvery`) sees that class of defect.
+   *
    * On a difference, or when the new print stops with an error, it reports
    * `[GENES-INCREMENTAL-AUDIT-001]` as a warning. `committed` then drops the
    * generation cache instead of storing it, so the stale entry is evicted
    * and the next request generates in full. The tree that this request
-   * already published stays as it is: the audit runs after publication, so
-   * it never delays the files that a dev server reads.
+   * already committed stays as it is. Genes commits before the audit, so
+   * Genes' own publication is not delayed; but a development session
+   * publishes the candidate only after the Haxe request returns, so there
+   * the audit time is part of the time before publication, and the session
+   * discards a candidate with a difference instead of publishing it.
    *
    * The new print must not change this request: its answers, warnings and
    * features go to new maps that are put away afterwards, `Generator` gives
@@ -2051,12 +2068,12 @@ class IncrementalShadow {
     var stored = false;
     // The rolling replay audit found stale output: evict it with the whole
     // cache (no other rule saw the change, so other entries may be stale
-    // too), whatever the result below says.
+    // too), whatever the result below says. The audit ages stay, so the
+    // rotation goes on where it was instead of starting again at the same
+    // first modules.
     final auditDropped = active && success && auditMismatches.length > 0;
-    if (auditDropped) {
+    if (auditDropped)
       GenerationCache.drop();
-      ReplayAudit.forget();
-    }
     if (active && success && lookups.length > 0) {
       result = 'full';
       reason = 'the generator looked up ${lookups.length} module(s) by name; '

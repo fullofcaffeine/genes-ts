@@ -465,7 +465,8 @@ in them more than once. Two runtime checks compare bytes, so they also see a
 stale result that no rule reads.
 
 The **rolling replay audit** runs in Genes. After a `"generation": "reuse"`
-request has published its tree, Genes prints `audit.modules` of the modules
+request has committed its tree, and before the request returns, Genes prints
+`audit.modules` of the modules
 that it replayed (descriptor field `audit`, default `{"modules": 2, "seed":
 0}`) once more into a scratch transaction (`OutputTransaction.scratch`, memory
 only) and compares files, maps, print warnings, added features and public
@@ -476,8 +477,18 @@ digest of the seed and the name (`ReplayAudit.choose`; `yarn test` runs
 descriptor field). A difference warns `[GENES-INCREMENTAL-AUDIT-001]`, is
 listed in the `audit` part of the report (format 5), and drops the generation
 cache: the stale entry is evicted, and the next request generates in full.
-Before this check, a replayed module kept its stored entry, so a stale module
-stayed stale until Haxe typed it again.
+The audit ages stay when the cache is dropped, so the rotation goes on where
+it was. Before this check, a replayed module kept its stored entry, so a
+stale module stayed stale until Haxe typed it again.
+
+What the audit cannot see: the new print uses the facts of the same request,
+so a stale fact that the request itself took from the cache is in both
+prints: a member list or module set of the walk with stored edges, a stored
+runtime request list, a kept fact of the passes after typing, the Haxe cache.
+With `checkStoredTarget` switched off, the row "after-typing macro makes an
+enum extern after the Genes passes" publishes stale `inc/ExclHintUser.tsx`
+and `inc/ExclOwner.tsx`, and `--audit=all` reports only `inc.ExclHintUser`
+(review of genes-ts #259). Only the session's cold build sees that class.
 
 The shadow gate runs the reuse pass with `--audit=all` by default: every
 replayed module is printed again in every request, so the pass also proves
@@ -504,8 +515,10 @@ The **cold build** runs in the development session
 Nth accepted warm generation, while no edit waits, the session builds the
 accepted revision in a new Haxe process without the incremental define and
 compares that Genes tree with the published one. `tooling/src/session-test.ts`
-checks the schedule, the cancel by an edit and the repair after a difference
-with a fake compiler; `tooling/src/session-warm-server-test.ts` runs a reuse
+checks with a fake compiler the schedule and idle delay, the cancel by an
+edit, also by an edit that only a reconciliation finds, the repair after a
+difference and its check, the repair stop after a second difference, a cold
+failure, and a candidate with an audit difference that is never published; `tooling/src/session-warm-server-test.ts` runs a reuse
 session with real Haxe on project A, where the audit prints every replayed
 module and both cold builds must equal the published tree.
 
@@ -515,8 +528,9 @@ default `audit.modules` 2, the audit took a median of 6.3 ms per request
 modules (`--modes=reuse "--only=no edit" --skip-plain --skip-probe
 --audit=2`, the `audit.ms` of each report). Auditing all 98 replayed modules
 took about 600 ms per request, about 6 ms per module. The audit runs after
-publication, so it delays the end of the request, not the files. Whole
-request times of runs with and without the audit differed by more than the
+Genes commits, but before the request returns; a development session
+publishes after the request, so there the audit time is on the publication
+path. Whole request times of runs with and without the audit differed by more than the
 audit itself under this load, so they are not a measure of it.
 
 ## Module requests (G3)

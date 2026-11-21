@@ -867,8 +867,9 @@ class Generator {
     endPublicationTimer();
     // Stage 3, the rolling replay audit (genes-f8vc.9.23): with
     // `generation: "reuse"`, print a few replayed modules again into memory
-    // and compare them with what this request replayed. It runs after the
-    // tree is public, so it never delays the files that a dev server reads.
+    // and compare them with what this request replayed. It runs after this
+    // transaction committed, but before the request returns: a development
+    // session that publishes the candidate afterwards waits for it.
     // Without a replayed module this list is empty.
     final audited = IncrementalShadow.auditCandidates();
     if (audited.length > 0) {

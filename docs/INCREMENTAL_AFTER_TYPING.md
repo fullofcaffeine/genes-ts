@@ -624,30 +624,42 @@ holes in such rules more than once: import-cycle answers and position-keyed
 `SignatureCache` facts (review of genes-ts #244), and metadata that only a
 typed body holds (limit L3, for example `@:ts.type` that an after-typing
 macro writes on the local variable of a method argument). Two runtime checks
-now catch a stale result by comparing bytes, whatever rule missed it:
+catch a stale result by comparing bytes:
 
 - **The rolling replay audit** (in Genes, `IncrementalShadow.auditModule`,
-  `ReplayAudit`). After a reuse request has published its tree, Genes prints
-  `audit.modules` of the modules that it replayed (default 2) once more into
-  a scratch transaction and compares files, maps, print warnings, added
-  features and public entries with the stored entry. The module that waited
-  longest since its last audit goes first; a seed orders equal waits. A
-  difference warns `[GENES-INCREMENTAL-AUDIT-001]`, writes it to the `audit`
-  part of the generation report, and drops the generation cache, so the
-  stale entry is evicted and the next request generates in full. Before this
-  check, `storeCache` kept the entry of a replayed module, so a stale module
-  stayed stale until Haxe typed it again.
+  `ReplayAudit`). After a reuse request has committed its tree, and before
+  the request returns, Genes prints `audit.modules` of the modules that it
+  replayed (default 2) once more into a scratch transaction and compares
+  files, maps, print warnings, added features and public entries with the
+  stored entry. The module that waited longest since its last audit goes
+  first; a seed orders equal waits; the ages stay when the cache is dropped,
+  so the rotation goes on. A difference warns
+  `[GENES-INCREMENTAL-AUDIT-001]`, writes it to the `audit` part of the
+  generation report, and drops the generation cache, so the stale entry is
+  evicted and the next request generates in full. Before this check,
+  `storeCache` kept the entry of a replayed module, so a stale module stayed
+  stale until Haxe typed it again. A development session does not publish a
+  candidate with an audit difference; it builds the revision again at once.
 - **The cold build** (in the development session,
   `GenerationReuseOptions.coldCheckEvery`, default every 20 accepted
-  generations). While no edit waits, the session builds the accepted
-  revision in a new Haxe process, with no cache, and compares that tree with
-  the published one. An edit cancels it. A difference starts a new server and
-  builds the revision again.
+  generations, after `coldCheckIdleMs` of idle time, default 5 s). The
+  session builds the accepted revision in a new Haxe process, with no cache,
+  and compares that tree with the published one. An edit cancels it, also
+  one that only a reconciliation of the inputs finds. A difference starts a
+  new server and builds the revision again.
 
-Limit, and why both checks exist: the audit prints with the same typed
-program and the same kept buckets as the replay, so a stale fact of the passes
-after typing, or of the Haxe cache, gives the same stale bytes twice and the
-audit cannot see it. Only the cold build can. The cold build runs rarely and
-only while the machine is idle; the audit runs on every request and costs
-about the print of two modules. `tests/compiler-server/README.md` ("Rolling
-replay audit and cold build") has the gates and the measured cost.
+Limit, and why both checks exist: the audit prints a module with the facts
+of the same request, so a stale fact that the request itself took from the
+cache appears in both prints, and the audit cannot see it. That covers the
+final member lists and the module set that the walk with stored edges made
+(slice S2), the stored runtime requests that answer import-cycle questions,
+the kept buckets of the passes after typing, and the Haxe cache. Example
+(review of genes-ts #259): with `checkStoredTarget` switched off, the row
+"after-typing macro makes an enum extern after the Genes passes" published a
+stale `inc/ExclHintUser.tsx` and `inc/ExclOwner.tsx`; the audit reported
+only `inc.ExclHintUser`, because `inc.ExclOwner` printed the extern enum
+again from the stored member list. Only the cold build sees this class of
+defect, so a session with `coldCheckEvery: 0` leaves it unchecked. The audit
+runs on every request and costs about the print of two modules;
+`tests/compiler-server/README.md` ("Rolling replay audit and cold build")
+has the gates and the measured cost.
