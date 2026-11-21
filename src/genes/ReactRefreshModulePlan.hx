@@ -27,7 +27,8 @@ enum ReactRefreshPart {
  * `isType` is true for a declaration that exists only as a TypeScript type
  * (a typedef). `wasExported` tells whether the same declaration is exported
  * from the ordinary single file. The `Components` part re-exports exactly
- * those bindings, so the public surface of the module stays the same.
+ * the exported types, so type imports of the module do not change. It does
+ * not re-export a runtime value: importers read those from the sibling.
  */
 class ReactRefreshBinding {
   public final name: String;
@@ -57,22 +58,35 @@ class ReactRefreshBinding {
  * module that has at least one `@:genes.reactComponent` module function and
  * at least one other runtime declaration becomes two files:
  *
- * - `X.tsx` (public path, unchanged for importers): the component functions,
- *   then a re-export of every binding that `X.tsx` exported before;
- * - `X.fields.tsx` (private sibling): every other declaration, each one
- *   exported so that `X.tsx` can import it.
+ * - `X.tsx` (public path): the component functions, which are its only
+ *   runtime exports, and a type-only re-export of the exported types;
+ * - `X.fields.tsx` (sibling): every other declaration, each one exported.
  *
- * Example: `WorkspaceMap.hx` has the component `WorkspaceMap` and the
- * module-level function `emptyMapNavigation`. `WorkspaceMap.tsx` then holds
- * `export function WorkspaceMap` and `export {WorkspaceMap_Fields_,
- * emptyMapNavigation} from` the sibling. An edit of the component body
- * changes only `WorkspaceMap.tsx`. The re-exported values come from the
- * unchanged sibling, so they are the same objects after the update, and
- * Fast Refresh accepts it. An edit of `emptyMapNavigation` changes the
- * sibling; the dev server then updates the importers, as without the split.
+ * Importers that Genes writes import each component from `X` and each other
+ * value from `X.fields` (`Module.reactRefreshSplitOf`). An importer that
+ * uses no component of `X` still imports `X` for its side effect, before the
+ * sibling, so that the component file has set the slots (see below) and
+ * module load order stays the same as with one file. A `Genes.dynamicImport`
+ * of `X` loads both files and merges the two namespaces.
  *
- * Importers do not change: they still import from `X`. A module with only
- * components (and types) is not split, because it is already accepted.
+ * Example: `WorkspacePreview.hx` has the component `WorkspacePreview` and
+ * private helper functions such as `navButton`. `WorkspacePreview.tsx` then
+ * holds only `export function WorkspacePreview`, and the helpers are in
+ * `WorkspacePreview.fields.tsx` on `WorkspacePreview_Fields_`. An edit of the
+ * component body changes only `WorkspacePreview.tsx`, which exports only a
+ * component, so Fast Refresh accepts it. An edit of `navButton` changes only
+ * the sibling. The dev server then updates each importer of the sibling:
+ * `WorkspacePreview.tsx` still exports only a component, so Fast Refresh
+ * accepts that update too and keeps React state.
+ *
+ * Why not re-export the other values from `X.tsx`: an edit of the sibling
+ * makes new objects of all its values, for example a new
+ * `WorkspacePreview_Fields_` class. If `X.tsx` re-exported that class, Fast
+ * Refresh would reject the update ("`WorkspacePreview_Fields_` export is
+ * incompatible"), and the dev server would reload the page.
+ *
+ * A module with only components (and types) is not split, because it is
+ * already accepted.
  *
  * How: the decision reads only typed facts of the module itself (members,
  * the component marker and the module function and value plans). The
@@ -85,8 +99,9 @@ class ReactRefreshBinding {
  * the cases where that would be too late, and keeps those modules as one
  * file. Both files repeat the import list of the module, so that module
  * load order stays the same as in one file when the consumer keeps value
- * imports (`verbatimModuleSyntax`). Classic JavaScript output is not
- * supported.
+ * imports (`verbatimModuleSyntax`). Hand-written code that imports a
+ * non-component value from `X` must import it from `X.fields` (and import
+ * `X` first). Classic JavaScript output is not supported.
  */
 class ReactRefreshModulePlan {
   /** The define that turns the split on. */
@@ -151,7 +166,8 @@ class ReactRefreshModulePlan {
    * import cycle.
    */
   public static function componentNames(module: Module): Null<Array<String>> {
-    if (!enabled() || !Context.defined('genes.ts'))
+    if (!enabled() || !Context.defined('genes.ts')
+      || !hasComponentMarker(module))
       return null;
     final plan = module.moduleFunctionPlan;
     final valuePlan = module.moduleValuePlan;
@@ -222,6 +238,33 @@ class ReactRefreshModulePlan {
     if (ModuleCodeGraph.names(siblingCode, module.module, omittedComponentKeys))
       return null;
     return components;
+  }
+
+  /**
+   * True when a field of the module has the component marker.
+   *
+   * Why: every importer asks for the split of each module that it imports
+   * (`Module.reactRefreshSplitOf`). This metadata scan answers "not split"
+   * for most modules without building their module function plans.
+   */
+  static function hasComponentMarker(module: Module): Bool {
+    for (member in module.members)
+      switch member {
+        case MClass(_, _, fields):
+          for (field in fields)
+            if (field.meta != null && field.meta.has(COMPONENT_METADATA))
+              return true;
+        default:
+      }
+    return false;
+  }
+
+  /**
+   * The text of one split answer for the incremental generator: the
+   * component names joined by `,`, or `-` when the module is one file.
+   */
+  public static function answerText(names: Null<Array<String>>): String {
+    return names == null ? '-' : names.join(',');
   }
 
   /**

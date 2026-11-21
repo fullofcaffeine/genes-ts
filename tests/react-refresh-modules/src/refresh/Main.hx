@@ -8,6 +8,7 @@ import refresh.Cycle;
 import refresh.CallbackIface;
 import refresh.CallbackSuper;
 import refresh.CallbackString;
+import refresh.Lazy.LazyEntry;
 
 @:jsRequire("react-dom/client")
 extern class ReactDomClient {
@@ -20,6 +21,17 @@ extern class ReactRoot {
 
 /** Mounts `App` in a browser; does nothing in Node. */
 class Main {
+  /**
+   * Loads the split module `Lazy` with a dynamic import and passes the
+   * element that it makes to `onLoaded` (the probe renders it).
+   */
+  @:keep
+  public static function loadLazy(onLoaded: genes.react.Element->Void): Void {
+    genes.Genes.dynamicImport(LazyEntry -> {
+      onLoaded(LazyEntry.render());
+    });
+  }
+
   static function main(): Void {
     LoadLog.record("Main:" + appTitle());
     LoadLog.record("Transitive:" + (Holder.cached != null));

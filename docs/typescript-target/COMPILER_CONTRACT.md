@@ -332,11 +332,15 @@ JSX/TSX:
 
 - `-D genes.react_refresh_modules` — split each React module that has a
   `@:genes.reactComponent` function and another runtime declaration into
-  `X.tsx` (the components, plus a re-export of the old exports) and
-  `X.fields.tsx` (everything else). React Fast Refresh (for example Vite with
-  `@vitejs/plugin-react`) can then hot-update an edited component and keep
-  React state. Importers do not change. TypeScript profile only; classic
-  output fails with `GENES-REACT-REFRESH-001`. See
+  `X.tsx` (the components, and a type-only re-export of the exported types)
+  and `X.fields.tsx` (everything else). `X.tsx` has no other runtime export,
+  so React Fast Refresh (for example Vite with `@vitejs/plugin-react`) can
+  hot-update an edit of a component and an edit of a non-component
+  declaration, and keep React state. Generated importers take components from
+  `X` and every other value from `X.fields`, after an import of `X`;
+  `Genes.dynamicImport` loads both files. Hand-written code that imports a
+  non-component value from `X` must do the same. TypeScript profile only;
+  classic output fails with `GENES-REACT-REFRESH-001`. See
   `genes.ReactRefreshModulePlan` and `tests/react-refresh-modules/README.md`
   for the rules and limits.
 
