@@ -1016,8 +1016,11 @@ class GenerationChangeSet {
    *
    * Limits:
    *
-   * - Metadata that only a typed body holds (limit S3 of the review of
-   *   genes-ts #246).
+   * - Metadata that only a typed body holds (S3 of the review of genes-ts
+   *   #246). The generation replay checks the type parameters of a local
+   *   function and the structures of the declared type of a local variable
+   *   or argument as recorded answers (genes-f8vc.9.27); the passes after
+   *   typing keep no fact that depends on that metadata.
    * - Metadata added after this callback and before Haxe saves the class
    *   state, for example by an `onGenerate` macro or by
    *   `-D analyzer-optimize` (`@:pure(inferredPure)`): Haxe restores it in

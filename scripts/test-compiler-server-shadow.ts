@@ -1669,6 +1669,56 @@ const edits: ReadonlyArray<Edit> = [
     walk: "on-path"
   },
   {
+    // genes-f8vc.9.27, S3 of the review of genes-ts #246: inc.BodyMetaMacro
+    // sets `@:ts.type("string")` on the field `lv` of the structure in the
+    // constraint of the type parameter of a local function of inc.BodyMeta.
+    // Only the typed body of `BodyMeta.value` holds that structure, so no
+    // fingerprint and no metadata comparison sees the change. The answer
+    // that inc.BodyMeta recorded for the type parameters of the local
+    // function (`genes.BodyMetadata`) differs now, so the request falls back.
+    id: "after-typing macro overrides an anonymous field in the constraint of a local function type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var bodyConstraint = 1;\n"),
+    results: ["full"],
+    reason: "inc.BodyMeta"
+  },
+  {
+    id: "no edit after the constraint of a local function type parameter was marked",
+    apply: () => {},
+    results: ["incremental"]
+  },
+  {
+    // The same for `@:ts.type` on the type parameter of a local function.
+    id: "after-typing macro sets the type of a local function type parameter",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var bodyParam = 1;\n"),
+    results: ["full"],
+    reason: "inc.BodyMeta"
+  },
+  {
+    // The field `bv` of the structure in the declared type of a local
+    // variable: the recorded answer of the local's declared type.
+    id: "after-typing macro overrides an anonymous field in the type of a local variable",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var bodyLocalType = 1;\n"),
+    results: ["full"],
+    reason: "inc.BodyMeta"
+  },
+  {
+    // The field `av` of the structure in the type of an argument of a local
+    // function.
+    id: "after-typing macro overrides an anonymous field in the type of a local function argument",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var bodyArgType = 1;\n"),
+    results: ["full"],
+    reason: "inc.BodyMeta"
+  },
+  {
+    id: "no edit after the body metadata marks",
+    apply: () => {},
+    results: ["incremental"]
+  },
+  {
     id: "no edit at the end",
     apply: () => {},
     results: ["incremental"],
@@ -1704,6 +1754,7 @@ function buildArguments(mode: Mode): string[] {
     "--macro", "inc.FableMacro.install()",
     "--macro", "inc.UnlistedMacro.install()",
     "--macro", "inc.Fable3Macro.install()",
+    "--macro", "inc.BodyMetaMacro.install()",
     "--macro", "inc.ExcludeMacro.installBefore()",
     "--main", "inc.Main",
     ...program.modules,

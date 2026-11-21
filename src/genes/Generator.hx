@@ -697,7 +697,7 @@ class Generator {
           module != null
           && module.isCyclic(test);
         },
-        anonField: genes.ts.SignatureCache.anonFieldAnswer
+        signatureFact: genes.ts.SignatureCache.factAnswer
       });
     } catch (error:haxe.Exception) {
       endReachabilityTimers();

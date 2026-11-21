@@ -158,7 +158,12 @@ typedef CachedModule = {
    *   (`Module.isCyclic`; review of #244, M1);
    * - `anonTs` and `anonSource`: a `SignatureCache` fact keyed by the source
    *   position of an anonymous-structure field. The capture of another
-   *   module's declaration can write it (review of #244, M2).
+   *   module's declaration can write it (review of #244, M2);
+   * - `bodyParams` and `bodyType`: the metadata text of a holder that only
+   *   a typed body of the module declares or names, keyed by its class and
+   *   variable id (`SignatureCache.localTypeParameters`,
+   *   `localDeclaredType`; genes-f8vc.9.27). A macro can change it without
+   *   a new typing and without a change of any fingerprint.
    */
   final answers: Array<String>;
 
@@ -317,7 +322,7 @@ typedef CacheRequestFacts = {
  */
 class GenerationCache {
   /** The entry format. A new field or meaning needs a new number. */
-  public static inline final FORMAT = 6;
+  public static inline final FORMAT = 7;
 
   /**
    * The features that emission can add while Genes prints modules, so that

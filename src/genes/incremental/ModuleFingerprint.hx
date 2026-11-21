@@ -50,8 +50,9 @@ typedef ClassParts = {
  *   constructor, overload signature, typedef, abstract, enum, enum
  *   constructor or field of an anonymous structure declares type
  *   parameters (`constraintText`). A type parameter that only a typed body
- *   declares, such as one of a local function, is not covered (limit S3 of
- *   the review of genes-ts #246).
+ *   declares, such as one of a local function, is not in a fingerprint; the
+ *   replay checks it as a recorded answer (S3 of the review of genes-ts
+ *   #246, genes-f8vc.9.27; see the end of this comment).
  *
  * Metadata always means every entry with its arguments (`metaText`): a
  * sorted set of `@name(arguments)` texts, printed without positions, with
@@ -98,10 +99,14 @@ typedef ClassParts = {
  * types the module again, and the epochs guard that. Whether a
  * field has a body is also left out: reading it copies the complete typed
  * body in the macro interpreter, and only a new typing changes it. A macro
- * can still change metadata that only a typed body holds: that of a local
- * variable, of a local function's type parameter, or of a structure that
- * only the type of an expression names. That is not covered (limit S3 of
- * the review of genes-ts #246).
+ * can still change metadata that only a typed body holds (S3 of the review
+ * of genes-ts #246). No fingerprint holds it; the replay checks it as
+ * recorded answers instead (genes-f8vc.9.27, `genes.ts.SignatureCache
+ * .localTypeParameters` and `localDeclaredType`): the type parameters of a
+ * local function and the structures of the declared type of a local
+ * variable or argument. Two body holders stay out: the metadata of a local
+ * variable itself, and a structure that only the type of an expression
+ * names (see "Body metadata" in `docs/INCREMENTAL_AFTER_TYPING.md`).
  */
 class ModuleFingerprint {
   /**
@@ -276,10 +281,11 @@ class ModuleFingerprint {
    * declaration is in the generator's list. The digest keeps the cache
    * small: removed declarations include large parts of the standard library.
    *
-   * Not covered: metadata that only a typed body holds, such as that of a
-   * local variable or of a local function's type parameter (limit S3 of the
-   * review of genes-ts #246). Reading it would mean reading every typed body
-   * in every request.
+   * Not in this text: metadata that only a typed body holds (S3 of the
+   * review of genes-ts #246). Reading it here would mean reading every
+   * typed body in every request; the replay checks the body holders that
+   * a module printed as recorded answers instead (genes-f8vc.9.27,
+   * `genes.ts.SignatureCache.localTypeParameters` and `localDeclaredType`).
    */
   public static function unlisted(types: Array<Type>,
       listed: BaseType->Bool): String {
@@ -575,6 +581,46 @@ class ModuleFingerprint {
     }
     walk(type);
     return buffer.toString();
+  }
+
+  /**
+   * Returns true when `type` writes at least one anonymous structure, so
+   * that a macro can give one of its fields metadata. It reads no
+   * declaration and no structure, so it is cheap enough for every local
+   * variable of a typed body.
+   *
+   * Why: `genes.ts.SignatureCache` keeps the declared type of a local
+   * variable or argument only when it holds a structure (genes-f8vc.9.27).
+   * An empty `anonymousText` is not enough: a structure without metadata
+   * gives an empty text, and a macro can add metadata to it later.
+   *
+   * Example: `Null<{bv: Int}>` gives true; `Array<Int>` and a type parameter
+   * `L` give false (the metadata of `L` is in the `constraintText` of the
+   * local function that declares it). A structure that holds the statics of
+   * a class also gives true, although `anonymousText` skips it; that only
+   * keeps one more type.
+   */
+  public static function holdsStructure(type: Null<Type>): Bool {
+    function walk(type: Null<Type>, depth: Int): Bool {
+      if (type == null || depth > 64)
+        return false;
+      return switch type {
+        case TAnonymous(_):
+          true;
+        case TInst(_, params) | TEnum(_, params) | TType(_, params) |
+          TAbstract(_, params):
+          Lambda.exists(params, param -> walk(param, depth + 1));
+        case TFun(args, result): Lambda.exists(args,
+            arg -> walk(arg.t, depth + 1)) || walk(result, depth + 1);
+        case TDynamic(inner):
+          walk(inner, depth + 1);
+        case TMono(ref):
+          walk(ref.get(), depth + 1);
+        case TLazy(get):
+          walk(get(), depth + 1);
+      }
+    }
+    return walk(type, 0);
   }
 
   /**

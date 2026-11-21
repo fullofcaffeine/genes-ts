@@ -2548,13 +2548,15 @@ class TsModuleEmitter extends JsModuleEmitter {
    */
   function emitGenericLocalType(v: TVar, type: Type,
       capturedSourceType: Bool): Bool {
-    final extra = v.extra;
-    if (extra == null || extra.params.length == 0)
+    // The one reader of `TVar.extra` records the metadata of the parameters
+    // for the incremental generator (genes-f8vc.9.27).
+    final params = SignatureCache.localTypeParameters(v);
+    if (params.length == 0)
       return false;
     final previousSignature = currentCallableSignature;
-    currentCallableSignature = CallableSignaturePlan.local(extra.params,
+    currentCallableSignature = CallableSignaturePlan.local(params,
       previousSignature, currentClass == null ? [] : currentClass.params);
-    TypeEmitter.emitParams(this, extra.params.map(p -> p.t), true);
+    TypeEmitter.emitParams(this, params.map(p -> p.t), true);
     if (capturedSourceType)
       TypeEmitter.emitCapturedSourceType(this, type, false);
     else
@@ -2565,15 +2567,15 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   /** Uses the same local-owned binders for initialization and recursive assignment. */
   function emitGenericLocalValue(v: TVar, value: TypedExpr): Bool {
-    final extra = v.extra;
-    if (extra == null || extra.params.length == 0)
+    final params = SignatureCache.localTypeParameters(v);
+    if (params.length == 0)
       return false;
     switch value.expr {
       case TFunction(f):
         final previousSignature = currentCallableSignature;
-        currentCallableSignature = CallableSignaturePlan.local(extra.params,
+        currentCallableSignature = CallableSignaturePlan.local(params,
           previousSignature, currentClass == null ? [] : currentClass.params);
-        emitFunctionExpression(value, f, extra.params);
+        emitFunctionExpression(value, f, params);
         currentCallableSignature = previousSignature;
         return true;
       default:
