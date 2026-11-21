@@ -670,9 +670,10 @@ Proof: four rows of `yarn test:compiler-server:shadow` (module
 full generation with this check; the request after them replays every clean
 module again. Without the record in `localTypeParameters` or in
 `localDeclaredType`, the rows of that holder are red again. Two more rows
-cover a class initializer (`inc.BodyInit`, review of genes-ts #258). Before
-its holders were kept, a mark on a structure of a local's type replayed
-stale text, and the local generic function made every request with a cache
+cover class initializers (review of genes-ts #258). Before their holders
+were kept, a mark on a structure of a local's type in the initializer of
+`inc.BodyInit` replayed stale text, and the local generic function in the
+initializer of `inc.BodyInitGeneric` made every request with a cache
 generate in full.
 
 ### Limits

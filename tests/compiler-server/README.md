@@ -365,7 +365,11 @@ before stored output may be replayed, each case with made-up inputs:
    `Null<{...}>` and in a function result, and none in `Array<Int>`. A
    module that recorded an answer that no later request can ask again
    (`GenerationCache.UNKNOWN_ANSWER`) is dirty (rule 11), and the request
-   still applies the rules to every other module.
+   still applies the rules to every other module. Only this probe case
+   covers rule 11; no gate row reaches it end to end. Its only known
+   trigger was a local generic function in a class initializer, and
+   keeping the holders of class initializers (review of genes-ts #258)
+   removed it.
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the
@@ -469,10 +473,11 @@ difference of their results is a mismatch. The edits whose ids start with
   reuse (`inc/BodyMeta.tsx` differs from cold); now the recorded answer
   (`bodyParams` or `bodyType`) that `inc.BodyMeta` asked differs, and the
   request generates in full. The request after them replays every clean
-  module. Two more rows do the same in the class initializer of
-  `inc.BodyInit` (review of genes-ts #258): a structure in a local's type,
-  which reuse replayed stale on genes-ts 56c55b16, and a structure in the
-  constraint of a local generic function, whose missing holder made every
+  module. Two more rows do the same in class initializers (review of
+  genes-ts #258): a structure in a local's type in the initializer of
+  `inc.BodyInit`, which reuse replayed stale on genes-ts 56c55b16, and a
+  structure in the constraint of a local generic function in the
+  initializer of `inc.BodyInitGeneric`, whose missing holder made every
   request with a cache generate in full there;
 - an HXX error in the only dirty module (`FB3`: an unknown attribute on an
   intrinsic element; `FB4`: an unknown prop of a component), so that the
