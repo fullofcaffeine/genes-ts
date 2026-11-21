@@ -20,7 +20,16 @@ import haxe.macro.TypedExprTools;
  * - `bodyArgType`: the field `av` of the structure in the type of the
  *   argument `arg` of the local function `wrap`.
  *
- * Haxe does not type `inc.BodyMeta` again, and the printer of that module
+ * It does the same in class initializers (`__init__`; review of genes-ts
+ * #258):
+ *
+ * - `bodyInitType`: the field `sv` of the structure in the declared type of
+ *   the local `seen` of `inc.BodyInit`;
+ * - `bodyInitConstraint`: the field `iv` of the structure in the constraint
+ *   of the type parameter of the local function `ident` of
+ *   `inc.BodyInitGeneric`.
+ *
+ * Haxe types none of these modules again, and the printer of each module
  * prints each holder.
  */
 class BodyMetaMacro {
@@ -28,6 +37,7 @@ class BodyMetaMacro {
     Context.onAfterTyping(types -> {
       final marks = new Map<String, Bool>();
       var body: Null<TypedExpr> = null;
+      final inits: Array<TypedExpr> = [];
       for (type in types)
         switch type {
           case TClassDecl(ref):
@@ -37,19 +47,27 @@ class BodyMetaMacro {
                 marks.set(field.name, true);
             if (cls.module == 'inc.BodyMeta' && cls.name == 'BodyMeta')
               for (field in cls.statics.get())
-              if (field.name == 'value')
-                body = field.expr();
+                if (field.name == 'value')
+                  body = field.expr();
+            if ((cls.module == 'inc.BodyInit' && cls.name == 'BodyInit')
+              || (cls.module == 'inc.BodyInitGeneric'
+                && cls.name == 'BodyInitGeneric')) {
+              final init = cls.init;
+              if (init != null)
+                inits.push(init);
+            }
           default:
         }
-      if (!marks.exists('bodyConstraint')
-        && !marks.exists('bodyParam')
-        && !marks.exists('bodyLocalType')
-        && !marks.exists('bodyArgType'))
+      if (!marks.exists('bodyConstraint') && !marks.exists('bodyParam')
+        && !marks.exists('bodyLocalType') && !marks.exists('bodyArgType')
+        && !marks.exists('bodyInitType') && !marks.exists('bodyInitConstraint'))
         return;
       final pos = Context.currentPos();
       final expression = body;
       if (expression == null)
         Context.fatalError('BodyMetaMacro: no body of inc.BodyMeta.value', pos);
+      if (inits.length == 0)
+        Context.fatalError('BodyMetaMacro: no class initializer to mark', pos);
       function mark(type: Type, name: String): Void {
         switch type {
           case TAnonymous(anon):
@@ -76,19 +94,25 @@ class BodyMetaMacro {
           default: null;
         }
       }
+      function markConstraint(variable: TVar, name: String): Void {
+        final cls = paramClass(variable);
+        if (cls != null)
+          switch cls.kind {
+            case KTypeParameter(constraints):
+              for (item in constraints)
+                mark(item, name);
+            default:
+          }
+      }
       function walk(e: TypedExpr): Void {
         switch e.expr {
           case TVar(variable, _):
-            if (variable.name == 'inner' && marks.exists('bodyConstraint')) {
-              final cls = paramClass(variable);
-              if (cls != null)
-                switch cls.kind {
-                  case KTypeParameter(constraints):
-                    for (item in constraints)
-                      mark(item, 'lv');
-                  default:
-                }
-            }
+            if (variable.name == 'inner' && marks.exists('bodyConstraint'))
+              markConstraint(variable, 'lv');
+            if (variable.name == 'ident' && marks.exists('bodyInitConstraint'))
+              markConstraint(variable, 'iv');
+            if (variable.name == 'seen' && marks.exists('bodyInitType'))
+              mark(variable.t, 'sv');
             if (variable.name == 'tagged' && marks.exists('bodyParam')) {
               final cls = paramClass(variable);
               if (cls != null) {
@@ -107,6 +131,8 @@ class BodyMetaMacro {
         TypedExprTools.iter(e, walk);
       }
       walk(expression);
+      for (init in inits)
+        walk(init);
     });
   }
 }

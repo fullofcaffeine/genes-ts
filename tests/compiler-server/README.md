@@ -362,7 +362,10 @@ before stored output may be replayed, each case with made-up inputs:
    the replay. The readers of a local variable's own metadata, which the
    replay cannot ask again, are the listed ones; a new reader fails the
    probe. `ModuleFingerprint.holdsStructure` finds a structure in
-   `Null<{...}>` and in a function result, and none in `Array<Int>`.
+   `Null<{...}>` and in a function result, and none in `Array<Int>`. A
+   module that recorded an answer that no later request can ask again
+   (`GenerationCache.UNKNOWN_ANSWER`) is dirty (rule 11), and the request
+   still applies the rules to every other module.
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the
@@ -466,7 +469,11 @@ difference of their results is a mismatch. The edits whose ids start with
   reuse (`inc/BodyMeta.tsx` differs from cold); now the recorded answer
   (`bodyParams` or `bodyType`) that `inc.BodyMeta` asked differs, and the
   request generates in full. The request after them replays every clean
-  module;
+  module. Two more rows do the same in the class initializer of
+  `inc.BodyInit` (review of genes-ts #258): a structure in a local's type,
+  which reuse replayed stale on genes-ts 56c55b16, and a structure in the
+  constraint of a local generic function, whose missing holder made every
+  request with a cache generate in full there;
 - an HXX error in the only dirty module (`FB3`: an unknown attribute on an
   intrinsic element; `FB4`: an unknown prop of a component), so that the
   error comes inside a request whose walk takes stored edges: the shadow

@@ -982,6 +982,19 @@ class CleanRuleProbe {
     expectDecision('asked for a feature that emission adds',
       GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean',
       'asked for the feature use.' + '$' + 'bind, which emission can add');
+    // Rule 11 (review of genes-ts #258): a module that recorded a question
+    // that no later request can ask again is dirty, and the request still
+    // applies the rules to every other module instead of falling back.
+    store(epochs, fingerprints, [], [], null, {
+      answers: [
+        GenerationCache.answerLine('bodyParams', 'app.Clean#7',
+          GenerationCache.UNKNOWN_ANSWER)
+      ]
+    });
+    expectDecision('recorded a question that no later request can ask',
+      GenerationCache.decide(facts(epochs, fingerprints)), 'app.Clean',
+      'recorded the question bodyParams app.Clean#7, which no later request ' +
+      'can ask again');
     // Item 7: compare and reuse do not use a cache of afterTyping measure.
     store(epochs, fingerprints, [], [], null, {underReuse: false});
     switch GenerationCache.decide(facts(epochs, fingerprints)) {

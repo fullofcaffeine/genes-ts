@@ -1675,7 +1675,8 @@ const edits: ReadonlyArray<Edit> = [
     // Only the typed body of `BodyMeta.value` holds that structure, so no
     // fingerprint and no metadata comparison sees the change. The answer
     // that inc.BodyMeta recorded for the type parameters of the local
-    // function (`genes.BodyMetadata`) differs now, so the request falls back.
+    // function (`SignatureCache.localTypeParameters`) differs now, so the
+    // request falls back.
     id: "after-typing macro overrides an anonymous field in the constraint of a local function type parameter",
     apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
       "class Leaf2 {\n  public static var bodyConstraint = 1;\n"),
@@ -1717,6 +1718,36 @@ const edits: ReadonlyArray<Edit> = [
     id: "no edit after the body metadata marks",
     apply: () => {},
     results: ["incremental"]
+  },
+  {
+    // Review of genes-ts #258: a class initializer (`__init__` of
+    // inc.BodyInit) is a body too. The field `sv` of the structure in the
+    // declared type of its local `seen` gets `@:ts.type("string")`. Without
+    // a kept holder for that body, reuse replayed `sv: number` where cold
+    // prints `sv: string`.
+    id: "after-typing macro overrides an anonymous field in the type of a local variable of a class initializer",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var bodyInitType = 1;\n"),
+    results: ["full"],
+    reason: "inc.BodyInit"
+  },
+  {
+    // The local function `ident<I: {iv: Int}>` of the initializer of
+    // inc.BodyInitGeneric: without a kept holder its answer could not be
+    // asked again, and every request with a cache generated in full (every
+    // no-edit row was red). Now the recorded answer differs, and only this
+    // request falls back.
+    id: "after-typing macro overrides an anonymous field in the constraint of a local function type parameter of a class initializer",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var bodyInitConstraint = 1;\n"),
+    results: ["full"],
+    reason: "inc.BodyInitGeneric"
+  },
+  {
+    id: "no edit after the class initializer marks",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true
   },
   {
     id: "no edit at the end",

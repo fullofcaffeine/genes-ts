@@ -637,18 +637,33 @@ class SignatureCache {
 
   /** Finds declarations even when a warm typed tree has split their initializers. */
   static function captureExpression(expression: TypedExpr): Void {
-    switch expression.expr {
-      case TVar(variable, _):
-        captureLocal(variable);
-      case TFunction(fn):
-        for (arg in fn.args)
-          captureLocal(arg.v, true);
-      case TTry(_, catches):
-        for (entry in catches)
-          captureLocal(entry.v);
-      default:
+    eachLocal(expression,
+      (variable, argument) -> captureLocal(variable, argument));
+  }
+
+  /**
+   * Calls `visit` for each local variable, function argument and catch
+   * variable that `expression` declares, in walk order; the flag is `true`
+   * for a function argument. `captureExpression` and the body holders of a
+   * class initializer share this one walk.
+   */
+  static function eachLocal(expression: TypedExpr,
+      visit: (variable: TVar, argument: Bool) -> Void): Void {
+    function walk(e: TypedExpr): Void {
+      switch e.expr {
+        case TVar(variable, _):
+          visit(variable, false);
+        case TFunction(fn):
+          for (arg in fn.args)
+            visit(arg.v, true);
+        case TTry(_, catches):
+          for (entry in catches)
+            visit(entry.v, false);
+        default:
+      }
+      haxe.macro.TypedExprTools.iter(e, walk);
     }
-    haxe.macro.TypedExprTools.iter(expression, captureExpression);
+    walk(expression);
   }
 
   /**
@@ -708,6 +723,14 @@ class SignatureCache {
       if (expression != null)
         captureExpression(expression);
     }
+    // The class initializer (`static function __init__`) is a body too: the
+    // dependency walk visits it and the printer prints it, so its holders
+    // must be kept like those of a field (review of genes-ts #258). Only the
+    // holders: its locals never had source-type facts, and adding them would
+    // change the printed types of a build without the define.
+    final init = current.type.init;
+    if (keepBodyHolders && init != null)
+      eachLocal(init, (variable, _) -> captureBodyHolders(variable));
   }
 
   static function captureEnumAbstract(reference: Ref<AbstractType>): Void {
@@ -1080,10 +1103,12 @@ class SignatureCache {
 
   /**
    * The answer that `localTypeParameters` records for a local function that
-   * this request keeps no holder for. `factAnswer` never returns it, so the
-   * module that recorded it is never replayed.
+   * this request keeps no holder for (`GenerationCache.UNKNOWN_ANSWER`).
+   * Rule 11 of `GenerationCache` keeps the module that recorded it out of
+   * the clean set, so that module is printed in each request while every
+   * other clean module can still be replayed.
    */
-  static inline final UNKNOWN_HOLDER = '!';
+  static inline final UNKNOWN_HOLDER = genes.incremental.GenerationCache.UNKNOWN_ANSWER;
 
   /** Returns the key of a body holder: the owner class and the variable id. */
   static inline function bodyKey(owner: String, id: Int): String
@@ -1122,7 +1147,8 @@ class SignatureCache {
    * text differs. The text comes from the holder that this pass kept
    * (`LocalTypeParameters`), so the recorded and the checked answer read
    * the same references. A local function without a kept holder records
-   * `UNKNOWN_HOLDER`, and its module is never replayed.
+   * `UNKNOWN_HOLDER`, and its module is never clean (rule 11 of
+   * `GenerationCache`): it is printed in each request.
    *
    * Example: `function inner<L:{lv: Int}>(x: L)` records ` <L.0 0.lv
    * @:ts.type("string")` after a macro marked `lv`, where it recorded an
