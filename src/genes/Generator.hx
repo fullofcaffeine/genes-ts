@@ -697,7 +697,7 @@ class Generator {
           module != null
           && module.isCyclic(test);
         },
-        anonField: genes.ts.SignatureCache.anonFieldAnswer,
+        signatureFact: genes.ts.SignatureCache.factAnswer,
         reactRefreshSplit: (name, _) -> {
           final module = modules.get(name);
           ReactRefreshModulePlan.answerText(module == null ? null : module.reactRefreshComponents());

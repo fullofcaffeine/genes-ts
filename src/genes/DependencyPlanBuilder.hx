@@ -591,15 +591,17 @@ class DependencyPlanBuilder {
           if (!projected) {
             collector.observeOverrideMeta(variable.meta,
               'type.local-variable-override', expression.pos);
-            collector.collect(variable.t, 'type.local-variable',
-              expression.pos);
+            // Records the metadata of the structures of the declared type
+            // for the incremental generator (genes-f8vc.9.27).
+            collector.collect(genes.ts.SignatureCache.localDeclaredType(variable),
+              'type.local-variable', expression.pos);
           }
         case TFunction(functionType):
           for (argument in functionType.args) {
             collector.observeOverrideMeta(argument.v.meta,
               'type.local-argument-override', expression.pos);
-            collector.collect(argument.v.t, 'type.local-argument',
-              expression.pos);
+            collector.collect(genes.ts.SignatureCache.localDeclaredType(argument.v),
+              'type.local-argument', expression.pos);
           }
         case TCall(callee, arguments):
           final marker = CompilerInternal.undefinablePresentMarkerCall(callee,

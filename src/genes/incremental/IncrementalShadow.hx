@@ -104,8 +104,12 @@ typedef ReplayAnswers = {
   /** `Module.isCyclic` of the asking module (first argument) for a module. */
   final cycle: Null<(asker: String, test: String) -> Bool>;
 
-  /** The text of a position-keyed `SignatureCache` fact now (kind, key). */
-  final anonField: Null<(kind: String, key: String) -> String>;
+  /**
+   * The text of a recorded `SignatureCache` fact now (kind, key;
+   * `SignatureCache.factAnswer`): a position-keyed fact of an anonymous
+   * structure field, or the metadata of a body holder (genes-f8vc.9.27).
+   */
+  final signatureFact: Null<(kind: String, key: String) -> String>;
 
   /**
    * `ReactRefreshModulePlan.answerText` of a module's React Fast Refresh
@@ -338,7 +342,10 @@ typedef ShadowReport = {
  * - the warnings that the printer reported for it (today only
  *   "__js__ is deprecated");
  * - the global questions that its planning and emission asked, with the
- *   answers (`recordFeature`, `recordModuleExists`), and the features that
+ *   answers (`recordFeature`, `recordModuleExists`, `recordCycle`), the
+ *   recorded `SignatureCache` facts that it read (`recordFact`: facts of
+ *   anonymous-structure fields, and the metadata of holders that only a
+ *   typed body declares or names), and the features that
  *   its emission added (`recordAddition`);
  * - its final member list and root flags after the walk (`planReplay`), and
  *   its public entries (`publicEntry`);
@@ -763,21 +770,30 @@ class IncrementalShadow {
   }
 
   /**
-   * Records one answer of `SignatureCache.getAnonFieldTsType` (`anonTs`) or
-   * `getAnonFieldSourceType` (`anonSource`): `key` is the source position of
-   * an anonymous-structure field, and `answer` the text of the fact, or `-`
-   * when there is none. The answer belongs to the module whose clock runs
-   * (its planning or printing reads it); outside any clock it belongs to the
-   * request (`GenerationCache.globalAnswers`).
+   * Records one answer of a `SignatureCache` fact (`SignatureCache
+   * .factAnswer` gives the same text again in `planReplay`). The answer
+   * belongs to the module whose clock runs (its planning or printing reads
+   * it); outside any clock it belongs to the request
+   * (`GenerationCache.globalAnswers`). The kinds:
    *
-   * Why (review of #244, M2): the capture of one declaration writes such a
-   * fact for every field position that its type reaches, also for a field
-   * of another module. Example: a typedef `{ > inc.Env.Envelope<inc.Color>,
-   * ... }` in `inc.Leaf2` writes the fact of the field `value` of
-   * `inc.Env.Envelope`, and the print of `inc.Env` reads it. `inc.Env` is
-   * not typed again, so no other clean rule sees the change.
+   * - `anonTs`, `anonSource` (`getAnonFieldTsType`, `getAnonFieldSourceType`):
+   *   `key` is the source position of an anonymous-structure field, and
+   *   `answer` the text of the fact, or `-` when there is none. Why (review
+   *   of #244, M2): the capture of one declaration writes such a fact for
+   *   every field position that its type reaches, also for a field of
+   *   another module. Example: a typedef `{ > inc.Env.Envelope<inc.Color>,
+   *   ... }` in `inc.Leaf2` writes the fact of the field `value` of
+   *   `inc.Env.Envelope`, and the print of `inc.Env` reads it. `inc.Env` is
+   *   not typed again, so no other clean rule sees the change.
+   * - `bodyParams`, `bodyType` (`localTypeParameters`, `localDeclaredType`;
+   *   genes-f8vc.9.27): `key` is `<owner class>#<variable id>`, and `answer`
+   *   the metadata text of a holder that only a typed body declares or
+   *   names: the type parameters of a local function, or the structures of
+   *   the declared type of a local variable or argument. Why (S3 of the
+   *   review of #246): no declaration lists such a holder, so no fingerprint
+   *   and no metadata comparison sees a macro write on it.
    */
-  public static function recordAnonField(kind: String, key: String,
+  public static function recordFact(kind: String, key: String,
       answer: String): Void {
     final shadow = current;
     if (shadow == null || !shadow.active)
@@ -1356,7 +1372,8 @@ class IncrementalShadow {
    * asked outside any module must be the same now. For each clean module
    * that is emitted now: the root flags must equal the stored ones, and each
    * stored answer (features, module map, import cycles, position-keyed
-   * signature facts) must equal the answer now. Any difference makes the
+   * signature facts, and the metadata of body holders, genes-f8vc.9.27)
+   * must equal the answer now. Any difference makes the
    * request generate in full; there is no partial fallback, because the
    * difference may come from a module that the clean rules did not see.
    * Nothing has added a feature yet, so the full generation is exact. A
@@ -1435,7 +1452,7 @@ class IncrementalShadow {
       feature: live.feature,
       moduleExists: live.moduleExists,
       cycle: live.cycle,
-      anonField: live.anonField,
+      signatureFact: live.signatureFact,
       reactRefreshSplit: split == null ? null : (module,
         recorded) -> clean.exists(module) ? recorded : split(module, recorded)
     };
@@ -1477,7 +1494,9 @@ class IncrementalShadow {
    * `now` is not checked: `replay` passes only the feature function, because
    * the module map, the import graph, the signature facts and the React Fast
    * Refresh splits do not change during emission, so `planReplay` already
-   * checked them. An unknown kind
+   * checked them. (No Genes printer writes metadata on a body holder;
+   * `PublicSurface` and `Generator` write only on declarations and fields.)
+   * An unknown kind
    * always counts as changed.
    */
   static function changedAnswer(asker: String, answers: Array<String>,
@@ -1494,8 +1513,8 @@ class IncrementalShadow {
           final cyclic = now.cycle;
           cyclic == null ? answer.answer : GenerationCache.flag(cyclic(asker,
             answer.name));
-        case 'anonTs' | 'anonSource':
-          final fact = now.anonField;
+        case 'anonTs' | 'anonSource' | 'bodyParams' | 'bodyType':
+          final fact = now.signatureFact;
           fact == null ? answer.answer : fact(answer.kind, answer.name);
         case 'refreshSplit':
           final split = now.reactRefreshSplit;
@@ -1560,7 +1579,7 @@ class IncrementalShadow {
       feature: hasFeature,
       moduleExists: null,
       cycle: null,
-      anonField: null,
+      signatureFact: null,
       reactRefreshSplit: null
     });
     if (changed != null) {

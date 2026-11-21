@@ -588,6 +588,94 @@ Mutation checks by hand (`tests/compiler-server/README.md`): without the
 commit step, F2 fails in `reuse` and `compare`; with the old, broad
 explained class, `KeepRuleProbe` fails on "kept T1, new T2".
 
+### Body metadata
+
+Stage 3 replay (genes-ts #244 to #249) reuses the stored output of a module
+that Haxe did not type again. A macro can still write metadata after typing,
+in every request, and the printed TypeScript follows it. Four review rounds
+each found one more such path. They are one family, and the macro API of
+Haxe 4.3.7 bounds it: metadata has exactly four kinds of holder
+(`ClassField`, `EnumField`, `BaseType` and `TVar`), and the only other
+writer after typing is `BaseType.exclude()`. `CleanRuleProbe` checks that
+list against the running Haxe, so a new holder fails there first.
+
+Each holder has one check (genes-f8vc.9.27):
+
+| Holder | Example | Check |
+| --- | --- | --- |
+| A declaration, its fields, constructors, enum constructors, the type parameters that it declares, and the structures of its declared types, also one that dead-code elimination removed | `@:ts.type` on a removed class (M2a), `@:value` on a removed static of an enum abstract (M2b) | `GenerationChangeSet.compareMetadata` before the passes after typing, and the fingerprints after dead-code elimination (#249). Both read every such holder, whichever printer reads it. |
+| The type parameters that a local function declares (`TVar.extra`) | `@:ts.type("string")` on `lv` in `function inner<L:{lv: Int}>(x: L)` (S3) | Recorded answer `bodyParams` |
+| The structures of the declared type of a local variable or argument | `@:ts.type("string")` on `bv` in `var box: Null<{bv: Int}>` | Recorded answer `bodyType` |
+| The extern flag | `exclude()` on an enum | Fingerprints and the target facts of the stored walk (S2) |
+| The metadata of a local variable itself (`TVar.meta`) | `@:ts.type("string")` on the argument `v` of `consume(v: {cq: Int})`; only argument metadata is printed, so the same mark on a plain local changes nothing | Not checked: limit below |
+
+How the recorded answers work, with the same mechanism as the feature
+flags and the facts of anonymous-structure fields:
+
+1. With `-D genes.dev_incremental`, `SignatureCache` keeps two more facts
+   for each local variable and argument of each captured body (the
+   constructor, each field, and the class initializer `__init__`), in the
+   bucket of its class: the type parameters of a local function
+   (`LocalTypeParameters`), and a declared type that holds an anonymous
+   structure (`LocalDeclaredType`, `ModuleFingerprint.holdsStructure`).
+   The kept values are references, so they show metadata as it is in the
+   request that reads them.
+2. Generation code reads these holders through one accessor each:
+   `SignatureCache.localTypeParameters` (the only reader of `TVar.extra`;
+   `CleanRuleProbe` fails on any other) and
+   `SignatureCache.localDeclaredType` (the dependency walk visits every
+   local variable and argument of every body that a module prints). While
+   the shadow records, each records the metadata text of the kept holder
+   as an answer of the module whose clock runs: key `<class>#<variable
+   id>`, text `ModuleFingerprint.constraintText` or `anonymousText`.
+3. `IncrementalShadow.planReplay` asks each recorded answer again before the
+   first module is printed (`SignatureCache.factAnswer`) and generates in
+   full when one differs. A local function without a kept holder records
+   `GenerationCache.UNKNOWN_ANSWER`; rule 11 of `GenerationCache` keeps that
+   module out of the clean set, so it is printed in each request, while
+   every other clean module can still be replayed.
+
+A module request (G3) prints the requested module from its new typed
+bodies, so it does not compare these answers.
+
+Limits:
+
+- `TVar.meta`. Haxe 4.3.7 gives the metadata of a local variable only as a
+  copy, made when a typed body is decoded (`ClassField.expr()`). A check
+  would have to decode every body of every clean module in each request,
+  which costs about as much as the walk that replay saves. The printers
+  read it only for function arguments (`@:ts.type` and `@:genes.type` in
+  `TsModuleEmitter` and `DefinitionEmitter`); the dependency walk reads it
+  for every local and argument. The review of genes-ts #258 reproduced a
+  stale replay with `@:ts.type("string")` written on such an argument after
+  typing, and found no real writer: the after-typing callbacks of Caffeine
+  write no metadata. The readers are listed in `CleanRuleProbe`; a new
+  reader fails it.
+- A structure that only the type of an expression names, for example an
+  object literal that Genes prints as an inferred type argument, and a
+  local variable that Haxe makes after the capture (a loop temporary).
+  Neither has a kept holder. A temporary usually holds a structure that a
+  kept holder also reaches.
+- A macro that stops writing body metadata that it wrote in an earlier
+  request. Haxe keeps that metadata on a module that it does not type
+  again, so a warm build without replay then differs from a cold build too
+  (G0). Checked once on the fixture: after the mark of `box` was removed
+  from `inc.Leaf2`, the plain warm tree still printed `bv: string`, and the
+  cold tree `bv: number`. The replay does not make that worse; no row of the
+  gate takes a mark away.
+
+Proof: four rows of `yarn test:compiler-server:shadow` (module
+`inc.BodyMeta`, macro `inc.BodyMetaMacro`) are red on genes-ts eee0d60d in
+`reuse` (the tree of `inc/BodyMeta.tsx` differs from cold) and fall back to a
+full generation with this check; the request after them replays every clean
+module again. Without the record in `localTypeParameters` or in
+`localDeclaredType`, the rows of that holder are red again. Two more rows
+cover class initializers (review of genes-ts #258). Before their holders
+were kept, a mark on a structure of a local's type in the initializer of
+`inc.BodyInit` replayed stale text, and the local generic function in the
+initializer of `inc.BodyInitGeneric` made every request with a cache
+generate in full.
+
 ### Limits
 
 - The compare mode cannot show the effect of the capture order on
