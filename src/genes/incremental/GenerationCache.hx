@@ -163,7 +163,11 @@ typedef CachedModule = {
    *   a typed body of the module declares or names, keyed by its class and
    *   variable id (`SignatureCache.localTypeParameters`,
    *   `localDeclaredType`; genes-f8vc.9.27). A macro can change it without
-   *   a new typing and without a change of any fingerprint.
+   *   a new typing and without a change of any fingerprint;
+   * - `refreshSplit`: the component names of the named module when
+   *   `-D genes.react_refresh_modules` splits it, or `-`
+   *   (`Module.reactRefreshSplitOf`). An importer of a split module imports
+   *   its other bindings from `X.fields`.
    */
   final answers: Array<String>;
 

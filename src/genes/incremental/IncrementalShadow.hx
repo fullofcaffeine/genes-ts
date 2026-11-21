@@ -110,6 +110,14 @@ typedef ReplayAnswers = {
    * structure field, or the metadata of a body holder (genes-f8vc.9.27).
    */
   final signatureFact: Null<(kind: String, key: String) -> String>;
+
+  /**
+   * `ReactRefreshModulePlan.answerText` of a module's React Fast Refresh
+   * split now (`Module.reactRefreshSplitOf`), given the module and the
+   * recorded answer. `planReplay` returns the recorded answer for a clean
+   * module without asking.
+   */
+  final reactRefreshSplit: Null<(module: String, recorded: String) -> String>;
 }
 
 /** One stored public entry of a replayed module, with its position made again. */
@@ -795,6 +803,26 @@ class IncrementalShadow {
       GenerationCache.answerLine(kind, key, answer));
   }
 
+  /**
+   * Records how `asker` saw the React Fast Refresh split of the module
+   * `target` (`Module.reactRefreshSplitOf`): `answer` is
+   * `ReactRefreshModulePlan.answerText` of its component names.
+   *
+   * Why: with `-D genes.react_refresh_modules`, an importer of a split module
+   * imports the components from `X` and every other binding from
+   * `X.fields`. The split depends on the bodies of `X` (for example a static
+   * initializer that starts to call a component keeps `X` one file), so an
+   * importer that Haxe did not type again can still need new import lines.
+   */
+  public static function recordReactRefreshSplit(asker: String,
+      target: String, answer: String): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    addLine(shadow.answers, asker,
+      GenerationCache.answerLine('refreshSplit', target, answer));
+  }
+
   /** Records one feature that emission of `module` added (`api.addFeature`). */
   public static function recordAddition(module: String, feature: String): Void {
     final shadow = current;
@@ -1413,8 +1441,21 @@ class IncrementalShadow {
    */
   static function planFallbackReason(shadow: IncrementalShadow,
       names: Array<String>, emitted: Map<String, Bool>,
-      clean: Map<String, Bool>, now: ReplayAnswers,
+      clean: Map<String, Bool>, live: ReplayAnswers,
       plan: Map<String, Bool>): Null<String> {
+    // A clean module has the same members, metadata and typed bodies as in
+    // the stored request, so its React Fast Refresh split is the recorded
+    // one. Only a module that is not clean is asked again; that spares the
+    // module function plans of the clean modules.
+    final split = live.reactRefreshSplit;
+    final now: ReplayAnswers = {
+      feature: live.feature,
+      moduleExists: live.moduleExists,
+      cycle: live.cycle,
+      signatureFact: live.signatureFact,
+      reactRefreshSplit: split == null ? null : (module,
+        recorded) -> clean.exists(module) ? recorded : split(module, recorded)
+    };
     for (name in names) {
       final stored = GenerationCache.entry(name);
       if (stored == null)
@@ -1451,10 +1492,11 @@ class IncrementalShadow {
    * Returns the first of `answers`, asked by `asker`, that differs now, or
    * `null` when every answer is the same. A kind without a function in
    * `now` is not checked: `replay` passes only the feature function, because
-   * the module map, the import graph and the signature facts do not change
-   * during emission, so `planReplay` already checked them. (No Genes
-   * printer writes metadata on a body holder; `PublicSurface` and
-   * `Generator` write only on declarations and fields.) An unknown kind
+   * the module map, the import graph, the signature facts and the React Fast
+   * Refresh splits do not change during emission, so `planReplay` already
+   * checked them. (No Genes printer writes metadata on a body holder;
+   * `PublicSurface` and `Generator` write only on declarations and fields.)
+   * An unknown kind
    * always counts as changed.
    */
   static function changedAnswer(asker: String, answers: Array<String>,
@@ -1474,6 +1516,9 @@ class IncrementalShadow {
         case 'anonTs' | 'anonSource' | 'bodyParams' | 'bodyType':
           final fact = now.signatureFact;
           fact == null ? answer.answer : fact(answer.kind, answer.name);
+        case 'refreshSplit':
+          final split = now.reactRefreshSplit;
+          split == null ? answer.answer : split(answer.name, answer.answer);
         default:
           null;
       }
@@ -1534,7 +1579,8 @@ class IncrementalShadow {
       feature: hasFeature,
       moduleExists: null,
       cycle: null,
-      signatureFact: null
+      signatureFact: null,
+      reactRefreshSplit: null
     });
     if (changed != null) {
       GenerationCache.drop();

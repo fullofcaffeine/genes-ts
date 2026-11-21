@@ -1,5 +1,6 @@
 import type {JSX} from "react"
-import {Tone, Counter, Panel_Fields_, Panel} from "./Panel.js"
+import {Panel} from "./Panel.js"
+import {Tone, Counter, Panel_Fields_} from "./Panel.fields.js"
 import {Std} from "../Std.js"
 import {Greeting} from "./Greeting.js"
 import {Label, Registry} from "./Unsplit.js"
@@ -17,4 +18,4 @@ export function App(): JSX.Element {
 	return <main>{tmp}{tmp1}{tmp2}{tmp3}{tmp4}<footer data-summary="">{summary}</footer></main>;
 }
 App_Fields_.App = App;
-export {App_Fields_, appTitle}
+export type {App_Fields_}

@@ -238,6 +238,31 @@ class ExprEmitter extends Emitter {
     return false;
   }
 
+  /**
+   * Writes the `import("...")` call of one `Genes.dynamicImport` request.
+   * `path` is the extension-free path from the calling module. The
+   * TypeScript emitter overrides it for a module that is split for React
+   * Fast Refresh (`genes.ReactRefreshModulePlan`).
+   */
+  function emitDynamicImportRequest(path: String): Void {
+    write('import(');
+    emitString(path + Genes.runtimeImportExtension(Genes.outExtension));
+    write(')');
+  }
+
+  /**
+   * Writes the TypeScript type of the namespace that a `Genes.dynamicImport`
+   * request loads: `typeof import("...")` with the current runtime suffix.
+   * `path` is the extension-free path from the calling module
+   * (`DynamicImportMarker.typeOf`). The TypeScript emitter overrides it for a
+   * module that is split for React Fast Refresh.
+   */
+  function emitDynamicImportType(path: String): Void {
+    write('typeof import(');
+    emitString(path + Genes.runtimeImportExtension(Genes.outExtension));
+    write(')');
+  }
+
   /** Emits one exact bare runtime binding through the same assertion seam. */
   function runtimeDirectBinding(name: String): String {
     if (lexicalBindingUsePlan != null) {
@@ -1239,6 +1264,12 @@ class ExprEmitter extends Emitter {
       return;
     if (emitPlannedJsxCall(callExpression, e, params))
       return;
+    final dynamicImportType = CompilerInternal.dynamicImportTypeMarkerPath(e,
+      params);
+    if (dynamicImportType != null) {
+      emitDynamicImportType(dynamicImportType);
+      return;
+    }
     if (CompilerInternal.isDynamicImportMarkerCallee(e)) {
       final marker = CompilerInternal.dynamicImportMarkerCall(e, params);
       if (marker == null)
@@ -1246,10 +1277,7 @@ class ExprEmitter extends Emitter {
           + 'import marker requires a literal module path and source range.',
           e.pos);
       emitPos(marker.pos);
-      write('import(');
-      emitString(marker.path
-        + Genes.runtimeImportExtension(Genes.outExtension));
-      write(')');
+      emitDynamicImportRequest(marker.path);
       return;
     }
     emitPos(e.pos);

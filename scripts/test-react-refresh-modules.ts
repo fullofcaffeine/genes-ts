@@ -15,6 +15,10 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
  * - both builds load modules in the same order and render the same HTML;
  * - the React Fast Refresh rule accepts a hot update of each component
  *   module with the define, and rejects the split candidates without it;
+ * - with the define, a split component file exports only components, so the
+ *   rule also accepts an edit of its sibling (`Panel.fields.tsx`): each
+ *   importer of the sibling that exports a component accepts the update;
+ * - a `Genes.dynamicImport` of a split module finds its non-component class;
  * - classic JavaScript output rejects the define.
  *
  * The Vite dev-server proof (a real hot update that keeps React state) needs
@@ -22,7 +26,15 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
  */
 
 type HotUpdates = Record<string, string>;
-type Transcript = { loadOrder: string[]; html: string; hotUpdates: HotUpdates };
+type SiblingEdit = { verdicts: Record<string, string>; sameHtml: boolean };
+type Transcript = {
+  loadOrder: string[];
+  html: string;
+  hotUpdates: HotUpdates;
+  mixedExports: Record<string, string[]>;
+  siblingEdit: SiblingEdit | null;
+  lazyHtml: string;
+};
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -82,20 +94,23 @@ const singleFiles = [
   "Cycle.tsx",
   "CycleDep.tsx",
   "Greeting.tsx",
+  "Lazy.tsx",
   "LoadLog.tsx",
   "Main.tsx",
   "Omitted.tsx",
   "Panel.tsx",
   "Transitive.tsx",
-  "Unsplit.tsx"
+  "TypeUser.tsx",
+  "Unsplit.tsx",
+  "Widget.tsx"
 ];
-deepStrictEqual(generatedFiles("tsx"), [...singleFiles, "App.fields.tsx", "Panel.fields.tsx"].sort());
+deepStrictEqual(generatedFiles("tsx"), [...singleFiles, "App.fields.tsx", "Lazy.fields.tsx", "Panel.fields.tsx", "Widget.fields.tsx"].sort());
 deepStrictEqual(generatedFiles("tsx-off"), singleFiles);
 
 // The sibling must not import its component file. With that import cycle,
 // Vite loads the sibling again on each component update, and the re-exported
 // values are then new objects, which Fast Refresh rejects.
-for (const name of ["Panel", "App"]) {
+for (const name of ["Panel", "App", "Lazy", "Widget"]) {
   const sibling = readFileSync(path.join(fixtureRoot, `out/tsx/src-gen/refresh/${name}.fields.tsx`), "utf8");
   ok(!sibling.includes(`from "./${name}.js"`), `${name}.fields.tsx imports its component file`);
 }
@@ -134,4 +149,46 @@ deepStrictEqual(single.hotUpdates, {
 });
 deepStrictEqual(split.hotUpdates, { Panel: "accepted", App: "accepted", Greeting: "accepted" });
 
-console.log("react-refresh-modules:ok (split file set, snapshots, TS lanes, same runtime, Fast Refresh rule)");
+// A module that exports a component and another runtime value rejects every
+// update of that value. With the define only the modules that stay one file
+// (see above) may do so; a split component file must export only components.
+// `X.fields` files are left out: an enum or interface function there looks
+// like a component to the rule, and the dev server passes a rejected sibling
+// update on to the importers, which the next check covers.
+const singleFileMixed = [
+  "CallbackIface",
+  "CallbackString",
+  "CallbackSuper",
+  "CallbackSupport",
+  "Cycle",
+  "Omitted",
+  "Transitive",
+  "Unsplit"
+];
+deepStrictEqual(Object.keys(split.mixedExports).filter((name) => !name.endsWith(".fields")), singleFileMixed);
+deepStrictEqual(Object.keys(single.mixedExports), [...singleFileMixed, "App", "Lazy", "Panel", "Widget"].sort());
+
+// TypeUser uses the class, enum and interface of the split module Widget only
+// as types. Its type-only import keeps the path of Widget.tsx, which
+// re-exports their type side; the TypeScript lanes above check it.
+match(readFileSync(path.join(fixtureRoot, "out/tsx/src-gen/refresh/TypeUser.tsx"), "utf8"),
+  /^import type \{Model, Kind, Named, WidgetProps\} from "\.\/Widget\.js"$/m);
+match(readFileSync(path.join(fixtureRoot, "out/tsx/src-gen/refresh/Widget.tsx"), "utf8"),
+  /^export type \{WidgetProps, Named, Model, Kind\}$/m);
+
+// An edit of Panel.fields.tsx (a non-component function). Every importer of
+// the sibling that exports a component accepts the update, and the new
+// instances render the same HTML. App.fields.tsx is no boundary: it imports
+// the sibling only because both parts of App repeat App's import list (see
+// the README limits).
+deepStrictEqual(split.siblingEdit, {
+  verdicts: { App: "accepted", "App.fields": "not-a-boundary", Greeting: "accepted", Panel: "accepted" },
+  sameHtml: true
+});
+equal(single.siblingEdit, null);
+
+// The dynamic import of the split module Lazy loads both files.
+equal(split.lazyHtml, '<em data-lazy="">lazy</em>');
+equal(single.lazyHtml, split.lazyHtml);
+
+console.log("react-refresh-modules:ok (split file set, snapshots, TS lanes, same runtime, Fast Refresh rule, sibling edit, dynamic import)");

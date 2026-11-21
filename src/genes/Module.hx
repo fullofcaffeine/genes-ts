@@ -152,6 +152,11 @@ class Module {
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
 
+  /** See `reactRefreshComponents`; `null` is also a valid answer. */
+  var reactRefreshComponentsCache: Null<Array<String>> = null;
+
+  var reactRefreshComponentsKnown = false;
+
   /** See `replayRuntimeRequests`; `null` reads the dependency plan. */
   var storedRuntimeRequests: Null<Array<String>> = null;
 
@@ -642,6 +647,45 @@ class Module {
       for (requestPlan in runtimeProjection.runtimeRequests)
         if (!requestPlan.request.external) requestPlan.request.path
     ];
+  }
+
+  /**
+   * Returns the component names of this module when Genes splits it for
+   * React Fast Refresh, or `null` when it stays one file
+   * (`ReactRefreshModulePlan.componentNames`).
+   *
+   * Why: the generator asks once for the module itself, and every importer
+   * asks again to know where each binding lives. The answer reads only facts
+   * of this module, so it is computed once for each request.
+   */
+  public function reactRefreshComponents(): Null<Array<String>> {
+    if (!reactRefreshComponentsKnown) {
+      reactRefreshComponentsCache = ReactRefreshModulePlan.componentNames(this);
+      reactRefreshComponentsKnown = true;
+    }
+    return reactRefreshComponentsCache;
+  }
+
+  /**
+   * Returns the component names of the module `target` when Genes splits it
+   * for React Fast Refresh, or `null` when it is one file, not in this
+   * request, or the define is off.
+   *
+   * Why: with the split, the file `X.tsx` exports only components, and the
+   * other declarations of `X` are exported by `X.fields.tsx`. So the output
+   * of this module (an importer of `X`) depends on a fact of another module.
+   * The incremental generator records the question for this module
+   * (`IncrementalShadow.recordReactRefreshSplit`), so that it does not replay
+   * a stored import of `X` after `X` became split or one file again.
+   */
+  public function reactRefreshSplitOf(target: String): Null<Array<String>> {
+    if (!ReactRefreshModulePlan.enabled())
+      return null;
+    final other = context.modules.get(target);
+    final names = other == null ? null : other.reactRefreshComponents();
+    genes.incremental.IncrementalShadow.recordReactRefreshSplit(module,
+      target, ReactRefreshModulePlan.answerText(names));
+    return names;
   }
 
   public function toPath(from: String) {

@@ -67,6 +67,11 @@ build();
 const before = digests();
 writeFileSync(path.join(here, `index-${mode}.html`),
   `<!doctype html><html><body><div id="root"></div><script type="module" src="/gen-${mode}/index.tsx"></script></body></html>\n`);
+// macOS can report the writes of the first build to a file watcher that
+// starts a moment later. Vite then sees a change of every file during the
+// edit below and reloads the page, whatever the edit. Wait until those
+// events are old.
+await new Promise((resolve) => setTimeout(resolve, 3000));
 
 const viteLog = [];
 const logger = {
@@ -127,6 +132,12 @@ try {
   result.markerAfterEdit = await page.evaluate(() => window.__proofMarker ?? null);
   result.navigationsAfterEdit = navigations - navigationsBeforeEdit;
   result.viteLog = viteLog.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
+  // Files whose update Fast Refresh rejected; the dev server then passed the
+  // update on to their importers, and reloads the page when that chain
+  // reaches the entry module without a file that accepts it.
+  result.invalidated = result.viteLog
+    .map((l) => /^info hmr invalidate (\S+)/.exec(l)?.[1])
+    .filter((file) => file !== undefined);
   result.consoleLines = consoleLines.filter((l) => /vite|Fast Refresh|hot|reload/i.test(l));
 } finally {
   await browser.close();

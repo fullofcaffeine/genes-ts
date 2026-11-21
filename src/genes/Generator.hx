@@ -697,7 +697,11 @@ class Generator {
           module != null
           && module.isCyclic(test);
         },
-        signatureFact: genes.ts.SignatureCache.factAnswer
+        signatureFact: genes.ts.SignatureCache.factAnswer,
+        reactRefreshSplit: (name, _) -> {
+          final module = modules.get(name);
+          ReactRefreshModulePlan.answerText(module == null ? null : module.reactRefreshComponents());
+        }
       });
     } catch (error:haxe.Exception) {
       endReachabilityTimers();
@@ -1303,7 +1307,10 @@ class Generator {
           || haxe.macro.Context.defined('genes.no_extension')) null else '.js';
         var part: ReactRefreshPart = Whole;
         var fieldsEmitter: Null<TsModuleEmitter> = null;
-        if (ReactRefreshModulePlan.componentNames(module) != null) {
+        // The module records its own split too: a module request (G3) that
+        // splits a module, or makes it one file again, must not keep the
+        // published imports of the other modules.
+        if (module.reactRefreshSplitOf(module.module) != null) {
           // The sibling holds every declaration except the components. It is
           // written first, so the component file knows what to import.
           final fieldsPath = ReactRefreshModulePlan.fieldsPath(Path.join([outputDir, module.path]),

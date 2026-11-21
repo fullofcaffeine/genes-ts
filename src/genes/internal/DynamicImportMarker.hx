@@ -30,6 +30,18 @@ extern class DynamicImportMarker {
    * reification; all four values disappear with this marker during emission.
    */
   public static function load(path: String, sourceFile: String,
-    sourceMin: Int, sourceMax: Int):
-    js.lib.Promise<genes.Genes.DynamicImportModule>;
+    sourceMin: Int,
+    sourceMax: Int): js.lib.Promise<genes.Genes.DynamicImportModule>;
+
+  /**
+   * Carries the same extension-free module path to the place where
+   * TypeScript output names the type of the loaded namespace. It appears only
+   * as the `{0}` argument of the `js.Syntax.code` binding declarations that
+   * `Genes.dynamicImport()` writes, and it is never evaluated.
+   *
+   * The emitter prints `typeof import("./Lazy.js")` with the current runtime
+   * suffix. For a module that is split for React Fast Refresh it prints the
+   * type of both files (`genes.ReactRefreshModulePlan`).
+   */
+  public static function typeOf(path: String): String;
 }
