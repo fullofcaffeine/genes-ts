@@ -345,12 +345,31 @@ before stored output may be replayed, each case with made-up inputs:
    the review of #246). Both hold for the type parameters that a field of
    an anonymous structure declares, as in `{function pick<T>(item: T): T;}`
    (M3 of the cross-model review of #246). Type parameters that only a
-   typed body declares, such as those of a local function, are not covered
-   (limit S3). The final member list (`ModuleFingerprint.members`)
+   typed body declares, such as those of a local function, are not in a
+   fingerprint; item 6 covers them. The final member list (`ModuleFingerprint.members`)
    holds the same text for a member that the walk adds late: the metadata
    of the declaration and of its constructors, and of the anonymous
    structures in its types and constraints (L6). A member in the
    generator's list leaves that text out, because its fingerprint holds it.
+6. Body metadata (genes-f8vc.9.27, S3 of the review of #246). The macro
+   API of the running Haxe has exactly four kinds of metadata holder
+   (`ClassField`, `EnumField`, `BaseType`, `TVar`) and one more writer
+   after typing (`BaseType.exclude()`); each has a check (see "Body
+   metadata" in `docs/INCREMENTAL_AFTER_TYPING.md`), and a Haxe version
+   with another one fails here. No Genes source reads `TVar.extra` (the
+   type parameters of a local function) except
+   `SignatureCache.localTypeParameters`, which records their metadata for
+   the replay. The readers of a local variable's own metadata, which the
+   replay cannot ask again, are the listed ones; a new reader fails the
+   probe. `ModuleFingerprint.holdsStructure` finds a structure in
+   `Null<{...}>` and in a function result, and none in `Array<Int>`. A
+   module that recorded an answer that no later request can ask again
+   (`GenerationCache.UNKNOWN_ANSWER`) is dirty (rule 11), and the request
+   still applies the rules to every other module. Only this probe case
+   covers rule 11; no gate row reaches it end to end. Its only known
+   trigger was a local generic function in a class initializer, and
+   keeping the holders of class initializers (review of genes-ts #258)
+   removed it.
 
 Two inputs of a module's output are not visible in Haxe's typing, and the
 gate covers both. The request embeds one resource (`-resource`), and the
@@ -443,6 +462,23 @@ difference of their results is a mismatch. The edits whose ids start with
   `checkStoredTarget` compares leaves the recorded path; without it,
   compare reported drift and reuse published a stale tree (must fix of the
   review of genes-ts #247);
+- metadata that only a typed body holds (S3 of the review of #246;
+  genes-f8vc.9.27): `inc.BodyMetaMacro` writes `@:ts.type("string")` on
+  the field of the structure in the constraint of the type parameter of a
+  local function of `inc.BodyMeta`, on the type parameter of another local
+  function, on the field of the structure in the declared type of a local
+  variable, and on the field of the structure in the type of an argument of
+  a local function. Haxe does not type `inc.BodyMeta` again, and no
+  fingerprint holds these holders. Each row was red on genes-ts eee0d60d in
+  reuse (`inc/BodyMeta.tsx` differs from cold); now the recorded answer
+  (`bodyParams` or `bodyType`) that `inc.BodyMeta` asked differs, and the
+  request generates in full. The request after them replays every clean
+  module. Two more rows do the same in class initializers (review of
+  genes-ts #258): a structure in a local's type in the initializer of
+  `inc.BodyInit`, which reuse replayed stale on genes-ts 56c55b16, and a
+  structure in the constraint of a local generic function in the
+  initializer of `inc.BodyInitGeneric`, whose missing holder made every
+  request with a cache generate in full there;
 - an HXX error in the only dirty module (`FB3`: an unknown attribute on an
   intrinsic element; `FB4`: an unknown prop of a component), so that the
   error comes inside a request whose walk takes stored edges: the shadow

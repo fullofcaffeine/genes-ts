@@ -159,6 +159,11 @@ typedef CachedModule = {
    * - `anonTs` and `anonSource`: a `SignatureCache` fact keyed by the source
    *   position of an anonymous-structure field. The capture of another
    *   module's declaration can write it (review of #244, M2);
+   * - `bodyParams` and `bodyType`: the metadata text of a holder that only
+   *   a typed body of the module declares or names, keyed by its class and
+   *   variable id (`SignatureCache.localTypeParameters`,
+   *   `localDeclaredType`; genes-f8vc.9.27). A macro can change it without
+   *   a new typing and without a change of any fingerprint;
    * - `refreshSplit`: the component names of the named module when
    *   `-D genes.react_refresh_modules` splits it, or `-`
    *   (`Module.reactRefreshSplitOf`). An importer of a split module imports
@@ -290,6 +295,9 @@ typedef CacheRequestFacts = {
  *    (`partingFolders`);
  * 10. its stored answers name no feature that emission can add
  *    (`EMISSION_FEATURES`).
+ * 11. its stored answers hold no `UNKNOWN_ANSWER`: a question that the
+ *    request that recorded it could not answer in a form that a later
+ *    request can ask again (genes-f8vc.9.27).
  *
  * Rule 6 reads every stored module of the generator's list, also one that
  * got no output file (`CachedInventoryModule`). It decides "left the
@@ -321,7 +329,7 @@ typedef CacheRequestFacts = {
  */
 class GenerationCache {
   /** The entry format. A new field or meaning needs a new number. */
-  public static inline final FORMAT = 6;
+  public static inline final FORMAT = 7;
 
   /**
    * The features that emission can add while Genes prints modules, so that
@@ -350,6 +358,20 @@ class GenerationCache {
     "use.$bind",
     "thisForCallWithRestArgs"
   ];
+
+  /**
+   * The answer of a recorded question that no later request can ask again,
+   * because the recording request kept nothing to ask it with. Rule 11 makes
+   * the module that recorded it dirty, so it is printed in each request; the
+   * other modules are not affected. `SignatureCache.localTypeParameters`
+   * records it for a local function without a kept holder.
+   *
+   * Why not a fallback of the whole request: `planReplay` compares each
+   * answer with the answer now, and no answer now equals this one, so one
+   * such module would make every request of the program generate in full
+   * (review of genes-ts #258).
+   */
+  public static inline final UNKNOWN_ANSWER = '!';
 
   /** Largest cache that is stored, counted in string characters (64 MB). */
   public static inline final BYTE_BUDGET = 64 * 1024 * 1024;
@@ -494,7 +516,7 @@ class GenerationCache {
   }
 
   /**
-   * Applies rules 7 to 10 to one module whose epochs and fingerprint are
+   * Applies rules 7 to 11 to one module whose epochs and fingerprint are
    * equal. Returns why the module is dirty, or `null` when it is clean.
    */
   static function cleanBeyondEpochs(module: String, stored: CachedModule,
@@ -519,6 +541,10 @@ class GenerationCache {
         case {kind: 'feature', name: name}
           if (EMISSION_FEATURES.indexOf(name) >= 0):
           return 'asked for the feature $name, which emission can add';
+        case {kind: kind, name: name, answer: value}
+          if (value == UNKNOWN_ANSWER):
+          return 'recorded the question $kind $name, which no later request '
+            + 'can ask again';
         default:
       }
     return null;

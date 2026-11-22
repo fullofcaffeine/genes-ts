@@ -55,6 +55,33 @@ enum SignatureFact {
 
   /** The type of an enum constructor that contains an enum abstract; key: enum and constructor. */
   EnumConstructorSourceType(key: String, type: Type);
+
+  /**
+   * The type parameters that a local function declares (`TVar.extra`); key:
+   * the variable id of Haxe. `owner` is the class whose body holds the
+   * function (genes-f8vc.9.27).
+   *
+   * Why it is kept: the parameters reach their own class and the
+   * structures in their constraints through references, so a later request
+   * reads their metadata as it is then, without reading the body again.
+   * `SignatureCache.localTypeParameters` records that metadata as an answer
+   * of the module that prints the function.
+   */
+  LocalTypeParameters(owner: String, id: Int, params: Array<TypeParameter>);
+
+  /**
+   * The declared type of a local variable or argument that holds an
+   * anonymous structure (`ModuleFingerprint.holdsStructure`); key: the
+   * variable id of Haxe. `owner` as for `LocalTypeParameters`
+   * (genes-f8vc.9.27).
+   */
+  LocalDeclaredType(owner: String, id: Int, type: Type);
+}
+
+/** One kept body holder of `SignatureFacts`: the class that holds it, and the value. */
+typedef BodyHolder<T> = {
+  final owner: String;
+  final value: T;
 }
 
 /**
@@ -84,6 +111,9 @@ class SignatureFacts {
   public final directEnumLocalSourceTypes: Map<Int, Type> = new Map();
   public final enumAbstractTsTypes: Map<String, String> = new Map();
   public final enumConstructorSourceTypes: Map<String, Type> = new Map();
+  public final localTypeParameters: Map<Int,
+    BodyHolder<Array<TypeParameter>>> = new Map();
+  public final localDeclaredTypes: Map<Int, BodyHolder<Type>> = new Map();
 
   public function new() {}
 
@@ -110,6 +140,10 @@ class SignatureFacts {
         enumAbstractTsTypes.set(key, tsType);
       case EnumConstructorSourceType(key, type):
         enumConstructorSourceTypes.set(key, type);
+      case LocalTypeParameters(owner, id, params):
+        localTypeParameters.set(id, {owner: owner, value: params});
+      case LocalDeclaredType(owner, id, type):
+        localDeclaredTypes.set(id, {owner: owner, value: type});
     }
   }
 }

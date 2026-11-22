@@ -68,6 +68,16 @@ typedef CachedSig = {
  * its place in the declaration order. So the maps are the same as after a
  * capture of every declaration, also when two declarations write one key.
  * Without the define no bucket exists and every declaration is captured.
+ *
+ * Body holders (only with the define; genes-f8vc.9.27): the capture also
+ * keeps, for each local variable and argument of a body, the type
+ * parameters of a local function and a declared type that holds an
+ * anonymous structure. A macro can write metadata on these after typing,
+ * and no fingerprint holds them. Generation code reads them only through
+ * `localTypeParameters` and `localDeclaredType`, which record their
+ * metadata as answers of the generation replay; `factAnswer` gives the
+ * answer again in the next request. See "Body metadata" in
+ * `docs/INCREMENTAL_AFTER_TYPING.md`.
  */
 class SignatureCache {
   /** The name of this pass in the after-typing report. */
@@ -92,6 +102,19 @@ class SignatureCache {
 
   /** The key of the declaration that is captured now, for the compare mode. */
   static var capturing: Null<String> = null;
+
+  /**
+   * The owner key (`AfterTypingClass.ownerKey`) of the class whose bodies
+   * `readClass` reads now: the owner of each body holder that it keeps.
+   */
+  static var capturingOwner = '';
+
+  /**
+   * True when the request has `-D genes.dev_incremental`: only then does
+   * `captureBodyHolders` keep the holders that the generation replay checks
+   * (genes-f8vc.9.27). Without the define nothing reads them.
+   */
+  static var keepBodyHolders = false;
 
   /** Compare mode only: the second set of maps and the differences. */
   static var comparison: Null<SignatureComparison> = null;
@@ -578,6 +601,8 @@ class SignatureCache {
 
   /** Retains the declared domain, including for later assignments checked by Haxe. */
   static function captureLocal(variable: TVar, includeDirect = false): Void {
+    if (keepBodyHolders)
+      captureBodyHolders(variable);
     final sourceType = sourceTypeWithEnumAbstract(variable.t);
     if (sourceType == null)
       return;
@@ -587,20 +612,58 @@ class SignatureCache {
       put(DirectEnumLocalSourceType(variable.id, sourceType));
   }
 
+  /**
+   * Keeps the metadata holders that one local variable or argument reaches
+   * (genes-f8vc.9.27): the type parameters of a local function, and a
+   * declared type that holds an anonymous structure.
+   *
+   * Why: a macro can write metadata on such a holder after typing, in a
+   * request in which Haxe does not type the body again, and the printed
+   * TypeScript follows it. Example: `@:ts.type("string")` on the field `lv`
+   * of `function inner<L:{lv: Int}>(x: L)` changes `lv: number` into
+   * `lv: string`. No declaration lists these holders, so no fingerprint and
+   * no metadata comparison sees the change. The kept values are references:
+   * `localTypeParameters` and `localDeclaredType` read their metadata as it
+   * is in the request that asks.
+   */
+  static function captureBodyHolders(variable: TVar): Void {
+    final owner = capturingOwner;
+    final extra = variable.extra;
+    if (extra != null && extra.params.length > 0)
+      put(LocalTypeParameters(owner, variable.id, extra.params));
+    if (genes.incremental.ModuleFingerprint.holdsStructure(variable.t))
+      put(LocalDeclaredType(owner, variable.id, variable.t));
+  }
+
   /** Finds declarations even when a warm typed tree has split their initializers. */
   static function captureExpression(expression: TypedExpr): Void {
-    switch expression.expr {
-      case TVar(variable, _):
-        captureLocal(variable);
-      case TFunction(fn):
-        for (arg in fn.args)
-          captureLocal(arg.v, true);
-      case TTry(_, catches):
-        for (entry in catches)
-          captureLocal(entry.v);
-      default:
+    eachLocal(expression,
+      (variable, argument) -> captureLocal(variable, argument));
+  }
+
+  /**
+   * Calls `visit` for each local variable, function argument and catch
+   * variable that `expression` declares, in walk order; the flag is `true`
+   * for a function argument. `captureExpression` and the body holders of a
+   * class initializer share this one walk.
+   */
+  static function eachLocal(expression: TypedExpr,
+      visit: (variable: TVar, argument: Bool) -> Void): Void {
+    function walk(e: TypedExpr): Void {
+      switch e.expr {
+        case TVar(variable, _):
+          visit(variable, false);
+        case TFunction(fn):
+          for (arg in fn.args)
+            visit(arg.v, true);
+        case TTry(_, catches):
+          for (entry in catches)
+            visit(entry.v, false);
+        default:
+      }
+      haxe.macro.TypedExprTools.iter(e, walk);
     }
-    haxe.macro.TypedExprTools.iter(expression, captureExpression);
+    walk(expression);
   }
 
   /**
@@ -627,6 +690,7 @@ class SignatureCache {
   /** Reads every fact of one class and stores it with `put`. */
   static function readClass(current: AfterTypingClass): Void {
     final owner = current.ownerKey;
+    capturingOwner = owner;
     switch current.constructor() {
       case null:
       case ctor:
@@ -659,6 +723,14 @@ class SignatureCache {
       if (expression != null)
         captureExpression(expression);
     }
+    // The class initializer (`static function __init__`) is a body too: the
+    // dependency walk visits it and the printer prints it, so its holders
+    // must be kept like those of a field (review of genes-ts #258). Only the
+    // holders: its locals never had source-type facts, and adding them would
+    // change the printed types of a build without the define.
+    final init = current.type.init;
+    if (keepBodyHolders && init != null)
+      eachLocal(init, (variable, _) -> captureBodyHolders(variable));
   }
 
   static function captureEnumAbstract(reference: Ref<AbstractType>): Void {
@@ -874,6 +946,8 @@ class SignatureCache {
     declarationAnswers = new Map();
     recording = null;
     capturing = null;
+    capturingOwner = '';
+    keepBodyHolders = Context.defined('genes.dev_incremental');
     comparison = null;
     limitEvents = 0;
     replayed = 0;
@@ -939,10 +1013,10 @@ class SignatureCache {
       check.texts('anonFieldTsType', key,
         check.kept.anonFieldTsTypes.get(key), answer);
     // The capture of another declaration can write this fact; see
-    // `IncrementalShadow.recordAnonField`. Without it this does nothing.
+    // `IncrementalShadow.recordFact`. Without it this does nothing.
     if (genes.incremental.IncrementalShadow.recording())
-      genes.incremental.IncrementalShadow.recordAnonField(ANON_TS, key,
-        anonFieldAnswer(ANON_TS, key));
+      genes.incremental.IncrementalShadow.recordFact(ANON_TS, key,
+        factAnswer(ANON_TS, key));
     return answer;
   }
 
@@ -965,8 +1039,8 @@ class SignatureCache {
       check.types('anonFieldSourceType', key,
         check.kept.anonFieldSourceTypes.get(key), answer);
     if (genes.incremental.IncrementalShadow.recording())
-      genes.incremental.IncrementalShadow.recordAnonField(ANON_SOURCE, key,
-        anonFieldAnswer(ANON_SOURCE, key));
+      genes.incremental.IncrementalShadow.recordFact(ANON_SOURCE, key,
+        factAnswer(ANON_SOURCE, key));
     return answer;
   }
 
@@ -976,24 +1050,176 @@ class SignatureCache {
   /** The answer kind of `getAnonFieldSourceType` for the incremental generator. */
   public static inline final ANON_SOURCE = 'anonSource';
 
+  /** The answer kind of `localTypeParameters` for the incremental generator. */
+  public static inline final BODY_PARAMS = 'bodyParams';
+
+  /** The answer kind of `localDeclaredType` for the incremental generator. */
+  public static inline final BODY_TYPE = 'bodyType';
+
   /**
-   * Returns the text of one position-keyed fact of this request, as the
-   * incremental generator records and checks it: `-` when there is no fact,
-   * else `+` and the TypeScript text (`ANON_TS`) or the Haxe type text
-   * (`ANON_SOURCE`, `TypeTools.toString`, the text that `SignatureComparison`
-   * also compares). `key` is the `posKey` of the field.
+   * Returns the text of one recorded fact of this request, as the
+   * incremental generator records and checks it. `kind` is one of the four
+   * kinds of this class:
    *
-   * Why: a replay checks before emission that each such fact that a clean
-   * module read is the same now (review of #244, M2). It reads the facts
-   * directly and runs no comparison of `afterTyping: "compare"`.
+   * - `ANON_TS`, `ANON_SOURCE`: `key` is the `posKey` of a field of an
+   *   anonymous structure. `-` when there is no fact, else `+` and the
+   *   TypeScript text (`ANON_TS`) or the Haxe type text (`ANON_SOURCE`,
+   *   `TypeTools.toString`, the text that `SignatureComparison` also
+   *   compares).
+   * - `BODY_PARAMS`, `BODY_TYPE` (genes-f8vc.9.27): `key` is
+   *   `<owner>#<variable id>` (`bodyKey`). `+` and the metadata text of the
+   *   kept holder, read now: `ModuleFingerprint.constraintText` of the type
+   *   parameters of a local function, or `ModuleFingerprint.anonymousText`
+   *   of the declared type of a local variable or argument. `?` when this
+   *   request keeps no such holder for that owner.
+   *
+   * Why: a replay checks before emission that each fact that a clean module
+   * read is the same now (review of #244, M2; S3 of the review of #246). It
+   * reads the facts directly and runs no comparison of `afterTyping:
+   * "compare"`. An unknown kind gives `?`, which no recorded answer equals.
    */
-  public static function anonFieldAnswer(kind: String, key: String): String {
-    if (kind == ANON_TS) {
-      final text = facts.anonFieldTsTypes.get(key);
-      return text == null ? '-' : '+' + text;
+  public static function factAnswer(kind: String, key: String): String {
+    switch kind {
+      case ANON_TS:
+        final text = facts.anonFieldTsTypes.get(key);
+        return text == null ? '-' : '+' + text;
+      case ANON_SOURCE:
+        final type = facts.anonFieldSourceTypes.get(key);
+        return type == null ? '-' : '+' + haxe.macro.TypeTools.toString(type);
+      case BODY_PARAMS | BODY_TYPE:
+        final split = key.lastIndexOf('#');
+        final id = split < 0 ? null : Std.parseInt(key.substr(split + 1));
+        if (id == null)
+          return MISSING_HOLDER;
+        final text = bodyHolderText(facts, kind, id, key.substr(0, split));
+        return text == null ? MISSING_HOLDER : '+' + text;
+      default:
+        return MISSING_HOLDER;
     }
-    final type = facts.anonFieldSourceTypes.get(key);
-    return type == null ? '-' : '+' + haxe.macro.TypeTools.toString(type);
+  }
+
+  /** The answer of `factAnswer` when no holder answers; no recorded answer equals it. */
+  static inline final MISSING_HOLDER = '?';
+
+  /**
+   * The answer that `localTypeParameters` records for a local function that
+   * this request keeps no holder for (`GenerationCache.UNKNOWN_ANSWER`).
+   * Rule 11 of `GenerationCache` keeps the module that recorded it out of
+   * the clean set, so that module is printed in each request while every
+   * other clean module can still be replayed.
+   */
+  static inline final UNKNOWN_HOLDER = genes.incremental.GenerationCache.UNKNOWN_ANSWER;
+
+  /** Returns the key of a body holder: the owner class and the variable id. */
+  static inline function bodyKey(owner: String, id: Int): String
+    return '$owner#$id';
+
+  /**
+   * Returns the metadata text of the body holder of `kind` for the variable
+   * `id` in `set`, read now, or `null` when `set` has no such holder or
+   * another class owns it. `owner` `null` accepts any owner.
+   */
+  static function bodyHolderText(set: SignatureFacts, kind: String, id: Int,
+      owner: Null<String>): Null<String> {
+    if (kind == BODY_PARAMS) {
+      final holder = set.localTypeParameters.get(id);
+      return holder == null
+        || (owner != null && holder.owner != owner) ? null : genes.incremental.ModuleFingerprint.constraintText(holder.value);
+    }
+    final holder = set.localDeclaredTypes.get(id);
+    return holder == null
+      || (owner != null && holder.owner != owner) ? null : genes.incremental.ModuleFingerprint.anonymousText(holder.value);
+  }
+
+  /**
+   * Returns the type parameters that the local function `variable` declares
+   * (`TVar.extra`), or an empty list. This is the one way in which
+   * generation code reads them (`CleanRuleProbe` fails on any other read of
+   * `.extra`).
+   *
+   * Why (genes-f8vc.9.27, S3 of the review of genes-ts #246): TypeScript
+   * prints each parameter with its `@:ts.type` and the structures of its
+   * constraints, and a macro can change that metadata after typing without a
+   * new typing of the body. So, while the incremental generator records,
+   * this records the metadata text of the parameters (`BODY_PARAMS`) as an
+   * answer of the module that prints the function. `planReplay` asks
+   * `factAnswer` again in the next request and generates in full when the
+   * text differs. The text comes from the holder that this pass kept
+   * (`LocalTypeParameters`), so the recorded and the checked answer read
+   * the same references. A local function without a kept holder records
+   * `UNKNOWN_HOLDER`, and its module is never clean (rule 11 of
+   * `GenerationCache`): it is printed in each request.
+   *
+   * Example: `function inner<L:{lv: Int}>(x: L)` records ` <L.0 0.lv
+   * @:ts.type("string")` after a macro marked `lv`, where it recorded an
+   * empty text before.
+   */
+  public static function localTypeParameters(variable: TVar): Array<TypeParameter> {
+    final extra = variable.extra;
+    if (extra == null || extra.params.length == 0)
+      return [];
+    askBodyHolder(BODY_PARAMS, variable.id, 'localTypeParameters');
+    return extra.params;
+  }
+
+  /**
+   * Returns the declared type of the local variable or argument `variable`
+   * for a reader that walks its structures: today the dependency walk of
+   * `DependencyPlanBuilder`, which visits every local variable and argument
+   * of every body that a module prints.
+   *
+   * Why (genes-f8vc.9.27): the printer prints the structures of that type
+   * with the metadata of their fields, and a macro can change it after
+   * typing without a new typing of the body. So, while the incremental
+   * generator records, this records the metadata text of the structures
+   * (`BODY_TYPE`) when this pass kept the type (`LocalDeclaredType`; only a
+   * type that holds a structure). A variable without a kept type is one
+   * that Haxe made after the capture (for example a loop temporary); its
+   * structures are those of the expression that it holds, a limit of this
+   * check (see "Body metadata" in `docs/INCREMENTAL_AFTER_TYPING.md`).
+   */
+  public static function localDeclaredType(variable: TVar): Type {
+    askBodyHolder(BODY_TYPE, variable.id, 'localDeclaredType');
+    return variable.t;
+  }
+
+  /**
+   * Records the answer of one body holder of this request for the module
+   * whose clock runs, and compares the kept answer with a new capture in
+   * compare mode (`afterTyping: "compare"`). A `BODY_PARAMS` question
+   * without a kept holder records `UNKNOWN_HOLDER`; a `BODY_TYPE` question
+   * without one records nothing (see `localDeclaredType`).
+   */
+  static function askBodyHolder(kind: String, id: Int, query: String): Void {
+    final check = comparison;
+    if (check != null) {
+      final keptText = bodyHolderText(check.kept, kind, id, null);
+      final newText = bodyHolderText(facts, kind, id, null);
+      if (keptText != null || newText != null)
+        check.localAnswers(query, id, keptText, newText);
+    }
+    if (!genes.incremental.IncrementalShadow.recording())
+      return;
+    final owner = bodyHolderOwner(kind, id);
+    if (owner == null) {
+      if (kind == BODY_PARAMS)
+        genes.incremental.IncrementalShadow.recordFact(kind, bodyKey('', id),
+          UNKNOWN_HOLDER);
+      return;
+    }
+    final key = bodyKey(owner, id);
+    genes.incremental.IncrementalShadow.recordFact(kind, key,
+      factAnswer(kind, key));
+  }
+
+  /** Returns the owner of the kept body holder of `kind` for the variable `id`, or `null`. */
+  static function bodyHolderOwner(kind: String, id: Int): Null<String> {
+    if (kind == BODY_PARAMS) {
+      final holder = facts.localTypeParameters.get(id);
+      return holder == null ? null : holder.owner;
+    }
+    final holder = facts.localDeclaredTypes.get(id);
+    return holder == null ? null : holder.owner;
   }
 
   /**
