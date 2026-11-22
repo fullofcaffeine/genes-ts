@@ -1805,7 +1805,9 @@ function failedRequestGroups(): ReadonlyArray<Group> {
  * - `mr.Built` with `@:build(mr.BuildMacro.build())`;
  * - `mr.Box`: a `@:generic` class;
  * - `mr.CardUser`: imports `mr.Card`, so a call back closes a cycle;
- * - `mr.Tag`: the module of the macro row.
+ * - `mr.Tag`: the module of the macro row;
+ * - `mr.CyBase` and `mr.CyChild`: a cycle with inheritance, so that
+ *   `mr.CyChild` prints its parent lazily while the cycle exists.
  */
 const stdFiles: Readonly<Record<string, string>> = {
   "mr/Main.hx": `package mr;\nimport mr.Hints;\nimport mr.Styles;\n\nclass Main {\n`
@@ -1813,7 +1815,8 @@ const stdFiles: Readonly<Record<string, string>> = {
     + `    trace(Consts.LIMIT + Consts.describe().length);\n    trace(Leaf.kindName(Leaf.Kind.Small));\n`
     + `    trace(Cycle.start());\n    trace(CycleB.next(0));\n    trace(Theme.size());\n`
     + `    trace(Card.render());\n    trace(Words.clean(' x '));\n    trace(Built.value());\n`
-    + `    trace(new Box<String>('box').value);\n    trace(CardUser.use());\n    trace(Tag.text());\n  }\n}\n`,
+    + `    trace(new Box<String>('box').value);\n    trace(CardUser.use());\n    trace(Tag.text());\n`
+    + `    trace(CyBase.make() != null);\n    trace(new CyChild() != null);\n  }\n}\n`,
   "mr/Card.hx": `package mr;\n\nimport mr.OnlyHere;\n\n`
     + `/** A UI-like module for structural edits under -dce std (genes-f8vc.14.7). */\n`
     + `class Card {\n  public static function render(): String {\n    return title() + ' ' + Theme.color();\n  }\n\n`
@@ -1834,7 +1837,10 @@ const stdFiles: Readonly<Record<string, string>> = {
     + `  public function new(value: T) {\n    this.value = value;\n  }\n}\n`,
   "mr/CardUser.hx": `package mr;\n\nclass CardUser {\n  public static function use(): String {\n`
     + `    return Card.render();\n  }\n\n  public static function tag(): String {\n    return 'user';\n  }\n}\n`,
-  "mr/Tag.hx": `package mr;\n\nclass Tag {\n  public static function text(): String {\n    return 'tag';\n  }\n}\n`
+  "mr/Tag.hx": `package mr;\n\nclass Tag {\n  public static function text(): String {\n    return 'tag';\n  }\n}\n`,
+  "mr/CyBase.hx": `package mr;\n\nclass CyBase {\n  public function new() {}\n\n`
+    + `  public static function make(): CyBase {\n    return new CyChild();\n  }\n}\n`,
+  "mr/CyChild.hx": `package mr;\n\nclass CyChild extends CyBase {\n  public function new() {\n    super();\n  }\n}\n`
 };
 
 /**
@@ -1928,7 +1934,10 @@ function stdGroups(): ReadonlyArray<Group> {
           module: "mr.Built", expect: "opaque-macro" },
         { id: "std: structural edit that breaks an import cycle (import-cycle)",
           apply: () => edit("Cycle.hx", "return 'cycle ' + CycleB.next(2);", "return 'cycle';"),
-          module: "mr.Cycle", expect: "import-cycle" }
+          module: "mr.Cycle", expect: "import-cycle" },
+        { id: "std: structural edit that breaks a cycle with a subclass (import-cycle)",
+          apply: () => edit("CyBase.hx", "return new CyChild();", "return new CyBase();"),
+          module: "mr.CyBase", expect: "import-cycle" }
       ]
     },
     {

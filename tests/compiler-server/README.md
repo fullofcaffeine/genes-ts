@@ -621,8 +621,10 @@ that each part of the rule needs, and edits it step by step:
   call of the project macro `mr.Styles.css` (`opaque-macro`); a new
   instance of the generic `mr.Box` and a call back that closes a cycle
   (`other-modules-typed`); an edit of `mr.Built`, which has a build macro
-  (`opaque-macro`); and an edit that breaks the cycle of `mr.Cycle`
-  (`import-cycle`).
+  (`opaque-macro`); and two edits that break a cycle (`import-cycle`): of
+  `mr.Cycle`, and of `mr.CyBase`, whose subclass `mr.CyChild` prints its
+  parent lazily while the cycle exists, so a full build changes
+  `mr/CyChild.ts`.
 
 `std-profile-full` makes the new-private-function edit under `-dce full`,
 which keeps the strict rule (`signature-changed`). On Genes before the rule
