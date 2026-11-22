@@ -23,5 +23,6 @@
 --macro tests.jsonhelpers.JsonHelperModuleProbe.validate()
 --macro tests.signaturecache.EnumAbstractAnswersProbe.install()
 --macro tests.replayaudit.ReplayAuditProbe.validate()
+--macro tests.dcestduses.DceStdUsesProbe.validate()
 tests.signaturecache.EnumAbstractAnswers
 tests.generationcaches.NativeTwins

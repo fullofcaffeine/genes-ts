@@ -598,6 +598,49 @@ s14), a stale preview folder (s19), a use that is alive only through the
 edited module (r01), a field type that makes another module's class used
 (r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05).
 
+The `std-` groups check the structural rule under `-dce std`
+(genes-f8vc.14.7). Under `-dce std`, Haxe keeps every class of the project
+whole, so a structural edit changes the edited module's own file, and
+another file only through facts that `ModuleRequest.structuralRefusal`
+names. `std-structural` adds a UI-like module `mr.Card` and the modules
+that each part of the rule needs, and edits it step by step:
+
+- previews, each byte-identical to cold, with the tree check: a literal
+  edit, a new private function with a call, a first use of an unused
+  function, a new use of another module of the program, a removed call, a
+  call of `StringTools.trim` that `mr.Words` already makes, and an enum use;
+- refusals, each with its code: the first call of `StringTools.lpad`
+  (`dce-use-added`) and its removal (`dce-use-removed`); a new public
+  function (`public-shape-changed`); a new import line, which moves the
+  class that other modules import, whose position their source maps name
+  (`position-changed`); the removal of the only import of `mr.OnlyHere`
+  (`module-may-leave`: a full build drops `mr/OnlyHere.ts`); the first and
+  the last reference to a typedef of `mr.Hints`, a module that nothing else
+  reaches (`walk-target-added`, `walk-target-removed`); the first typed
+  cast of the program, which keeps `js.Boot.__cast` (`feature-changed`); a
+  call of the project macro `mr.Styles.css` (`opaque-macro`); a new
+  instance of the generic `mr.Box` and a call back that closes a cycle
+  (`other-modules-typed`); an edit of `mr.Built`, which has a build macro
+  (`opaque-macro`); and an edit that breaks the cycle of `mr.Cycle`
+  (`import-cycle`).
+
+`std-profile-full` makes the new-private-function edit under `-dce full`,
+which keeps the strict rule (`signature-changed`). On Genes before the rule
+(`GENES_TEST_SOURCE`), every preview row of `std-structural` gets
+`signature-changed` or `uses-changed`, and so does every row with a new
+code except `public-shape-changed` and the two `other-modules-typed` rows.
+
+`--sweep` runs only the scripted sweep (group `sweep-ui`, `-dce std`): 20
+generated UI modules (controls, layout, views and two shells, 40 to 150
+lines) and five structural edits of each, in order: a new private function
+with a call, a first use of an unused private function, a new import (on the
+line of an existing import) and a use of another UI module, a new local with
+a `StringTools.trim` call that `ui.core.Text` already makes, and the removal
+of the first call. Each preview must be byte-identical to cold and pass the
+tree check, and each full request after it must equal cold. The last lines
+count the results by code and give the median times of the previews with
+the load (diagnostic).
+
 The last groups run a macro (`mr.CopyMacro`) that reads a string literal of
 `mr.Probe` and changes another module that Haxe does not type again:
 

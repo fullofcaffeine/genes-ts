@@ -10,6 +10,7 @@ import haxe.macro.TypedExprTools;
 import sys.FileSystem;
 import sys.io.File;
 import genes.AfterTypingPasses.AfterTypingClass;
+import genes.incremental.GenerationCache.CachedModule;
 import genes.incremental.IncrementalRequest;
 import genes.util.PathUtil;
 import genes.util.TypeUtil;
@@ -56,6 +57,34 @@ typedef ModuleRecord = {
    * that made records.
    */
   final shape: Null<String>;
+
+  /**
+   * The source positions that the source maps of other modules name
+   * (`importedPositions`), or an empty text when the build writes no
+   * source maps.
+   */
+  final positions: String;
+}
+
+/**
+ * The `-dce std` facts of one module (`DceStdUses`), as `afterSave` reads
+ * them before dead-code elimination. Plain text only.
+ */
+typedef ModuleProfile = {
+  /** `GenerationChangeSet.epochs` of the module when the facts were read. */
+  final epochs: String;
+
+  /** `DceStdUses.usesOf`, or `null` when Haxe may remove part of the module. */
+  final uses: Null<Array<String>>;
+
+  /** `DceStdUses.dependenciesOf`. */
+  final dependencies: Array<String>;
+
+  /** `DceStdUses.listenersOf`, as `<feature> <kept line>` texts. */
+  final listeners: Array<String>;
+
+  /** True when the module has a macro function that is not Genes' own or the standard library's. */
+  final opaqueMacro: Bool;
 }
 
 /** The live facts of the requested module that the generator gives to `decide`. */
@@ -92,6 +121,21 @@ typedef ModuleRequestFacts = {
 
   /** True when the request has a `--main` expression. */
   final hasMain: Bool;
+
+  /**
+   * The targets of the walk steps that the module's edges took in this
+   * request, as `<module>|<declaration key>` (for example
+   * `mr.Leaf|enum:mr.Leaf.Kind`), sorted. The `-dce std` rule compares them
+   * with the stored visits of the module (`structuralRefusal`).
+   */
+  final steps: Array<String>;
+
+  /**
+   * The internal runtime requests of the module's plan
+   * (`Module.internalRuntimeRequests`): the modules that its output imports
+   * at run time. The `-dce std` rule checks import cycles with them.
+   */
+  final runtimeRequests: Array<String>;
 }
 
 /** What `ModuleRequest.referencesOf` reads from the kept bodies of one module. */
@@ -469,6 +513,12 @@ typedef ModuleRecordsReport = {
  *   `uses-changed`) are the stored ones, and it has no `@:ifFeature` field;
  * - the kept declarations and fields, the final member list, the root
  *   flags and the uses of other modules are the stored ones;
+ * - with source maps (`-debug` or `-D js_source_map`), the line and column
+ *   of each declaration that another module can import, and of each public
+ *   module function, are the stored ones (`importedPositions`,
+ *   `position-changed`): the map of an importing module maps its import
+ *   line to that position. Example: a new import line above `class Card`
+ *   changes the map of every module that imports `Card`;
  * - every question that planning and printing of the module asked
  *   (features, module map, import cycles, signature facts) got the answer
  *   of a full build (`featureAnswer`, `wrongAnswer`), and no question names
@@ -526,8 +576,64 @@ typedef ModuleRecordsReport = {
  * macro reads in a module outside the request (other than `import.hx` and
  * resources, which the session key covers). A class kept only because another
  * module names it as a type, and an edit inside an import cycle, are
- * refused. The rule refuses every structural edit: a new or removed field,
- * call, local type or class use.
+ * refused. Under `-dce full` and `-dce no` the rule refuses every structural
+ * edit: a new or removed field, call, local type or class use. Under
+ * `-dce std` the rule below can admit one.
+ *
+ * The `-dce std` rule (genes-f8vc.14.7). Under `-dce std`, Haxe's dead-code
+ * elimination keeps every class of the project whole (`keep_whole_class` of
+ * Haxe 4.3.7's `dce.ml`); only classes on the standard-library path and
+ * classes with `@:dce` lose fields. So a structural edit of a project module
+ * changes that module's own file, and another file only through a few facts
+ * that Genes can name. When the signature or the use skeleton differs, the
+ * request runs with `-dce std`, and Haxe keeps the whole module, `decide`
+ * replaces the signature, skeleton, kept-line, member-list and
+ * foreign-reference checks with a proof that a full build changes no other
+ * output file (`structuralRefusal`). The proof keeps every other check of
+ * the list above, also the visible shape (so modules that import this one
+ * type the same), and adds these, each with its own refusal code:
+ *
+ * - `module-may-leave` (every `-dce std` request, also a literal edit):
+ *   every module with an output file stays loaded. Haxe loads a module with
+ *   each module that names it (`DceStdUses.dependenciesOf`: typed references
+ *   and import lines), and the request's own modules surely stay. Example:
+ *   an edit removes the only `import app.Legacy;`, and a full build drops
+ *   `app/Legacy.ts`;
+ * - `opaque-macro`: no build macro on the module and no imported macro
+ *   module other than Genes' own and the standard library's. Such a macro
+ *   can read a file or keep state that Genes cannot see;
+ * - `walk-target-added`, `walk-target-removed`: the declarations that the
+ *   module's edges reach were members of emitted modules and stay members.
+ *   Example: the first use of a typedef of a module of typedefs that nothing
+ *   reached gives that module a file;
+ * - `import-cycle`: the module was in no import cycle and joins none (the
+ *   stored runtime requests of the other modules), because a cycle changes
+ *   how other modules print their imports;
+ * - `dce-use-added`, `dce-use-removed`, `feature-changed`: what dead-code
+ *   elimination keeps of standard-library and `@:dce` classes, and the
+ *   features that it checks or adds (`DceStdUses.usesOf`, a port of
+ *   `dce.ml`). A changed line is admitted only when the stored full build
+ *   already had its effect and keeps it: another kept module has the same
+ *   line, a new kept field was kept already, or a feature that no field
+ *   listens to (`@:ifFeature`) and no module asked for. Example: the first
+ *   call of `StringTools.lpad` in the program is refused, a call of
+ *   `StringTools.trim` that another module already makes is admitted;
+ * - `kept-changed`: Haxe kept every field of the module.
+ *
+ * Why that is the complete affected output: a full build after the edit has
+ * the stored input for every other module (their source files, epochs and
+ * declaration facts are checked), the same loaded modules, the same
+ * dead-code elimination for every class that it may change, the same
+ * features, the same reached declarations, the same import cycles and the
+ * same imported positions. A `@:generic` instance that the edit adds is a
+ * new module (`other-modules-changed`), and a changed inline body or macro
+ * is in the visible shape. `-dce full` keeps the strict rule: there the edit
+ * of a module changes which fields of other project classes are kept.
+ *
+ * Limits of the `-dce std` rule: a macro that the module calls by its full
+ * path without an import is not seen as a macro module; an expression macro
+ * of Genes or the standard library is trusted to change only the code that
+ * it returns. Every other limit above applies too.
  *
  * Effects on the compiler server: the roots are `@:keep` entries with the
  * argument `"genes.moduleRequest"`, which Genes adds after
@@ -691,6 +797,79 @@ class ModuleRequest {
   /** `targetFactsOf` of each module of this request, read in `afterSave`. */
   static var requestFacts: Map<String, String> = new Map();
 
+  /**
+   * `declarationFactsOf` of each module of this request, read in
+   * `afterSave` with `requestFacts`: the facts that the walk of other
+   * modules reads, without the metadata of fields.
+   */
+  static var requestDeclarationFacts: Map<String, String> = new Map();
+
+  /**
+   * The `-dce std` facts of the stored full request (genes-f8vc.14.7), each
+   * read in `afterSave`, before dead-code elimination, and kept when the
+   * full request commits. Empty under any other profile.
+   *
+   * - `storedUses`: `DceStdUses.usesOf` of each module that Haxe keeps
+   *   whole;
+   * - `storedDependencies`: `DceStdUses.dependenciesOf` of every module of
+   *   the program;
+   * - `storedListeners`: for each feature, the kept lines of the fields that
+   *   listen to it (`@:ifFeature`, `DceStdUses.listenersOf`);
+   * - `storedOpaqueMacros`: the modules with a macro function that is not
+   *   Genes' own or the standard library's (`opaqueMacroModule`);
+   * - `storedDeclarationFacts`: `declarationFactsOf` of every module.
+   */
+  @:persistent static var storedUses: Map<String, Array<String>> = new Map();
+
+  @:persistent static var storedDependencies: Map<String,
+    Array<String>> = new Map();
+  @:persistent static var storedListeners: Map<String,
+    Array<String>> = new Map();
+  @:persistent static var storedOpaqueMacros: Map<String, Bool> = new Map();
+  @:persistent static var storedDeclarationFacts: Map<String,
+    String> = new Map();
+
+  /**
+   * Indexes of the stored full request that the `-dce std` rule reads, made
+   * once when the full request commits (`commitProfiles`) instead of in
+   * every module request:
+   *
+   * - `storedFeatureAnswers`: the answer of each feature question that a
+   *   stored module or the request asked (`GenerationCache` answers);
+   * - `storedUseCounts`: for each line of `storedUses`, the number of
+   *   modules that have it;
+   * - `storedReachers`: for each walk step (`<module>|<key>`), the stored
+   *   modules whose recorded visits take it;
+   * - `storedHaxePrinter`: true when a stored module used Haxe's own
+   *   printer, which can read any feature without a recorded question.
+   */
+  @:persistent static var storedFeatureAnswers: Map<String, String> = new Map();
+
+  @:persistent static var storedUseCounts: Map<String, Int> = new Map();
+  @:persistent static var storedReachers: Map<String,
+    Array<String>> = new Map();
+  @:persistent static var storedHaxePrinter = false;
+
+  /**
+   * The last computed `-dce std` facts of each module, with the epochs that
+   * they were computed for, so that a full request reads a module again only
+   * after Haxe typed it again (as `shapeCache`). Dropped with the records.
+   */
+  @:persistent static var profileCache: Map<String, ModuleProfile> = new Map();
+
+  /** The `-dce std` facts of each module of this request (see `storedUses`). */
+  static var requestProfiles: Map<String, ModuleProfile> = new Map();
+
+  /**
+   * `keptLines` of the requested module's declarations before dead-code
+   * elimination, read in `afterSave`: what a module that Haxe keeps whole
+   * keeps.
+   */
+  static var requestDeclared: Null<Array<String>> = null;
+
+  /** Time of the `-dce std` facts in this request (`DceStdUses`). */
+  static var profileSeconds = 0.0;
+
   static var factsSeconds = 0.0;
 
   static var addedRoots: Array<MetaAccess> = [];
@@ -747,6 +926,11 @@ class ModuleRequest {
     rootSeconds = 0.0;
     requestShape = null;
     requestFacts = new Map();
+    requestDeclarationFacts = new Map();
+    requestProfiles = new Map();
+    requestDeclared = null;
+    profileSeconds = 0.0;
+    DceStdUses.reset();
     factsSeconds = 0.0;
     addedRoots = [];
     moduleFiles = new Map();
@@ -1836,8 +2020,10 @@ class ModuleRequest {
     // after-typing macro, before dead-code elimination and before the roots.
     if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true) {
       final factsStart = haxe.Timer.stamp();
-      for (module => list in grouped)
+      for (module => list in grouped) {
         requestFacts.set(module, targetFactsOf(list));
+        requestDeclarationFacts.set(module, declarationFactsOf(list));
+      }
       factsSeconds += haxe.Timer.stamp() - factsStart;
     }
     // Haxe can load a module from its cache before `beginRequest` made it
@@ -1868,6 +2054,29 @@ class ModuleRequest {
         final own = typesOf(types, module);
         requestShape = shapeOf(own);
         shapeSeconds += haxe.Timer.stamp() - started;
+        // The `-dce std` facts of the requested module, read before the
+        // roots below exist, and whether each module that it loads has a
+        // macro function that Genes cannot see into.
+        if (DceStdUses.stdProfile()) {
+          final profileStart = haxe.Timer.stamp();
+          requestDeclared = keptWholeLines(own);
+          final profile = profileOf(module, own,
+            GenerationChangeSet.epochs(module));
+          requestProfiles.set(module, profile);
+          for (dependency in profile.dependencies) {
+            final list = grouped.get(dependency);
+            if (list != null)
+              requestProfiles.set(dependency, {
+                epochs: '',
+                uses: null,
+                dependencies: [],
+                listeners: [],
+                opaqueMacro: opaqueMacroModule(list,
+                  moduleFiles.get(dependency))
+              });
+          }
+          profileSeconds += haxe.Timer.stamp() - profileStart;
+        }
         final rootStart = haxe.Timer.stamp();
         // Typed without the rest of the program, a type that another
         // module's use decides (a monomorph, for example
@@ -1906,8 +2115,10 @@ class ModuleRequest {
         // of its cached shape: Haxe typed it again, or the session key
         // changed (the cache is then empty). Modules of extern classes only
         // never get an output file and are left out.
-        if (storedKey == null || storedKey != GenerationChangeSet.sessionKey())
+        if (storedKey == null || storedKey != GenerationChangeSet.sessionKey()) {
           shapeCache = new Map();
+          profileCache = new Map();
+        }
         for (module => list in grouped) {
           final epochs = GenerationChangeSet.epochs(module);
           final cached = shapeCache.get(module);
@@ -1924,7 +2135,99 @@ class ModuleRequest {
             shapeCache.set(module, {epochs: epochs, shape: shape});
         }
         shapeSeconds += haxe.Timer.stamp() - started;
+        // The `-dce std` facts of every module, for a later module request
+        // (genes-f8vc.14.7). A module whose epochs did not change keeps the
+        // facts of its earlier reading.
+        if (DceStdUses.stdProfile()) {
+          final profileStart = haxe.Timer.stamp();
+          for (module => list in grouped) {
+            final epochs = GenerationChangeSet.epochs(module);
+            final cached = profileCache.get(module);
+            if (cached != null && epochs.length > 0 && cached.epochs == epochs) {
+              requestProfiles.set(module, cached);
+              continue;
+            }
+            final profile = profileOf(module, list, epochs);
+            requestProfiles.set(module, profile);
+            if (epochs.length > 0)
+              profileCache.set(module, profile);
+          }
+          profileSeconds += haxe.Timer.stamp() - profileStart;
+        }
     }
+  }
+
+  /**
+   * Returns the `-dce std` facts of one module (`ModuleProfile`) from all of
+   * its declarations before dead-code elimination.
+   */
+  static function profileOf(module: String, types: Array<Type>,
+      epochs: String): ModuleProfile {
+    final file = moduleFiles.get(module);
+    return {
+      epochs: epochs,
+      uses: DceStdUses.keptWhole(types) ? DceStdUses.usesOf(module,
+        types) : null,
+      dependencies: DceStdUses.dependenciesOf(module, types, file),
+      listeners: [
+        for (item in DceStdUses.listenersOf(types))
+          '${item.feature}\t${item.line}'
+      ],
+      opaqueMacro: opaqueMacroModule(types, file)
+    };
+  }
+
+  /**
+   * Returns true when the module of `types` (source file `file`) declares a
+   * macro function and is neither in Haxe's standard library nor in Genes'
+   * own source folder.
+   *
+   * Why: a macro function runs while Haxe types its caller, and it can read
+   * a file outside the program or keep state that another module's macro
+   * reads later. Genes cannot see either in the typed result. Genes' own
+   * markup, CSS-module and hook macros only return an expression, and the
+   * standard library's macros are library functions. Example: a project
+   * class `app.Styles` with `macro function css(...)` that collects rules
+   * into a static map is opaque, so a structural edit of a module that
+   * imports it is refused (`opaque-macro`).
+   */
+  static function opaqueMacroModule(types: Array<Type>,
+      file: Null<String>): Bool {
+    var macros = false;
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          for (field in cls.statics.get().concat(cls.fields.get()))
+            if (field.kind.match(FMethod(MethMacro)))
+              macros = true;
+        default:
+      }
+    return macros && !transparentFile(file);
+  }
+
+  /**
+   * Returns true when `file` is in Haxe's standard library or in Genes' own
+   * source folder (the folder that holds `genes/Generator.hx`).
+   */
+  static function transparentFile(file: Null<String>): Bool {
+    if (file == null)
+      return false;
+    if (DceStdUses.isStdFile(file))
+      return true;
+    final root = genesRoot();
+    return root != null
+      && StringTools.startsWith(PathUtil.normalize(FileSystem.absolutePath(file)),
+        root
+        + '/');
+  }
+
+  /** Returns the absolute folder that holds Genes' `genes/` sources, or `null`. */
+  static function genesRoot(): Null<String> {
+    final generator = try Context.resolvePath('genes/Generator.hx')
+    catch (_:haxe.Exception) null;
+    return
+      generator == null ? null : PathUtil.normalize(Path.directory(Path.directory(FileSystem.absolutePath(generator))));
   }
 
   /**
@@ -2158,21 +2461,22 @@ class ModuleRequest {
       final kept = keptLines(own);
       final earlier = storedKey == key ? records.get(module) : null;
       final sameEarlier = earlier != null && earlier.epochs == epochs;
-      final references: ModuleReferences = if (sameEarlier
-        && earlier.kept.join('\n') == kept.join('\n')) {
-          foreign: earlier.foreignRefs,
-          skeleton: earlier.skeleton,
-          modules: []
-        } else {
-          walked++;
-          referencesOf(module, own);
+      final reuse = sameEarlier && earlier.kept.join('\n') == kept.join('\n');
+      final references: ModuleReferences = if (reuse) {
+        foreign: earlier.foreignRefs,
+        skeleton: earlier.skeleton,
+        modules: []
+      } else {
+        walked++;
+        referencesOf(module, own);
       }
       made.set(module, {
         epochs: epochs,
         kept: kept,
         foreignRefs: references.foreign,
         skeleton: references.skeleton,
-        shape: shapes.get(module)
+        shape: shapes.get(module),
+        positions: reuse ? earlier.positions : importedPositions(own)
       });
     }
     final seen = new Map<String, String>();
@@ -2186,6 +2490,14 @@ class ModuleRequest {
         facts.set(module, known);
     }
     storedTargetFacts = facts;
+    final declarationFacts = new Map<String, String>();
+    for (module in seen.keys()) {
+      final known = requestDeclarationFacts.get(module);
+      if (known != null)
+        declarationFacts.set(module, known);
+    }
+    storedDeclarationFacts = declarationFacts;
+    commitProfiles();
     final uses = new Map<String, Bool>();
     for (record in made)
       for (line in record.foreignRefs)
@@ -2225,6 +2537,78 @@ class ModuleRequest {
     storedOutputFolder = absoluteFolder(outputFile);
     records = made;
     writeRecordsReport(descriptor, true, null, walked, shapesComputed, started);
+  }
+
+  /**
+   * Keeps the `-dce std` facts of this full request (`requestProfiles`) as
+   * the stored ones (`storedUses` and the maps beside it). Under another
+   * profile it keeps none, so a module request there takes the strict rule.
+   */
+  static function commitProfiles(): Void {
+    final uses = new Map<String, Array<String>>();
+    final dependencies = new Map<String, Array<String>>();
+    final listeners = new Map<String, Array<String>>();
+    final opaque = new Map<String, Bool>();
+    if (DceStdUses.stdProfile())
+      for (module => profile in requestProfiles) {
+        final own = profile.uses;
+        if (own != null)
+          uses.set(module, own);
+        dependencies.set(module, profile.dependencies);
+        if (profile.opaqueMacro)
+          opaque.set(module, true);
+        for (item in profile.listeners) {
+          final tab = item.indexOf('\t');
+          final feature = item.substr(0, tab);
+          final list = listeners.get(feature);
+          if (list == null)
+            listeners.set(feature, [item.substr(tab + 1)]);
+          else
+            list.push(item.substr(tab + 1));
+        }
+      }
+    storedUses = uses;
+    storedDependencies = dependencies;
+    storedListeners = listeners;
+    storedOpaqueMacros = opaque;
+    final counts = new Map<String, Int>();
+    for (_ => lines in uses)
+      for (line in lines)
+        counts.set(line, (counts.exists(line) ? counts.get(line) : 0) + 1);
+    storedUseCounts = counts;
+    final answers = new Map<String, String>();
+    final reachers = new Map<String, Array<String>>();
+    var printer = false;
+    if (DceStdUses.stdProfile()) {
+      function addAnswer(line: String): Void {
+        final answer = GenerationCache.parseAnswer(line);
+        if (answer.kind == 'feature')
+          answers.set(answer.name, answer.answer);
+      }
+      for (line in GenerationCache.globalAnswers())
+        addAnswer(line);
+      for (name in GenerationCache.storedModules()) {
+        final stored = GenerationCache.entry(name);
+        if (stored == null)
+          continue;
+        if (stored.usedHaxePrinter)
+          printer = true;
+        for (line in stored.answers)
+          addAnswer(line);
+        for (visit in stored.visits)
+          for (step in visit.steps) {
+            final text = '${step.module}|${step.key}';
+            final list = reachers.get(text);
+            if (list == null)
+              reachers.set(text, [name]);
+            else if (list.indexOf(name) < 0)
+              list.push(name);
+          }
+      }
+    }
+    storedFeatureAnswers = answers;
+    storedReachers = reachers;
+    storedHaxePrinter = printer;
   }
 
   /**
@@ -2295,6 +2679,16 @@ class ModuleRequest {
     externalUses = new Map();
     storedFiles = new Map();
     shapeCache = new Map();
+    storedUses = new Map();
+    storedDependencies = new Map();
+    storedListeners = new Map();
+    storedOpaqueMacros = new Map();
+    storedDeclarationFacts = new Map();
+    profileCache = new Map();
+    storedFeatureAnswers = new Map();
+    storedUseCounts = new Map();
+    storedReachers = new Map();
+    storedHaxePrinter = false;
   }
 
   /**
@@ -2514,12 +2908,35 @@ class ModuleRequest {
       return refuse('public-shape-changed',
         'the public shape of $module ' +
         'changed: ${firstDifference(storedShape, currentShape)}');
+    // Under `-dce std` Haxe keeps every class of each module that it loads,
+    // so the set of loaded modules is part of the output: also an edit that
+    // only removes an unused import can drop a module's file
+    // (genes-f8vc.14.7). This holds for a literal edit too.
+    if (DceStdUses.stdProfile()) {
+      final profile = requestProfiles.get(module);
+      if (profile == null || !storedDependencies.exists(module))
+        return refuse('no-record',
+          'the -dce std facts of $module are not known');
+      final leaving = modulesThatMayLeave(module, profile.dependencies,
+        facts.rootModule);
+      if (leaving.length > 0)
+        return refuse('module-may-leave',
+          'no module that stays in the program is known to load ' +
+          leaving.slice(0, 5)
+          .join(', ') + ', so a full build may drop its file');
+    }
     // The strict rule: the module uses exactly what it used in the stored
     // full request (see the class comment). Its signature (every field,
     // private ones included, with types and metadata) and the skeleton of
     // its kept bodies must be the stored ones; only literal values and
-    // positions may differ.
-    if (signatureOf(shape) != signatureOf(record.shape))
+    // positions may differ. Under `-dce std`, a module that Haxe keeps whole
+    // may change both when the `-dce std` rule proves that a full build
+    // changes no other output file (`structuralRefusal`, genes-f8vc.14.7).
+    final sameSignature = signatureOf(shape) == signatureOf(record.shape);
+    final sameUses = facts.references.skeleton == record.skeleton;
+    final structural = (!sameSignature || !sameUses)
+      && structuralRuleApplies(module);
+    if (!sameSignature && !structural)
       return refuse('signature-changed',
         'a declaration or field of $module ' +
         'changed: ${firstDifference(signatureOf(record.shape), signatureOf(shape))}');
@@ -2527,14 +2944,21 @@ class ModuleRequest {
       return refuse('if-feature',
         '$module has an @:ifFeature field, which ' +
         'dead-code elimination keeps when another module adds the feature');
-    if (facts.references.skeleton != record.skeleton)
+    if (!sameUses && !structural)
       return refuse('uses-changed',
         'the code of $module uses other fields, ' +
         'types or classes than in the full request (an edit beyond literal ' +
         'values)');
+    if (structural) {
+      final failure = structuralRefusal(facts, record, entry);
+      if (failure != null)
+        return failure;
+    }
     // The module's own declaration facts: its signature holds its metadata,
-    // but not the extern flag that a macro can set with `exclude()`.
-    final ownFailure = targetFactsFailure(module);
+    // but not the extern flag that a macro can set with `exclude()`. After a
+    // structural edit the metadata of its fields differs by design; what
+    // other modules read is the part that the walk reads.
+    final ownFailure = structural ? declarationFactsFailure(module) : targetFactsFailure(module);
     if (ownFailure != null)
       return refuse('target-facts-changed', ownFailure);
     if (facts.exposed)
@@ -2544,20 +2968,39 @@ class ModuleRequest {
     if (!facts.emits)
       return refuse('not-emitted', '$module gets no implementation file');
     final kept = keptLines(facts.types);
-    if (kept.join('\n') != record.kept.join('\n'))
-      return refuse('kept-changed',
-        'the kept declarations or fields of ' +
-        '$module differ: ${firstDifference(record.kept.join('\n'), kept.join('\n'))}');
-    if (facts.members != entry.members)
-      return refuse('member-list-changed',
-        'the final member list of $module differs');
+    if (structural) {
+      // Haxe keeps the whole module, in this request as in a full build.
+      final declared = requestDeclared;
+      if (declared == null || kept.join('\n') != declared.join('\n'))
+        return refuse('kept-changed',
+          'Haxe did not keep every declaration and field of $module, so a full ' +
+          'build may keep others');
+    } else {
+      if (kept.join('\n') != record.kept.join('\n'))
+        return refuse('kept-changed',
+          'the kept declarations or fields of ' +
+          '$module differ: ${firstDifference(record.kept.join('\n'), kept.join('\n'))}');
+      if (facts.members != entry.members)
+        return refuse('member-list-changed',
+          'the final member list of $module differs');
+    }
     if (facts.rootFlags != entry.rootFlags)
       return refuse('root-flags-changed', 'the root flags of $module differ');
     final references = facts.references;
-    if (references.foreign.join('\n') != record.foreignRefs.join('\n'))
+    if (!structural
+      && references.foreign.join('\n') != record.foreignRefs.join('\n'))
       return refuse('foreign-references-changed',
         'what $module uses from ' +
         'other modules changed: ${firstDifference(record.foreignRefs.join('\n'), references.foreign.join('\n'))}');
+    // The source maps of other modules name positions in this module: an
+    // import line maps to the imported declaration or module function. An
+    // edit that moves one of them changes those maps in a full build.
+    final positions = importedPositions(facts.types);
+    if (positions != record.positions)
+      return refuse('position-changed',
+        'a declaration or module function of $module that other modules import ' +
+        'moved, and their source maps name its position: ' +
+        firstDifference(record.positions, positions));
     final recorded = IncrementalShadow.recordedModule(module);
     for (line in recorded.answers)
       switch GenerationCache.parseAnswer(line) {
@@ -2574,7 +3017,11 @@ class ModuleRequest {
       if (pos != null)
         ownFiles.set(Context.getPosInfos(pos).file, true);
     }
-    final wrong = wrongAnswer(recorded.answers, entry.answers, ownFiles);
+    // After a structural edit the module can ask whether a module that it
+    // imports now reaches it (`cycle`); `structuralRefusal` proved from the
+    // stored runtime requests that none does.
+    final wrong = wrongAnswer(recorded.answers, entry.answers, ownFiles,
+      structural ? test -> !reachesAtRuntime(test, module) : null);
     if (wrong != null)
       return refuse('answers-changed',
         'an answer that $module asked may ' +
@@ -2598,6 +3045,533 @@ class ModuleRequest {
               'a source of the maps of ' +
               '$module is inside the folder where the output paths part: $source');
     return null;
+  }
+
+  /**
+   * Returns true when the `-dce std` rule (genes-f8vc.14.7) decides a
+   * structural edit of `module`: the request and the stored full request run
+   * with `-dce std`, and Haxe keeps the whole module (no declaration on the
+   * standard-library path or with `@:dce`), so its own `DceStdUses` facts
+   * exist in both. Under `-dce full` or `-dce no` it returns false, and the
+   * strict rule refuses every structural edit as before.
+   */
+  static function structuralRuleApplies(module: String): Bool {
+    if (!DceStdUses.stdProfile() || !storedUses.exists(module))
+      return false;
+    final profile = requestProfiles.get(module);
+    return profile != null && profile.uses != null;
+  }
+
+  /**
+   * The `-dce std` rule: returns why a full build after this structural edit
+   * may change an output file other than the requested module's own files,
+   * or `null` when it proves that it cannot. `decide` calls it only when
+   * `structuralRuleApplies`, after every request-wide check (other modules
+   * typed or changed, source files, declaration facts of other modules,
+   * same-object proofs) and after the visible-shape check, so the other
+   * modules are the stored ones and type the same.
+   *
+   * Why the edit can only reach outside the module in these ways: under
+   * `-dce std` Haxe keeps the module whole in every build, so its own file
+   * follows from its own code; another file changes only when one of these
+   * changes (each with its refusal code):
+   *
+   * 1. `opaque-macro`: a build macro of the module, or a macro module that
+   *    it loads, other than Genes' own and the standard library's
+   *    (`opaqueBuildMacro`, `opaqueMacroModule`). Such a macro can read
+   *    files or keep state that Genes cannot see.
+   * 2. `module-may-leave` (checked by `decide` for every `-dce std`
+   *    request, a literal edit included): the set of modules that Haxe
+   *    loads. A module that only this module loaded leaves a full build, and
+   *    its file with it (`modulesThatMayLeave`). A new module is refused
+   *    earlier (`other-modules-changed`).
+   * 3. `walk-target-added`, `walk-target-removed`: the declarations that the
+   *    walk of reachability reaches from the module's edges. A typedef module
+   *    that nothing else reached gets a file, or loses it (`walkTargetFailure`).
+   * 4. `import-cycle`: the runtime import graph. A new cycle, or a cycle
+   *    that the edit breaks, changes how other modules print their imports
+   *    (`Module.isCyclic`).
+   * 5. `dce-use-added`, `dce-use-removed`, `feature-changed`: what dead-code
+   *    elimination keeps of classes that it may remove, and the features
+   *    that it checks or adds (`usesFailure`).
+   *
+   * Every other output of a full build follows from the other modules,
+   * which did not change, and from these facts.
+   */
+  static function structuralRefusal(facts: ModuleRequestFacts,
+      record: ModuleRecord, entry: CachedModule): Null<{
+      code: String,
+      reason: String
+    }> {
+    final module = facts.module;
+    final profile = requestProfiles.get(module);
+    final oldUses = storedUses.get(module);
+    final oldDependencies = storedDependencies.get(module);
+    final newUses = profile == null ? null : profile.uses;
+    if (profile == null
+      || newUses == null
+      || oldUses == null
+      || oldDependencies == null)
+      return {code: 'no-record',
+        reason: 'the -dce std facts of $module are not known'};
+    final build = opaqueBuildMacro(facts.types);
+    if (build != null)
+      return {
+        code: 'opaque-macro',
+        reason: '$module runs the build macro $build, which Genes cannot see into'
+      };
+    for (dependency in profile.dependencies) {
+      final known = requestProfiles.get(dependency);
+      if (known != null && known.opaqueMacro)
+        return {
+          code: 'opaque-macro',
+          reason: '$module loads $dependency, which has a macro function that ' +
+          'Genes cannot see into'
+        };
+    }
+    for (dependency in oldDependencies)
+      if (storedOpaqueMacros.exists(dependency))
+        return {
+          code: 'opaque-macro',
+          reason: '$module loaded $dependency, which has a macro function that ' +
+          'Genes cannot see into'
+        };
+    final walk = walkTargetFailure(module, entry, facts.steps);
+    if (walk != null)
+      return walk;
+    final oldRequests = entry.runtimeRequests;
+    if (oldRequests == null)
+      return {
+        code: 'import-cycle',
+        reason: 'the runtime imports of $module in the full request are not known'
+      };
+    for (request in oldRequests)
+      if (request != module && reachesAtRuntime(request, module))
+        return {
+          code: 'import-cycle',
+          reason: '$module is in an import cycle with $request'
+        };
+    for (request in facts.runtimeRequests)
+      if (request != module && reachesAtRuntime(request, module))
+        return {
+          code: 'import-cycle',
+          reason: '$module now imports $request, which imports $module'
+        };
+    return usesFailure(module, oldUses, newUses, record, facts.types);
+    }
+
+  /**
+   * Returns the first build macro of a class of `types` (`@:build`,
+   * `@:autoBuild` or `@:genericBuild` on the class, or `@:autoBuild` on a
+   * parent class or interface) that is not Genes' own or the standard
+   * library's, as text, or `null`. The macro's class must resolve to a file
+   * of one of them; a name that does not resolve counts as foreign.
+   *
+   * Example: `@:build(genes.js.Async.build())` is Genes' own;
+   * `@:build(app.Model.build())` is foreign.
+   */
+  static function opaqueBuildMacro(types: Array<Type>): Null<String> {
+    function foreign(meta: MetaAccess, names: Array<String>): Null<String> {
+      for (name in names)
+        for (entry in meta.extract(name))
+          for (param in (entry.params == null ? [] : entry.params)) {
+            final text = haxe.macro.ExprTools.toString(param);
+            if (!transparentFile(macroFile(text)))
+              return '@$name($text)';
+          }
+      return null;
+    }
+    final seen = new Map<String, Bool>();
+    function inherited(cls: ClassType): Null<String> {
+      final key = TypeUtil.baseTypeFullName(cls);
+      if (seen.exists(key))
+        return null;
+      seen.set(key, true);
+      final own = foreign(cls.meta, [':autoBuild']);
+      if (own != null)
+        return own;
+      final parent = cls.superClass;
+      if (parent != null) {
+        final found = inherited(parent.t.get());
+        if (found != null)
+          return found;
+      }
+      for (item in cls.interfaces) {
+        final found = inherited(item.t.get());
+        if (found != null)
+          return found;
+      }
+      return null;
+    }
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final own = foreign(cls.meta,
+            [':build', ':autoBuild', ':genericBuild']);
+          if (own != null)
+            return own;
+          final found = inherited(cls);
+          if (found != null)
+            return found;
+        case TEnum(reference, _):
+          final own = foreign(reference.get().meta, [':build']);
+          if (own != null)
+            return own;
+        default:
+      }
+    return null;
+  }
+
+  /**
+   * Returns the source file of the class that a build-macro call names
+   * (`genes.js.Async.build()` gives the file of `genes.js.Async`), or `null`
+   * when it does not resolve: the dotted path up to its first name with a
+   * capital letter, as a file of the class paths.
+   */
+  static function macroFile(call: String): Null<String> {
+    final parts = call.split('(')[0].split('.');
+    final named = [];
+    for (part in parts) {
+      named.push(part);
+      final first = part.length > 0 ? StringTools.fastCodeAt(part, 0) : 0;
+      if (first >= 'A'.code && first <= 'Z'.code)
+        return try Context.resolvePath(named.join('/')
+          + '.hx') catch (_:haxe.Exception) null;
+    }
+    return null;
+  }
+
+  /**
+   * Returns the stored modules with an output file that a full build after
+   * the edit may no longer load, sorted: those that no chain of
+   * `DceStdUses.dependenciesOf` reaches from a module that surely stays.
+   *
+   * What surely stays: every module of this request (its program is a part
+   * of the full program) and the module of the stored `--main` class. The
+   * chains use the stored dependencies of every other module and
+   * `newDependencies` of the requested one.
+   *
+   * Why it is safe: each dependency is a module that Haxe loads with its
+   * dependent, so every module that a chain reaches is loaded. A module that
+   * Haxe loads only for a reason that the list does not hold (a macro that
+   * loads it by name) is not reached, and the edit is refused.
+   *
+   * Example: `mr.Card` drops `import mr.OnlyHere;` and nothing else loads
+   * `mr.OnlyHere`: it is returned, because a full build drops
+   * `mr/OnlyHere.ts`.
+   */
+  static function modulesThatMayLeave(module: String,
+      newDependencies: Array<String>, rootModule: String): Array<String> {
+    final reached = new Map<String, Bool>();
+    final queue: Array<String> = [];
+    function visit(name: String): Void {
+      if (reached.exists(name))
+        return;
+      reached.set(name, true);
+      queue.push(name);
+    }
+    for (name in GenerationChangeSet.observedModules())
+      visit(name);
+    final dot = storedMain.lastIndexOf('.');
+    if (dot > 0)
+      visit(storedMain.substr(0, dot));
+    var index = 0;
+    while (index < queue.length) {
+      final name = queue[index++];
+      final edges = name == module ? newDependencies : storedDependencies.get(name);
+      if (edges != null)
+        for (edge in edges)
+          visit(edge);
+    }
+    return [
+      for (name in GenerationCache.storedModules())
+        if (name != rootModule && !reached.exists(name)) name
+    ];
+  }
+
+  /**
+   * Returns why the walk of reachability of a full build may reach other
+   * declarations after the edit, or `null`. `steps` are the requested
+   * module's step targets now (`ModuleRequestFacts.steps`); the stored ones
+   * are those of its recorded visits (`CachedModule.visits`).
+   *
+   * - A new target must already be a member of an emitted module: its
+   *   module has a stored record, and the declaration was in the generator's
+   *   list (its kept line) or another module's visit reached it.
+   * - A target that the module no longer reaches must stay a member of an
+   *   emitted module: its kept line is there and its module is an
+   *   implementation root on its own, or an implementation root's visit
+   *   reaches it too.
+   *
+   * Example: the first reference to a typedef of `mr.Hints`, a module of
+   * typedefs that nothing reached, is refused, because a full build then
+   * prints `mr/Hints.ts`.
+   */
+  static function walkTargetFailure(module: String, entry: CachedModule,
+      steps: Array<String>): Null<{code: String, reason: String
+    }> {
+    final oldSteps = new Map<String, Bool>();
+    for (visit in entry.visits)
+      for (step in visit.steps)
+        oldSteps.set('${step.module}|${step.key}', true);
+    final newSteps = new Map<String, Bool>();
+    for (step in steps)
+      newSteps.set(step, true);
+    function reachers(step: String): Array<String> {
+      final found = storedReachers.get(step);
+      return found == null ? [] : found.filter(name -> name != module);
+    }
+    function keptMember(target: String, key: String): Bool {
+      final targetRecord = records.get(target);
+      return targetRecord != null
+        && targetRecord.kept.indexOf(keyLine(key)) >= 0;
+    }
+    function isRoot(name: String): Bool {
+      final stored = GenerationCache.entry(name);
+      return stored != null
+        && StringTools.startsWith(stored.rootFlags, 'root=1');
+    }
+    for (step in newSteps.keys()) {
+      if (oldSteps.exists(step))
+        continue;
+      final bar = step.indexOf('|');
+      final target = step.substr(0, bar);
+      final key = step.substr(bar + 1);
+      if (target == module)
+        continue;
+      if (!records.exists(target)
+        || !(keptMember(target, key) || reachers(step).length > 0))
+        return {
+          code: 'walk-target-added',
+          reason: '$module now reaches $key, which the full request did not emit'
+        };
+    }
+    for (step in oldSteps.keys()) {
+      if (newSteps.exists(step))
+        continue;
+      final bar = step.indexOf('|');
+      final target = step.substr(0, bar);
+      final key = step.substr(bar + 1);
+      if (target == module)
+        continue;
+      if (keptMember(target, key) && isRoot(target))
+        continue;
+      if (reachers(step).filter(isRoot).length > 0)
+        continue;
+      return {
+        code: 'walk-target-removed',
+        reason: '$module no longer reaches $key, and no other emitted module is ' +
+        'known to reach it'
+      };
+    }
+    return null;
+    }
+
+  /** The kept line of a walk-step key: `class:mr.Leaf.Leaf` gives `class mr.Leaf.Leaf`. */
+  static function keyLine(key: String): String {
+    final colon = key.indexOf(':');
+    return colon < 0 ? key : key.substr(0, colon) + ' ' + key.substr(colon + 1);
+  }
+
+  /**
+   * Returns true when `start` reaches `target` through the stored internal
+   * runtime requests of the other modules (`CachedModule.runtimeRequests`),
+   * the graph that `Module.isCyclic` reads. A module with an implementation
+   * file whose requests were not recorded counts as reaching it.
+   */
+  static function reachesAtRuntime(start: String, target: String): Bool {
+    final seen = new Map<String, Bool>();
+    final queue = [start];
+    seen.set(start, true);
+    var index = 0;
+    while (index < queue.length) {
+      final name = queue[index++];
+      if (name == target)
+        return true;
+      final stored = GenerationCache.entry(name);
+      if (stored == null)
+        continue;
+      final requests = stored.runtimeRequests;
+      if (requests == null) {
+        if (StringTools.endsWith(stored.rootFlags, 'implementation=1'))
+          return true;
+        continue;
+      }
+      for (request in requests)
+        if (!seen.exists(request)) {
+          seen.set(request, true);
+          queue.push(request);
+        }
+    }
+    return false;
+  }
+
+  /**
+   * Returns why the dead-code elimination of a full build may keep other
+   * fields or classes, or check or add other features, after the edit, or
+   * `null`. `oldUses` and `newUses` are `DceStdUses.usesOf` of the module
+   * in the stored full request and now.
+   *
+   * A line that only one side has is safe when its effect is in the stored
+   * build and stays there:
+   *
+   * - another module that Haxe keeps whole has the same line (it stays
+   *   loaded: `modulesThatMayLeave` checked that);
+   * - a new `keep` line: the stored build kept that line already, so what it
+   *   keeps was kept too;
+   * - a new `feature`: nothing listens to it and no module asked for it
+   *   (`inert`), or the stored build had it on: every field that listens to
+   *   it was kept and every recorded answer for it is "yes";
+   * - a removed `feature`: it is inert.
+   *
+   * The features named after the module's own fields (`pack.Type.field`)
+   * are checked from its declarations: a new or removed field must be inert.
+   *
+   * Example: the first call of `StringTools.trim` in the program is refused
+   * (`dce-use-added`); a call that another module already makes is not.
+   */
+  static function usesFailure(module: String, oldUses: Array<String>,
+      newUses: Array<String>, record: ModuleRecord,
+      types: Array<Type>): Null<{code: String, reason: String
+    }> {
+    final oldSet = new Map<String, Bool>();
+    for (line in oldUses)
+      oldSet.set(line, true);
+    final newSet = new Map<String, Bool>();
+    for (line in newUses)
+      newSet.set(line, true);
+    // Another module that Haxe keeps whole has the line: the stored count
+    // without the requested module's own stored line.
+    function othersHave(line: String): Bool {
+      final count = storedUseCounts.get(line);
+      return count != null && count - (oldSet.exists(line) ? 1 : 0) > 0;
+    }
+    final stored = storedFeatureAnswers;
+    final asked = new Map<String, Bool>();
+    for (line in IncrementalShadow.recordedModule(module).answers) {
+      final answer = GenerationCache.parseAnswer(line);
+      if (answer.kind == 'feature')
+        asked.set(answer.name, true);
+    }
+    function keptLine(line: String): Bool {
+      final space = line.indexOf(' ');
+      final target = records.get(line.substr(0, space));
+      return target != null && target.kept.indexOf(line.substr(space + 1)) >= 0;
+    }
+    // A module printed with Haxe's own printer can read any feature without
+    // a recorded question, so then no feature is inert.
+    function inert(name: String): Bool
+      return !storedHaxePrinter
+        && !storedListeners.exists(name)
+        && !stored.exists(name)
+        && !asked.exists(name);
+    function on(name: String): Bool {
+      final answer = stored.get(name);
+      if (answer != null && answer != '1')
+        return false;
+      final listeners = storedListeners.get(name);
+      if (listeners != null)
+        for (line in listeners)
+          if (!keptLine(line))
+            return false;
+      return true;
+    }
+    for (line in newUses) {
+      if (oldSet.exists(line) || othersHave(line))
+        continue;
+      if (StringTools.startsWith(line, 'keep ')) {
+        if (keptLine(line.substr('keep '.length)))
+          continue;
+        return {
+          code: 'dce-use-added',
+          reason: '$module now keeps ${line.substr('keep '.length)}, which the ' +
+          'full request removed'
+        };
+      }
+      if (StringTools.startsWith(line, 'feature ')) {
+        final name = line.substr('feature '.length);
+        if (inert(name) || on(name))
+          continue;
+        return {
+          code: 'feature-changed',
+          reason: '$module now checks or adds the feature $name, which the full ' +
+          'request did not have'
+        };
+      }
+      return {
+        code: 'dce-use-added',
+        reason: '$module now uses ${line}, which no other kept module uses'
+      };
+    }
+    for (line in oldUses) {
+      if (newSet.exists(line) || othersHave(line))
+        continue;
+      if (StringTools.startsWith(line, 'feature ')) {
+        final name = line.substr('feature '.length);
+        if (inert(name))
+          continue;
+        return {
+          code: 'feature-changed',
+          reason: '$module no longer checks or adds the feature $name, which ' +
+          'other code reads'
+        };
+      }
+      return {
+        code: 'dce-use-removed',
+        reason: '$module no longer uses ${line.substr(line.indexOf(' ') + 1)}, ' +
+        'and no other kept module is known to use it'
+      };
+    }
+    // The features named after the module's own fields: a full build checks
+    // `pack.Type.field` for each of them.
+    final declared = requestDeclared;
+    if (declared == null)
+      return {code: 'no-record',
+        reason: 'the declarations of $module are not known'};
+    final paths = new Map<String, String>();
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          paths.set(TypeUtil.baseTypeFullName(cls),
+            cls.pack.concat([cls.name]).join('.'));
+        default:
+      }
+    final before = new Map<String, Bool>();
+    for (line in record.kept)
+      before.set(line, true);
+    final after = new Map<String, Bool>();
+    for (line in declared)
+      after.set(line, true);
+    final changed = [for (line in declared) if (!before.exists(line)) line].concat([for (line in record.kept) if (!after.exists(line)) line]);
+    for (line in changed) {
+      final parts = line.split(' ');
+      if (parts.length != 3 || parts[0] != 'class')
+        continue;
+      final path = paths.get(parts[1]);
+      final field = parts[2] == 'new' ? 'new' : parts[2].substr(2);
+      final name = '${path == null ? parts[1] : path}.$field';
+      if (!inert(name))
+        return {
+          code: 'feature-changed',
+          reason: 'the feature $name of a new or removed field of $module is read ' +
+          'by other code'
+        };
+    }
+    return null;
+    }
+
+  /**
+   * Returns why the facts that the walk reads of the declarations of
+   * `module` (`declarationFactsOf`) are not the stored ones, or `null`.
+   */
+  static function declarationFactsFailure(module: String): Null<String> {
+    final stored = storedDeclarationFacts.get(module);
+    if (stored != null && stored == requestDeclarationFacts.get(module))
+      return null;
+    return 'an after-typing macro changed the metadata or the extern flag of '
+      + 'a declaration of $module since the full request';
   }
 
   /**
@@ -2675,9 +3649,14 @@ class ModuleRequest {
    * - `anonTs`, `anonSource` with another key, and any other kind: the
    *   stored full request must have asked the same question with the same
    *   answer.
+   *
+   * `noCycle` (the `-dce std` rule only): returns true when the named module
+   * does not reach the requested one at run time in the stored program. A
+   * `cycle` question that the stored request did not ask, answered "no",
+   * then holds.
    */
   static function wrongAnswer(now: Array<String>, stored: Array<String>,
-      ownFiles: Map<String, Bool>): Null<String> {
+      ownFiles: Map<String, Bool>, ?noCycle: String->Bool): Null<String> {
     final storedAnswers = new Map<String, String>();
     final storedMoved = new Map<String, Array<{at: Int, line: String}>>();
     final nowMoved = new Map<String, Array<{at: Int, line: String}>>();
@@ -2731,6 +3710,12 @@ class ModuleRequest {
         continue;
       final before = storedAnswers.get('${answer.kind}\x01${answer.name}');
       switch answer.kind {
+        case 'cycle'
+          if (before == null && noCycle != null && answer.answer == '0'):
+          // A new question of a structural edit: the full build answers "no"
+          // too when the named module does not reach this one.
+          if (!noCycle(answer.name))
+            return line;
         case 'feature' | 'module' | 'cycle':
           if (before == null ? answer.answer != '1' : before != answer.answer)
             return line;
@@ -2807,6 +3792,54 @@ class ModuleRequest {
         + 'continues without it.',
         Context.currentPos());
     }
+  }
+
+  /**
+   * Returns the kept lines that a module which Haxe keeps whole has after
+   * dead-code elimination, from its declarations before it: `keptLines`
+   * without the fields that Haxe 4.3.7 removes before dead-code elimination
+   * (`remove_extern_fields`: extern, `@:generic` and macro fields, and
+   * variables with `@:require`), unless they override a field.
+   */
+  static function keptWholeLines(types: Array<Type>): Array<String> {
+    // `is_removable_field` of Haxe 4.3.7 (`filters.ml`).
+    function removable(field: ClassField, overrides: Bool): Bool {
+      if (overrides)
+        return false;
+      return field.isExtern || field.meta.has(':generic') || switch field.kind {
+        case FMethod(MethMacro): true;
+        case FVar(AccRequire(_, _), _): true;
+        default: false;
+      }}
+    final lines = [];
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final name = TypeUtil.baseTypeFullName(cls);
+          lines.push('class $name');
+          final constructor = cls.constructor;
+          if (constructor != null && !removable(constructor.get(), false))
+            lines.push('class $name new');
+          if (cls.init != null)
+            lines.push('class $name init');
+          for (field in cls.statics.get())
+            if (!removable(field, false))
+              lines.push('class $name s:${field.name}');
+          for (field in cls.fields.get())
+            if (!removable(field,
+              cls.overrides.exists(item -> item.get().name == field.name)))
+              lines.push('class $name i:${field.name}');
+        case TEnum(reference, _):
+          lines.push('enum ${TypeUtil.baseTypeFullName(reference.get())}');
+        case TType(reference, _):
+          lines.push('typedef ${TypeUtil.baseTypeFullName(reference.get())}');
+        case TAbstract(reference, _):
+          lines.push('abstract ${TypeUtil.baseTypeFullName(reference.get())}');
+        default:
+      }
+    lines.sort(compareStrings);
+    return lines;
   }
 
   /**
@@ -3314,6 +4347,29 @@ class ModuleRequest {
   }
 
   /**
+   * Returns one digest of the facts that the walk of reachability reads of
+   * the declarations `typed` of one module (`WalkTarget.inputsText`: kind,
+   * extern flag, module, name and declaration metadata), without the
+   * metadata of fields that `targetFactsOf` also holds.
+   *
+   * Why: under the `-dce std` rule a structural edit adds or removes fields
+   * of the requested module, which changes its `targetFactsOf`. What other
+   * modules read of its declarations is this part (and its visible shape,
+   * which `decide` checks on its own). Example: a macro that calls
+   * `exclude()` on an enum of the requested module changes this digest.
+   */
+  static function declarationFactsOf(typed: Array<Type>): String {
+    final texts = [];
+    for (type in typed) {
+      final declaration = TypeUtil.typeToModuleType(type);
+      if (declaration != null)
+        texts.push(WalkTarget.inputsText(WalkTarget.inputsOf(declaration)));
+    }
+    texts.sort(compareStrings);
+    return Context.signature(texts.join('\n'));
+  }
+
+  /**
    * Returns the classes of `types` when there is at least one and every one
    * is an extern class, or `null` otherwise.
    * `IncrementalShadow.previewExternFingerprint` reads the classes.
@@ -3340,6 +4396,49 @@ class ModuleRequest {
       case TInst(reference, _): reference.get().isExtern;
       default: false;
     }
+  }
+
+  /**
+   * Returns the source positions of `types` (one module's declarations)
+   * that the source maps of other modules name, one line each, or an empty
+   * text when the build writes no source maps (`-debug` or
+   * `-D js_source_map`): the line and column of each declaration that
+   * another module can import, and of each public module-level field.
+   *
+   * Why: Genes maps an import line of the importing module to the position
+   * of the imported declaration (`base.pos`) or module function
+   * (`field.pos`; `DependencyPlanBuilder`). Example: a new import line above
+   * `class Card` moves the class one line down, and the map of every module
+   * that imports `Card` changes in a full build, although no other output
+   * text does.
+   */
+  static function importedPositions(types: Array<Type>): String {
+    if (!Context.defined('debug') && !Context.defined('js_source_map'))
+      return '';
+    final lines = [];
+    function add(label: String, pos: haxe.macro.Expr.Position): Void {
+      final start = haxe.macro.PositionTools.toLocation(pos).range.start;
+      lines.push('$label ${start.line}:${start.character}');
+    }
+    for (type in types) {
+      final base = TypeUtil.typeToBaseType(type);
+      if (base == null || base.isPrivate)
+        continue;
+      switch type {
+        case TInst(reference, _)
+          if (reference.get().kind.match(KModuleFields(_))):
+          // The holder of module-level fields is not imported; its public
+          // fields are, each by its own position.
+          final cls = reference.get();
+          for (field in cls.statics.get())
+            if (field.isPublic)
+              add('${TypeUtil.baseTypeFullName(cls)}.${field.name}', field.pos);
+        default:
+          add(TypeUtil.baseTypeFullName(base), base.pos);
+      }
+    }
+    lines.sort(compareStrings);
+    return lines.join('\n');
   }
 
   /**

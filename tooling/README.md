@@ -748,7 +748,12 @@ is emitted. A host must ignore an event kind that it does not know.
   project module by name: such a macro runs before Genes can make Haxe read
   a changed file again (genes-v54c; the warm-server session test has one).
   The session does not ask for module records (`"moduleRecords": true`) or
-  send module requests yet. A client that does must send a request again
+  send module requests yet. Under `-dce std` a module request can also
+  publish a structural edit (genes-f8vc.14.7); every refusal, with its old
+  or new code (for example `module-may-leave`, `position-changed` or
+  `dce-use-added`), publishes nothing, and the client then runs the
+  program request, which stays the authority. A client that sends module
+  requests must send a request again
   once after `GENES-MODULE-REQUEST-003` or the refusal
   `init-macro-before-genes`, and report a second refusal instead of
   looping (see `genes.incremental.ModuleRequest`). Such a client may share
