@@ -118,6 +118,26 @@ enum GenerationRefusal {
 }
 
 /**
+ * The settings of the rolling replay audit for one request (descriptor field
+ * `audit`; see `ReplayAudit`).
+ *
+ * After a `generation: "reuse"` request has published its tree, Genes prints
+ * `modules` of the modules that it replayed once more into memory and
+ * compares the result with the replayed files. `seed` only orders modules
+ * that are equally due, so that a test can name the order.
+ *
+ * Example: `{"modules": 2, "seed": 0}` (the default) prints two replayed
+ * modules again per request; `{"modules": 0}` turns the audit off.
+ */
+typedef ReplayAuditSettings = {
+  /** Replayed modules that one request prints again; 0 turns the audit off. */
+  final modules: Int;
+
+  /** Orders the modules that are equally due (`ReplayAudit.choose`). */
+  final seed: Int;
+}
+
+/**
  * The request descriptor that a development session writes before each
  * request.
  *
@@ -133,8 +153,12 @@ enum GenerationRefusal {
  * ```json
  * {"format": 1, "programDigest": "<digest of the argument list>",
  *  "kind": "full", "afterTyping": "measure" | "reuse" | "compare",
- *  "generation": "measure" | "compare" | "reuse", "moduleRecords": true}
+ *  "generation": "measure" | "compare" | "reuse", "moduleRecords": true,
+ *  "audit": {"modules": 2, "seed": 0}}
  * ```
+ *
+ * `audit` is optional and is read only with `"generation": "reuse"`; when
+ * absent it means `{"modules": 2, "seed": 0}` (`ReplayAuditSettings`).
  *
  * A module request (G3) has `"kind": "module"` and names the edited module:
  * `{"kind": "module", "module": "app.ui.Button", ...}`. Its
@@ -168,6 +192,14 @@ typedef IncrementalDescriptor = {
    * work.
    */
   @:optional final moduleRecords: Bool;
+
+  /**
+   * The rolling replay audit of a `"generation": "reuse"` request
+   * (`ReplayAudit`). The decoder fills in the default when the field is
+   * absent; read it through `IncrementalRequest.auditSettings`, which also
+   * gives the default for a descriptor that a probe builds without it.
+   */
+  @:optional final audit: ReplayAuditSettings;
 }
 
 /** What one request does with the incremental path. */
@@ -332,6 +364,18 @@ class IncrementalRequest {
   }
 
   /**
+   * Returns the rolling replay audit settings of `descriptor`: its `audit`
+   * field, or the default `{"modules": 2, "seed": 0}` when it has none.
+   */
+  public static function auditSettings(descriptor: IncrementalDescriptor): ReplayAuditSettings {
+    final audit = descriptor.audit;
+    return audit == null ? {
+      modules: ReplayAudit.DEFAULT_MODULES,
+      seed: 0
+    } : audit;
+  }
+
+  /**
    * Returns the stable code of a refusal for the generation report, for
    * example `compare-needs-after-typing-reuse` or
    * `reuse-needs-after-typing-reuse`. A session matches this code, not the
@@ -426,12 +470,16 @@ class IncrementalRequest {
    *
    * BOUNDARY_DYNAMIC: `haxe.Json.parse` returns an untyped value, and the
    * standard library has no typed JSON decoder. This function reads exactly
-   * five fields, checks the runtime type of each one before use, and returns
-   * only typed values. An unknown format, kind, `afterTyping` or `generation`
-   * value is an answer ("off"), not an error, so an older Genes keeps working
-   * with a newer session.
+   * the documented fields, checks the runtime type of each one before use,
+   * and returns only typed values. An unknown format, kind, `afterTyping` or
+   * `generation` value is an answer ("off"), not an error, so an older Genes
+   * keeps working with a newer session.
+   *
+   * It is public so that `tests.replayaudit.ReplayAuditProbe` can decode
+   * made-up descriptors; a request reads its descriptor only through
+   * `mode()`.
    */
-  static function decodeDescriptor(path: String,
+  public static function decodeDescriptor(path: String,
       text: String): haxe.ds.Either<String, IncrementalDescriptor> {
     final parsed: Dynamic = try haxe.Json.parse(text) catch (_:haxe.Exception)
       null;
@@ -482,13 +530,51 @@ class IncrementalRequest {
     if (records != null && !Std.isOfType(records, Bool))
       return Left('the moduleRecords value of the request descriptor is not '
         + 'true or false');
+    final audit = switch decodeAudit(Reflect.field(parsed, 'audit')) {
+      case Left(reason): return Left(reason);
+      case Right(settings): settings;
+    }
     return Right({
       path: path,
       programDigest: (digest : String),
       kind: requestKind,
       afterTyping: afterTyping,
       generation: generation,
-      moduleRecords: records == true
+      moduleRecords: records == true,
+      audit: audit
+    });
+  }
+
+  /**
+   * Decodes the optional descriptor field `audit` (`ReplayAuditSettings`),
+   * or returns why it cannot. An absent field gives the default
+   * `{"modules": 2, "seed": 0}`; an absent member of the object gives its
+   * default too.
+   *
+   * BOUNDARY_DYNAMIC: `value` is a part of the parsed descriptor JSON. Only
+   * two members are read, each checked as a whole number before use; a
+   * negative module count is refused.
+   */
+  static function decodeAudit(value: Dynamic): haxe.ds.Either<String,
+    ReplayAuditSettings> {
+    if (value == null)
+      return Right({modules: ReplayAudit.DEFAULT_MODULES, seed: 0});
+    if (Std.isOfType(value, String)
+      || Std.isOfType(value, Float)
+      || Std.isOfType(value, Bool)
+      || Std.isOfType(value, Array))
+      return Left('the audit value of the request descriptor is not an object');
+    final modules: Dynamic = Reflect.field(value, 'modules');
+    final seed: Dynamic = Reflect.field(value, 'seed');
+    if (modules != null && (!Std.isOfType(modules, Int) || (modules : Int) < 0))
+      return Left('the audit modules value of the request descriptor is not '
+        + 'a whole number of 0 or more');
+    if (seed != null && !Std.isOfType(seed, Int))
+      return Left('the audit seed value of the request descriptor is not a '
+        + 'whole number');
+    return Right({
+      modules: modules == null ? ReplayAudit.DEFAULT_MODULES : (modules : Int),
+      seed: seed == null ? 0 : (seed : Int)
     });
   }
 }

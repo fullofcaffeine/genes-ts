@@ -40,6 +40,71 @@ export const OUTPUT_DESCRIPTOR_FILE = "genes-output.descriptor";
 export const INCREMENTAL_DESCRIPTOR_FILE = "incremental.json";
 export const COMPILER_DATA_DESCRIPTOR_FILE = "compiler-data-v1.descriptor";
 
+/**
+ * The generation report that Genes writes beside the incremental descriptor
+ * (`genes.incremental.IncrementalRequest.generationReportPath`): the
+ * descriptor path plus `.report.json`. The session reads its `audit` part
+ * after a build with generation reuse.
+ */
+export const GENERATION_REPORT_FILE = `${INCREMENTAL_DESCRIPTOR_FILE}.report.json`;
+
+/**
+ * What one Haxe request asks of the Genes incremental path.
+ *
+ * - `measure` (the default): the descriptor asks for `afterTyping:
+ *   "measure"` only. Genes keeps its records, but every pass does its full
+ *   work, so the output equals a build without the define.
+ * - `reuse`: `afterTyping: "reuse"` and `generation: "reuse"`, with
+ *   `audit.modules` set to `auditModules` (see
+ *   `GenesDevelopmentOptions.generationReuse`).
+ * - `none`: no incremental define at all, as in an ordinary build. The cold
+ *   build of the output check uses it, so that its tree is the oracle.
+ */
+export type IncrementalBinding =
+  | { readonly kind: "measure" }
+  | { readonly kind: "reuse"; readonly auditModules: number }
+  | { readonly kind: "none" };
+
+const MEASURE_ONLY: IncrementalBinding = Object.freeze({ kind: "measure" });
+
+/**
+ * Returns the incremental descriptor text for one binding, or `null` for
+ * `none`. `programDigest` is the identity of the effective plan; Genes only
+ * compares it with the digest of the earlier request.
+ *
+ * Example: `{ kind: "reuse", auditModules: 2 }` gives
+ * `{"format":1,"programDigest":"...","kind":"full","afterTyping":"reuse",
+ * "generation":"reuse","audit":{"modules":2,"seed":0}}`.
+ */
+export function incrementalDescriptorText(
+  binding: IncrementalBinding,
+  programDigest: string,
+): string | null {
+  switch (binding.kind) {
+    case "none":
+      return null;
+    case "measure":
+      // Genes stamps declarations and keeps its plain records, but every
+      // pass still does its full work. The output equals a build without
+      // the define.
+      return `${JSON.stringify({
+        format: 1,
+        programDigest,
+        kind: "full",
+        afterTyping: "measure",
+      })}\n`;
+    case "reuse":
+      return `${JSON.stringify({
+        format: 1,
+        programDigest,
+        kind: "full",
+        afterTyping: "reuse",
+        generation: "reuse",
+        audit: { modules: binding.auditModules, seed: 0 },
+      })}\n`;
+  }
+}
+
 const OUTPUT_DESCRIPTOR_HEADER = "genes.output-descriptor-v1";
 
 const ALLOWED_OPTIONS = new Set([
@@ -286,6 +351,9 @@ export async function buildEffectiveHaxeInvocationPlan<
  * Example: `-D genes.output_descriptor=<project>/.genes/dev/haxe-request/genes-output.descriptor`
  * for every build, while the file names
  * `.genes/dev/candidates/revision-3-ab/output/index.tsx` in build 3.
+ *
+ * `incremental` selects the descriptor (`IncrementalBinding`); `none` leaves
+ * out the incremental define and its file.
  */
 export function bindHaxeInvocation(
   plan: EffectiveHaxeInvocationPlan,
@@ -293,6 +361,7 @@ export function bindHaxeInvocation(
   candidateOutputFile: string,
   requestRoot: string,
   compilerDataDescriptorPath?: string,
+  incremental: IncrementalBinding = MEASURE_ONLY,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
   const outputDescriptor = path.join(requestRoot, OUTPUT_DESCRIPTOR_FILE);
@@ -300,6 +369,7 @@ export function bindHaxeInvocation(
     requestRoot,
     INCREMENTAL_DESCRIPTOR_FILE,
   );
+  const incrementalText = incrementalDescriptorText(incremental, plan.identity);
   const environment: Record<string, string> = {
     ...(plan.invocation.env ?? {}),
   };
@@ -347,8 +417,9 @@ export function bindHaxeInvocation(
       haxeTarget,
       "-D",
       `${GENES_OUTPUT_DESCRIPTOR_DEFINE}=${outputDescriptor}`,
-      "-D",
-      `${GENES_DEV_INCREMENTAL_DEFINE}=${incrementalDescriptor}`,
+      ...(incrementalText === null
+        ? []
+        : ["-D", `${GENES_DEV_INCREMENTAL_DEFINE}=${incrementalDescriptor}`]),
       ...(compilerDataDescriptorPath === undefined
         ? []
         : ["-D", `${COMPILER_DATA_DEFINE}=${compilerDataDescriptorPath}`]),
@@ -359,18 +430,14 @@ export function bindHaxeInvocation(
         path: outputDescriptor,
         contents: `${OUTPUT_DESCRIPTOR_HEADER}\n${Buffer.from(candidateOutputFile, "utf8").toString("base64")}\n`,
       }),
-      Object.freeze({
-        path: incrementalDescriptor,
-        // `measure`: Genes stamps declarations and keeps its plain records,
-        // but every pass still does its full work. The output equals a
-        // build without the define. A mode that skips work is a later step.
-        contents: `${JSON.stringify({
-          format: 1,
-          programDigest: plan.identity,
-          kind: "full",
-          afterTyping: "measure",
-        })}\n`,
-      }),
+      ...(incrementalText === null
+        ? []
+        : [
+            Object.freeze({
+              path: incrementalDescriptor,
+              contents: incrementalText,
+            }),
+          ]),
     ]),
     candidateRoot: candidateStageRoot,
     candidateOutputFile,

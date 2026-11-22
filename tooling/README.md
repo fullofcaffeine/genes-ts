@@ -593,6 +593,79 @@ folder. If it finds one, it stops before changing files and asks the host to
 restart that original output first. After the original update is recovered or
 rolled back, the other output can start normally.
 
+### Generation reuse and its output checks
+
+By default every session build makes Genes print every module again. A warm
+build of a large app then spends most of its time in Genes, not in Haxe.
+`generationReuse` makes Genes replay the stored output of each module that
+its clean rules call unchanged (Stage 3 generation reuse):
+
+```ts
+createGenesDevelopmentSession({
+  // ...the options of the first session above...
+  generationReuse: {},   // audit 2 modules; cold build every 20 after 5 s idle
+  // generationReuse: { auditModules: 0, coldCheckEvery: 50, coldCheckIdleMs: 10_000 },
+});
+```
+
+The clean rules are tested, but reviews have found holes in them, and a hole
+publishes stale TypeScript for a module that did change. So reuse comes with
+two checks, both on by default and both comparing bytes. Each result is an
+`output-check` event.
+
+- **Rolling replay audit** (`auditModules`, default 2, at most 1,000,000; 0
+  turns it off). After Genes has written a private candidate, and before the
+  Haxe request returns, it prints that many replayed modules again into
+  memory, the ones that waited longest since their last audit, and compares
+  them with the replayed output. Its time is part of the time before
+  publication (a few milliseconds per build on the compiler-server fixture;
+  `tests/compiler-server/README.md`). A difference makes Genes warn
+  `GENES-INCREMENTAL-AUDIT-001` and drop its generation cache. The session
+  then never validates or publishes that candidate: it emits `{ check:
+  "replay-audit", revision, result: "differs", modules }` (the Haxe modules
+  whose new print differs) and builds the same revision again at once, now in
+  full. If a module of that event was also in the previous one, with no clean
+  audit of it in between, the event has `code: "AUDIT_REPEATED"` and the
+  session turns reuse off for the rest of its life, so a defect that stays
+  cannot make every build run twice.
+- **Cold build** (`coldCheckEvery`, default 20; 0 turns it off;
+  `coldCheckIdleMs`, default 5,000). After every Nth accepted warm
+  generation, once no build has run and no edit has arrived for
+  `coldCheckIdleMs`, the session builds the accepted revision in a new Haxe
+  process with no cache, in a private folder, and compares that Genes tree
+  with the published one. It reconciles the watched inputs before it starts
+  and again before the result counts, so an edit that the watcher has not
+  reported yet cancels the check instead of looking like a difference. It
+  emits `{ check: "cold-build", revision, generation, result, paths }` with
+  `result` `equal`, `differs` (up to 50 project-relative `paths`),
+  `cancelled` (an edit or a newer generation; the check stays due) or
+  `failed` (`code` `PREPARED_FILES_CHANGED`, `COLD_BUILD_UNSUPPORTED` or
+  `COLD_CHECK_ERROR`). A cold Haxe failure while the warm build passed is a
+  difference too (`code: "COLD_BUILD_FAILED"`, with the Haxe output in
+  `message`, private paths removed, at most 2,000 characters). A difference
+  starts a new Haxe server, builds the revision again, and checks that
+  generation at once; if the difference survives, the event has `code:
+  "COLD_DIFFERS_AFTER_REPAIR"` and the session repairs no cold difference
+  again. The cold build never publishes anything.
+
+Why both: the audit prints a module with the facts of the same request, so
+it cannot see a stale fact that the request itself took from the cache: a
+member list, module set or runtime request list of the walk with stored
+edges, a fact of the passes after typing, or the Haxe cache. Example: when a
+stored walk adds an enum that an after-typing `exclude()` made extern, the
+module that owns the enum prints it in the audit too. Only the cold build
+sees that class of defect; with `coldCheckEvery: 0` it is not checked. The
+cold build costs one full build, so it runs rarely and only while the
+session is idle.
+
+Limits: the cold build calls `prepareRevision` again for the accepted
+revision and reports `failed` with `PREPARED_FILES_CHANGED` when the prepared
+files differ; it compares only the Genes tree, not prepared or admitted extra
+files. A build that the session could not run on its server (a `direct`
+build) is cold already and starts the count again. Without
+`generationReuse`, nothing on this page changes and no `output-check` event
+is emitted. A host must ignore an event kind that it does not know.
+
 ### Rules a host should not have to rediscover
 
 - `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
@@ -659,7 +732,8 @@ rolled back, the other output can start normally.
   Haxe 4.3.7 selects its compiler-server cache by all define values, so a
   define that named the new candidate folder made Haxe type the whole program
   again for every build. The incremental descriptor
-  (`-D genes.dev_incremental`, mode `measure`) and the compiler-data
+  (`-D genes.dev_incremental`, mode `measure`, or `reuse` with
+  `generationReuse`; see above) and the compiler-data
   descriptor are also fixed files in `haxe-request/` that the session
   rewrites before each request. Only a content edit of an existing `.hx` file on a
   class path keeps the warm cache; a `.hx` file in another declared input is

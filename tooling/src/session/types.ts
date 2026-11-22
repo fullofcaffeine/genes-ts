@@ -122,6 +122,75 @@ export type DevelopmentState<Diagnostic extends JsonValue> =
       readonly retained: AcceptedGeneration | null;
     };
 
+/**
+ * A build whose candidate the Genes rolling replay audit found stale (see
+ * `GenerationReuseOptions`). After Genes wrote the private candidate, it
+ * printed some of the modules that it had replayed once more, and the new
+ * print of `modules` differs from the replayed output. The session did not
+ * validate or publish that candidate: it builds the same revision again at
+ * once, on the same server, and Genes, which dropped its generation cache,
+ * prints every module in that build.
+ *
+ * `code: "AUDIT_REPEATED"`: a module of this event was also in the previous
+ * replay-audit event, with no clean audit of it in between. The session then
+ * turns generation reuse off for the rest of its life (later builds print
+ * every module), so that a defect that stays cannot make every build run
+ * twice.
+ */
+export interface ReplayAuditCheck {
+  readonly check: "replay-audit";
+  /** The input revision of the discarded candidate (and of the rebuild). */
+  readonly revision: number;
+  readonly result: "differs";
+  /** The Haxe modules whose new print differs, sorted, at most 50. */
+  readonly modules: readonly string[];
+  readonly code?: "AUDIT_REPEATED";
+}
+
+/**
+ * The result of one cold build (see `GenerationReuseOptions`): after
+ * `generation` was accepted and the session stayed idle, the session built
+ * its revision in a new Haxe process with no cache and compared that Genes
+ * tree with the published one.
+ *
+ * - `equal`: the trees have the same bytes.
+ * - `differs`: `paths` lists up to 50 project-relative paths whose bytes
+ *   differ. With `code: "COLD_BUILD_FAILED"` the cold Haxe process failed
+ *   although the warm build passed; `message` holds its output, private paths
+ *   removed, at most 2,000 characters. Either way the session starts a new
+ *   Haxe server and builds the revision again, then runs a cold build once
+ *   more as soon as that build is accepted. With
+ *   `code: "COLD_DIFFERS_AFTER_REPAIR"` the difference survived that rebuild
+ *   with a new server: the session reports it and repairs no cold difference
+ *   any more in this session.
+ * - `cancelled`: an edit arrived (also one that only a reconciliation of the
+ *   inputs found) or a newer generation was accepted; the check stays due.
+ * - `failed`: the check could not compare: `PREPARED_FILES_CHANGED` (the host
+ *   preparation gave other files for the same revision),
+ *   `COLD_BUILD_UNSUPPORTED` (the compiler adapter has no cold build) or
+ *   `COLD_CHECK_ERROR` (any other error of the check itself).
+ */
+export interface ColdBuildCheck {
+  readonly check: "cold-build";
+  readonly revision: number;
+  readonly generation: number;
+  readonly result: "equal" | "differs" | "cancelled" | "failed";
+  readonly paths: readonly string[];
+  readonly code?:
+    | "COLD_BUILD_FAILED"
+    | "COLD_DIFFERS_AFTER_REPAIR"
+    | "PREPARED_FILES_CHANGED"
+    | "COLD_BUILD_UNSUPPORTED"
+    | "COLD_CHECK_ERROR";
+  readonly message?: string;
+}
+
+/**
+ * One check that the public tree equals the output that Genes gives without
+ * reuse: a replay-audit difference or a cold-build result.
+ */
+export type OutputCheck = ReplayAuditCheck | ColdBuildCheck;
+
 /** Framework-neutral facts emitted by one development session. */
 export type DevelopmentEventBody<Diagnostic extends JsonValue> =
   | { readonly kind: "state"; readonly state: DevelopmentState<Diagnostic> }
@@ -158,6 +227,14 @@ export type DevelopmentEventBody<Diagnostic extends JsonValue> =
       /** Reuses the exact process-ownership facts from the wait-server API. */
       readonly kind: "compiler-lifecycle";
       readonly event: HaxeWaitServerEvent;
+    }
+  | {
+      /**
+       * Emitted only with `GenesDevelopmentOptions.generationReuse`. A host
+       * must ignore an event kind that it does not know.
+       */
+      readonly kind: "output-check";
+      readonly outputCheck: OutputCheck;
     }
   | { readonly kind: "closed" };
 
@@ -498,6 +575,79 @@ export interface ObservedExtraInput extends ExternalChange {
   readonly kind?: "exact" | "tree";
 }
 
+/**
+ * Turns on Genes generation reuse (Stage 3) for the session's builds, with
+ * the two checks that keep a reuse defect from staying unseen.
+ *
+ * What changes: each request asks Genes to reuse the facts of its passes
+ * after typing and to replay the stored output of each module that its clean
+ * rules call unchanged (`afterTyping: "reuse"`, `generation: "reuse"` in the
+ * request descriptor), instead of printing it again. A warm build then skips
+ * most of Genes' per-module work. Without this option the session asks for
+ * neither, and every build prints every module.
+ *
+ * Why the checks: the clean rules are reasoned and tested, but reviews have
+ * found holes in them. A hole publishes stale TypeScript for a module that
+ * did change. Two checks run by default:
+ *
+ * - the rolling replay audit (`auditModules`): after Genes writes a private
+ *   candidate, it prints a few of the replayed modules again into memory and
+ *   compares the bytes. A difference makes Genes drop its generation cache
+ *   and warn `GENES-INCREMENTAL-AUDIT-001`. The session does not publish that
+ *   candidate: it reports an `output-check` event (`ReplayAuditCheck`) and
+ *   builds the revision again at once, now in full. The audit runs inside
+ *   the Haxe request, so its time is part of the time before publication.
+ * - the cold build (`coldCheckEvery`, `coldCheckIdleMs`): after every Nth
+ *   accepted generation, once the session has been idle for
+ *   `coldCheckIdleMs`, the session builds the accepted revision in a new
+ *   Haxe process with no cache, and compares that tree with the published
+ *   one (`ColdBuildCheck`). An edit cancels it. A difference starts a new
+ *   Haxe server and builds the revision again.
+ *
+ * What only the cold build sees: the audit prints a module with the facts of
+ * this request, so it checks the bytes of one module against a print with
+ * the same inputs. It cannot see a stale fact that the request itself used:
+ * a stale member list, module set or runtime request list that the walk
+ * with stored edges took from the cache, a stale fact of the passes after
+ * typing, or a stale Haxe cache. Example: when a stored walk adds an enum
+ * that an after-typing `exclude()` made extern, the module that owns the
+ * enum prints it in the new print too. With `coldCheckEvery: 0` this class
+ * of defect is not checked at all.
+ *
+ * Example: `generationReuse: {}` uses the defaults (audit 2 modules per
+ * build; cold build every 20 accepted generations after 5 s idle);
+ * `generationReuse: { coldCheckEvery: 0 }` keeps reuse and the audit but
+ * runs no cold build.
+ *
+ * Limits: the cold build calls `prepareRevision` once more for the accepted
+ * revision, and reports `PREPARED_FILES_CHANGED` instead of a comparison when
+ * the prepared files differ. It compares only the Genes output tree, not
+ * prepared or admitted extra files.
+ */
+export interface GenerationReuseOptions {
+  /**
+   * Replayed modules that Genes prints again after each build (the rolling
+   * replay audit). A whole number from 0 to 1,000,000; 0 turns the audit
+   * off. Default 2.
+   */
+  readonly auditModules?: number;
+
+  /**
+   * Accepted generations between two cold builds. A whole number, 0 or more;
+   * 0 turns the cold build off. Default 20.
+   */
+  readonly coldCheckEvery?: number;
+
+  /**
+   * Milliseconds without a build or an edit before a due cold build starts,
+   * so that it does not start after each accepted generation only to be
+   * cancelled by the next edit. A whole number from 0 to 600,000. Default
+   * 5,000. An edit in that time postpones the cold build to the next
+   * accepted generation, without an event.
+   */
+  readonly coldCheckIdleMs?: number;
+}
+
 /** Host policy and project identity supplied to a DevelopmentSession. */
 export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   readonly projectRoot: string;
@@ -533,6 +683,13 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * first edit is repaired. The default remains a fresh session-owned build.
    */
   readonly existingGeneration?: ExistingGenerationPolicy;
+
+  /**
+   * Turns on Genes generation reuse with its two checks; absent (the
+   * default) keeps every build a full generation. See
+   * `GenerationReuseOptions`.
+   */
+  readonly generationReuse?: GenerationReuseOptions;
 
   /**
    * Creates exact private inputs before Haxe types this revision.

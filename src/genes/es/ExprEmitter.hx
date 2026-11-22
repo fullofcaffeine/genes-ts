@@ -701,7 +701,11 @@ class ExprEmitter extends Emitter {
     // Haxe prints the warning class before its own text; keep that spelling.
     final message = '(WDeprecated) __js__ is deprecated, use js.Syntax.code instead';
     genes.incremental.IncrementalShadow.printWarning(message, position);
-    Context.warning(message, position);
+    // The rolling replay audit prints a replayed module a second time, after
+    // the request reported the stored warnings of that module; it records
+    // the warning for its comparison, but it must not report it again.
+    if (!genes.incremental.IncrementalShadow.auditing())
+      Context.warning(message, position);
   }
 
   /**

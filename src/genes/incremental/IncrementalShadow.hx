@@ -33,6 +33,13 @@ enum IncrementalPhase {
 
   /** Staging of the stored files of a replayed module (`generation: "reuse"`). */
   Replay;
+
+  /**
+   * The second print of a replayed module by the rolling replay audit, into
+   * a scratch transaction after publication (`auditModule`). Its time is
+   * reported as `audit.ms`, not in any stage.
+   */
+  Audit;
 }
 
 /**
@@ -225,6 +232,40 @@ typedef ShadowOverhead = {
 }
 
 /**
+ * What the rolling replay audit of one request did (`auditModule`; report
+ * format 5). Without `"generation": "reuse"`, or when nothing was replayed,
+ * `audited` is empty.
+ */
+typedef ShadowAuditReport = {
+  /** The `audit.modules` setting of the request (0: off). */
+  final modules: Int;
+
+  /** The `audit.seed` setting of the request. */
+  final seed: Int;
+
+  /** The replayed modules that this request printed again, in audit order. */
+  final audited: Array<String>;
+
+  /**
+   * Each difference between the replayed output of an audited module and
+   * its new print: files and their text, print warnings, added features and
+   * public entries; or `audit print failed` when the new print stopped with
+   * an error. Any entry drops the generation cache.
+   */
+  final mismatches: Array<ShadowMismatch>;
+
+  /**
+   * Time of the new prints and their comparison. It is part of
+   * `generationMs`, which ends when the report is written. It comes after
+   * Genes committed its output, but before the Haxe request returns.
+   */
+  final ms: Float;
+
+  /** True when a difference dropped the generation cache in this request. */
+  final cacheDropped: Bool;
+}
+
+/**
  * The session report of one request. It is written beside the request
  * descriptor, never inside the output tree.
  */
@@ -313,6 +354,9 @@ typedef ShadowReport = {
   /** The reachability walk with stored edges (slice S2). */
   final walk: ShadowWalkReport;
 
+  /** The rolling replay audit (genes-f8vc.9.23). */
+  final audit: ShadowAuditReport;
+
   final modules: Array<ShadowModuleReport>;
 }
 
@@ -379,6 +423,14 @@ typedef ShadowReport = {
  *    module order: it checks the stored answers once more, stages the stored
  *    files, reports the stored warnings, and adds the stored features in
  *    sorted order, so that later modules see the flags of a full generation.
+ * 6. After the output transaction has published the tree, the rolling
+ *    replay audit (genes-f8vc.9.23) prints a few replayed modules again into
+ *    a scratch transaction and compares the bytes (`auditCandidates`,
+ *    `auditModule`; `ReplayAudit` chooses the modules). A difference reports
+ *    `GENES-INCREMENTAL-AUDIT-001` and drops the cache, so the stale entry
+ *    is evicted and the next request generates in full. It cannot see a
+ *    stale fact that the request itself took from the cache, such as a
+ *    member list of the walk with stored edges (`auditModule`).
  *
  * A fallback of step 3 after a walk with stored edges also runs the request
  * again live (`walkAgain`). `"compare"` always runs both walks: first with
@@ -390,7 +442,9 @@ typedef ShadowReport = {
  *
  * After the commit, `committed` compares (only for `"compare"`), stores the
  * new plain-data cache and writes the report. A replayed module keeps its
- * stored entry. A failed request writes a report and keeps the cache.
+ * stored entry, unless the audit of this request found a difference: then
+ * nothing is stored and the cache is dropped. A failed request writes a
+ * report and keeps the cache.
  *
  * `"compare"` and `"reuse"` need `"afterTyping": "reuse"`. Otherwise `start`
  * refuses the request with a typed reason
@@ -421,9 +475,9 @@ class IncrementalShadow {
   /**
    * The report format. Format 2 added `mode` and `refusal`; format 3 added
    * the replay counts, `planFallback` and `sameObjectFailures`; format 4
-   * added `walk`.
+   * added `walk`; format 5 added `audit`.
    */
-  static inline final REPORT_FORMAT = 4;
+  static inline final REPORT_FORMAT = 5;
 
   static inline final LINE_LIMIT = 240;
   static inline final MISMATCH_LIMIT = 200;
@@ -471,8 +525,11 @@ class IncrementalShadow {
    */
   final listedDeclarations = new Map<String, Bool>();
 
-  final files = new Map<String, Array<CachedFile>>();
-  final warnings = new Map<String, Array<CachedWarning>>();
+  // The maps of what printing records for each module are `var`: the
+  // rolling replay audit puts new maps in their place while it prints a
+  // replayed module again (`auditModule`), then puts these back.
+  var files = new Map<String, Array<CachedFile>>();
+  var warnings = new Map<String, Array<CachedWarning>>();
   var warningCount = 0;
   final planSeconds = new Map<String, Float>();
   final emitSeconds = new Map<String, Float>();
@@ -484,7 +541,7 @@ class IncrementalShadow {
   var visits = new Map<String, Array<CachedVisit>>();
 
   /** Internal runtime requests of each module printed in this request. */
-  final runtimeRequestLists = new Map<String, Array<String>>();
+  var runtimeRequestLists = new Map<String, Array<String>>();
 
   /** `GenerationChangeSet.stampOf` answers of this request, by declaration key. */
   final stamps = new Map<String, String>();
@@ -527,10 +584,10 @@ class IncrementalShadow {
   var liveWalkSeconds = 0.0;
 
   /** Features that emission of each module added. */
-  final additions = new Map<String, Map<String, Bool>>();
+  var additions = new Map<String, Map<String, Bool>>();
 
   /** Absolute sources that the maps of each module name by a relative path. */
-  final mapSources = new Map<String, Map<String, Bool>>();
+  var mapSources = new Map<String, Map<String, Bool>>();
 
   /** Final member list of each module after the walk. */
   var memberLists = new Map<String, String>();
@@ -539,7 +596,7 @@ class IncrementalShadow {
   var rootFlagTexts = new Map<String, String>();
 
   /** Public entries that the second validation loop found for each module. */
-  final publicEntries = new Map<String, Array<CachedPublicEntry>>();
+  var publicEntries = new Map<String, Array<CachedPublicEntry>>();
 
   /** Modules that pass the checks before emission (all modes). */
   var replayable = new Map<String, Bool>();
@@ -562,6 +619,20 @@ class IncrementalShadow {
   var planCheckSeconds = 0.0;
   var recordSeconds = 0.0;
 
+  /** The `audit` setting of the descriptor (`ReplayAuditSettings`). */
+  final auditSettings: ReplayAuditSettings;
+
+  /** The replayed modules that the audit printed again, in audit order. */
+  final auditedModules: Array<String> = [];
+
+  /** The differences that the audit found (`ShadowAuditReport.mismatches`). */
+  final auditMismatches: Array<ShadowMismatch> = [];
+
+  /** True while the audit prints a module again (`auditing`). */
+  var auditRunning = false;
+
+  var auditSeconds = 0.0;
+
   function new(reportFile: String, mode: GenerationReuse, active: Bool,
       reason: Null<String>, underReuse: Bool, ?refusal: GenerationRefusal) {
     this.reportFile = reportFile;
@@ -573,6 +644,10 @@ class IncrementalShadow {
     this.started = haxe.Timer.stamp();
     final descriptor = IncrementalRequest.requestedDescriptor();
     this.preview = descriptor != null && !descriptor.kind.match(Full);
+    this.auditSettings = descriptor == null ? {
+      modules: 0,
+      seed: 0
+    } : IncrementalRequest.auditSettings(descriptor);
   }
 
   /**
@@ -1619,6 +1694,172 @@ class IncrementalShadow {
   }
 
   /**
+   * Returns the replayed modules that the rolling replay audit prints again
+   * in this request, in audit order, and records this request as their last
+   * audit (`ReplayAudit.select`). Empty unless the mode is `"reuse"`, this
+   * request replayed a module, and the descriptor's `audit.modules` is above
+   * 0.
+   *
+   * `Generator` calls it once, after the output transaction has published
+   * the tree and before `committed`, and then calls `auditModule` for each
+   * module, in this order.
+   */
+  public static function auditCandidates(): Array<String> {
+    final shadow = current;
+    if (shadow == null || !shadow.active || shadow.mode != ReuseClean)
+      return [];
+    final replayedNames = sortedKeys(shadow.replayed);
+    if (replayedNames.length == 0)
+      return [];
+    return ReplayAudit.select(replayedNames, GenerationChangeSet.request(),
+      shadow.auditSettings.modules, shadow.auditSettings.seed);
+  }
+
+  /**
+   * Prints one replayed module again for the rolling replay audit
+   * (genes-f8vc.9.23) and compares the result with the stored output that
+   * this request replayed. `print` runs the checks and the printer of the
+   * module into `scratch` (`OutputTransaction.scratch`), as the normal
+   * request would, and records its public entries; `Generator` builds it.
+   *
+   * Why: the clean rules are the first net, and reviews have found holes in
+   * them more than once. A hole publishes stale TypeScript, and before this
+   * audit the stale entry stayed in the cache until Haxe typed the module
+   * again (`storeCache` keeps the entry of a replayed module). The audit is
+   * the runtime net: it compares bytes, so it also sees a change that no
+   * rule reads, such as metadata that only a typed body holds (limit L3 of
+   * the round-3 review of #244).
+   *
+   * What it compares: the files with their text (source maps included),
+   * the print warnings, the added features and the public entries of the
+   * module. It does not compare the recorded answers: which module records
+   * a question can depend on which module asked it first in the walk, and a
+   * walk with stored edges changes that order, so equal output could still
+   * show other answer lines.
+   *
+   * What it cannot see (review of genes-ts #259): the new print uses the
+   * `Module` value of this request, so a stale fact that the request itself
+   * took from the cache is in both prints. That covers the final member list
+   * and the module set that the walk with stored edges made, the stored
+   * runtime requests that answer import-cycle questions, the kept facts of
+   * the passes after typing, and the Haxe cache. Example: with
+   * `checkStoredTarget` switched off, a stored step adds an enum that an
+   * after-typing `exclude()` made extern; the audit then finds only the
+   * importer `inc.ExclHintUser`, because `inc.ExclOwner` prints the enum
+   * again from the same member list. Only a cold build (the session's
+   * `coldCheckEvery`) sees that class of defect.
+   *
+   * On a difference, or when the new print stops with an error, it reports
+   * `[GENES-INCREMENTAL-AUDIT-001]` as a warning. `committed` then drops the
+   * generation cache instead of storing it, so the stale entry is evicted
+   * and the next request generates in full. The tree that this request
+   * already committed stays as it is. Genes commits before the audit, so
+   * Genes' own publication is not delayed; but a development session
+   * publishes the candidate only after the Haxe request returns, so there
+   * the audit time is part of the time before publication, and the session
+   * discards a candidate with a difference instead of publishing it.
+   *
+   * The new print must not change this request: its answers, warnings and
+   * features go to new maps that are put away afterwards, `Generator` gives
+   * it a feature function that adds nothing, and `auditing` keeps a printer
+   * from reporting its warnings a second time.
+   */
+  public static function auditModule(module: String,
+      scratch: OutputTransaction, print: Void->Void): Void {
+    final shadow = current;
+    final stored = GenerationCache.entry(module);
+    if (shadow == null || !shadow.active || stored == null)
+      return;
+    final started = haxe.Timer.stamp();
+    final keptFiles = shadow.files;
+    final keptWarnings = shadow.warnings;
+    final keptAnswers = shadow.answers;
+    final keptAdditions = shadow.additions;
+    final keptMapSources = shadow.mapSources;
+    final keptPublicEntries = shadow.publicEntries;
+    final keptRuntimeRequests = shadow.runtimeRequestLists;
+    final keptWarningCount = shadow.warningCount;
+    final keptRecordSeconds = shadow.recordSeconds;
+    shadow.files = new Map();
+    shadow.warnings = new Map();
+    shadow.answers = new Map();
+    shadow.additions = new Map();
+    shadow.mapSources = new Map();
+    shadow.publicEntries = new Map();
+    shadow.runtimeRequestLists = new Map();
+    scratch.onRegister = (relative,
+      content) -> shadow.record(relative, content);
+    shadow.auditRunning = true;
+    var failure: Null<String> = null;
+    try {
+      enter(module, Audit);
+      print();
+    } catch (error:haxe.Exception) {
+      failure = error.message;
+    }
+    enter(null, Audit);
+    shadow.auditRunning = false;
+    final found: Array<ShadowMismatch> = [];
+    if (failure != null)
+      add(found, {
+        module: module,
+        path: '',
+        kind: 'audit print failed',
+        line: 0,
+        stored: '',
+        staged: clip(failure)
+      });
+    else {
+      final printed = shadow.files.get(module);
+      compareFiles(found, module, stored.files, printed == null ? [] : printed);
+      compareText(found, module, 'print warnings differ',
+        warningText(stored.warnings), warningText(shadow.warnings.get(module)));
+      compareText(found, module, 'added features differ',
+        stored.additions.join('\n'),
+        sortedLines(shadow.additions.get(module)).join('\n'));
+      compareText(found, module, 'public entries differ',
+        publicEntryText(stored.publicEntries),
+        publicEntryText(shadow.publicEntries.get(module)));
+    }
+    shadow.files = keptFiles;
+    shadow.warnings = keptWarnings;
+    shadow.answers = keptAnswers;
+    shadow.additions = keptAdditions;
+    shadow.mapSources = keptMapSources;
+    shadow.publicEntries = keptPublicEntries;
+    shadow.runtimeRequestLists = keptRuntimeRequests;
+    shadow.warningCount = keptWarningCount;
+    shadow.recordSeconds = keptRecordSeconds;
+    shadow.auditedModules.push(module);
+    for (mismatch in found)
+      add(shadow.auditMismatches, mismatch);
+    if (found.length > 0) {
+      final first = found[0];
+      Context.warning('[GENES-INCREMENTAL-AUDIT-001] The rolling replay audit '
+        + 'printed $module again, and the new print differs from the stored '
+        + 'output that this request replayed (${first.kind}'
+        + (first.path.length > 0 ? ' in ${first.path}' : '')
+        + (first.line > 0 ? ' at line ${first.line}' : '')
+        + '). This request published the stored output. Genes dropped the '
+        + 'generation cache, so the next request generates in full. Please '
+        + 'report this Genes defect with the generation report.',
+        Context.currentPos());
+    }
+    shadow.auditSeconds += haxe.Timer.stamp() - started;
+  }
+
+  /**
+   * Returns true while the rolling replay audit prints a module again
+   * (`auditModule`). A printer that reports a warning itself checks it, so
+   * that the warning is not reported a second time; the audit still records
+   * it for the comparison (`printWarning`).
+   */
+  public static function auditing(): Bool {
+    final shadow = current;
+    return shadow != null && shadow.auditRunning;
+  }
+
+  /**
    * Starts the clock of one module and names it as the asker of the
    * inventory queries that follow. Pass `null` to stop the clock.
    */
@@ -1634,7 +1875,7 @@ class IncrementalShadow {
       shadow.clockPhase = phase;
       shadow.clockStart = haxe.Timer.stamp();
     }
-    shadow.owner = phase == Emit ? module : null;
+    shadow.owner = phase == Emit || phase == Audit ? module : null;
   }
 
   /**
@@ -1791,6 +2032,11 @@ class IncrementalShadow {
     if (module == null)
       return;
     final elapsed = haxe.Timer.stamp() - clockStart;
+    // The audit has its own time (`auditSeconds`), outside every stage.
+    if (clockPhase == Audit) {
+      clockModule = null;
+      return;
+    }
     if (clockPhase == Reachability) {
       if (storedPass)
         storedWalkSeconds += elapsed;
@@ -1839,6 +2085,14 @@ class IncrementalShadow {
     var compareSeconds = 0.0;
     var cacheWriteSeconds = 0.0;
     var stored = false;
+    // The rolling replay audit found stale output: evict it with the whole
+    // cache (no other rule saw the change, so other entries may be stale
+    // too), whatever the result below says. The audit ages stay, so the
+    // rotation goes on where it was instead of starting again at the same
+    // first modules.
+    final auditDropped = active && success && auditMismatches.length > 0;
+    if (auditDropped)
+      GenerationCache.drop();
     if (active && success && lookups.length > 0) {
       result = 'full';
       reason = 'the generator looked up ${lookups.length} module(s) by name; '
@@ -1893,16 +2147,23 @@ class IncrementalShadow {
             compareSeconds = haxe.Timer.stamp() - compareStart;
           }
       }
-      final writeStart = haxe.Timer.stamp();
-      stored = storeCache();
-      cacheWriteSeconds = haxe.Timer.stamp() - writeStart;
-      if (!stored)
-        reason = (reason == null ? '' : reason + '; ')
-          + 'the cache is larger than the budget and was dropped';
+      if (!auditDropped) {
+        final writeStart = haxe.Timer.stamp();
+        stored = storeCache();
+        cacheWriteSeconds = haxe.Timer.stamp() - writeStart;
+        if (!stored)
+          reason = (reason == null ? '' : reason + '; ')
+            + 'the cache is larger than the budget and was dropped';
+      }
     } else if (active) {
       result = 'failed';
       reason = failure;
     }
+    if (auditDropped)
+      reason = (reason == null ? '' : reason + '; ')
+        + 'the rolling replay audit found that the stored output of '
+        + auditMismatchModules().join(', ')
+        + ' differs from a new print, so the generation cache was dropped';
     final changeSetSeconds = GenerationChangeSet.overheadSeconds();
     var cleanPlan = 0.0;
     var cleanEmit = 0.0;
@@ -2023,6 +2284,14 @@ class IncrementalShadow {
         totalMs: milliseconds(overheadSeconds)
       },
       walk: walkReport(),
+      audit: {
+        modules: active && mode == ReuseClean ? auditSettings.modules : 0,
+        seed: auditSettings.seed,
+        audited: auditedModules,
+        mismatches: auditMismatches,
+        ms: milliseconds(auditSeconds),
+        cacheDropped: auditDropped
+      },
       modules: moduleReports
     };
     try {
@@ -2033,6 +2302,14 @@ class IncrementalShadow {
         + 'continues without it.',
         Context.currentPos());
     }
+  }
+
+  /** Returns the audited modules whose new print differed, sorted, each once. */
+  function auditMismatchModules(): Array<String> {
+    final names = new Map<String, Bool>();
+    for (mismatch in auditMismatches)
+      names.set(mismatch.module, true);
+    return sortedKeys(names);
   }
 
   /** Returns the walk part of the report (`ShadowWalkReport`). */
@@ -2088,11 +2365,47 @@ class IncrementalShadow {
       });
       return;
     }
+    compareFiles(mismatches, module, stored.files, staged);
+    compareText(mismatches, module, 'print warnings differ',
+      warningText(stored.warnings), warningText(warnings.get(module)));
+    compareText(mismatches, module, 'member list differs', stored.members,
+      memberLists.get(module));
+    compareText(mismatches, module, 'root flags differ', stored.rootFlags,
+      rootFlagTexts.get(module));
+    // `answerText`: a stored line holds the separator U+0001, which the
+    // report must not carry raw (Haxe's JSON printer leaves it unescaped).
+    compareText(mismatches, module, 'answers differ',
+      stored.answers.map(GenerationCache.answerText).join('\n'),
+      sortedLines(answers.get(module)).map(GenerationCache.answerText)
+        .join('\n'));
+    compareText(mismatches, module, 'added features differ',
+      stored.additions.join('\n'),
+      sortedLines(additions.get(module)).join('\n'));
+    compareText(mismatches, module, 'public entries differ',
+      publicEntryText(stored.publicEntries),
+      publicEntryText(publicEntries.get(module)));
+    final storedRequests = stored.runtimeRequests;
+    final printedRequests = runtimeRequestLists.get(module);
+    compareText(mismatches, module, 'runtime requests differ',
+      storedRequests == null ? '<none>' : storedRequests.join(' '),
+      printedRequests == null ? '<none>' : printedRequests.join(' '));
+  }
+
+  /**
+   * Adds each difference between the stored files of `module` and the files
+   * that were just staged for it: a stored file that is missing now, a file
+   * that is new now, and for a file with other text the first line that
+   * differs. Shared by the compare shadow (`compare`) and the rolling replay
+   * audit (`auditModule`).
+   */
+  static function compareFiles(mismatches: Array<ShadowMismatch>,
+      module: String, stored: Array<CachedFile>,
+      staged: Array<CachedFile>): Void {
     final stagedByPath = new Map<String, String>();
     for (file in staged)
       stagedByPath.set(file.path, file.text);
     final storedPaths = new Map<String, Bool>();
-    for (file in stored.files) {
+    for (file in stored) {
       storedPaths.set(file.path, true);
       final text = stagedByPath.get(file.path);
       if (text == null) {
@@ -2131,29 +2444,6 @@ class IncrementalShadow {
           stored: '',
           staged: ''
         });
-    compareText(mismatches, module, 'print warnings differ',
-      warningText(stored.warnings), warningText(warnings.get(module)));
-    compareText(mismatches, module, 'member list differs', stored.members,
-      memberLists.get(module));
-    compareText(mismatches, module, 'root flags differ', stored.rootFlags,
-      rootFlagTexts.get(module));
-    // `answerText`: a stored line holds the separator U+0001, which the
-    // report must not carry raw (Haxe's JSON printer leaves it unescaped).
-    compareText(mismatches, module, 'answers differ',
-      stored.answers.map(GenerationCache.answerText).join('\n'),
-      sortedLines(answers.get(module)).map(GenerationCache.answerText)
-        .join('\n'));
-    compareText(mismatches, module, 'added features differ',
-      stored.additions.join('\n'),
-      sortedLines(additions.get(module)).join('\n'));
-    compareText(mismatches, module, 'public entries differ',
-      publicEntryText(stored.publicEntries),
-      publicEntryText(publicEntries.get(module)));
-    final storedRequests = stored.runtimeRequests;
-    final printedRequests = runtimeRequestLists.get(module);
-    compareText(mismatches, module, 'runtime requests differ',
-      storedRequests == null ? '<none>' : storedRequests.join(' '),
-      printedRequests == null ? '<none>' : printedRequests.join(' '));
   }
 
   static function compareText(mismatches: Array<ShadowMismatch>,
@@ -2179,6 +2469,7 @@ class IncrementalShadow {
       case Validation: 'validation';
       case Emit: 'emit';
       case Replay: 'replay';
+      case Audit: 'audit';
     }
   }
 
@@ -2216,7 +2507,10 @@ class IncrementalShadow {
   /**
    * Stores this request's result as the new cache. A replayed module keeps
    * its stored entry, with this request's epochs, fingerprint, proofs and
-   * witnesses; it equals what a new print would record.
+   * witnesses; it equals what a new print would record. The rolling replay
+   * audit checks that claim for a few replayed modules in each request
+   * (`auditModule`); after a difference, `finish` does not call this
+   * function and drops the cache instead, so a stale entry cannot stay.
    */
   function storeCache(): Bool {
     final modules = new Map<String, CachedModule>();

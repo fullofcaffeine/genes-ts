@@ -590,6 +590,101 @@ try {
   } finally {
     await session.close();
   }
+
+  // Generation reuse (genes-f8vc.9.23): a second session on the same
+  // project asks Genes to replay unchanged modules, with the rolling replay
+  // audit on every replayed module and a cold build after every accepted
+  // generation. With real Haxe and real Genes output, the audit must find no
+  // difference, and the cold tree must equal the published one.
+  const reuseEvents: DevelopmentEvent<Diagnostic>[] = [];
+  const reuseSession = createGenesDevelopmentSession<Diagnostic>({
+    projectRoot,
+    projectIdentity: "warm-server-session-reuse-fixture",
+    hxml: { allowedRoots: [projectRoot, genesSourceRoot, helderSourceRoot] },
+    publicOutputFile: "src-gen-reuse/index.ts",
+    stateDirectory: ".genes/reuse",
+    generationReuse: { auditModules: 1_000, coldCheckEvery: 1, coldCheckIdleMs: 0 },
+    resolveInvocation: () => ({
+      executable: haxeExecutable,
+      cwd: projectRoot,
+      args: ["build.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
+      compatibilityFacts: { fixture: "warm-server-session-reuse", haxe: haxeVersion },
+    }),
+    validate: async () => ({ ok: true }),
+    validatorPolicyFacts: { fixture: "accept-every-candidate" },
+    debounceMs: 0,
+    pollIntervalMs: 20,
+    shutdownTimeoutMs: 5_000,
+  });
+  reuseSession.subscribe((event) => reuseEvents.push(event));
+  const coldChecks = async (count: number, label: string) => {
+    const started = Date.now();
+    for (;;) {
+      const checks = reuseEvents.flatMap((event) =>
+        event.event.kind === "output-check" ? [event.event.outputCheck] : [],
+      );
+      if (checks.length >= count) return checks;
+      assert.equal(
+        Date.now() - started < buildTimeoutMs,
+        true,
+        `${label}: no output check ${count}: ${JSON.stringify(checks)}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+  const reuseReport = (): {
+    readonly mode: string;
+    readonly replayed: number;
+    readonly audit: {
+      readonly audited: readonly string[];
+      readonly mismatches: readonly unknown[];
+      readonly ms: number;
+    };
+  } =>
+    JSON.parse(
+      readFileSync(
+        path.join(projectRoot, ".genes/reuse/haxe-request/incremental.json.report.json"),
+        "utf8",
+      ),
+    );
+  try {
+    await reuseSession.start();
+    await reuseSession.firstAccepted;
+    assert.deepEqual((await coldChecks(1, "reuse first build"))[0], {
+      check: "cold-build",
+      revision: 1,
+      generation: 1,
+      result: "equal",
+      paths: [],
+    });
+    const file = edit("servercase/UnimportedLeaf.hx", "leaf-", "leaf-reuse-");
+    setWholeSecond(file, Math.floor(statSync(file).mtimeMs / 1000) + 2);
+    const second = await coldChecks(2, "reuse leaf edit");
+    assert.deepEqual(second[1], {
+      check: "cold-build",
+      revision: 2,
+      generation: 2,
+      result: "equal",
+      paths: [],
+    });
+    const report = reuseReport();
+    assert.equal(report.mode, "reuse");
+    assert.equal(report.replayed > 0, true, "the reuse build replayed no module");
+    assert.equal(report.audit.audited.length, report.replayed,
+      "the audit must print every replayed module again");
+    assert.deepEqual(report.audit.mismatches, [], "the audit found a difference");
+    assert.equal(
+      readFileSync(path.join(projectRoot, "src-gen-reuse/servercase/UnimportedLeaf.ts"), "utf8")
+        .includes("leaf-reuse-"),
+      true,
+    );
+    console.log(
+      `warm session reuse: ${report.replayed} replayed modules, audit ${report.audit.audited.length} modules in ${report.audit.ms} ms, cold build equal twice`,
+    );
+  } finally {
+    await reuseSession.close();
+  }
 } finally {
   rmSync(projectRoot, { recursive: true, force: true });
 }

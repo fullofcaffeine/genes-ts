@@ -38,6 +38,7 @@ type EventKind =
   | "generation-accepted"
   | "failed"
   | "compiler-lifecycle"
+  | "output-check"
   | "closed";
 
 interface EventRun {
@@ -257,6 +258,36 @@ assert.equal(
     { separator: "\n" },
   )}`,
 );
+// The output-check event (genes-f8vc.9.23) is emitted only with
+// `generationReuse`; its released shape is checked here.
+const validateProtocolEvent = ajv.getSchema(protocolSchema.$id);
+assert.notEqual(validateProtocolEvent, undefined);
+for (const [outputCheck, valid] of [
+  [{ check: "cold-build", revision: 3, generation: 3, result: "differs", paths: ["src-gen/index.ts"] }, true],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: ["inc.Stale"] }, true],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: ["inc.Stale"], code: "AUDIT_REPEATED" }, true],
+  [{ check: "cold-build", revision: 4, generation: 4, result: "cancelled", paths: [] }, true],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "differs", paths: [], code: "COLD_BUILD_FAILED", message: "Main.hx:1: Type not found" }, true],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "failed", paths: [], code: "PREPARED_FILES_CHANGED" }, true],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "unknown", paths: [] }, false],
+  [{ check: "cold-build", revision: 5, generation: 0, result: "equal", paths: [] }, false],
+  [{ check: "cold-build", revision: 5, generation: 5, result: "differs", paths: ["/private/candidate/index.ts"] }, false],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: [] }, false],
+  [{ check: "replay-audit", revision: 2, result: "differs", modules: ["inc.Stale"], extra: 1 }, false],
+  [{ check: "replay-audit", revision: 2, result: "differs", paths: ["inc.Stale"] }, false],
+] as const) {
+  assert.equal(
+    validateProtocolEvent!({
+      protocol: DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+      version: DEVELOPMENT_SESSION_EVENT_VERSION,
+      sequence: 1,
+      at: 1,
+      event: { kind: "output-check", outputCheck },
+    }),
+    valid,
+    `output-check ${JSON.stringify(outputCheck)} must be ${valid ? "valid" : "rejected"}`,
+  );
+}
 const invalidSequenceCorpus = structuredClone(corpus) as unknown as {
   vectors: Array<{
     expected: { eventChecks: Array<{ sequence: number }> };
@@ -351,6 +382,7 @@ const events = new Set<EventKind>([
   "generation-accepted",
   "failed",
   "compiler-lifecycle",
+  "output-check",
   "closed",
 ]);
 const scriptSteps = new Set([
@@ -368,9 +400,11 @@ const scriptSteps = new Set([
   "compile-connected-private-hxml",
   "compile-direct",
   "compile-failed",
+  "compile-connected-replay-audit-differs",
   "private-hxml-removed-before-validation",
   "inventory-failed-fatal",
   "candidate-generated",
+  "output-check-replay-audit",
   "validate-accepted",
   "validate-rejected",
   "reconcile-current",
@@ -534,6 +568,7 @@ assert.deepEqual(
     "publication-waits-for-reader",
     "publish-failure-rolls-back",
     "recovery-before-initial-build",
+    "replay-audit-difference-is-never-published",
     "supplemental-files-publish-and-delete",
     "unchanged-candidate-advances-generation",
     "validation-failure-retains-last-good",
@@ -569,6 +604,7 @@ for (const required of [
   "rollback",
   "single-active-build",
   "snapshot-current-facts",
+  "stale-candidate-not-published",
   "supplemental-publication",
   "supplemental-rollback",
   "supplemental-stale-deletion",

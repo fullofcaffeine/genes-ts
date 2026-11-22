@@ -607,7 +607,7 @@ Each holder has one check (genes-f8vc.9.27):
 | The type parameters that a local function declares (`TVar.extra`) | `@:ts.type("string")` on `lv` in `function inner<L:{lv: Int}>(x: L)` (S3) | Recorded answer `bodyParams` |
 | The structures of the declared type of a local variable or argument | `@:ts.type("string")` on `bv` in `var box: Null<{bv: Int}>` | Recorded answer `bodyType` |
 | The extern flag | `exclude()` on an enum | Fingerprints and the target facts of the stored walk (S2) |
-| The metadata of a local variable itself (`TVar.meta`) | `@:ts.type("string")` on the argument `v` of `consume(v: {cq: Int})`; only argument metadata is printed, so the same mark on a plain local changes nothing | Not checked: limit below |
+| The metadata of a local variable itself (`TVar.meta`) | `@:ts.type("string")` on the argument `v` of `consume(v: {cq: Int})`; only argument metadata is printed, so the same mark on a plain local changes nothing | Not checked by a rule: limit below; the rolling replay audit finds it by bytes when it prints the module again (section 12, the `L3` shadow rows) |
 
 How the recorded answers work, with the same mechanism as the feature
 flags and the facts of anonymous-structure fields:
@@ -650,7 +650,9 @@ Limits:
   stale replay with `@:ts.type("string")` written on such an argument after
   typing, and found no real writer: the after-typing callbacks of Caffeine
   write no metadata. The readers are listed in `CleanRuleProbe`; a new
-  reader fails it.
+  reader fails it. The rolling replay audit of section 12 is the runtime
+  net for this case: the `L3` rows of the shadow gate write such metadata
+  on `inc.ArgMeta.show` and require the audit to find it.
 - A structure that only the type of an expression names, for example an
   object literal that Genes prints as an inferred type argument, and a
   local variable that Haxe makes after the capture (a loop temporary).
@@ -702,3 +704,52 @@ generate in full.
   at the start of the incremental path of the request. A failure in an
   `onAfterGenerate` callback that runs after it is not seen.
 - Not measured on a real application in this change.
+
+## 12. The runtime net under generation reuse (genes-f8vc.9.23)
+
+Generation reuse (`"generation": "reuse"`, Stage 3) needs `"afterTyping":
+"reuse"`, so the kept buckets of section 11 and the clean rules of
+`GenerationCache` decide together which output is still right. Reviews found
+holes in such rules more than once: import-cycle answers and position-keyed
+`SignatureCache` facts (review of genes-ts #244), and metadata that only a
+typed body holds (limit L3, for example `@:ts.type` that an after-typing
+macro writes on the local variable of a method argument). Two runtime checks
+catch a stale result by comparing bytes:
+
+- **The rolling replay audit** (in Genes, `IncrementalShadow.auditModule`,
+  `ReplayAudit`). After a reuse request has committed its tree, and before
+  the request returns, Genes prints `audit.modules` of the modules that it
+  replayed (default 2) once more into a scratch transaction and compares
+  files, maps, print warnings, added features and public entries with the
+  stored entry. The module that waited longest since its last audit goes
+  first; a seed orders equal waits; the ages stay when the cache is dropped,
+  so the rotation goes on. A difference warns
+  `[GENES-INCREMENTAL-AUDIT-001]`, writes it to the `audit` part of the
+  generation report, and drops the generation cache, so the stale entry is
+  evicted and the next request generates in full. Before this check,
+  `storeCache` kept the entry of a replayed module, so a stale module stayed
+  stale until Haxe typed it again. A development session does not publish a
+  candidate with an audit difference; it builds the revision again at once.
+- **The cold build** (in the development session,
+  `GenerationReuseOptions.coldCheckEvery`, default every 20 accepted
+  generations, after `coldCheckIdleMs` of idle time, default 5 s). The
+  session builds the accepted revision in a new Haxe process, with no cache,
+  and compares that tree with the published one. An edit cancels it, also
+  one that only a reconciliation of the inputs finds. A difference starts a
+  new server and builds the revision again.
+
+Limit, and why both checks exist: the audit prints a module with the facts
+of the same request, so a stale fact that the request itself took from the
+cache appears in both prints, and the audit cannot see it. That covers the
+final member lists and the module set that the walk with stored edges made
+(slice S2), the stored runtime requests that answer import-cycle questions,
+the kept buckets of the passes after typing, and the Haxe cache. Example
+(review of genes-ts #259): with `checkStoredTarget` switched off, the row
+"after-typing macro makes an enum extern after the Genes passes" published a
+stale `inc/ExclHintUser.tsx` and `inc/ExclOwner.tsx`; the audit reported
+only `inc.ExclHintUser`, because `inc.ExclOwner` printed the extern enum
+again from the stored member list. Only the cold build sees this class of
+defect, so a session with `coldCheckEvery: 0` leaves it unchecked. The audit
+runs on every request and costs about the print of two modules;
+`tests/compiler-server/README.md` ("Rolling replay audit and cold build")
+has the gates and the measured cost.

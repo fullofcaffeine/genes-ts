@@ -173,6 +173,55 @@
         }
       ]
     },
+    "outputCheck": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["check", "revision", "result", "modules"],
+          "properties": {
+            "check": { "const": "replay-audit" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "result": { "const": "differs" },
+            "modules": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 50,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "code": { "const": "AUDIT_REPEATED" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["check", "revision", "generation", "result", "paths"],
+          "properties": {
+            "check": { "const": "cold-build" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "generation": { "$ref": "#/$defs/positiveInteger" },
+            "result": { "enum": ["equal", "differs", "cancelled", "failed"] },
+            "paths": {
+              "type": "array",
+              "maxItems": 50,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/publishedPath" }
+            },
+            "code": {
+              "enum": [
+                "COLD_BUILD_FAILED",
+                "COLD_DIFFERS_AFTER_REPAIR",
+                "PREPARED_FILES_CHANGED",
+                "COLD_BUILD_UNSUPPORTED",
+                "COLD_CHECK_ERROR"
+              ]
+            },
+            "message": { "type": "string", "maxLength": 2000 }
+          }
+        }
+      ]
+    },
     "compilerLifecycle": {
       "oneOf": [
         {
@@ -344,6 +393,15 @@
           "properties": {
             "kind": { "const": "compiler-lifecycle" },
             "event": { "$ref": "#/$defs/compilerLifecycle" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "outputCheck"],
+          "properties": {
+            "kind": { "const": "output-check" },
+            "outputCheck": { "$ref": "#/$defs/outputCheck" }
           }
         },
         {
