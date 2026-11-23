@@ -452,6 +452,19 @@ difference of their results is a mismatch. The edits whose ids start with
   names `InlinePt`, so no surviving declaration of `inc.AliasInline` shows
   the alias. While that use stays, every request leaves the recorded path
   (`walk: left`, nothing replayed, the tree equal to cold);
+- declarations of an unchanged module in another order (genes-zt9w, the
+  `ORDER` rows): Haxe 4.3.7 builds its generator list by module path, but
+  adds the parent class, the interfaces and the types that a static
+  initializer reaches before a class. A static initializer of `inc.OrderA`
+  creates `inc.OrderZ`, so the interface `inc.OrderM` moves before the
+  extern class `inc.OrderM.OrderMNative`, and Haxe does not type
+  `inc.OrderM` again. Its member list stays `OrderM` alone, so the request
+  must replay. Before genes-zt9w the fingerprint held the declarations in
+  list order, and the request generated in full. In Caffeine the same kind
+  of move (`haxe.Constraints.IMap` from last to first on the first warm
+  request after a cold build) made one full generation of 79 to 96 s.
+  `CleanRuleProbe` checks the same rule with both orders of
+  `haxe.Constraints`, and checks that the member list keeps its order;
 - the rows of the review of slice S2 (ids start with `RV6`, modules
   `inc.Rv*`): one late member that two clean typedef modules name, two late
   members of one clean module whose order follows the visit order, a late

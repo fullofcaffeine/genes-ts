@@ -315,7 +315,8 @@ type Edit = {
 const program = {
   defines: [] as string[],
   modules: [
-    "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
+    "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy",
+    "inc.OrderA", "inc.OrderZ"
   ] as string[]
 };
 
@@ -1856,6 +1857,43 @@ const edits: ReadonlyArray<Edit> = [
     results: ["incremental"],
     settled: true
   },
+  // Declaration order (genes-zt9w). Haxe 4.3.7 builds the generator list
+  // by module path, but adds the parent class, the interfaces and the types
+  // that a static initializer reaches before a class. So the declarations
+  // of a module that Haxe does not type again can come in another order.
+  // In Caffeine, the first warm request after a cold build moved
+  // `haxe.Constraints.IMap` from last to first, and every module fell back
+  // to a full generation. Here a static initializer of `inc.OrderA` creates
+  // `inc.OrderZ`, so the interface `inc.OrderM` moves before the extern
+  // class `inc.OrderM.OrderMNative`. The member list of `inc.OrderM` stays
+  // `OrderM` alone, so the output is the same and the request must replay.
+  {
+    id: "ORDER a static initializer moves the declarations of a module that Haxe does not type again",
+    apply: () => edit("inc/OrderA.hx", "/*ORDER_SEED*/",
+      "public static var seed: OrderM = new OrderZ(); /*ORDER_SEED*/"),
+    results: ["incremental"]
+  },
+  {
+    id: "ORDER no edit after the declarations moved",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ORDER the static initializer is removed, the declarations move back",
+    apply: () => edit("inc/OrderA.hx",
+      "public static var seed: OrderM = new OrderZ(); /*ORDER_SEED*/",
+      "/*ORDER_SEED*/"),
+    results: ["incremental"]
+  },
+  {
+    id: "ORDER no edit after the declarations moved back",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
   // Import aliases (genes-44h0). `import X as Alias` makes Haxe 4.3.7
   // create a private typedef of the importing module that is in no
   // declaration list; `TypedModuleInventory.importAlias` finds it, so the
@@ -2186,7 +2224,8 @@ function resetState(mode: GenerationMode): void {
   currentMode = mode;
   program.defines = options.reactRefresh ? ["genes.react_refresh_modules"] : [];
   program.modules = [
-    "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy"
+    "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy",
+    "inc.OrderA", "inc.OrderZ"
   ];
   request.afterTyping = "reuse";
   request.generation = mode;
