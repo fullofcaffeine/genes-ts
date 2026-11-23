@@ -62,6 +62,14 @@
  * at once, after a full request, a module request, an edit of another file
  * and editor requests.
  *
+ * The groups of `stdGroups` (genes-f8vc.14.7) run with `-dce std`: they make
+ * structural edits that the `-dce std` rule previews (byte-identical to
+ * cold, with the tree check) or refuses with its own code, and one group
+ * makes the same edit under `-dce full`, which keeps the strict rule.
+ * `--sweep` runs only `sweepGroup`: five structural edits of each of 20
+ * generated UI modules. `--observe` records results instead of failing on
+ * them, for red evidence against another Genes source.
+ *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
  * differs from cold (the measured cache pollution of genes-f8vc.14.1). It is
@@ -146,6 +154,16 @@ const raceMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Race {\n`
 const raceArgs = ["--macro", `mr.Race.install(${JSON.stringify(raceFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
 const timeoutMs = 180_000;
 const keepControl = process.argv.includes("--keep-control");
+/** `--sweep` runs only the scripted structural sweep (`sweepGroup`). */
+const sweep = process.argv.includes("--sweep");
+/**
+ * `--observe` records each step's result instead of failing on it, for red
+ * evidence with `GENES_TEST_SOURCE` (an older or a changed Genes): a result
+ * other than the expected one is printed as is, and a preview whose files
+ * differ from cold, or that cold changes other files beside, is printed as
+ * `STALE <files>`. A full request that differs from cold still fails.
+ */
+const observe = process.argv.includes("--observe");
 const only = process.argv.find((argument) => argument.startsWith("--only="))
   ?.slice("--only=".length);
 /**
@@ -267,6 +285,13 @@ type Step = {
    * request may publish anything.
    */
   readonly typeError?: boolean;
+  /**
+   * The edited module still types alone, but the program no longer
+   * compiles (review of #260: a new private field that another module
+   * calls). The module request must not preview; the cold build and the
+   * full request must fail with the same errors (as for `typeError`).
+   */
+  readonly programFails?: boolean;
 };
 
 /**
@@ -289,6 +314,14 @@ type Group = {
   readonly files?: Readonly<Record<string, string>>;
   /** Extra Haxe arguments of every request of the group. */
   readonly extraArgs?: ReadonlyArray<string>;
+  /**
+   * The dead-code elimination of every request (`-dce`); `full` when not
+   * given. The `std-` groups use `std`, the profile of the structural rule
+   * (genes-f8vc.14.7).
+   */
+  readonly dce?: "std" | "full";
+  /** The `--main` class of the full requests; `mr.Main` when not given. */
+  readonly main?: string;
   /**
    * Extra Haxe arguments given before `--macro genes.Generator.use()`: an
    * after-typing callback registered here runs after the passes of Genes.
@@ -319,7 +352,12 @@ let firstSave = statSync(".");
 
 /** Replaces one exact text in a fixture file and moves its time. */
 function edit(relative: string, from: string, to: string): void {
-  const file = path.join(workspace, "src/mr", relative);
+  editSource(path.join("mr", relative), from, to);
+}
+
+/** Replaces one exact text in a file under `src/` and moves its time. */
+function editSource(relative: string, from: string, to: string): void {
+  const file = path.join(workspace, "src", relative);
   const text = readFileSync(file, "utf8");
   ok(text.split(from).length === 2,
     `${relative} must contain ${JSON.stringify(from)} exactly once`);
@@ -1761,8 +1799,431 @@ function failedRequestGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/**
+ * The source files of the `std-` groups (genes-f8vc.14.7): the template plus
+ * a UI-like module `mr.Card` that the rows edit, and the modules that each
+ * part of the `-dce std` rule needs:
+ *
+ * - `mr.OnlyHere`: loaded only by an import of `mr.Card` without a use;
+ * - `mr.Hints`: a module of typedefs that `mr.Main` imports and nothing
+ *   reaches, so it has no file until a module names its typedef;
+ * - `mr.Words`: keeps `StringTools.trim`;
+ * - `mr.Styles`: a project macro function (opaque to Genes);
+ * - `mr.Built` with `@:build(mr.BuildMacro.build())`;
+ * - `mr.Box`: a `@:generic` class;
+ * - `mr.CardUser`: imports `mr.Card`, so a call back closes a cycle;
+ * - `mr.Tag`: the module of the macro row;
+ * - `mr.CyBase` and `mr.CyChild`: a cycle with inheritance, so that
+ *   `mr.CyChild` prints its parent lazily while the cycle exists;
+ * - `mr.Px`, `mr.Row` and `mr.Bag`: abstracts, with `mr.PxUser` comparing
+ *   two `Px` values and `mr.RowUser` indexing a `Row` (review of #260);
+ * - `mr.Deck`: a class and, below it, a private typedef that `mr.DeckUser`
+ *   imports, so its source map names the typedef's position;
+ * - `mr.Gadget`, `mr.GadgetTools` and `mr.GadgetUser`, which calls
+ *   `g.label()` through `using` and has `@:access(mr.Gadget)`;
+ * - `mr.Ext` with a private extern class (round 2 of the review of #260).
+ */
+const stdFiles: Readonly<Record<string, string>> = {
+  "mr/Main.hx": `package mr;\nimport mr.Hints;\nimport mr.Styles;\n\nclass Main {\n`
+    + `  static function main() {\n    trace(Button.render());\n    trace(new Panel('main').describe());\n`
+    + `    trace(Consts.LIMIT + Consts.describe().length);\n    trace(Leaf.kindName(Leaf.Kind.Small));\n`
+    + `    trace(Cycle.start());\n    trace(CycleB.next(0));\n    trace(Theme.size());\n`
+    + `    trace(Card.render());\n    trace(Words.clean(' x '));\n    trace(Built.value());\n`
+    + `    trace(new Box<String>('box').value);\n    trace(CardUser.use());\n    trace(Tag.text());\n`
+    + `    trace(CyBase.make() != null);\n    trace(new CyChild() != null);\n`
+    + `    trace(PxUser.same());\n    trace(RowUser.first());\n    trace((3 : Bag).count());\n`
+    + `    trace(DeckUser.size());\n    trace(GadgetUser.show());\n    trace(Ext.value());\n  }\n}\n`,
+  "mr/Card.hx": `package mr;\n\nimport mr.OnlyHere;\n\n`
+    + `/** A UI-like module for structural edits under -dce std (genes-f8vc.14.7). */\n`
+    + `class Card {\n  public static function render(): String {\n    return title() + ' ' + Theme.color();\n  }\n\n`
+    + `  static function title(): String {\n    return 'Card';\n  }\n\n`
+    + `  static function unusedHelper(): String {\n    return 'unused';\n  }\n}\n`,
+  "mr/OnlyHere.hx": `package mr;\n\nclass OnlyHere {\n  public static function note(): String {\n    return 'only';\n  }\n}\n`,
+  "mr/Hints.hx": `package mr;\n\ntypedef CardHint = {\n  final label: String;\n}\n`,
+  "mr/Words.hx": `package mr;\n\nclass Words {\n  public static function clean(text: String): String {\n`
+    + `    return StringTools.trim(text);\n  }\n}\n`,
+  "mr/Styles.hx": `package mr;\n\nclass Styles {\n  public static macro function css(value: haxe.macro.Expr): haxe.macro.Expr {\n`
+    + `    return value;\n  }\n}\n`,
+  "mr/BuildMacro.hx": `package mr;\n\nclass BuildMacro {\n`
+    + `  public static macro function build(): Array<haxe.macro.Expr.Field> {\n`
+    + `    return haxe.macro.Context.getBuildFields();\n  }\n}\n`,
+  "mr/Built.hx": `package mr;\n\n@:build(mr.BuildMacro.build())\nclass Built {\n`
+    + `  public static function value(): String {\n    return 'built';\n  }\n}\n`,
+  "mr/Box.hx": `package mr;\n\n@:generic\nclass Box<T> {\n  public final value: T;\n\n`
+    + `  public function new(value: T) {\n    this.value = value;\n  }\n}\n`,
+  "mr/CardUser.hx": `package mr;\n\nclass CardUser {\n  public static function use(): String {\n`
+    + `    return Card.render();\n  }\n\n  public static function tag(): String {\n    return 'user';\n  }\n}\n`,
+  "mr/Tag.hx": `package mr;\n\nclass Tag {\n  public static function text(): String {\n    return 'tag';\n  }\n}\n`,
+  "mr/CyBase.hx": `package mr;\n\nclass CyBase {\n  public function new() {}\n\n`
+    + `  public static function make(): CyBase {\n    return new CyChild();\n  }\n}\n`,
+  "mr/CyChild.hx": `package mr;\n\nclass CyChild extends CyBase {\n  public function new() {\n    super();\n  }\n}\n`,
+  "mr/Px.hx": `package mr;\n\n/** An abstract that another module compares. */\n`
+    + `abstract Px(Int) from Int to Int {\n  public function double(): Int {\n    return this * 2;\n  }\n}\n`,
+  "mr/PxUser.hx": `package mr;\n\nclass PxUser {\n  public static function same(): Bool {\n`
+    + `    final a: Px = 1;\n    final b: Px = 2;\n    return a == b;\n  }\n}\n`,
+  "mr/Row.hx": `package mr;\n\n/** An abstract that another module indexes. */\n`
+    + `abstract Row(Array<Int>) from Array<Int> {\n  @:arrayAccess public function at(index: Int): Int {\n`
+    + `    return this[index];\n  }\n}\n`,
+  "mr/RowUser.hx": `package mr;\n\nclass RowUser {\n  public static function first(): Int {\n`
+    + `    final row: Row = [4, 5];\n    return row[0];\n  }\n}\n`,
+  "mr/Bag.hx": `package mr;\n\n/** An abstract with a method. */\n`
+    + `abstract Bag(Int) from Int {\n  public function count(): Int {\n    return this;\n  }\n}\n`,
+  "mr/Deck.hx": `package mr;\n\nclass Deck {\n  public static function options(): DeckOpt {\n`
+    + `    return {size: 3};\n  }\n}\n\nprivate typedef DeckOpt = {\n  final size: Int;\n}\n`,
+  "mr/DeckUser.hx": `package mr;\n\nclass DeckUser {\n  public static function size(): Int {\n`
+    + `    final options = Deck.options();\n    return options.size;\n  }\n}\n`,
+  ...gadgetFiles("Gadget", true),
+  // The import loads `haxe.ds.List` and keeps nothing of it: dead-code
+  // elimination removes it until a field keeps it.
+  "mr/Ext.hx": `package mr;\n\nimport haxe.ds.List;\n\nclass Ext {\n  public static function value(): Int {\n    return 1;\n  }\n}\n\n`
+    + `private extern class ExtNative {\n  static function a(): Int;\n}\n`
+};
+
+/**
+ * A class `mr.<name>`, a static extension `mr.<name>Tools.label(g)` and a
+ * module `mr.<name>User` that calls `g.label()` through `using`, with
+ * `@:access(mr.<name>)` when `access` is true (review of #260).
+ */
+function gadgetFiles(name: string, access: boolean): Record<string, string> {
+  return {
+    [`mr/${name}.hx`]: `package mr;\n\nclass ${name} {\n  public function new() {}\n\n`
+      + `  public function title(): String {\n    return '${name.toLowerCase()}';\n  }\n}\n`,
+    [`mr/${name}Tools.hx`]: `package mr;\n\nclass ${name}Tools {\n`
+      + `  public static function label(item: ${name}): String {\n    return 'tools ' + item.title();\n  }\n}\n`,
+    [`mr/${name}User.hx`]: `package mr;\n\nusing mr.${name}Tools;\n\n${access ? `@:access(mr.${name})\n` : ""}`
+      + `class ${name}User {\n  public static function show(): String {\n    final item = new ${name}();\n`
+      + `    return item.label();\n  }\n}\n`
+  };
+}
+
+/**
+ * The structural edits under `-dce std` (genes-f8vc.14.7). Each row names
+ * the shape and the expected answer; on Genes before the rule, every row
+ * that expects `preview` or a new code got `signature-changed` or
+ * `uses-changed`. After a refused row the full request stores the edit, so
+ * the next row starts from it.
+ */
+function stdGroups(): ReadonlyArray<Group> {
+  const card = (from: string, to: string) => () => edit("Card.hx", from, to);
+  return [
+    {
+      name: "std-structural",
+      dce: "std",
+      files: stdFiles,
+      steps: [
+        { id: "std: literal edit (strict rule)", apply: card("return 'Card';", "return 'Card!';"),
+          module: "mr.Card", expect: "preview" },
+        { id: "std: new private function with a call", apply: () => {
+          edit("Card.hx", "return title() + ' ' + Theme.color();",
+            "return title() + ' ' + Theme.color() + subtitle();");
+          edit("Card.hx", "  static function unusedHelper(): String {",
+            "  static function subtitle(): String {\n    return 'sub';\n  }\n\n"
+            + "  static function unusedHelper(): String {");
+        }, module: "mr.Card", expect: "preview" },
+        { id: "std: first use of an unused private function",
+          apply: card("+ subtitle();", "+ subtitle() + unusedHelper();"),
+          module: "mr.Card", expect: "preview" },
+        { id: "std: new use of another module of the program",
+          apply: card("+ unusedHelper();", "+ unusedHelper() + Button.render();"),
+          module: "mr.Card", expect: "preview" },
+        { id: "std: the only call of a private function is removed",
+          apply: card("+ subtitle() + unusedHelper()", "+ unusedHelper()"),
+          module: "mr.Card", expect: "preview" },
+        { id: "std: new use of a std field that another module keeps",
+          apply: card("+ Button.render();", "+ Button.render() + StringTools.trim(' c ');"),
+          module: "mr.Card", expect: "preview" },
+        { id: "std: new enum use in a program with enums",
+          apply: card("+ StringTools.trim(' c ');",
+            "+ StringTools.trim(' c ') + Leaf.kindName(Leaf.Kind.Large);"),
+          module: "mr.Card", expect: "preview" },
+        { id: "std: first use of a std field that nothing keeps (dce-use-added)",
+          apply: card("+ Leaf.kindName(Leaf.Kind.Large);",
+            "+ Leaf.kindName(Leaf.Kind.Large) + StringTools.lpad('c', '-', 3);"),
+          module: "mr.Card", expect: "dce-use-added" },
+        { id: "std: the last use of a std field is removed (dce-use-removed)",
+          apply: card(" + StringTools.lpad('c', '-', 3);", ";"),
+          module: "mr.Card", expect: "dce-use-removed" },
+        { id: "std: new public function (public-shape-changed)",
+          apply: card("  static function title(): String {",
+            "  public static function extra(): String {\n    return 'extra';\n  }\n\n"
+            + "  static function title(): String {"),
+          module: "mr.Card", expect: "public-shape-changed" },
+        { id: "std: a new import line moves a class that other modules import (position-changed)",
+          apply: card("package mr;\n", "package mr;\n\nimport mr.Theme;\n"),
+          module: "mr.Card", expect: "position-changed" },
+        { id: "std: the import of a module that only this one loads is removed (module-may-leave)",
+          apply: card("import mr.OnlyHere;\n", ""),
+          module: "mr.Card", expect: "module-may-leave" },
+        { id: "std: first reference to a typedef module that nothing reached (walk-target-added)",
+          apply: card("  static function title(): String {",
+            "  static function hint(): mr.Hints.CardHint {\n    return {label: 'hint'};\n  }\n\n"
+            + "  static function title(): String {"),
+          module: "mr.Card", expect: "walk-target-added" },
+        { id: "std: the only reference to a typedef module is removed (walk-target-removed)",
+          apply: card("  static function hint(): mr.Hints.CardHint {\n    return {label: 'hint'};\n  }\n\n", ""),
+          module: "mr.Card", expect: "walk-target-removed" },
+        { id: "std: first typed cast of the program (feature-changed)",
+          apply: card("  static function title(): String {",
+            "  static function asButton(value: Dynamic): Button {\n    return cast(value, Button);\n  }\n\n"
+            + "  static function title(): String {"),
+          module: "mr.Card", expect: "feature-changed" },
+        { id: "std: new use of an imported project macro (opaque-macro)",
+          apply: () => {
+            edit("Tag.hx", "package mr;\n", "package mr;\n\nimport mr.Styles;\n");
+            edit("Tag.hx", "return 'tag';", "return Styles.css('tag') + '!';");
+          },
+          module: "mr.Tag", expect: "opaque-macro" },
+        { id: "std: new instance of a generic class",
+          apply: card("+ Leaf.kindName(Leaf.Kind.Large);",
+            "+ Leaf.kindName(Leaf.Kind.Large) + new Box<Int>(1).value;"),
+          module: "mr.Card", expect: ["other-modules-changed", "other-modules-typed"] },
+        { id: "std: a call back that closes an import cycle",
+          apply: card("+ new Box<Int>(1).value;", "+ new Box<Int>(1).value + CardUser.tag();"),
+          module: "mr.Card", expect: ["other-modules-typed", "import-cycle"] },
+        { id: "std: structural edit of a module with a build macro (opaque-macro)",
+          apply: () => edit("Built.hx", "  public static function value(): String {",
+            "  static function more(): String {\n    return 'more';\n  }\n\n"
+            + "  public static function value(): String {"),
+          module: "mr.Built", expect: "opaque-macro" },
+        { id: "std: structural edit that breaks an import cycle (import-cycle)",
+          apply: () => edit("Cycle.hx", "return 'cycle ' + CycleB.next(2);", "return 'cycle';"),
+          module: "mr.Cycle", expect: "import-cycle" },
+        { id: "std: structural edit that breaks a cycle with a subclass (import-cycle)",
+          apply: () => edit("CyBase.hx", "return new CyChild();", "return new CyBase();"),
+          module: "mr.CyBase", expect: "import-cycle" },
+        // Review of #260 (Fable): each of these previewed and differed from cold.
+        { id: "std: a private @:op on an abstract changes its importers (public-shape-changed)",
+          apply: () => edit("Px.hx", "  public function double(): Int {",
+            "  @:op(A == B) static function same(a: Px, b: Px): Bool {\n"
+            + "    return (a : Int) == (b : Int);\n  }\n\n  public function double(): Int {"),
+          module: "mr.Px", expect: "public-shape-changed" },
+        { id: "std: a private @:arrayAccess on an abstract (public-shape-changed)",
+          // Before the public accessor: Haxe then picks it for `row[0]` of
+          // `mr.RowUser`, which becomes `Row.head(row, 0)` in a cold build.
+          apply: () => edit("Row.hx", "  @:arrayAccess public function at(index: Int): Int {",
+            "  @:arrayAccess function head(index: Int): Int {\n    return this[0] + 100;\n  }\n\n"
+            + "  @:arrayAccess public function at(index: Int): Int {"),
+          module: "mr.Row", expect: "public-shape-changed" },
+        // No stale case was found for `@:resolve` (Haxe allows one resolve
+        // method, and `@:forward` wins over it); the row shows the refusal.
+        { id: "std: a private @:resolve on an abstract (public-shape-changed)",
+          apply: () => edit("Bag.hx", "  public function count(): Int {",
+            "  @:resolve function lookup(name: String): Int {\n    return this + name.length;\n  }\n\n"
+            + "  public function count(): Int {"),
+          module: "mr.Bag", expect: "public-shape-changed" },
+        { id: "std: a new function moves a private typedef that another module imports (position-changed)",
+          apply: () => edit("Deck.hx", "  public static function options(): DeckOpt {",
+            "  static function spare(): Int {\n    return 1;\n  }\n\n"
+            + "  public static function options(): DeckOpt {"),
+          module: "mr.Deck", expect: "position-changed" },
+        { id: "std: a comment line above that private typedef (position-changed)",
+          apply: () => edit("Deck.hx", "private typedef DeckOpt", "// The options of a deck.\nprivate typedef DeckOpt"),
+          module: "mr.Deck", expect: "position-changed" },
+        // Round 2 of the review of #260: each of these previewed and differed
+        // from cold on 77ef155d.
+        { id: "std: a private method takes a using call of a module with @:access (public-shape-changed)",
+          apply: () => edit("Gadget.hx", "  public function title(): String {",
+            "  function label(): String {\n    return 'own';\n  }\n\n  public function title(): String {"),
+          module: "mr.Gadget", expect: ["public-shape-changed", "shadowed-extension"] },
+        { id: "std: a @:keep field of a private extern class keeps a std class (dce-use-added)",
+          apply: () => edit("Ext.hx", "  static function a(): Int;\n",
+            "  static function a(): Int;\n\n  @:keep private static function b(): haxe.ds.List<Int>;\n"),
+          module: "mr.Ext", expect: "dce-use-added" }
+      ]
+    },
+    {
+      // Round 2 of the review of #260: the same private method without
+      // `@:access`. The module types alone, but a full build fails with
+      // "Cannot access private field label".
+      name: "std-shadow-error",
+      dce: "std",
+      files: {
+        ...stdFiles,
+        ...gadgetFiles("Knob", false),
+        "mr/Main.hx": `package mr;\n\nclass Main {\n  static function main() {\n`
+          + `    trace(KnobUser.show());\n  }\n}\n`
+      },
+      steps: [
+        { id: "std: a private method takes a using call, and the program no longer compiles (shadowed-extension)",
+          apply: () => edit("Knob.hx", "  public function title(): String {",
+            "  function label(): String {\n    return 'own';\n  }\n\n  public function title(): String {"),
+          module: "mr.Knob", expect: "shadowed-extension", programFails: true }
+      ]
+    },
+    {
+      // A value use of an abstract (review of #260): on its own server, so
+      // that no earlier row has made `Int` a value already (the typed cast
+      // row keeps `js.Boot.__instanceof`, which does).
+      name: "std-value-use",
+      dce: "std",
+      files: stdFiles,
+      steps: [
+        { id: "std: first value use of an abstract, return Int (feature-changed)",
+          apply: () => edit("Words.hx", "  public static function clean(text: String): String {",
+            "  static function intType(): Dynamic {\n    return Int;\n  }\n\n"
+            + "  public static function clean(text: String): String {"),
+          module: "mr.Words", expect: "feature-changed" },
+        { id: "std: the only value use of Int is removed (feature-changed)",
+          apply: () => edit("Words.hx", "    return Int;\n", "    final count: Int = 2;\n    return count;\n"),
+          module: "mr.Words", expect: "feature-changed" }
+      ]
+    },
+    {
+      // The profile gate: the same structural edit under `-dce full` keeps
+      // the strict rule.
+      name: "std-profile-full",
+      dce: "full",
+      files: stdFiles,
+      steps: [
+        { id: "full: new private function with a call (signature-changed)", apply: () => {
+          edit("Card.hx", "return title() + ' ' + Theme.color();",
+            "return title() + ' ' + Theme.color() + subtitle();");
+          edit("Card.hx", "  static function unusedHelper(): String {",
+            "  static function subtitle(): String {\n    return 'sub';\n  }\n\n"
+            + "  static function unusedHelper(): String {");
+        }, module: "mr.Card", expect: "signature-changed" }
+      ]
+    }
+  ];
+}
+
+/** One generated UI module of the sweep: its package, name, UI imports and the module that its third edit imports. */
+type SweepModule = {
+  readonly pack: string;
+  readonly name: string;
+  readonly uses: ReadonlyArray<string>;
+  readonly next: string;
+  readonly fillers: number;
+};
+
+/**
+ * The 20 edited modules of the sweep (genes-f8vc.14.7): six controls, six
+ * layout modules, six views and two shells, in layers so that no edit can
+ * close an import cycle. `uses` are full module paths; `next` is the module
+ * that the third edit starts to use, which is already in the program.
+ */
+const sweepModules: ReadonlyArray<SweepModule> = [
+  { pack: "controls", name: "Button", uses: [], next: "ui.controls.Badge", fillers: 0 },
+  { pack: "controls", name: "Badge", uses: [], next: "ui.controls.Avatar", fillers: 4 },
+  { pack: "controls", name: "Avatar", uses: [], next: "ui.controls.Chip", fillers: 9 },
+  { pack: "controls", name: "Chip", uses: [], next: "ui.controls.Icon", fillers: 14 },
+  { pack: "controls", name: "Icon", uses: [], next: "ui.controls.Toggle", fillers: 19 },
+  { pack: "controls", name: "Toggle", uses: [], next: "ui.core.Format", fillers: 24 },
+  { pack: "layout", name: "Card", uses: ["ui.controls.Button"], next: "ui.controls.Badge", fillers: 2 },
+  { pack: "layout", name: "Panel", uses: ["ui.controls.Badge"], next: "ui.controls.Avatar", fillers: 6 },
+  { pack: "layout", name: "Stack", uses: ["ui.controls.Avatar"], next: "ui.controls.Chip", fillers: 11 },
+  { pack: "layout", name: "Header", uses: ["ui.controls.Icon"], next: "ui.controls.Toggle", fillers: 16 },
+  { pack: "layout", name: "Footer", uses: ["ui.controls.Chip"], next: "ui.controls.Button", fillers: 21 },
+  { pack: "layout", name: "Sidebar", uses: ["ui.controls.Toggle"], next: "ui.controls.Icon", fillers: 25 },
+  { pack: "views", name: "Dashboard", uses: ["ui.layout.Card", "ui.controls.Button"], next: "ui.layout.Panel", fillers: 1 },
+  { pack: "views", name: "Settings", uses: ["ui.layout.Panel", "ui.controls.Toggle"], next: "ui.layout.Stack", fillers: 7 },
+  { pack: "views", name: "Profile", uses: ["ui.layout.Stack", "ui.controls.Avatar"], next: "ui.layout.Card", fillers: 12 },
+  { pack: "views", name: "Inbox", uses: ["ui.layout.Card", "ui.controls.Badge"], next: "ui.layout.Panel", fillers: 17 },
+  { pack: "views", name: "Search", uses: ["ui.layout.Stack", "ui.controls.Icon"], next: "ui.layout.Card", fillers: 22 },
+  { pack: "views", name: "Notes", uses: ["ui.layout.Panel", "ui.controls.Chip"], next: "ui.layout.Stack", fillers: 26 },
+  { pack: "app", name: "App", uses: ["ui.views.Dashboard", "ui.views.Settings", "ui.views.Profile",
+    "ui.views.Inbox", "ui.views.Search", "ui.views.Notes"], next: "ui.layout.Header", fillers: 3 },
+  { pack: "app", name: "Shell", uses: ["ui.layout.Header", "ui.layout.Footer", "ui.layout.Sidebar"],
+    next: "ui.views.Dashboard", fillers: 10 }
+];
+
+/** The last part of a module path: `ui.controls.Badge` gives `Badge`. */
+function shortName(module: string): string {
+  return module.split(".").at(-1) ?? module;
+}
+
+/** The text of one generated UI module of the sweep, shaped like a UI component of a real application. */
+function sweepModuleText(spec: SweepModule): string {
+  const imports = ["ui.core.Theme", "ui.core.Text", "ui.core.Kind", ...spec.uses]
+    .map((module) => `import ${module};\n`).join("");
+  const props = `${spec.name}Props`;
+  const parts = ["header(props)", "body(props)", ...spec.uses.map((module) => `${shortName(module)}.summary()`)];
+  const fillers = Array.from({ length: spec.fillers }, (_, index) =>
+    `  static function row${index}(value: Int): String {\n`
+    + `    return '${spec.name} row ' + (value + ${index}) + ' ' + Theme.spacing();\n  }\n`).join("\n");
+  return `package ui.${spec.pack};\n\n${imports}\n`
+    + `typedef ${props} = {\n  final label: String;\n  final kind: Kind;\n  final count: Int;\n}\n\n`
+    + `/** ${spec.name}: a generated UI module of the -dce std sweep (genes-f8vc.14.7). */\n`
+    + `class ${spec.name} {\n`
+    + `  public static function render(props: ${props}): String {\n`
+    + `    final parts = [${parts.join(", ")}];\n    // sweep-anchor\n    return parts.join(' ');\n  }\n\n`
+    + `  public static function summary(): String {\n`
+    + `    return render({label: '${spec.name}', kind: Kind.Small, count: ${spec.fillers}});\n  }\n\n`
+    + `  static function header(props: ${props}): String {\n`
+    + `    return Text.title(props.label) + ':' + Theme.color();\n  }\n\n`
+    + `  static function body(props: ${props}): String {\n    return switch props.kind {\n`
+    + `      case Small: 'small ' + props.count;\n      case Large: 'large ' + props.count;\n    }\n  }\n\n`
+    + `  static function spare(props: ${props}): String {\n    return 'spare ' + props.label;\n  }\n`
+    + (fillers.length > 0 ? `\n${fillers}` : "")
+    + `}\n`;
+}
+
+/**
+ * The scripted structural sweep (genes-f8vc.14.7, `--sweep`): five
+ * structural edits of each of the 20 generated UI modules, in order:
+ *
+ * 1. a new private function and a call of it;
+ * 2. a first call of an unused private function;
+ * 3. a new import of another UI module of the program, on the line of an
+ *    existing import, and a call of it;
+ * 4. a new local variable with a standard-library call that another module
+ *    already makes;
+ * 5. the call of step 1 is removed (the function stays).
+ *
+ * Each module request must publish only files byte-identical to cold, and
+ * the full request after it must equal cold. A refusal is allowed and
+ * counted by code.
+ */
+function sweepGroup(): Group {
+  const files: Record<string, string> = {
+    "ui/Main.hx": `package ui;\n\nimport ui.app.App;\nimport ui.app.Shell;\nimport ui.core.Format;\n\n`
+      + `class Main {\n  static function main() {\n    trace(App.summary());\n    trace(Shell.summary());\n`
+      + `    trace(Format.summary());\n  }\n}\n`,
+    "ui/core/Theme.hx": `package ui.core;\n\nclass Theme {\n  public static function color(): String {\n`
+      + `    return 'blue';\n  }\n\n  public static function spacing(): Int {\n    return 4;\n  }\n}\n`,
+    "ui/core/Text.hx": `package ui.core;\n\nclass Text {\n  public static function title(text: String): String {\n`
+      + `    return StringTools.trim(text).toUpperCase();\n  }\n}\n`,
+    "ui/core/Kind.hx": `package ui.core;\n\nenum Kind {\n  Small;\n  Large;\n}\n`,
+    "ui/core/Format.hx": `package ui.core;\n\nclass Format {\n  public static function summary(): String {\n`
+      + `    return 'format ' + Theme.spacing();\n  }\n}\n`
+  };
+  for (const spec of sweepModules)
+    files[`ui/${spec.pack}/${spec.name}.hx`] = sweepModuleText(spec);
+  const steps: Step[] = [];
+  for (const spec of sweepModules) {
+    const relative = `ui/${spec.pack}/${spec.name}.hx`;
+    const module = `ui.${spec.pack}.${spec.name}`;
+    const anchor = "    // sweep-anchor\n";
+    const props = `${spec.name}Props`;
+    steps.push(
+      { id: `sweep ${spec.name}: new private function with a call`, module, expect: ["preview"], apply: () => {
+        editSource(relative, anchor, `    parts.push(note(props));\n${anchor}`);
+        editSource(relative, `  static function spare(`,
+          `  static function note(props: ${props}): String {\n    return 'note ' + props.count;\n  }\n\n`
+          + `  static function spare(`);
+      } },
+      { id: `sweep ${spec.name}: first use of an unused private function`, module, expect: ["preview"],
+        apply: () => editSource(relative, anchor, `    parts.push(spare(props));\n${anchor}`) },
+      { id: `sweep ${spec.name}: new import and use of another UI module`, module, expect: ["preview"], apply: () => {
+        // On the line of an existing import: a new line would move the
+        // class that other modules import, and their source maps name its
+        // position (`position-changed`; see the std-structural rows).
+        editSource(relative, "import ui.core.Kind;\n", `import ui.core.Kind; import ${spec.next};\n`);
+        editSource(relative, anchor, `    parts.push(${shortName(spec.next)}.summary());\n${anchor}`);
+      } },
+      { id: `sweep ${spec.name}: new local with a kept standard-library call`, module, expect: ["preview"],
+        apply: () => editSource(relative, anchor,
+          `    final shout = StringTools.trim(' ' + props.label + ' ');\n    parts.push(shout.toUpperCase());\n${anchor}`) },
+      { id: `sweep ${spec.name}: the call of a private function is removed`, module, expect: ["preview"],
+        apply: () => editSource(relative, "    parts.push(note(props));\n", "") }
+    );
+  }
+  return { name: "sweep-ui", dce: "std", main: "ui.Main", files, steps };
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
+  ...stdGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
     name: "s02-enum-by-param-type",
@@ -2344,6 +2805,8 @@ function folder(name: string): string {
 }
 
 let groupArgs: ReadonlyArray<string> = [];
+let groupDce: "std" | "full" = "full";
+let groupMain = "mr.Main";
 
 /** The number of accepted previews whose tree check passed. */
 let treeChecks = 0;
@@ -2378,7 +2841,7 @@ function commonArguments(): string[] {
     "--macro", "genes.Generator.use()",
     "-cp", path.join(workspace, "src"),
     "-D", "js-es=6",
-    "-dce", "full",
+    "-dce", groupDce,
     "-debug",
     "-D", "genes.ts",
     "-D", `genes.source_map_root=${tempRoot}`,
@@ -2387,7 +2850,7 @@ function commonArguments(): string[] {
 }
 
 function programArguments(out: string): string[] {
-  return [...commonArguments(), "--main", "mr.Main", "-js",
+  return [...commonArguments(), "--main", groupMain, "-js",
     path.join(out, "index.ts")];
 }
 
@@ -2657,6 +3120,8 @@ function prepare(group: Group): void {
     touch(file);
   }
   groupArgs = group.extraArgs ?? [];
+  groupDce = group.dce ?? "full";
+  groupMain = group.main ?? "mr.Main";
   groupArgsBeforeGenes = group.argsBeforeGenes ?? [];
   invalidateSaved = group.noInvalidate !== true;
   saved.clear();
@@ -2665,7 +3130,13 @@ function prepare(group: Group): void {
 /** Runs the module request of one step and checks its output; returns the outcome. */
 async function moduleStep(server: OwnedHaxeCompilerServer,
     compiler: ReturnType<typeof selectedHaxeCompiler>, step: Step,
-    label: string): Promise<{ outcome: string, ms: number, report: ModuleReport | null }> {
+    label: string): Promise<{
+      outcome: string,
+      ms: number,
+      report: ModuleReport | null,
+      /** The cold tree that a preview was compared with, for the full request's check. */
+      cold?: ReadonlyArray<TreeEntry>
+    }> {
   const module = step.module ?? "";
   const previewFolder = step.sameFolder === true ? folder("program") : folder("preview");
   const programBefore = hashTree(folder("program"));
@@ -2730,6 +3201,11 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   strictEqual(report.kind, "module", `${label}: report kind`);
   strictEqual(report.module, module, `${label}: report module`);
   const outcome = report.result === "preview" ? "preview" : report.refusal ?? report.result;
+  if (report.result === "preview" && step.programFails === true) {
+    // A preview of a program that no longer compiles: cold has no tree.
+    ok(observe, `${label}: a preview was published although the program does not compile`);
+    return { outcome: "STALE cold fails", ms, report };
+  }
   if (report.result === "preview") {
     const coldTree = await coldBuild(compiler, label);
     // The preview holds the module's files and the manifest, nothing else.
@@ -2738,13 +3214,19 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
       `${label}: the preview folder holds other files than the report names`);
     ok(published.length > 0, `${label}: the preview published no file`);
     const prefix = module.split(".").join("/");
+    const stale: string[] = [];
     for (const file of published) {
       ok(file === `${prefix}.ts` || file.startsWith(`${prefix}.`),
         `${label}: ${file} is not a file of ${module}`);
       const coldFile = path.join(folder("cold"), file);
-      ok(existsSync(coldFile), `${label}: the cold build has no ${file}`);
-      ok(readFileSync(path.join(previewFolder, file)).equals(readFileSync(coldFile)),
-        `${label}: ${file} of the preview differs from the cold build`);
+      const same = existsSync(coldFile)
+        && readFileSync(path.join(previewFolder, file)).equals(readFileSync(coldFile));
+      if (observe && !same)
+        stale.push(file);
+      else {
+        ok(existsSync(coldFile), `${label}: the cold build has no ${file}`);
+        ok(same, `${label}: ${file} of the preview differs from the cold build`);
+      }
     }
     // The tree check (review of genes-ts #250): an accepted preview is the
     // only change that the edit makes. Cold must differ from the last full
@@ -2754,10 +3236,13 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
     const others = treeDifference(programBefore, coldTree)
       .filter((file) => !file.startsWith(".genes-output-"))
       .filter((file) => !(file === `${prefix}.ts` || file.startsWith(`${prefix}.`)));
+    if (observe && (stale.length > 0 || others.length > 0))
+      return { outcome: `STALE ${[...stale, ...others].join(" ")}`, ms, report, cold: coldTree };
     deepStrictEqual(others, [],
       `${label}: the preview was accepted, but cold also changes other files `
       + `than those of ${module}:\n${others.join("\n")}`);
     treeChecks++;
+    return { outcome, ms, report, cold: coldTree };
   } else if (step.sameFolder === true) {
     deepStrictEqual(hashTree(folder("program")), programBefore,
       `${label}: a refused module request changed the full request's tree`);
@@ -2800,6 +3285,7 @@ async function runGroup(group: Group,
       let outcome = "-";
       let moduleMs = 0;
       let report: ModuleReport | null = null;
+      let previewCold: ReadonlyArray<TreeEntry> | undefined;
       if (step.module !== undefined) {
         let done = await moduleStep(server, compiler, step, label);
         const moduleRefusal = step.initRefusal === "module" || step.initRefusal === "both";
@@ -2816,12 +3302,13 @@ async function runGroup(group: Group,
         outcome = done.outcome;
         moduleMs = done.ms;
         report = done.report;
-        if (step.expect !== undefined) {
+        previewCold = done.cold;
+        if (step.expect !== undefined && !observe) {
           const allowed = typeof step.expect === "string" ? [step.expect] : step.expect;
           ok(allowed.includes(outcome),
             `${label}: expected ${allowed.join(" or ")}, got ${outcome} (${String(report?.reason)})`);
         }
-        if (step.check !== undefined) {
+        if (step.check !== undefined && !observe) {
           ok(report !== null, `${label}: the module request wrote no report to check`);
           step.check(report, label);
         }
@@ -2832,10 +3319,13 @@ async function runGroup(group: Group,
       }
       step.afterModule?.();
       let programMs = 0;
-      if (step.skipProgram !== true && step.typeError === true) {
+      if (step.skipProgram !== true && (step.typeError === true || step.programFails === true)) {
         programMs = await failingProgramRequest(server, compiler, label);
       } else if (step.skipProgram !== true) {
-        const coldTree = await coldBuild(compiler, label);
+        // The cold build of the preview check holds the same sources, unless
+        // the step changes a file after the module request.
+        const coldTree = previewCold !== undefined && step.afterModule === undefined
+          ? previewCold : await coldBuild(compiler, label);
         const fullRefusal = step.initRefusal === "full" || step.initRefusal === "both";
         const program = await programRequest(server, label, step.raceOnFull, fullRefusal);
         programMs = program.ms;
@@ -2877,7 +3367,7 @@ async function main(): Promise<void> {
   const rows: Row[] = [];
   let previews = 0;
   let refusals = 0;
-  const selectedGroups = groups.filter((group) => only === undefined
+  const selectedGroups = sweep ? [sweepGroup()] : groups.filter((group) => only === undefined
     || group.name.includes(only));
   for (const group of selectedGroups) {
     const counts = await runGroup(group, compiler, rows);
@@ -2895,9 +3385,29 @@ async function main(): Promise<void> {
   process.stdout.write(`module request source time (digestMs): median ${median(digests).toFixed(2)} ms `
     + `over ${digests.length} module requests; median load per CPU ${median(loads).toFixed(2)} `
     + `(diagnostic only)\n`);
+  if (sweep) {
+    // The sweep summary: refusals by code, and the times of the previews
+    // with the size of each module (diagnostic; the load is in each row).
+    const byCode = new Map<string, number>();
+    for (const row of rows)
+      byCode.set(row.result, (byCode.get(row.result) ?? 0) + 1);
+    const previewRows = rows.filter((row) => row.result === "preview");
+    const sizes = new Map(sweepModules.map((spec) => [spec.name,
+      readFileSync(path.join(workspace, "src/ui", spec.pack, `${spec.name}.hx`), "utf8").split("\n").length]));
+    process.stdout.write(`sweep results: ${[...byCode.entries()].map(([code, count]) => `${code} ${count}`).join(", ")}\n`);
+    process.stdout.write(`sweep previews: median module request ${median(previewRows.map((row) => row.moduleMs)).toFixed(0)} ms, `
+      + `median Genes ${median(previewRows.map((row) => row.genesMs)).toFixed(0)} ms over ${previewRows.length} previews; `
+      + `module sizes ${Math.min(...sizes.values())}-${Math.max(...sizes.values())} lines at the end; `
+      + `median load per CPU ${median(rows.map((row) => row.load)).toFixed(2)} (diagnostic)\n`);
+  }
   let control = "keep control skipped";
   if (keepControl)
     control = await runKeepControl(compiler);
+  if (observe) {
+    process.stdout.write(`compiler-server-module:observe (results recorded, not checked; `
+      + `${rows.filter((row) => row.result.startsWith("STALE")).length} stale previews)\n`);
+    return;
+  }
   process.stdout.write(`compiler-server-module:${only === undefined ? "ok" : "partial"} `
     + `(Haxe ${compiler.version}; ${selectedGroups.length} groups; ${previews} `
     + `previews byte-identical to cold, ${refusals} refused or failed as expected, `
