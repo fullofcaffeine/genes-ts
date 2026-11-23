@@ -522,6 +522,12 @@ class GenerationChangeSet {
    * found by the key is the one that the live edge would carry. Example:
    * `stampOf('inc.Den', 'class:inc.Den.DenNote')` gives
    * `ab12cd34ef567890:3`.
+   *
+   * An import alias (`TypedModuleInventory.importAlias`) has no stamp of its
+   * own. Its stamp is `alias:` and a digest of `epochs(module)`: equal in a
+   * later request only when Haxe kept every declaration of the module, and
+   * so the alias object too. Example: `stampOf('inc.AliasModel',
+   * 'typedef:inc.AliasModel.AliasedShape')`.
    */
   public static function stampOf(module: String, key: String): String {
     final list = moduleEpochs.get(module);
@@ -531,6 +537,12 @@ class GenerationChangeSet {
     for (entry in list)
       if (StringTools.startsWith(entry, prefix))
         return entry.substr(prefix.length);
+    // An import alias has no stamp of its own (genes-44h0). Haxe makes it
+    // while it types its module, and makes a new one only when it types
+    // that module again, which gives every declaration of the module a new
+    // stamp. So the epochs of the module name the alias object.
+    if (genes.TypedModuleInventory.importAlias(module, key) != null)
+      return 'alias:' + Context.signature(epochs(module));
     return '';
   }
 

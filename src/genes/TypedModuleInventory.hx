@@ -84,6 +84,13 @@ class TypedModuleInventory {
   @:persistent static var fallbacks: Map<String, Bool> = new Map();
 
   /**
+   * The import aliases of each module that `importAlias` searched in this
+   * request, by `DependencyPlan.moduleTypeKey`. Filled on demand.
+   */
+  @:persistent static var aliases: Map<String, Map<String,
+    Ref<DefType>>> = new Map();
+
+  /**
    * Starts an empty inventory for the current request and fills it after
    * typing. The callback only collects: the stamps of the incremental path
    * are added by `GenerationChangeSet.observe`, which `AfterTypingPasses.run`
@@ -97,6 +104,7 @@ class TypedModuleInventory {
     asker = null;
     witnessed = new Map();
     fallbacks = new Map();
+    aliases = new Map();
     Context.onAfterTyping(types -> pending.push(types));
   }
 
@@ -239,6 +247,11 @@ class TypedModuleInventory {
    * recorded one (`GenerationChangeSet.stampOf`), so it is the object that
    * the typed ref holds. A `null` answer makes the caller leave the stored
    * walk; there is no `Context.getType` fallback.
+   *
+   * An import alias of `module` answers too (`importAlias`), although it is
+   * in no declaration list. Example: `declarationByKey('inc.AliasModel',
+   * 'typedef:inc.AliasModel.AliasedShape')` gives the private typedef that
+   * Haxe made for `import inc.AliasShape as AliasedShape`.
    */
   public static function declarationByKey(module: String,
       key: String): Null<Type> {
@@ -257,7 +270,163 @@ class TypedModuleInventory {
         && DependencyPlan.moduleTypeKey(declaration) == key)
         return candidate;
     }
-    return null;
+    final alias = importAlias(module, key);
+    return alias == null ? null : declaredType(TTypeDecl(alias));
+  }
+
+  /**
+   * Returns the import alias of `module` whose `DependencyPlan.moduleTypeKey`
+   * is `key`, or `null` when there is none. Like `declarationByKey` it never
+   * looks a module up by name and records no witness.
+   *
+   * What an import alias is: for `import inc.AliasShape as AliasedShape` in
+   * the module `inc.AliasModel`, Haxe 4.3.7 makes a private typedef
+   * `AliasedShape` that belongs to `inc.AliasModel`
+   * (`ImportHandling.init_import`, "create a temp private typedef, does not
+   * register it in module"). Every type that the module writes as
+   * `AliasedShape` refers to that typedef, and Genes prints it as
+   * `export type AliasedShape = AliasShape`. Haxe does not put it in the
+   * module's declaration list, so `onAfterTyping` never gives it, and the
+   * other queries of this class cannot see it.
+   *
+   * Why: the walk with stored edges finds the declaration of a stored step
+   * by its key (`IncrementalShadow.checkStoredTarget`,
+   * `IncrementalShadow.resolveStoredStep`). Without this answer, every
+   * program that reaches an alias left the recorded path on every request,
+   * and generation reuse never replayed a module (genes-44h0: a Caffeine
+   * session with 31 aliases).
+   *
+   * How: the first query for a module reads the declared types of each of
+   * its declarations (fields, statics, constructor, super class and
+   * interface arguments, enum constructors, typedef and abstract types), and
+   * keeps each typedef that belongs to `module` but is not in its
+   * declaration list. Lazy types are not forced. The fields are read as
+   * dead-code elimination left them.
+   *
+   * An alias that only a body of its own module names is not this miss: in
+   * the review of genes-ts #261 such a walk stayed on the recorded path.
+   *
+   * Limit (genes-cil5): an alias that reaches another module while no
+   * declaration of its own module that survives dead-code elimination names
+   * it is not found. Example: `inc.AliasInline` imports `inc.AliasShape as
+   * InlinePt` and only its `static inline function make(): InlinePt` names
+   * it; after `inc.AliasUser` inlines `make()`, dead-code elimination
+   * removes `make` but keeps the class for another field, and the inferred
+   * return type of a function of `inc.AliasUser` still names `InlinePt`.
+   * The answer is then `null`, so the stored walk leaves the recorded path
+   * in every request while that use stays (the tree still equals cold, but
+   * no module is replayed).
+   */
+  public static function importAlias(module: String,
+      key: String): Null<Ref<DefType>> {
+    // The inventory guard first: a request without Genes must not read
+    // aliases that an earlier request kept.
+    final indexed = known(module);
+    if (indexed == null)
+      return null;
+    var found = aliases.get(module);
+    if (found == null) {
+      found = findImportAliases(module, indexed);
+      aliases.set(module, found);
+    }
+    return found.get(key);
+  }
+
+  /**
+   * Finds the import aliases of one module, as `importAlias` describes.
+   * `indexed` holds the module's declarations from the inventory.
+   */
+  static function findImportAliases(module: String,
+      indexed: Array<Type>): Map<String, Ref<DefType>> {
+    final found = new Map<String, Ref<DefType>>();
+    final declared = new Map<String, Bool>();
+    for (candidate in indexed) {
+      final declaration = moduleTypeOf(candidate);
+      if (declaration != null)
+        declared.set(DependencyPlan.moduleTypeKey(declaration), true);
+    }
+    function visit(type: Null<Type>, depth: Int): Void {
+      if (type == null || depth > ALIAS_SEARCH_DEPTH)
+        return;
+      switch type {
+        case TType(ref, params):
+          if (ref.get().module == module) {
+            final key = DependencyPlan.moduleTypeKey(TTypeDecl(ref));
+            if (!declared.exists(key) && !found.exists(key))
+              found.set(key, ref);
+          }
+          for (param in params)
+            visit(param, depth + 1);
+        case TInst(_, params) | TEnum(_, params) | TAbstract(_, params):
+          for (param in params)
+            visit(param, depth + 1);
+        case TFun(args, result):
+          for (arg in args)
+            visit(arg.t, depth + 1);
+          visit(result, depth + 1);
+        case TAnonymous(anonymous):
+          final read = anonymous.get();
+          switch read.status {
+            case AClassStatics(_) | AEnumStatics(_) | AAbstractStatics(_):
+              return;
+            default:
+          }
+          for (field in read.fields)
+            visit(field.type, depth + 1);
+        case TMono(ref):
+          visit(ref.get(), depth + 1);
+        case TDynamic(inner):
+          visit(inner, depth + 1);
+        case TLazy(_):
+      }
+    }
+    for (candidate in indexed)
+      switch candidate {
+        case TInst(ref, _):
+          final cls = ref.get();
+          final parent = cls.superClass;
+          if (parent != null)
+            for (param in parent.params)
+              visit(param, 0);
+          for (item in cls.interfaces)
+            for (param in item.params)
+              visit(param, 0);
+          final constructor = cls.constructor;
+          if (constructor != null)
+            visit(constructor.get().type, 0);
+          for (field in cls.fields.get())
+            visit(field.type, 0);
+          for (field in cls.statics.get())
+            visit(field.type, 0);
+        case TEnum(ref, _):
+          for (construct in ref.get().constructs)
+            visit(construct.type, 0);
+        case TType(ref, _):
+          visit(ref.get().type, 0);
+        case TAbstract(ref, _):
+          visit(ref.get().type, 0);
+        default:
+      }
+    return found;
+  }
+
+  /** How deep `findImportAliases` reads into one declared type. */
+  static inline final ALIAS_SEARCH_DEPTH = 32;
+
+  /**
+   * Returns the declaration that a declared type of the inventory stands
+   * for (`TInst` gives `TClassDecl`, and so on), or `null` for any other
+   * type. The inventory keeps `Type` values (`declaredType`); the keys of
+   * `DependencyPlan.moduleTypeKey` are made from declarations.
+   */
+  static function moduleTypeOf(type: Type): Null<ModuleType> {
+    return switch type {
+      case TInst(ref, _): TClassDecl(ref);
+      case TEnum(ref, _): TEnumDecl(ref);
+      case TType(ref, _): TTypeDecl(ref);
+      case TAbstract(ref, _): TAbstract(ref);
+      default: null;
+    }
   }
 
   /**
@@ -342,6 +511,8 @@ class TypedModuleInventory {
         }
       }
       pending = [];
+      // New declarations can name an alias that an earlier search missed.
+      aliases = new Map();
     }
     return modules;
   }
