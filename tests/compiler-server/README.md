@@ -440,7 +440,18 @@ difference of their results is a mismatch. The edits whose ids start with
   path, and a session that names a type through an alias never replayed a
   module. `TypedModuleInventory.importAlias` finds it now, and its stamp is
   a digest of the epochs of `inc.AliasModel`; the `no edit` row fails
-  without it;
+  without it. The `ALIAS` rows then edit the alias target while the
+  importer stays untouched, point the alias at `inc.AliasShapeTwin` (same
+  shape) and back, do the same for the alias that `inc/aliashx/import.hx`
+  gives `inc.aliashx.AliasHxModel`, and make `inc.AliasUser` stop naming
+  `AliasedShape` and name it again; after each change a request with no
+  edit must replay and stay on the recorded path. The last rows show the
+  known miss (genes-cil5): only the inline helper `inc.AliasInline.make`
+  names its alias `InlinePt`, dead-code elimination removes `make` but keeps
+  the class, and the inferred return type of `inc.AliasUser.made` still
+  names `InlinePt`, so no surviving declaration of `inc.AliasInline` shows
+  the alias. While that use stays, every request leaves the recorded path
+  (`walk: left`, nothing replayed, the tree equal to cold);
 - the rows of the review of slice S2 (ids start with `RV6`, modules
   `inc.Rv*`): one late member that two clean typedef modules name, two late
   members of one clean module whose order follows the visit order, a late

@@ -247,6 +247,11 @@ class TypedModuleInventory {
    * recorded one (`GenerationChangeSet.stampOf`), so it is the object that
    * the typed ref holds. A `null` answer makes the caller leave the stored
    * walk; there is no `Context.getType` fallback.
+   *
+   * An import alias of `module` answers too (`importAlias`), although it is
+   * in no declaration list. Example: `declarationByKey('inc.AliasModel',
+   * 'typedef:inc.AliasModel.AliasedShape')` gives the private typedef that
+   * Haxe made for `import inc.AliasShape as AliasedShape`.
    */
   public static function declarationByKey(module: String,
       key: String): Null<Type> {
@@ -295,28 +300,45 @@ class TypedModuleInventory {
    * its declarations (fields, statics, constructor, super class and
    * interface arguments, enum constructors, typedef and abstract types), and
    * keeps each typedef that belongs to `module` but is not in its
-   * declaration list. Lazy types are not forced.
+   * declaration list. Lazy types are not forced. The fields are read as
+   * dead-code elimination left them.
    *
-   * Limit: an alias that only a function body names (a local variable of
-   * that type) is not found. The answer is then `null`, and the stored walk
-   * leaves the recorded path as before: slower, never wrong.
+   * An alias that only a body of its own module names is not this miss: in
+   * the review of genes-ts #261 such a walk stayed on the recorded path.
+   *
+   * Limit (genes-cil5): an alias that reaches another module while no
+   * declaration of its own module that survives dead-code elimination names
+   * it is not found. Example: `inc.AliasInline` imports `inc.AliasShape as
+   * InlinePt` and only its `static inline function make(): InlinePt` names
+   * it; after `inc.AliasUser` inlines `make()`, dead-code elimination
+   * removes `make` but keeps the class for another field, and the inferred
+   * return type of a function of `inc.AliasUser` still names `InlinePt`.
+   * The answer is then `null`, so the stored walk leaves the recorded path
+   * in every request while that use stays (the tree still equals cold, but
+   * no module is replayed).
    */
   public static function importAlias(module: String,
       key: String): Null<Ref<DefType>> {
+    // The inventory guard first: a request without Genes must not read
+    // aliases that an earlier request kept.
+    final indexed = known(module);
+    if (indexed == null)
+      return null;
     var found = aliases.get(module);
     if (found == null) {
-      found = findImportAliases(module);
+      found = findImportAliases(module, indexed);
       aliases.set(module, found);
     }
     return found.get(key);
   }
 
-  /** Finds the import aliases of one module, as `importAlias` describes. */
-  static function findImportAliases(module: String): Map<String, Ref<DefType>> {
+  /**
+   * Finds the import aliases of one module, as `importAlias` describes.
+   * `indexed` holds the module's declarations from the inventory.
+   */
+  static function findImportAliases(module: String,
+      indexed: Array<Type>): Map<String, Ref<DefType>> {
     final found = new Map<String, Ref<DefType>>();
-    final indexed = known(module);
-    if (indexed == null)
-      return found;
     final declared = new Map<String, Bool>();
     for (candidate in indexed) {
       final declaration = moduleTypeOf(candidate);
@@ -391,6 +413,12 @@ class TypedModuleInventory {
   /** How deep `findImportAliases` reads into one declared type. */
   static inline final ALIAS_SEARCH_DEPTH = 32;
 
+  /**
+   * Returns the declaration that a declared type of the inventory stands
+   * for (`TInst` gives `TClassDecl`, and so on), or `null` for any other
+   * type. The inventory keeps `Type` values (`declaredType`); the keys of
+   * `DependencyPlan.moduleTypeKey` are made from declarations.
+   */
   static function moduleTypeOf(type: Type): Null<ModuleType> {
     return switch type {
       case TInst(ref, _): TClassDecl(ref);

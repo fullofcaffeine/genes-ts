@@ -1856,6 +1856,136 @@ const edits: ReadonlyArray<Edit> = [
     results: ["incremental"],
     settled: true
   },
+  // Import aliases (genes-44h0). `import X as Alias` makes Haxe 4.3.7
+  // create a private typedef of the importing module that is in no
+  // declaration list; `TypedModuleInventory.importAlias` finds it, so the
+  // walk with stored edges can take a stored step to it. `inc.AliasUser`
+  // reads fields typed `AliasedShape` (from `inc.AliasModel`) and `HxShape`
+  // (from `inc/aliashx/import.hx`). Each change below is followed by a
+  // request with no edit, which must replay and stay on the recorded path.
+  {
+    id: "ALIAS the target of an alias is edited, the importer is untouched",
+    apply: () => edit("inc/AliasShape.hx", "final id: Int; /*ALIAS_SHAPE_FIELD*/",
+      "final id: Int;\n  final ?label: String; /*ALIAS_SHAPE_FIELD*/")
+  },
+  {
+    id: "ALIAS no edit after the target edit",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ALIAS the target edit is undone",
+    apply: () => edit("inc/AliasShape.hx",
+      "final id: Int;\n  final ?label: String; /*ALIAS_SHAPE_FIELD*/",
+      "final id: Int; /*ALIAS_SHAPE_FIELD*/")
+  },
+  {
+    id: "ALIAS the alias points at another type of the same shape",
+    apply: () => edit("inc/AliasModel.hx", "import inc.AliasShape as AliasedShape;",
+      "import inc.AliasShapeTwin as AliasedShape;")
+  },
+  {
+    id: "ALIAS no edit after the retarget",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ALIAS the alias points back",
+    apply: () => edit("inc/AliasModel.hx", "import inc.AliasShapeTwin as AliasedShape;",
+      "import inc.AliasShape as AliasedShape;")
+  },
+  {
+    // The alias comes from `import.hx`; no module file changes.
+    id: "ALIAS the import.hx alias points at another type of the same shape",
+    apply: () => edit("inc/aliashx/import.hx", "import inc.AliasShape as HxShape;",
+      "import inc.AliasShapeTwin as HxShape;")
+  },
+  {
+    id: "ALIAS no edit after the import.hx retarget",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ALIAS the import.hx alias points back",
+    apply: () => edit("inc/aliashx/import.hx", "import inc.AliasShapeTwin as HxShape;",
+      "import inc.AliasShape as HxShape;")
+  },
+  {
+    // `inc.AliasUser` keeps using `inc.AliasModel`, but no longer reads the
+    // field typed with the alias, so no other module names `AliasedShape`.
+    id: "ALIAS the only other module stops naming the alias",
+    apply: () => edit("inc/AliasUser.hx",
+      "final shape = new AliasModel().shape; /*ALIAS_MODEL_USE*/",
+      "final model = new AliasModel();\n    final shape = {id: model == null ? 0 : 1}; /*ALIAS_MODEL_USE*/")
+  },
+  {
+    id: "ALIAS no edit after the alias lost its other user",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ALIAS the other module names the alias again",
+    apply: () => edit("inc/AliasUser.hx",
+      "final model = new AliasModel();\n    final shape = {id: model == null ? 0 : 1}; /*ALIAS_MODEL_USE*/",
+      "final shape = new AliasModel().shape; /*ALIAS_MODEL_USE*/")
+  },
+  {
+    id: "ALIAS no edit with the alias named again",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    // The known miss (genes-cil5): only the inline helper
+    // `inc.AliasInline.make` names the alias `InlinePt`. Haxe inlines the
+    // call and dead-code elimination removes `make` but keeps the class for
+    // `label`, so no surviving declaration of `inc.AliasInline` names the
+    // alias, while the inferred return type of `inc.AliasUser.made` still
+    // does.
+    id: "ALIAS an inlined helper is the only declaration that names an alias",
+    apply: () => {
+      edit("inc/AliasUser.hx", "class AliasUser {",
+        "class AliasUser {\n  static function made()\n    return AliasInline.make();\n");
+      edit("inc/AliasUser.hx", "/*ALIAS_INLINE_USE*/",
+        "if (made().id < 0)\n      return AliasInline.label(); /*ALIAS_INLINE_USE*/");
+    }
+  },
+  {
+    // Safe but slow: the stored walk cannot find `InlinePt` (the report's
+    // `walk.left` names `typedef:inc.AliasInline.InlinePt`), so it leaves the
+    // recorded path in every request while the use stays, and nothing is
+    // replayed. The gate still checks that the tree equals the cold build.
+    id: "ALIAS no edit while only an inlined helper names the alias (known miss, genes-cil5)",
+    apply: () => {},
+    walk: "left"
+  },
+  {
+    id: "ALIAS the inlined helper use is removed",
+    apply: () => {
+      edit("inc/AliasUser.hx",
+        "class AliasUser {\n  static function made()\n    return AliasInline.make();\n",
+        "class AliasUser {");
+      edit("inc/AliasUser.hx",
+        "if (made().id < 0)\n      return AliasInline.label(); /*ALIAS_INLINE_USE*/",
+        "/*ALIAS_INLINE_USE*/");
+    }
+  },
+  {
+    id: "ALIAS no edit after the inlined helper use",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
   {
     id: "no edit at the end",
     apply: () => {},
