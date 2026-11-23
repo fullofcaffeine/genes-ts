@@ -469,7 +469,10 @@ difference of their results is a mismatch. The edits whose ids start with
   - `inc.OrderTwin.OrderTwinB` moves before `OrderTwinA`. Both have the
     emitted name `OrderTwinX`, and `Module.addTypes` prints only the first,
     so the printed body changes although the member list does not. The
-    request must generate in full (review of genes-ts #262).
+    request must generate in full (review of genes-ts #262). While
+    `inc.OrderA` names `OrderTwinB`, a request with no edit leaves the
+    stored walk, because its stored step names `OrderTwinX`, which two
+    declarations share; nothing is replayed, and the tree equals cold.
 
   So the fingerprint sorts only the declarations that can never be members
   (abstracts, extern classes and extern enums) and keeps the list order of
