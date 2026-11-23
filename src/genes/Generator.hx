@@ -1031,6 +1031,9 @@ class Generator {
       module = planned;
     }
     endInventoryTimer();
+    // The step targets of the module's edges, for the `-dce std` rule of
+    // `ModuleRequest.decide` (`<module>|<declaration key>`).
+    final requestSteps = new Map<String, Bool>();
     if (module != null) {
       final endReachabilityTimer = timer('genes.plan.reachability');
       // One step of the walk of `generateTransactional`: the targets of the
@@ -1074,6 +1077,8 @@ class Generator {
             case name: name;
           }
           final base = DependencyPlan.moduleTypeBase(referencedType);
+          requestSteps.set('$moduleName|${DependencyPlan.moduleTypeKeyOf(referencedType, base)}',
+            true);
           var targetModule = modules.get(moduleName);
           if (targetModule == null) {
             targetModule = new Module(context, moduleName, typesOf(moduleName));
@@ -1133,7 +1138,13 @@ class Generator {
       emits: emits,
       exposed: exposed,
       outputFolder: ModuleRequest.absoluteFolder(outputFile),
-      hasMain: api.main != null
+      hasMain: api.main != null,
+      steps: {
+        final list = [for (step in requestSteps.keys()) step];
+        list.sort(Reflect.compare);
+        list;
+      },
+      runtimeRequests: module == null ? [] : module.internalRuntimeRequests()
     });
     final checkSeconds = haxe.Timer.stamp() - checkStart;
     final files = IncrementalShadow.recordedModule(target).files;
