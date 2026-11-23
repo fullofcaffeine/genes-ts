@@ -507,7 +507,15 @@ difference of their results is a mismatch. The edits whose ids start with
   the record. Only the extern flag in the target facts that
   `checkStoredTarget` compares leaves the recorded path; without it,
   compare reported drift and reuse published a stale tree (must fix of the
-  review of genes-ts #247);
+  review of genes-ts #247). Since genes-zt9w the fingerprint puts an extern
+  enum after the declarations that can be printed, so for `inc.ExclOwner`
+  the enum moves in the text and rule 6 falls back first. The row
+  "after-typing macro makes the last enum of a module extern" keeps the
+  extern-flag check the first catch: `inc.ExclTail.ExclTailEnum` is the
+  last declaration of its module, so the fingerprint text stays the same,
+  and `inc.ExclHintTail` sorts first, so its stored step is checked
+  before the visit of `inc.ExclTail`. With the extern flag out of the
+  target facts, compare reports drift on that row;
 - metadata that only a typed body holds (S3 of the review of #246;
   genes-f8vc.9.27): `inc.BodyMetaMacro` writes `@:ts.type("string")` on
   the field of the structure in the constraint of the type parameter of a

@@ -316,7 +316,8 @@ const program = {
   defines: [] as string[],
   modules: [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy",
-    "inc.OrderA", "inc.OrderZ", "inc.OrderPair", "inc.OrderTwin"
+    "inc.OrderA", "inc.OrderZ", "inc.OrderPair", "inc.OrderTwin",
+    "inc.ExclHintTail", "inc.ExclTail"
   ] as string[]
 };
 
@@ -1746,14 +1747,20 @@ const edits: ReadonlyArray<Edit> = [
     // walk visits inc.ExclHintUser first: its stored step would add the enum
     // back before the visit of inc.ExclOwner, so the member list of that
     // visit matches the record. Only `checkStoredTarget`, which compares the
-    // target facts of each stored step (extern flag and metadata), leaves
+    // target facts of each stored step (extern flag and metadata), left
     // the recorded path here. With the extern flag out of those facts,
     // compare reported drift and reuse published a stale tree.
+    //
+    // Since genes-zt9w, `ModuleFingerprint.of` puts an extern enum after
+    // the declarations that can be printed, so the enum moves in the text
+    // of inc.ExclOwner, and rule 6 falls back first, before any walk. The
+    // `ExclTail` rows below keep `checkStoredTarget` the first catch.
     id: "after-typing macro makes an enum extern before the Genes passes",
     apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
       "class Leaf2 {\n  public static var excludeEarly = 1;\n"),
     results: ["full"],
-    walk: "left"
+    reason: "the fingerprint of a module that was not typed again changed: inc.ExclOwner",
+    walk: "none"
   },
   {
     id: "no edit after an enum was made extern before the Genes passes",
@@ -1763,15 +1770,42 @@ const edits: ReadonlyArray<Edit> = [
   },
   {
     // The same with the enum inc.ExclOwner.ExclLate, excluded after the
-    // after-typing passes of Genes, so they never see the change.
+    // after-typing passes of Genes, so they never see the change. Rule 6
+    // falls back first here too (genes-zt9w).
     id: "after-typing macro makes an enum extern after the Genes passes",
     apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
       "class Leaf2 {\n  public static var excludeLate = 1;\n"),
     results: ["full"],
-    walk: "left"
+    reason: "the fingerprint of a module that was not typed again changed: inc.ExclOwner",
+    walk: "none"
   },
   {
     id: "no edit after an enum was made extern after the Genes passes",
+    apply: () => {},
+    results: ["incremental"],
+    walk: "on-path"
+  },
+  {
+    // genes-zt9w: the same as the first exclude row, with the enum
+    // inc.ExclTail.ExclTailEnum. It is the last declaration of its module,
+    // and the module has no abstract and no extern declaration, so the
+    // fingerprint text of inc.ExclTail stays the same when the enum moves to
+    // the sorted group of declarations that are never printed (and an
+    // enum's text has no extern flag). inc.ExclHintTail names the enum only
+    // in a typedef field, and the walk visits it first (its path sorts
+    // first), so its stored step would add the enum back before the visit
+    // of inc.ExclTail, whose member list then matches the record. So
+    // `checkStoredTarget` is the first check that leaves the recorded path.
+    // The live walk then drops the enum from the member list of
+    // inc.ExclTail, and the request generates in full.
+    id: "after-typing macro makes the last enum of a module extern",
+    apply: () => edit("inc/Leaf2.hx", "class Leaf2 {",
+      "class Leaf2 {\n  public static var excludeTail = 1;\n"),
+    results: ["full"],
+    walk: "left"
+  },
+  {
+    id: "no edit after the last enum of a module was made extern",
     apply: () => {},
     results: ["incremental"],
     walk: "on-path"
@@ -2292,7 +2326,8 @@ function resetState(mode: GenerationMode): void {
   program.defines = options.reactRefresh ? ["genes.react_refresh_modules"] : [];
   program.modules = [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy",
-    "inc.OrderA", "inc.OrderZ", "inc.OrderPair", "inc.OrderTwin"
+    "inc.OrderA", "inc.OrderZ", "inc.OrderPair", "inc.OrderTwin",
+    "inc.ExclHintTail", "inc.ExclTail"
   ];
   request.afterTyping = "reuse";
   request.generation = mode;
