@@ -624,9 +624,27 @@ that each part of the rule needs, and edits it step by step:
   (`opaque-macro`); and two edits that break a cycle (`import-cycle`): of
   `mr.Cycle`, and of `mr.CyBase`, whose subclass `mr.CyChild` prints its
   parent lazily while the cycle exists, so a full build changes
-  `mr/CyChild.ts`.
+  `mr/CyChild.ts`;
+- the rows of the review of #260, refused, each of which previewed a file
+  that differed from cold before the fix: a private `@:op(A == B)` on the
+  abstract `mr.Px` (cold changes `mr/PxUser.ts`) and a private
+  `@:arrayAccess` before the public one of `mr.Row` (cold prints
+  `Row.head(row, 0)` in `mr/RowUser.ts`), both `public-shape-changed`; a
+  private `@:resolve` on `mr.Bag` (`public-shape-changed`; no stale case
+  was found, because Haxe allows one resolve method and `@:forward` wins);
+  and a new function in `mr.Deck` and a comment line above its private
+  typedef, which `mr.DeckUser` imports (`position-changed`, cold changes
+  `mr/DeckUser.ts.map`).
 
-`std-profile-full` makes the new-private-function edit under `-dce full`,
+`std-value-use` runs on its own server: `return Int;` in `mr.Words` is the
+first value use of `Int`, so cold prints `var Int = { };` in `Std.ts`, and
+its removal drops it again (both `feature-changed`). In `std-structural` the
+typed-cast row already keeps `js.Boot.__instanceof`, which uses `Int` as a
+value.
+
+`-dce std` is Haxe's default when a build names no `-dce`, so the rule also
+applies to such builds. `std-profile-full` makes the new-private-function
+edit under `-dce full`,
 which keeps the strict rule (`signature-changed`). On Genes before the rule
 (`GENES_TEST_SOURCE`), every preview row of `std-structural` gets
 `signature-changed` or `uses-changed`, and so does every row with a new

@@ -1807,7 +1807,11 @@ function failedRequestGroups(): ReadonlyArray<Group> {
  * - `mr.CardUser`: imports `mr.Card`, so a call back closes a cycle;
  * - `mr.Tag`: the module of the macro row;
  * - `mr.CyBase` and `mr.CyChild`: a cycle with inheritance, so that
- *   `mr.CyChild` prints its parent lazily while the cycle exists.
+ *   `mr.CyChild` prints its parent lazily while the cycle exists;
+ * - `mr.Px`, `mr.Row` and `mr.Bag`: abstracts, with `mr.PxUser` comparing
+ *   two `Px` values and `mr.RowUser` indexing a `Row` (review of #260);
+ * - `mr.Deck`: a class and, below it, a private typedef that `mr.DeckUser`
+ *   imports, so its source map names the typedef's position.
  */
 const stdFiles: Readonly<Record<string, string>> = {
   "mr/Main.hx": `package mr;\nimport mr.Hints;\nimport mr.Styles;\n\nclass Main {\n`
@@ -1816,7 +1820,9 @@ const stdFiles: Readonly<Record<string, string>> = {
     + `    trace(Cycle.start());\n    trace(CycleB.next(0));\n    trace(Theme.size());\n`
     + `    trace(Card.render());\n    trace(Words.clean(' x '));\n    trace(Built.value());\n`
     + `    trace(new Box<String>('box').value);\n    trace(CardUser.use());\n    trace(Tag.text());\n`
-    + `    trace(CyBase.make() != null);\n    trace(new CyChild() != null);\n  }\n}\n`,
+    + `    trace(CyBase.make() != null);\n    trace(new CyChild() != null);\n`
+    + `    trace(PxUser.same());\n    trace(RowUser.first());\n    trace((3 : Bag).count());\n`
+    + `    trace(DeckUser.size());\n  }\n}\n`,
   "mr/Card.hx": `package mr;\n\nimport mr.OnlyHere;\n\n`
     + `/** A UI-like module for structural edits under -dce std (genes-f8vc.14.7). */\n`
     + `class Card {\n  public static function render(): String {\n    return title() + ' ' + Theme.color();\n  }\n\n`
@@ -1840,7 +1846,22 @@ const stdFiles: Readonly<Record<string, string>> = {
   "mr/Tag.hx": `package mr;\n\nclass Tag {\n  public static function text(): String {\n    return 'tag';\n  }\n}\n`,
   "mr/CyBase.hx": `package mr;\n\nclass CyBase {\n  public function new() {}\n\n`
     + `  public static function make(): CyBase {\n    return new CyChild();\n  }\n}\n`,
-  "mr/CyChild.hx": `package mr;\n\nclass CyChild extends CyBase {\n  public function new() {\n    super();\n  }\n}\n`
+  "mr/CyChild.hx": `package mr;\n\nclass CyChild extends CyBase {\n  public function new() {\n    super();\n  }\n}\n`,
+  "mr/Px.hx": `package mr;\n\n/** An abstract that another module compares. */\n`
+    + `abstract Px(Int) from Int to Int {\n  public function double(): Int {\n    return this * 2;\n  }\n}\n`,
+  "mr/PxUser.hx": `package mr;\n\nclass PxUser {\n  public static function same(): Bool {\n`
+    + `    final a: Px = 1;\n    final b: Px = 2;\n    return a == b;\n  }\n}\n`,
+  "mr/Row.hx": `package mr;\n\n/** An abstract that another module indexes. */\n`
+    + `abstract Row(Array<Int>) from Array<Int> {\n  @:arrayAccess public function at(index: Int): Int {\n`
+    + `    return this[index];\n  }\n}\n`,
+  "mr/RowUser.hx": `package mr;\n\nclass RowUser {\n  public static function first(): Int {\n`
+    + `    final row: Row = [4, 5];\n    return row[0];\n  }\n}\n`,
+  "mr/Bag.hx": `package mr;\n\n/** An abstract with a method. */\n`
+    + `abstract Bag(Int) from Int {\n  public function count(): Int {\n    return this;\n  }\n}\n`,
+  "mr/Deck.hx": `package mr;\n\nclass Deck {\n  public static function options(): DeckOpt {\n`
+    + `    return {size: 3};\n  }\n}\n\nprivate typedef DeckOpt = {\n  final size: Int;\n}\n`,
+  "mr/DeckUser.hx": `package mr;\n\nclass DeckUser {\n  public static function size(): Int {\n`
+    + `    final options = Deck.options();\n    return options.size;\n  }\n}\n`
 };
 
 /**
@@ -1937,7 +1958,53 @@ function stdGroups(): ReadonlyArray<Group> {
           module: "mr.Cycle", expect: "import-cycle" },
         { id: "std: structural edit that breaks a cycle with a subclass (import-cycle)",
           apply: () => edit("CyBase.hx", "return new CyChild();", "return new CyBase();"),
-          module: "mr.CyBase", expect: "import-cycle" }
+          module: "mr.CyBase", expect: "import-cycle" },
+        // Review of #260 (Fable): each of these previewed and differed from cold.
+        { id: "std: a private @:op on an abstract changes its importers (public-shape-changed)",
+          apply: () => edit("Px.hx", "  public function double(): Int {",
+            "  @:op(A == B) static function same(a: Px, b: Px): Bool {\n"
+            + "    return (a : Int) == (b : Int);\n  }\n\n  public function double(): Int {"),
+          module: "mr.Px", expect: "public-shape-changed" },
+        { id: "std: a private @:arrayAccess on an abstract (public-shape-changed)",
+          // Before the public accessor: Haxe then picks it for `row[0]` of
+          // `mr.RowUser`, which becomes `Row.head(row, 0)` in a cold build.
+          apply: () => edit("Row.hx", "  @:arrayAccess public function at(index: Int): Int {",
+            "  @:arrayAccess function head(index: Int): Int {\n    return this[0] + 100;\n  }\n\n"
+            + "  @:arrayAccess public function at(index: Int): Int {"),
+          module: "mr.Row", expect: "public-shape-changed" },
+        // No stale case was found for `@:resolve` (Haxe allows one resolve
+        // method, and `@:forward` wins over it); the row shows the refusal.
+        { id: "std: a private @:resolve on an abstract (public-shape-changed)",
+          apply: () => edit("Bag.hx", "  public function count(): Int {",
+            "  @:resolve function lookup(name: String): Int {\n    return this + name.length;\n  }\n\n"
+            + "  public function count(): Int {"),
+          module: "mr.Bag", expect: "public-shape-changed" },
+        { id: "std: a new function moves a private typedef that another module imports (position-changed)",
+          apply: () => edit("Deck.hx", "  public static function options(): DeckOpt {",
+            "  static function spare(): Int {\n    return 1;\n  }\n\n"
+            + "  public static function options(): DeckOpt {"),
+          module: "mr.Deck", expect: "position-changed" },
+        { id: "std: a comment line above that private typedef (position-changed)",
+          apply: () => edit("Deck.hx", "private typedef DeckOpt", "// The options of a deck.\nprivate typedef DeckOpt"),
+          module: "mr.Deck", expect: "position-changed" }
+      ]
+    },
+    {
+      // A value use of an abstract (review of #260): on its own server, so
+      // that no earlier row has made `Int` a value already (the typed cast
+      // row keeps `js.Boot.__instanceof`, which does).
+      name: "std-value-use",
+      dce: "std",
+      files: stdFiles,
+      steps: [
+        { id: "std: first value use of an abstract, return Int (feature-changed)",
+          apply: () => edit("Words.hx", "  public static function clean(text: String): String {",
+            "  static function intType(): Dynamic {\n    return Int;\n  }\n\n"
+            + "  public static function clean(text: String): String {"),
+          module: "mr.Words", expect: "feature-changed" },
+        { id: "std: the only value use of Int is removed (feature-changed)",
+          apply: () => edit("Words.hx", "    return Int;\n", "    final count: Int = 2;\n    return count;\n"),
+          module: "mr.Words", expect: "feature-changed" }
       ]
     },
     {

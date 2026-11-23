@@ -42,6 +42,16 @@ using haxe.macro.TypeTools;
  * - `multitype <abstract> <arguments>`: a `@:multiType` abstract such as
  *   `Map<String, Int>`. Haxe marks a specialization that a macro cannot
  *   compute, so the line names the abstract and its arguments.
+ * - `value <abstract>.*`: the code uses an abstract as a value (`return
+ *   Int;`, a typed cast to it). Haxe then sets `@:valueUsed`, the only mark
+ *   that answers `hasFeature("Int.*")`, and `Std.__init__` prints `var Int
+ *   = { };`. A type use gives only the `feature` line.
+ * - `dependent <class> <field>`: a field of an extern class or interface is
+ *   marked. Haxe then also marks the overriding fields of subclasses
+ *   (`mark_dependent_fields`), which can be classes that dead-code
+ *   elimination may change (`externBasesOf`).
+ * - `unknown <reason>`: the walk reached its nesting limit and may have
+ *   missed marks; the rule refuses (`dce-uses-unknown`).
  *
  * `dependenciesOf` gives the modules that the module makes Haxe load: the
  * modules of every declaration that its typed declarations and bodies name,
@@ -86,8 +96,10 @@ class DceStdUses {
 
   /**
    * Returns true when the request runs with `-dce std`, the profile of this
-   * rule. Example: `-dce full` gives false, and a module request keeps the
-   * stricter rule that refuses every structural edit.
+   * rule; Haxe gives the `dce` define that value when a build names no
+   * `-dce`, so a default build counts. Example: `-dce full` gives false, and
+   * a module request keeps the stricter rule that refuses every structural
+   * edit.
    */
   public static function stdProfile(): Bool {
     return Context.definedValue('dce') == 'std';
@@ -169,6 +181,7 @@ class DceStdUses {
   static function superForcesKeep(cls: ClassType): Bool {
     var current: Null<ClassType> = cls;
     var depth = 0;
+    // Past 64 parents the class counts as eligible, which can only refuse.
     while (current != null && depth++ < 64) {
       if (current.meta.has(':keepSub'))
         return true;
@@ -221,6 +234,46 @@ class DceStdUses {
     return walk.result();
   }
 
+  /**
+   * Returns the extern parent classes and interfaces (full names, sorted)
+   * of the classes of `types` that dead-code elimination may change
+   * (`eligibleClass`). A first mark of a field of such an extern declaration
+   * also marks the overriding field of the eligible class
+   * (`mark_dependent_fields`), so the rule checks the `dependent` lines that
+   * name it.
+   *
+   * Example: `haxe.Exception` (standard library) extends the extern
+   * `js.lib.Error`, so `js.lib.Error.Error` is returned for its module.
+   */
+  public static function externBasesOf(types: Array<Type>): Array<String> {
+    final found = new Map<String, Bool>();
+    function walk(cls: ClassType, depth: Int): Void {
+      if (depth > 64)
+        return;
+      final items = cls.interfaces.copy();
+      final parent = cls.superClass;
+      if (parent != null)
+        items.push(parent);
+      for (item in items) {
+        final base = item.t.get();
+        if (base.isExtern)
+          found.set(TypeUtil.baseTypeFullName(base), true);
+        walk(base, depth + 1);
+      }
+    }
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          if (eligibleClass(cls))
+            walk(cls, 0);
+        default:
+      }
+    final result = [for (name in found.keys()) name];
+    result.sort(compareStrings);
+    return result;
+  }
+
   /** `is_physical_field` of Haxe 4.3.7 (`tFunctions.ml`). */
   public static function isPhysicalField(field: ClassField): Bool {
     return switch field.kind {
@@ -258,8 +311,10 @@ class DceStdUses {
               for (param in (entry.params == null ? [] : entry.params))
                 switch param.expr {
                   case EConst(CString(feature, _)):
-                    found.push({feature: feature,
-                      line: '${cls.module} class $name $label'});
+                    found.push({
+                      feature: feature,
+                      line: '${cls.module} class $name $label'
+                    });
                   default:
                 }
           }
@@ -610,6 +665,13 @@ private class DceStdWalk {
   /** The typedefs that `toStringOf` is expanding now (`ts_stack`). */
   final stringStack: Array<String> = [];
 
+  /**
+   * The deepest nesting that the walk follows. Haxe has no such limit; a
+   * walk that reaches it writes an `unknown` line instead of dropping the
+   * marks below it, and the rule then refuses (`dce-uses-unknown`).
+   */
+  static inline final LIMIT = 64;
+
   public function new(module: String) {
     this.module = module;
   }
@@ -641,6 +703,11 @@ private class DceStdWalk {
         markClass(cls);
         break;
       }
+    // `collect_entry_points` marks the constructor with `mark_field`, which
+    // keeps the constructor of every parent class, also of one in another
+    // module.
+    if (constructor != null)
+      markField(cls, constructor.get(), false);
     for (field in fields) {
       markType(field.type);
       final body = field.expr();
@@ -659,6 +726,11 @@ private class DceStdWalk {
 
   function feature(name: String): Void {
     lines.set('feature $name', true);
+  }
+
+  /** Writes that the walk stopped at `LIMIT` and may have missed marks. */
+  function unknown(reason: String): Void {
+    lines.set('unknown $reason', true);
   }
 
   /** `s_type_path`: the package and name of a declaration, without its module. */
@@ -723,8 +795,12 @@ private class DceStdWalk {
    */
   function markType(value: Type): Void {
     final text = TypeTools.toString(value);
-    if (typeStack.indexOf(text) >= 0 || typeStack.length > 32)
+    if (typeStack.indexOf(text) >= 0)
       return;
+    if (typeStack.length > LIMIT) {
+      unknown('a type nested deeper than $LIMIT levels: $text');
+      return;
+    }
     typeStack.push(text);
     switch Context.follow(value) {
       case TInst(owner, params):
@@ -775,7 +851,12 @@ private class DceStdWalk {
       case TEnumDecl(reference):
         markEnum(reference.get());
       case TAbstract(reference):
-        markAbstract(reference.get());
+        // `mark_mt` also sets `@:valueUsed`, the only mark that answers
+        // `hasFeature("<abstract>.*")`; a type use does not set it. Example:
+        // `return Int;` makes `Std.__init__` print `var Int = { };`.
+        final abs = reference.get();
+        markAbstract(abs);
+        lines.set('value ${pathOf(abs)}.*', true);
       case TTypeDecl(_):
     }
   }
@@ -789,7 +870,11 @@ private class DceStdWalk {
     if (field.name == 'new') {
       var current: Null<ClassType> = cls;
       var depth = 0;
-      while (current != null && depth++ < 64) {
+      while (current != null) {
+        if (depth++ > LIMIT) {
+          unknown('a parent chain longer than $LIMIT above ${TypeUtil.baseTypeFullName(cls)}');
+          return;
+        }
         final constructor = current.constructor;
         if (constructor != null)
           addField(current, constructor.get(), false);
@@ -825,6 +910,12 @@ private class DceStdWalk {
     markedFields.set(key, true);
     if (DceStdUses.eligibleClass(cls))
       lines.set('keep ${cls.module} class $key', true);
+    // A first mark of a field of an extern class or interface also marks the
+    // overriding fields of its subclasses (`mark_dependent_fields`), and such
+    // a subclass can be one that dead-code elimination may change
+    // (`haxe.Exception` extends `js.lib.Error`; `DceStdUses.externBasesOf`).
+    if (cls.isExtern)
+      lines.set('dependent $key', true);
     feature('${pathOf(cls)}.${field.name}');
   }
 
@@ -834,8 +925,10 @@ private class DceStdWalk {
    */
   function fieldByName(cls: ClassType, name: String, isStatic: Bool,
       depth: Int): Bool {
-    if (depth > 64)
+    if (depth > LIMIT) {
+      unknown('a field lookup deeper than $LIMIT levels: ${TypeUtil.baseTypeFullName(cls)}.$name');
       return false;
+    }
     final found = if (name == 'new') {
       final constructor = cls.constructor;
       constructor == null ? null : constructor.get();
@@ -879,8 +972,12 @@ private class DceStdWalk {
         fieldByName(owner.get(), 'toString', false, 0);
       case TType(owner, params):
         final text = TypeTools.toString(value);
-        if (stringStack.indexOf(text) >= 0 || stringStack.length > 32)
+        if (stringStack.indexOf(text) >= 0)
           return;
+        if (stringStack.length > LIMIT) {
+          unknown('a typedef chain longer than $LIMIT: $text');
+          return;
+        }
         stringStack.push(text);
         final def = owner.get();
         toStringOf(def.type.applyTypeParameters(def.params, params));

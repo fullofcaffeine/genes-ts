@@ -85,6 +85,9 @@ typedef ModuleProfile = {
 
   /** True when the module has a macro function that is not Genes' own or the standard library's. */
   final opaqueMacro: Bool;
+
+  /** `DceStdUses.externBasesOf`: extern parents of the module's eligible classes. */
+  final externBases: Array<String>;
 }
 
 /** The live facts of the requested module that the generator gives to `decide`. */
@@ -182,6 +185,9 @@ typedef ModuleRequestReport = {
 
   /** Time of the shape and root step before dead-code elimination. */
   final rootMs: Float;
+
+  /** Time of the `-dce std` facts (`DceStdUses`) in this request (format 2). */
+  final profileMs: Float;
 
   /**
    * Time spent reading, hashing and reading the status of source files in
@@ -289,6 +295,9 @@ typedef ModuleRecordsReport = {
    * (`targetFactsOf`) in this request.
    */
   final factsMs: Float;
+
+  /** Time of the `-dce std` facts (`DceStdUses`) in this request (format 2). */
+  final profileMs: Float;
 }
 
 /**
@@ -514,11 +523,12 @@ typedef ModuleRecordsReport = {
  * - the kept declarations and fields, the final member list, the root
  *   flags and the uses of other modules are the stored ones;
  * - with source maps (`-debug` or `-D js_source_map`), the line and column
- *   of each declaration that another module can import, and of each public
- *   module function, are the stored ones (`importedPositions`,
- *   `position-changed`): the map of an importing module maps its import
- *   line to that position. Example: a new import line above `class Card`
- *   changes the map of every module that imports `Card`;
+ *   of each declaration (private ones included) and of each module-level
+ *   field are the stored ones (`importedPositions`, `position-changed`): the
+ *   map of an importing module maps its import line to that position.
+ *   Example: a new import line above `class Card` changes the map of every
+ *   module that imports `Card`, and a new function in `class Deck` moves a
+ *   private typedef below it that another module imports;
  * - every question that planning and printing of the module asked
  *   (features, module map, import cycles, signature facts) got the answer
  *   of a full build (`featureAnswer`, `wrongAnswer`), and no question names
@@ -580,7 +590,9 @@ typedef ModuleRecordsReport = {
  * edit: a new or removed field, call, local type or class use. Under
  * `-dce std` the rule below can admit one.
  *
- * The `-dce std` rule (genes-f8vc.14.7). Under `-dce std`, Haxe's dead-code
+ * The `-dce std` rule (genes-f8vc.14.7). `-dce std` is Haxe's default when a
+ * build gives no `-dce`, so this rule applies to such builds too. Under
+ * `-dce std`, Haxe's dead-code
  * elimination keeps every class of the project whole (`keep_whole_class` of
  * Haxe 4.3.7's `dce.ml`); only classes on the standard-library path and
  * classes with `@:dce` lose fields. So a structural edit of a project module
@@ -615,10 +627,21 @@ typedef ModuleRecordsReport = {
  *   `dce.ml`). A changed line is admitted only when the stored full build
  *   already had its effect and keeps it: another kept module has the same
  *   line, a new kept field was kept already, or a feature that no field
- *   listens to (`@:ifFeature`) and no module asked for. Example: the first
- *   call of `StringTools.lpad` in the program is refused, a call of
- *   `StringTools.trim` that another module already makes is admitted;
+ *   listens to (`@:ifFeature`) and no module asked for. A value use of an
+ *   abstract (`return Int;`) is its own line, because only it answers
+ *   `hasFeature("Int.*")`, and a first mark of a field of an extern class
+ *   counts when a class that dead-code elimination may change extends it.
+ *   Example: the first call of `StringTools.lpad` in the program is refused,
+ *   a call of `StringTools.trim` that another module already makes is
+ *   admitted;
+ * - `dce-uses-unknown`: the port reached its nesting limit, so its lines
+ *   may be incomplete;
  * - `kept-changed`: Haxe kept every field of the module.
+ *
+ * The visible shape keeps every field of an abstract's implementation class,
+ * also a private one: Haxe resolves its `@:op`, `@:arrayAccess`,
+ * `@:resolve`, `@:from` and `@:to` fields from any module. Example: a new
+ * private `@:op(A == B)` turns `a == b` of another module into a call.
  *
  * Why that is the complete affected output: a full build after the edit has
  * the stored input for every other module (their source files, epochs and
@@ -652,7 +675,7 @@ typedef ModuleRecordsReport = {
  */
 class ModuleRequest {
   /** The format of `ModuleRequestReport` and `ModuleRecordsReport`. */
-  static inline final REPORT_FORMAT = 1;
+  static inline final REPORT_FORMAT = 2;
 
   /**
    * Words that `shapeOf` writes for a macro field and a `@:generic`
@@ -799,8 +822,9 @@ class ModuleRequest {
 
   /**
    * `declarationFactsOf` of each module of this request, read in
-   * `afterSave` with `requestFacts`: the facts that the walk of other
-   * modules reads, without the metadata of fields.
+   * `afterSave` with `requestFacts`, under every `-dce` profile: the facts
+   * that the walk of other modules reads, without the metadata of fields.
+   * Only the `-dce std` rule compares them.
    */
   static var requestDeclarationFacts: Map<String, String> = new Map();
 
@@ -817,7 +841,8 @@ class ModuleRequest {
    *   listen to it (`@:ifFeature`, `DceStdUses.listenersOf`);
    * - `storedOpaqueMacros`: the modules with a macro function that is not
    *   Genes' own or the standard library's (`opaqueMacroModule`);
-   * - `storedDeclarationFacts`: `declarationFactsOf` of every module.
+   * - `storedDeclarationFacts`: `declarationFactsOf` of every module; read
+   *   and kept under every profile, compared only by the `-dce std` rule.
    */
   @:persistent static var storedUses: Map<String, Array<String>> = new Map();
 
@@ -849,6 +874,14 @@ class ModuleRequest {
   @:persistent static var storedReachers: Map<String,
     Array<String>> = new Map();
   @:persistent static var storedHaxePrinter = false;
+
+  /**
+   * The extern classes and interfaces (full names) that a class of the
+   * stored program extends or implements, when that class is one that
+   * dead-code elimination may change (`DceStdUses.externBasesOf`). A
+   * `dependent` use line that names one of them is checked.
+   */
+  @:persistent static var storedExternBases: Map<String, Bool> = new Map();
 
   /**
    * The last computed `-dce std` facts of each module, with the epochs that
@@ -2072,7 +2105,8 @@ class ModuleRequest {
                 dependencies: [],
                 listeners: [],
                 opaqueMacro: opaqueMacroModule(list,
-                  moduleFiles.get(dependency))
+                  moduleFiles.get(dependency)),
+                externBases: []
               });
           }
           profileSeconds += haxe.Timer.stamp() - profileStart;
@@ -2173,7 +2207,8 @@ class ModuleRequest {
         for (item in DceStdUses.listenersOf(types))
           '${item.feature}\t${item.line}'
       ],
-      opaqueMacro: opaqueMacroModule(types, file)
+      opaqueMacro: opaqueMacroModule(types, file),
+      externBases: DceStdUses.externBasesOf(types)
     };
   }
 
@@ -2571,6 +2606,12 @@ class ModuleRequest {
     storedDependencies = dependencies;
     storedListeners = listeners;
     storedOpaqueMacros = opaque;
+    final bases = new Map<String, Bool>();
+    if (DceStdUses.stdProfile())
+      for (_ => profile in requestProfiles)
+        for (base in profile.externBases)
+          bases.set(base, true);
+    storedExternBases = bases;
     final counts = new Map<String, Int>();
     for (_ => lines in uses)
       for (line in lines)
@@ -2689,6 +2730,7 @@ class ModuleRequest {
     storedUseCounts = new Map();
     storedReachers = new Map();
     storedHaxePrinter = false;
+    storedExternBases = new Map();
   }
 
   /**
@@ -2973,8 +3015,10 @@ class ModuleRequest {
       final declared = requestDeclared;
       if (declared == null || kept.join('\n') != declared.join('\n'))
         return refuse('kept-changed',
-          'Haxe did not keep every declaration and field of $module, so a full ' +
-          'build may keep others');
+          'the kept declarations and fields of $module are not all of its ' +
+          'declarations and fields, so Haxe did not keep it whole: ' +
+          firstDifference(declared == null ? '' : declared.join('\n'),
+            kept.join('\n')));
     } else {
       if (kept.join('\n') != record.kept.join('\n'))
         return refuse('kept-changed',
@@ -2998,8 +3042,8 @@ class ModuleRequest {
     final positions = importedPositions(facts.types);
     if (positions != record.positions)
       return refuse('position-changed',
-        'a declaration or module function of $module that other modules import ' +
-        'moved, and their source maps name its position: ' +
+        'a declaration or module-level field of $module moved, and the source ' +
+        'maps of modules that import it name its position: ' +
         firstDifference(record.positions, positions));
     final recorded = IncrementalShadow.recordedModule(module);
     for (line in recorded.answers)
@@ -3112,8 +3156,10 @@ class ModuleRequest {
       || newUses == null
       || oldUses == null
       || oldDependencies == null)
-      return {code: 'no-record',
-        reason: 'the -dce std facts of $module are not known'};
+      return {
+        code: 'no-record',
+        reason: 'the -dce std facts of $module are not known'
+      };
     final build = opaqueBuildMacro(facts.types);
     if (build != null)
       return {
@@ -3309,7 +3355,9 @@ class ModuleRequest {
    * prints `mr/Hints.ts`.
    */
   static function walkTargetFailure(module: String, entry: CachedModule,
-      steps: Array<String>): Null<{code: String, reason: String
+      steps: Array<String>): Null<{
+      code: String,
+      reason: String
     }> {
     final oldSteps = new Map<String, Bool>();
     for (visit in entry.visits)
@@ -3432,8 +3480,9 @@ class ModuleRequest {
    * (`dce-use-added`); a call that another module already makes is not.
    */
   static function usesFailure(module: String, oldUses: Array<String>,
-      newUses: Array<String>, record: ModuleRecord,
-      types: Array<Type>): Null<{code: String, reason: String
+      newUses: Array<String>, record: ModuleRecord, types: Array<Type>): Null<{
+      code: String,
+      reason: String
     }> {
     final oldSet = new Map<String, Bool>();
     for (line in oldUses)
@@ -3477,8 +3526,37 @@ class ModuleRequest {
             return false;
       return true;
     }
+    // A walk that stopped at its limit may have missed marks.
+    for (line in newUses.concat(oldUses))
+      if (StringTools.startsWith(line, 'unknown '))
+        return {
+          code: 'dce-uses-unknown',
+          reason: 'the dead-code-elimination facts of $module are not complete: ' +
+          line.substr('unknown '.length)
+        };
+    // A value use answers `hasFeature("<abstract>.*")` (`@:valueUsed`); no
+    // field listens to it. A `dependent` line matters only when an eligible
+    // class of the stored program extends or implements the extern class.
+    function valueQuiet(name: String): Bool
+      return !storedHaxePrinter && !stored.exists(name) && !asked.exists(name);
+    function dependentQuiet(line: String): Bool {
+      final rest = line.substr('dependent '.length);
+      return !storedExternBases.exists(rest.substr(0, rest.indexOf(' ')));
+    }
     for (line in newUses) {
       if (oldSet.exists(line) || othersHave(line))
+        continue;
+      if (StringTools.startsWith(line, 'value ')) {
+        final name = line.substr('value '.length);
+        if (valueQuiet(name) || stored.get(name) == '1')
+          continue;
+        return {
+          code: 'feature-changed',
+          reason: '$module now uses the abstract of $name as a value, and the ' +
+          'full request answered that feature with "no"'
+        };
+      }
+      if (StringTools.startsWith(line, 'dependent ') && dependentQuiet(line))
         continue;
       if (StringTools.startsWith(line, 'keep ')) {
         if (keptLine(line.substr('keep '.length)))
@@ -3507,6 +3585,18 @@ class ModuleRequest {
     for (line in oldUses) {
       if (newSet.exists(line) || othersHave(line))
         continue;
+      if (StringTools.startsWith(line, 'value ')) {
+        final name = line.substr('value '.length);
+        if (valueQuiet(name))
+          continue;
+        return {
+          code: 'feature-changed',
+          reason: '$module no longer uses the abstract of $name as a value, ' +
+          'and other code reads that feature'
+        };
+      }
+      if (StringTools.startsWith(line, 'dependent ') && dependentQuiet(line))
+        continue;
       if (StringTools.startsWith(line, 'feature ')) {
         final name = line.substr('feature '.length);
         if (inert(name))
@@ -3527,8 +3617,10 @@ class ModuleRequest {
     // `pack.Type.field` for each of them.
     final declared = requestDeclared;
     if (declared == null)
-      return {code: 'no-record',
-        reason: 'the declarations of $module are not known'};
+      return {
+        code: 'no-record',
+        reason: 'the declarations of $module are not known'
+      };
     final paths = new Map<String, String>();
     for (type in types)
       switch type {
@@ -3756,6 +3848,7 @@ class ModuleRequest {
       generationMs: GenerationChangeSet.milliseconds(generationSeconds),
       checkMs: GenerationChangeSet.milliseconds(checkSeconds),
       rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds),
+      profileMs: GenerationChangeSet.milliseconds(profileSeconds),
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       hashedSources: hashed,
       trustedSources: trustedSources
@@ -3777,7 +3870,8 @@ class ModuleRequest {
       shapeMs: GenerationChangeSet.milliseconds(shapeSeconds),
       recordMs: GenerationChangeSet.milliseconds(haxe.Timer.stamp() - started),
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
-      factsMs: GenerationChangeSet.milliseconds(factsSeconds)
+      factsMs: GenerationChangeSet.milliseconds(factsSeconds),
+      profileMs: GenerationChangeSet.milliseconds(profileSeconds)
     };
     save(descriptor.path + '.module-records.json',
       Json.stringify(report, null, '  ') + '\n');
@@ -3811,12 +3905,25 @@ class ModuleRequest {
         case FVar(AccRequire(_, _), _): true;
         default: false;
       }}
+    // After dead-code elimination Haxe gives a declaration or field with
+    // `@:native("x")` its native name (`apply_native_paths`), and `keptLines`
+    // reads that name.
+    function nativeName(meta: MetaAccess, name: String): String {
+      for (entry in meta.extract(':native'))
+        switch entry.params {
+          case [{expr: EConst(CString(value, _))}]:
+            return value;
+          default:
+        }
+      return name;
+    }
     final lines = [];
     for (type in types)
       switch type {
         case TInst(reference, _):
           final cls = reference.get();
-          final name = TypeUtil.baseTypeFullName(cls);
+          final native = nativeName(cls.meta, cls.name).split('.');
+          final name = cls.module + '.' + native[native.length - 1];
           lines.push('class $name');
           final constructor = cls.constructor;
           if (constructor != null && !removable(constructor.get(), false))
@@ -3825,11 +3932,11 @@ class ModuleRequest {
             lines.push('class $name init');
           for (field in cls.statics.get())
             if (!removable(field, false))
-              lines.push('class $name s:${field.name}');
+              lines.push('class $name s:${nativeName(field.meta, field.name)}');
           for (field in cls.fields.get())
             if (!removable(field,
               cls.overrides.exists(item -> item.get().name == field.name)))
-              lines.push('class $name i:${field.name}');
+              lines.push('class $name i:${nativeName(field.meta, field.name)}');
         case TEnum(reference, _):
           lines.push('enum ${TypeUtil.baseTypeFullName(reference.get())}');
         case TType(reference, _):
@@ -4164,12 +4271,20 @@ class ModuleRequest {
           buffer.add(shapeMetaText(cls.meta));
           final owner = TypeUtil.baseTypeFullName(cls);
           final constructor = cls.constructor;
+          // Haxe resolves an abstract's operators, array access, `@:resolve`
+          // and casts from any module, also private ones (example: a private
+          // `@:op(A == B)` turns `a == b` of another module into a call), so
+          // every field of an abstract's implementation class is visible.
+          final abstractImpl = cls.kind.match(KAbstractImpl(_));
           if (constructor != null)
-            addShapeField(buffer, owner, 'new', 'i:new', constructor.get());
+            addShapeField(buffer, owner, 'new', 'i:new', constructor.get(),
+              abstractImpl);
           for (field in cls.fields.get())
-            addShapeField(buffer, owner, 'field', 'i:${field.name}', field);
+            addShapeField(buffer, owner, 'field', 'i:${field.name}', field,
+              abstractImpl);
           for (field in cls.statics.get())
-            addShapeField(buffer, owner, 'static', 's:${field.name}', field);
+            addShapeField(buffer, owner, 'static', 's:${field.name}', field,
+              abstractImpl);
         case TEnum(reference, _):
           final enm = reference.get();
           buffer.add('enum ${TypeUtil.baseTypeFullName(enm)} ${paramsText(enm.params)}');
@@ -4230,13 +4345,13 @@ class ModuleRequest {
   }
 
   static function addShapeField(buffer: StringBuf, owner: String,
-      label: String, key: String, field: ClassField): Void {
+      label: String, key: String, field: ClassField, visible: Bool): Void {
     final copied = switch field.kind {
       case FMethod(MethInline) | FMethod(MethMacro) | FVar(AccInline, _): true;
       default: false;
     }
-    final start = field.isPublic
-      || copied ? '\n  $label ${field.name}' : '\n  $PRIVATE_MARK$owner $key';
+    final start = field.isPublic || copied
+      || visible ? '\n  $label ${field.name}' : '\n  $PRIVATE_MARK$owner $key';
     buffer.add('$start ${Std.string(field.kind)} '
       + TypeTools.toString(field.type));
     buffer.add(field.isPublic ? ' public' : '');
@@ -4402,8 +4517,8 @@ class ModuleRequest {
    * Returns the source positions of `types` (one module's declarations)
    * that the source maps of other modules name, one line each, or an empty
    * text when the build writes no source maps (`-debug` or
-   * `-D js_source_map`): the line and column of each declaration that
-   * another module can import, and of each public module-level field.
+   * `-D js_source_map`): the line and column of each declaration, private
+   * ones included, and of each module-level field.
    *
    * Why: Genes maps an import line of the importing module to the position
    * of the imported declaration (`base.pos`) or module function
@@ -4422,17 +4537,20 @@ class ModuleRequest {
     }
     for (type in types) {
       final base = TypeUtil.typeToBaseType(type);
-      if (base == null || base.isPrivate)
+      // A private declaration counts too: another module can import it, for
+      // example a private typedef that a public function returns. A private
+      // module-level function too: an inline function of the module can
+      // call it, and the module where Haxe inlines it imports it.
+      if (base == null)
         continue;
       switch type {
         case TInst(reference, _)
           if (reference.get().kind.match(KModuleFields(_))):
-          // The holder of module-level fields is not imported; its public
-          // fields are, each by its own position.
+          // The holder of module-level fields is not imported; its fields
+          // are, each by its own position.
           final cls = reference.get();
           for (field in cls.statics.get())
-            if (field.isPublic)
-              add('${TypeUtil.baseTypeFullName(cls)}.${field.name}', field.pos);
+            add('${TypeUtil.baseTypeFullName(cls)}.${field.name}', field.pos);
         default:
           add(TypeUtil.baseTypeFullName(base), base.pos);
       }
