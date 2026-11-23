@@ -64,6 +64,7 @@ class Main {
       BodyMeta.value(),
       BodyInit.value(),
       BodyInitGeneric.value(),
+      AliasUser.run(),
       Extras.value() /*FRESH_USE*/
     ];
     trace(parts.join(","));

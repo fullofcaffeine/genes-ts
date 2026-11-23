@@ -432,6 +432,15 @@ difference of their results is a mismatch. The edits whose ids start with
   so that clean modules answer the cycle question from stored requests;
 - a module that only the walk creates (`inc.Ghost`), made by a stored step
   of the clean typedef module `inc.GhostHint`;
+- an import alias on every request (genes-44h0): `inc.AliasModel` imports
+  `inc.AliasShape as AliasedShape`, and `inc.AliasUser` reads a field of
+  that type, so its walk takes a step to the alias. Haxe 4.3.7 makes the
+  alias a private typedef of `inc.AliasModel` that is in no declaration
+  list, so the inventory did not know it: every request left the recorded
+  path, and a session that names a type through an alias never replayed a
+  module. `TypedModuleInventory.importAlias` finds it now, and its stamp is
+  a digest of the epochs of `inc.AliasModel`; the `no edit` row fails
+  without it;
 - the rows of the review of slice S2 (ids start with `RV6`, modules
   `inc.Rv*`): one late member that two clean typedef modules name, two late
   members of one clean module whose order follows the visit order, a late

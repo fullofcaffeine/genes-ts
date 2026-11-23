@@ -1946,7 +1946,8 @@ class IncrementalShadow {
   /**
    * Returns the target facts (`WalkTarget.inputsText`) of the declaration `key` of
    * `module` in this request, or `null` when the inventory lacks it. Each
-   * module is read once.
+   * module is read once. An import alias of `module`
+   * (`TypedModuleInventory.importAlias`) answers too.
    */
   function targetFactsOf(module: String, key: String): Null<String> {
     var ofModule = targetFactTexts.get(module);
@@ -1956,7 +1957,16 @@ class IncrementalShadow {
       ofModule = read == null ? new Map() : read;
       targetFactTexts.set(module, ofModule);
     }
-    return ofModule.get(key);
+    final known = ofModule.get(key);
+    if (known != null)
+      return known;
+    // An import alias is in no declaration list (genes-44h0).
+    final alias = TypedModuleInventory.importAlias(module, key);
+    if (alias == null)
+      return null;
+    final text = genes.WalkTarget.inputsText(genes.WalkTarget.inputsOf(TTypeDecl(alias)));
+    ofModule.set(key, text);
+    return text;
   }
 
   /** Keeps the first divergence of the live walk from the record. */
