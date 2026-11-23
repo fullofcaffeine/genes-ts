@@ -33,7 +33,8 @@ enum FieldKind {
  * the macro interpreter, and that copy was most of the inventory stage.
  * In a warm development request (`-D genes.dev_incremental`,
  * `generation: "reuse"`), Genes replays the stored output of each clean
- * module and never prints it, so no caller asks for its bodies. Example:
+ * module and never prints it, so its own stages ask for none of its bodies
+ * (a dirty module can still ask; see `ShadowReport.replayedBodyReads`). Example:
  * in a Caffeine edit of one component, Genes made the `Module` values of
  * 705 clean modules, and the copies of their bodies took about 3 s of the
  * 4 s inventory stage.
@@ -893,8 +894,10 @@ class Module {
    * retains every type named by those surfaces without broadening classic JS.
    *
    * Without a surface, a record reads the typed body of its Haxe field only
-   * when a caller first reads `Field.expr`. The constructor body is read at
-   * once, because its type and position give the record's `type` and `pos`.
+   * when a caller first reads `Field.expr`. Two bodies are still read at
+   * once: the constructor body, because its type and position give the
+   * record's `type` and `pos`, and the bodies of overload signatures, which
+   * `PublicMember.capture` reads.
    */
   public static function fieldsOf(cl: ClassType,
       ?publicSurface: PublicSurface, ?surfaceParams: Array<Type>,

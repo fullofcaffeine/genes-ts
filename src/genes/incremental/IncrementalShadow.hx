@@ -317,9 +317,17 @@ typedef ShadowReport = {
 
   /**
    * Typed field bodies that Genes read from Haxe for the replayed modules,
-   * outside the rolling replay audit (report format 6). A replayed module is
-   * not printed, so no stage needs its bodies: a count above 0 is time spent
-   * for nothing. See `Module.Field`.
+   * outside the rolling replay audit (report format 6). See `Module.Field`.
+   *
+   * A replayed module is not printed, so its own stages read none of its
+   * bodies. A dirty module can still read some for a good reason: when it
+   * calls `Module.resolveModuleFunction` on a clean module, the shape check
+   * reads the bodies of that module's functions. Example: a one-component
+   * edit of Caffeine reports 42 for this reason.
+   *
+   * Two reads stay eager and are not counted: the constructor body in
+   * `Module.fieldsOf` (it gives the field its type and position), and the
+   * overload signatures that `PublicMember.capture` reads.
    */
   final replayedBodyReads: Int;
 
@@ -1897,7 +1905,9 @@ class IncrementalShadow {
    * replayed module on purpose. Without an active shadow this does nothing.
    *
    * Example: `Module.fieldsOf` calls it the first time a caller reads
-   * `Field.expr` of a field of a class.
+   * `Field.expr` of a field of a class. Bodies that Genes reads at once (the
+   * constructor body, the overload signatures of `PublicMember.capture`)
+   * do not pass through it.
    */
   public static function recordBodyRead(module: String): Void {
     final shadow = current;
