@@ -88,6 +88,12 @@ typedef ModuleProfile = {
 
   /** `DceStdUses.externBasesOf`: extern parents of the module's eligible classes. */
   final externBases: Array<String>;
+
+  /**
+   * `DceStdUses.extensionCallsOf` of a module that Haxe keeps whole: the
+   * static calls that a `using` line can make, as `<class> <name>`.
+   */
+  final extensionCalls: Array<String>;
 }
 
 /** The live facts of the requested module that the generator gives to `decide`. */
@@ -636,9 +642,15 @@ typedef ModuleRecordsReport = {
  *   admitted;
  * - `dce-uses-unknown`: the port reached its nesting limit, so its lines
  *   may be incomplete;
+ * - `shadowed-extension`: no new instance field has the name of a static
+ *   function that another module calls on its class, which a `using` line
+ *   can make (`shadowedExtension`). Haxe takes the field first, so the call
+ *   changes, or fails for a private field;
  * - `kept-changed`: Haxe kept every field of the module.
  *
- * The visible shape keeps every field of an abstract's implementation class,
+ * The visible shape also keeps every private field of a class that another
+ * module names in `@:access` (or whose package it names), and every field
+ * of an abstract's implementation class,
  * also a private one: Haxe resolves its `@:op`, `@:arrayAccess`,
  * `@:resolve`, `@:from` and `@:to` fields from any module. Example: a new
  * private `@:op(A == B)` turns `a == b` of another module into a call.
@@ -882,6 +894,14 @@ class ModuleRequest {
    * `dependent` use line that names one of them is checked.
    */
   @:persistent static var storedExternBases: Map<String, Bool> = new Map();
+
+  /**
+   * For each `<class> <name>` of `DceStdUses.extensionCallsOf`, the stored
+   * modules whose bodies make such a call. A new instance field of that
+   * class and name would take the call (`shadowed-extension`).
+   */
+  @:persistent static var storedExtensionCalls: Map<String,
+    Array<String>> = new Map();
 
   /**
    * The last computed `-dce std` facts of each module, with the epochs that
@@ -2106,7 +2126,8 @@ class ModuleRequest {
                 listeners: [],
                 opaqueMacro: opaqueMacroModule(list,
                   moduleFiles.get(dependency)),
-                externBases: []
+                externBases: [],
+                extensionCalls: []
               });
           }
           profileSeconds += haxe.Timer.stamp() - profileStart;
@@ -2208,7 +2229,8 @@ class ModuleRequest {
           '${item.feature}\t${item.line}'
       ],
       opaqueMacro: opaqueMacroModule(types, file),
-      externBases: DceStdUses.externBasesOf(types)
+      externBases: DceStdUses.externBasesOf(types),
+      extensionCalls: DceStdUses.keptWhole(types) ? DceStdUses.extensionCallsOf(types) : []
     };
   }
 
@@ -2551,6 +2573,42 @@ class ModuleRequest {
           }
         default:
       }
+    // A module that names a class (or its package) in `@:access` can reach
+    // every private field of it, so all of them are visible
+    // (`visibleShape`). Example: `@:access(mr.Gadget) class GadgetUser`.
+    final accesses: Array<{path: String, module: String}> = [];
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final metas = [cls.meta];
+          for (field in cls.statics.get().concat(cls.fields.get()))
+            metas.push(field.meta);
+          final constructor = cls.constructor;
+          if (constructor != null)
+            metas.push(constructor.get().meta);
+          for (meta in metas)
+            for (entry in meta.extract(':access'))
+              for (param in (entry.params == null ? [] : entry.params))
+                accesses.push({
+                  path: haxe.macro.ExprTools.toString(param),
+                  module: cls.module
+                });
+        default:
+      }
+    if (accesses.length > 0)
+      for (type in types)
+        switch type {
+          case TInst(reference, _):
+            final cls = reference.get();
+            final path = cls.pack.concat([cls.name]).join('.');
+            for (access in accesses)
+              if (access.module != cls.module
+                && (path == access.path
+                  || StringTools.startsWith(path, access.path + '.')))
+                uses.set('${TypeUtil.baseTypeFullName(cls)} *', true);
+          default:
+        }
     externalUses = uses;
     // Proven typed content (`afterSave`): every source file, and every
     // `import.hx` that can apply to them (a missing one is `missing`, so a
@@ -2612,6 +2670,17 @@ class ModuleRequest {
         for (base in profile.externBases)
           bases.set(base, true);
     storedExternBases = bases;
+    final calls = new Map<String, Array<String>>();
+    if (DceStdUses.stdProfile())
+      for (module => profile in requestProfiles)
+        for (line in profile.extensionCalls) {
+          final list = calls.get(line);
+          if (list == null)
+            calls.set(line, [module]);
+          else
+            list.push(module);
+        }
+    storedExtensionCalls = calls;
     final counts = new Map<String, Int>();
     for (_ => lines in uses)
       for (line in lines)
@@ -2731,6 +2800,7 @@ class ModuleRequest {
     storedReachers = new Map();
     storedHaxePrinter = false;
     storedExternBases = new Map();
+    storedExtensionCalls = new Map();
   }
 
   /**
@@ -2766,7 +2836,8 @@ class ModuleRequest {
   /**
    * Returns `shape` without the lines of private fields that no other
    * module can see: no module of the stored full request uses the field
-   * from another module, and no class of another module extends its class.
+   * from another module, no class of another module extends its class, and
+   * no other module names its class or package in `@:access`.
    * Such a field can change without a new typing of the modules that import
    * this one; `kept` and the reference checks still guard what it does to
    * this module's own file.
@@ -3182,6 +3253,9 @@ class ModuleRequest {
           reason: '$module loaded $dependency, which has a macro function that ' +
           'Genes cannot see into'
         };
+    final shadow = shadowedExtension(module, record);
+    if (shadow != null)
+      return shadow;
     final walk = walkTargetFailure(module, entry, facts.steps);
     if (walk != null)
       return walk;
@@ -3268,6 +3342,50 @@ class ModuleRequest {
       }
     return null;
   }
+
+  /**
+   * Returns why a new instance field of the requested module may take a
+   * call that another module makes through `using`, or `null`: a stored
+   * module calls a static function with the field's name on that class
+   * (`storedExtensionCalls`).
+   *
+   * Why: Haxe looks for a field of the class before it tries a static
+   * extension (`type_field` in `fields.ml`), and the visible shape does not
+   * hold a private field that no other module uses. Example: `mr.GadgetUser`
+   * has `using mr.GadgetTools;` and calls `g.label()`; a new private
+   * `label()` in `mr.Gadget` makes a full build print `g.label()` as a
+   * method call, or, without `@:access`, fail with "Cannot access private
+   * field label".
+   */
+  static function shadowedExtension(module: String,
+      record: ModuleRecord): Null<{code: String, reason: String
+    }> {
+    final declared = requestDeclared;
+    if (declared == null)
+      return null;
+    final before = new Map<String, Bool>();
+    for (line in record.kept)
+      before.set(line, true);
+    for (line in declared) {
+      if (before.exists(line) || !StringTools.startsWith(line, 'class '))
+        continue;
+      final parts = line.split(' ');
+      if (parts.length != 3 || !StringTools.startsWith(parts[2], 'i:'))
+        continue;
+      final callers = storedExtensionCalls.get('${parts[1]} ${parts[2].substr(2)}');
+      if (callers == null)
+        continue;
+      final others = callers.filter(name -> name != module);
+      if (others.length > 0)
+        return {
+          code: 'shadowed-extension',
+          reason: 'the new field ${parts[2].substr(2)} of ${parts[1]} has the name ' +
+          'of a static function that ${others[0]} calls on it, which a ' +
+          '`using` line can make; Haxe takes the field first'
+        };
+    }
+    return null;
+    }
 
   /**
    * Returns the source file of the class that a build-macro call names
@@ -3539,9 +3657,11 @@ class ModuleRequest {
     // class of the stored program extends or implements the extern class.
     function valueQuiet(name: String): Bool
       return !storedHaxePrinter && !stored.exists(name) && !asked.exists(name);
+    // `*`: an extern chain was longer than `externBasesOf` follows.
     function dependentQuiet(line: String): Bool {
       final rest = line.substr('dependent '.length);
-      return !storedExternBases.exists(rest.substr(0, rest.indexOf(' ')));
+      return !storedExternBases.exists('*')
+        && !storedExternBases.exists(rest.substr(0, rest.indexOf(' ')));
     }
     for (line in newUses) {
       if (oldSet.exists(line) || othersHave(line))

@@ -636,6 +636,17 @@ that each part of the rule needs, and edits it step by step:
   typedef, which `mr.DeckUser` imports (`position-changed`, cold changes
   `mr/DeckUser.ts.map`).
 
+Round 2 of that review added three rows, each stale before it: a private
+`label()` in `mr.Gadget`, which takes the `using` call `g.label()` of
+`mr.GadgetUser` (with `@:access(mr.Gadget)`; `public-shape-changed`, because
+such a class keeps its private fields visible), and a `@:keep` field of a
+private extern class in `mr.Ext` that names `haxe.ds.List`, which the
+module only imports (`dce-use-added`; cold adds `haxe/ds/List.ts`).
+`std-shadow-error` makes the `mr.Gadget` edit on `mr.Knob`, whose user has no
+`@:access`: the module types alone, but cold fails with "Cannot access
+private field label", and the rule refuses it (`shadowed-extension`;
+`programFails`: the cold build and the full request must fail).
+
 `std-value-use` runs on its own server: `return Int;` in `mr.Words` is the
 first value use of `Int`, so cold prints `var Int = { };` in `Std.ts`, and
 its removal drops it again (both `feature-changed`). In `std-structural` the

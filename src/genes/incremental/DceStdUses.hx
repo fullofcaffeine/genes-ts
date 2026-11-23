@@ -248,8 +248,12 @@ class DceStdUses {
   public static function externBasesOf(types: Array<Type>): Array<String> {
     final found = new Map<String, Bool>();
     function walk(cls: ClassType, depth: Int): Void {
-      if (depth > 64)
+      // `*`: the chain is longer than the walk follows, so every extern
+      // class counts (`ModuleRequest` then checks every `dependent` line).
+      if (depth > 64) {
+        found.set('*', true);
         return;
+      }
       final items = cls.interfaces.copy();
       final parent = cls.superClass;
       if (parent != null)
@@ -270,6 +274,68 @@ class DceStdUses {
         default:
       }
     final result = [for (name in found.keys()) name];
+    result.sort(compareStrings);
+    return result;
+  }
+
+  /**
+   * Returns the static calls of the bodies of `types` (one module) that a
+   * `using` line can make, one line each, sorted and unique: `<class>
+   * <name>` for a static function `name` called with a first argument whose
+   * type is the class `<class>` (full name), and one line for each parent
+   * class of it.
+   *
+   * Why: Haxe looks for a field of the class before it tries a static
+   * extension (`type_field` in `fields.ml`). So a new instance field of
+   * that name, also a private one, changes the call in this module, or
+   * makes it fail ("Cannot access private field"). Example: `using
+   * app.Tools; g.label();` calls `Tools.label(g)` and gives `app.Gadget.Gadget
+   * label`; a new private `label()` in `app.Gadget` then takes the call. A
+   * plain static call with an argument gives a line too, which can only
+   * refuse a preview.
+   */
+  public static function extensionCallsOf(types: Array<Type>): Array<String> {
+    final found = new Map<String, Bool>();
+    function visit(expression: TypedExpr): Void {
+      switch expression.expr {
+        case TCall({expr: TField(_, FStatic(_, field))}, args)
+          if (args.length > 0):
+          switch Context.follow(args[0].t) {
+            case TInst(owner, _):
+              var current: Null<ClassType> = owner.get();
+              var depth = 0;
+              while (current != null && depth++ < 64) {
+                if (!current.kind.match(KTypeParameter(_)))
+                  found.set('${TypeUtil.baseTypeFullName(current)} ${field.get().name}',
+                    true);
+                final parent = current.superClass;
+                current = parent == null ? null : parent.t.get();
+              }
+            default:
+          }
+        default:
+      }
+      TypedExprTools.iter(expression, visit);
+    }
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final fields = cls.statics.get().concat(cls.fields.get());
+          final constructor = cls.constructor;
+          if (constructor != null)
+            fields.push(constructor.get());
+          for (field in fields) {
+            final body = field.expr();
+            if (body != null)
+              visit(body);
+          }
+          final init = cls.init;
+          if (init != null)
+            visit(init);
+        default:
+      }
+    final result = [for (line in found.keys()) line];
     result.sort(compareStrings);
     return result;
   }
@@ -689,9 +755,15 @@ private class DceStdWalk {
    * class initializer, and the class itself when it has a physical field.
    */
   public function entry(cls: ClassType): Void {
-    // `collect_entry_points` marks no field of an extern class.
-    if (cls.isExtern || cls.kind.match(KTypeParameter(_)))
+    if (cls.kind.match(KTypeParameter(_)))
       return;
+    // `collect_entry_points` also marks fields of an extern class: every
+    // field of an extern interface, and each field that `keep_field` keeps
+    // (`@:keep`, `@:expose`, an extern field). The walk marks the types of
+    // every field of an extern class, which is never fewer; it follows no
+    // body of one, as `mark` does not. Example: `@:keep static function
+    // b(): haxe.ds.List<Int>;` in an extern class keeps `haxe.ds.List`.
+    final externClass = cls.isExtern;
     final fields = cls.statics.get().concat(cls.fields.get());
     final constructor = cls.constructor;
     if (constructor != null)
@@ -710,6 +782,8 @@ private class DceStdWalk {
       markField(cls, constructor.get(), false);
     for (field in fields) {
       markType(field.type);
+      if (externClass)
+        continue;
       final body = field.expr();
       if (body != null)
         expr(body);

@@ -285,6 +285,13 @@ type Step = {
    * request may publish anything.
    */
   readonly typeError?: boolean;
+  /**
+   * The edited module still types alone, but the program no longer
+   * compiles (review of #260: a new private field that another module
+   * calls). The module request must not preview; the cold build and the
+   * full request must fail with the same errors (as for `typeError`).
+   */
+  readonly programFails?: boolean;
 };
 
 /**
@@ -1811,7 +1818,10 @@ function failedRequestGroups(): ReadonlyArray<Group> {
  * - `mr.Px`, `mr.Row` and `mr.Bag`: abstracts, with `mr.PxUser` comparing
  *   two `Px` values and `mr.RowUser` indexing a `Row` (review of #260);
  * - `mr.Deck`: a class and, below it, a private typedef that `mr.DeckUser`
- *   imports, so its source map names the typedef's position.
+ *   imports, so its source map names the typedef's position;
+ * - `mr.Gadget`, `mr.GadgetTools` and `mr.GadgetUser`, which calls
+ *   `g.label()` through `using` and has `@:access(mr.Gadget)`;
+ * - `mr.Ext` with a private extern class (round 2 of the review of #260).
  */
 const stdFiles: Readonly<Record<string, string>> = {
   "mr/Main.hx": `package mr;\nimport mr.Hints;\nimport mr.Styles;\n\nclass Main {\n`
@@ -1822,7 +1832,7 @@ const stdFiles: Readonly<Record<string, string>> = {
     + `    trace(new Box<String>('box').value);\n    trace(CardUser.use());\n    trace(Tag.text());\n`
     + `    trace(CyBase.make() != null);\n    trace(new CyChild() != null);\n`
     + `    trace(PxUser.same());\n    trace(RowUser.first());\n    trace((3 : Bag).count());\n`
-    + `    trace(DeckUser.size());\n  }\n}\n`,
+    + `    trace(DeckUser.size());\n    trace(GadgetUser.show());\n    trace(Ext.value());\n  }\n}\n`,
   "mr/Card.hx": `package mr;\n\nimport mr.OnlyHere;\n\n`
     + `/** A UI-like module for structural edits under -dce std (genes-f8vc.14.7). */\n`
     + `class Card {\n  public static function render(): String {\n    return title() + ' ' + Theme.color();\n  }\n\n`
@@ -1861,8 +1871,30 @@ const stdFiles: Readonly<Record<string, string>> = {
   "mr/Deck.hx": `package mr;\n\nclass Deck {\n  public static function options(): DeckOpt {\n`
     + `    return {size: 3};\n  }\n}\n\nprivate typedef DeckOpt = {\n  final size: Int;\n}\n`,
   "mr/DeckUser.hx": `package mr;\n\nclass DeckUser {\n  public static function size(): Int {\n`
-    + `    final options = Deck.options();\n    return options.size;\n  }\n}\n`
+    + `    final options = Deck.options();\n    return options.size;\n  }\n}\n`,
+  ...gadgetFiles("Gadget", true),
+  // The import loads `haxe.ds.List` and keeps nothing of it: dead-code
+  // elimination removes it until a field keeps it.
+  "mr/Ext.hx": `package mr;\n\nimport haxe.ds.List;\n\nclass Ext {\n  public static function value(): Int {\n    return 1;\n  }\n}\n\n`
+    + `private extern class ExtNative {\n  static function a(): Int;\n}\n`
 };
+
+/**
+ * A class `mr.<name>`, a static extension `mr.<name>Tools.label(g)` and a
+ * module `mr.<name>User` that calls `g.label()` through `using`, with
+ * `@:access(mr.<name>)` when `access` is true (review of #260).
+ */
+function gadgetFiles(name: string, access: boolean): Record<string, string> {
+  return {
+    [`mr/${name}.hx`]: `package mr;\n\nclass ${name} {\n  public function new() {}\n\n`
+      + `  public function title(): String {\n    return '${name.toLowerCase()}';\n  }\n}\n`,
+    [`mr/${name}Tools.hx`]: `package mr;\n\nclass ${name}Tools {\n`
+      + `  public static function label(item: ${name}): String {\n    return 'tools ' + item.title();\n  }\n}\n`,
+    [`mr/${name}User.hx`]: `package mr;\n\nusing mr.${name}Tools;\n\n${access ? `@:access(mr.${name})\n` : ""}`
+      + `class ${name}User {\n  public static function show(): String {\n    final item = new ${name}();\n`
+      + `    return item.label();\n  }\n}\n`
+  };
+}
 
 /**
  * The structural edits under `-dce std` (genes-f8vc.14.7). Each row names
@@ -1986,7 +2018,36 @@ function stdGroups(): ReadonlyArray<Group> {
           module: "mr.Deck", expect: "position-changed" },
         { id: "std: a comment line above that private typedef (position-changed)",
           apply: () => edit("Deck.hx", "private typedef DeckOpt", "// The options of a deck.\nprivate typedef DeckOpt"),
-          module: "mr.Deck", expect: "position-changed" }
+          module: "mr.Deck", expect: "position-changed" },
+        // Round 2 of the review of #260: each of these previewed and differed
+        // from cold on 77ef155d.
+        { id: "std: a private method takes a using call of a module with @:access (public-shape-changed)",
+          apply: () => edit("Gadget.hx", "  public function title(): String {",
+            "  function label(): String {\n    return 'own';\n  }\n\n  public function title(): String {"),
+          module: "mr.Gadget", expect: ["public-shape-changed", "shadowed-extension"] },
+        { id: "std: a @:keep field of a private extern class keeps a std class (dce-use-added)",
+          apply: () => edit("Ext.hx", "  static function a(): Int;\n",
+            "  static function a(): Int;\n\n  @:keep private static function b(): haxe.ds.List<Int>;\n"),
+          module: "mr.Ext", expect: "dce-use-added" }
+      ]
+    },
+    {
+      // Round 2 of the review of #260: the same private method without
+      // `@:access`. The module types alone, but a full build fails with
+      // "Cannot access private field label".
+      name: "std-shadow-error",
+      dce: "std",
+      files: {
+        ...stdFiles,
+        ...gadgetFiles("Knob", false),
+        "mr/Main.hx": `package mr;\n\nclass Main {\n  static function main() {\n`
+          + `    trace(KnobUser.show());\n  }\n}\n`
+      },
+      steps: [
+        { id: "std: a private method takes a using call, and the program no longer compiles (shadowed-extension)",
+          apply: () => edit("Knob.hx", "  public function title(): String {",
+            "  function label(): String {\n    return 'own';\n  }\n\n  public function title(): String {"),
+          module: "mr.Knob", expect: "shadowed-extension", programFails: true }
       ]
     },
     {
@@ -3140,6 +3201,11 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   strictEqual(report.kind, "module", `${label}: report kind`);
   strictEqual(report.module, module, `${label}: report module`);
   const outcome = report.result === "preview" ? "preview" : report.refusal ?? report.result;
+  if (report.result === "preview" && step.programFails === true) {
+    // A preview of a program that no longer compiles: cold has no tree.
+    ok(observe, `${label}: a preview was published although the program does not compile`);
+    return { outcome: "STALE cold fails", ms, report };
+  }
   if (report.result === "preview") {
     const coldTree = await coldBuild(compiler, label);
     // The preview holds the module's files and the manifest, nothing else.
@@ -3253,7 +3319,7 @@ async function runGroup(group: Group,
       }
       step.afterModule?.();
       let programMs = 0;
-      if (step.skipProgram !== true && step.typeError === true) {
+      if (step.skipProgram !== true && (step.typeError === true || step.programFails === true)) {
         programMs = await failingProgramRequest(server, compiler, label);
       } else if (step.skipProgram !== true) {
         // The cold build of the preview check holds the same sources, unless
