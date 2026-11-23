@@ -387,6 +387,11 @@ class CleanRuleProbe {
     final pairB = Context.getType('inc.OrderPair.OrderPairB');
     expectDifferent('declaration order: two members swap', of([pairA, pairB]),
       of([pairB, pairA]));
+    // This case runs in an init macro, before Haxe applies `@:native`, so
+    // the two classes still have their own names here: it checks list
+    // order, not the twin itself. The shadow rows `ORDER` for
+    // `inc.OrderTwin` test the twin, where both classes are `OrderTwinX`
+    // and only `@:realPath` tells them apart.
     final twinA = Context.getType('inc.OrderTwin.OrderTwinA');
     final twinB = Context.getType('inc.OrderTwin.OrderTwinB');
     expectDifferent('declaration order: two classes with one emitted name swap',

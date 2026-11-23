@@ -136,7 +136,11 @@ typedef ClassParts = {
  * - `Module.addTypes` keeps only the first of two declarations with the
  *   same emitted name, for example two classes of one module with
  *   `@:native("X")`. Their lines in `members` are equal, so only this
- *   text shows which one is printed (review of genes-ts #262).
+ *   text shows which one is printed (review of genes-ts #262). After
+ *   `@:native`, both texts start with the same name; they still differ
+ *   because Haxe adds `@:realPath("<old name>")` when it applies
+ *   `@:native`, and `metaText` holds it. So `:realPath` must never be in
+ *   `EXCLUDED_META`.
  */
 class ModuleFingerprint {
   /**
