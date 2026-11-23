@@ -25,27 +25,68 @@ enum FieldKind {
   Property;
 }
 
-typedef Field = {
-  final kind: FieldKind;
-  final methodKind: Null<MethodKind>;
-  final meta: Null<MetaAccess>;
-  final name: String;
-  final type: Type;
-  final expr: TypedExpr;
-  final pos: Position;
-  final isStatic: Bool;
-  final ownership: PublicMemberOwnership;
+/**
+ * One field of a class member, as the plans and the emitters read it.
+ *
+ * Why a class: `expr` reads the typed body from Haxe only when a caller
+ * first asks for it. `ClassField.expr()` copies the whole typed body into
+ * the macro interpreter, and that copy was most of the inventory stage.
+ * In a warm development request (`-D genes.dev_incremental`,
+ * `generation: "reuse"`), Genes replays the stored output of each clean
+ * module and never prints it, so no caller asks for its bodies. Example:
+ * in a Caffeine edit of one component, Genes made the `Module` values of
+ * 705 clean modules, and the copies of their bodies took about 3 s of the
+ * 4 s inventory stage.
+ *
+ * What: build a field with an object literal (this is a `@:structInit`
+ * class). Give `readExpr` (for example `classField.expr`) to read the body
+ * on the first access of `expr`, or `exprValue` when the body is already a
+ * value. Each field reads its body at most once, so every caller of one
+ * request sees the same typed object, as before.
+ *
+ * Limit: the field belongs to one request, like every value that holds a
+ * typed expression. A body that Haxe never typed is `null`.
+ */
+@:structInit
+class Field {
+  public final kind: FieldKind;
+  public final methodKind: Null<MethodKind>;
+  public final meta: Null<MetaAccess>;
+  public final name: String;
+  public final type: Type;
+
+  /** The typed body; see the class comment for when it is read. */
+  public var expr(get, never): TypedExpr;
+
+  public final pos: Position;
+  public final isStatic: Bool;
+  public final ownership: PublicMemberOwnership;
   #if (haxe_ver >= 4.2)
-  final isAbstract: Bool;
+  public final isAbstract: Bool;
   #end
-  final isPublic: Bool;
-  final params: Array<TypeParameter>;
-  final callableSignature: CallableSignaturePlan;
-  final doc: Null<String>;
-  final setter: Bool;
-  final getter: Bool;
-  final tsType: Null<String>;
-  final overloads: Array<Field>;
+  public final isPublic: Bool;
+  public final params: Array<TypeParameter>;
+  public final callableSignature: CallableSignaturePlan;
+  public final doc: Null<String>;
+  public final setter: Bool;
+  public final getter: Bool;
+  public final tsType: Null<String>;
+  public final overloads: Array<Field>;
+
+  /** The body, once it is known. */
+  var exprValue: Null<TypedExpr> = null;
+
+  /** Reads the body from Haxe; `null` after the first read. */
+  var readExpr: Null<Void->Null<TypedExpr>> = null;
+
+  function get_expr(): TypedExpr {
+    final read = readExpr;
+    if (read != null) {
+      readExpr = null;
+      exprValue = read();
+    }
+    return exprValue;
+  }
 }
 
 enum Member {
@@ -850,11 +891,23 @@ class Module {
    * declarations to members present in emitted JS, while interfaces deliberately
    * remain complete because they erase at runtime. DependencyPlan independently
    * retains every type named by those surfaces without broadening classic JS.
+   *
+   * Without a surface, a record reads the typed body of its Haxe field only
+   * when a caller first reads `Field.expr`. The constructor body is read at
+   * once, because its type and position give the record's `type` and `pos`.
    */
   public static function fieldsOf(cl: ClassType,
       ?publicSurface: PublicSurface, ?surfaceParams: Array<Type>,
       includeCompilerGenerated = false, ?retainedFields: Array<Field>) {
     final fields: Array<Field> = [];
+    // Reads the typed body of one field when a caller first asks for it
+    // (see `Field`), and counts the read for the generation report.
+    function readBody(field: ClassField): Void->Null<TypedExpr> {
+      return () -> {
+        genes.incremental.IncrementalShadow.recordBodyRead(cl.module);
+        return field.expr();
+      };
+    }
     final classDisableNativeAccessors = haxe.macro.Context.defined('genes.disable_native_accessors')
       || cl.meta.has(':genes.disableNativeAccessors');
     inline function extractTsType(meta: MetaAccess): Null<String> {
@@ -891,7 +944,7 @@ class Module {
           methodKind: null,
           type: member.type,
           meta: member.meta,
-          expr: member.expr,
+          exprValue: member.expr,
           pos: member.pos,
           name: 'new',
           isStatic: false,
@@ -929,7 +982,7 @@ class Module {
         meta: member.meta,
         name: member.name,
         type: member.type,
-        expr: member.expr,
+        exprValue: member.expr,
         pos: member.pos,
         isStatic: member.isStatic,
         ownership: member.ownership,
@@ -995,7 +1048,7 @@ class Module {
           methodKind: null,
           type: e.t,
           meta: null,
-          expr: e,
+          exprValue: e,
           pos: e.pos,
           name: 'new',
           isStatic: false,
@@ -1033,7 +1086,7 @@ class Module {
         meta: field.meta,
         name: field.name,
         type: field.type,
-        expr: field.expr(),
+        readExpr: readBody(field),
         pos: field.pos,
         isStatic: false,
         ownership: Instance,
@@ -1087,7 +1140,7 @@ class Module {
         meta: field.meta,
         name: field.name,
         type: field.type,
-        expr: field.expr(),
+        readExpr: readBody(field),
         pos: field.pos,
         isStatic: true,
         ownership: PublicSurface.ownershipFor(cl, field, true),

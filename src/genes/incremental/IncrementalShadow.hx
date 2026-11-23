@@ -315,6 +315,14 @@ typedef ShadowReport = {
   /** Files that this request staged from the cache. */
   final replayedFiles: Int;
 
+  /**
+   * Typed field bodies that Genes read from Haxe for the replayed modules,
+   * outside the rolling replay audit (report format 6). A replayed module is
+   * not printed, so no stage needs its bodies: a count above 0 is time spent
+   * for nothing. See `Module.Field`.
+   */
+  final replayedBodyReads: Int;
+
   /** Why the checks before emission made the request generate in full, or `null`. */
   final planFallback: Null<String>;
 
@@ -475,9 +483,10 @@ class IncrementalShadow {
   /**
    * The report format. Format 2 added `mode` and `refusal`; format 3 added
    * the replay counts, `planFallback` and `sameObjectFailures`; format 4
-   * added `walk`; format 5 added `audit`.
+   * added `walk`; format 5 added `audit`; format 6 added
+   * `replayedBodyReads`.
    */
-  static inline final REPORT_FORMAT = 5;
+  static inline final REPORT_FORMAT = 6;
 
   static inline final LINE_LIMIT = 240;
   static inline final MISMATCH_LIMIT = 200;
@@ -603,6 +612,9 @@ class IncrementalShadow {
 
   /** Modules whose stored files were staged in this request (`"reuse"` only). */
   final replayed = new Map<String, Bool>();
+
+  /** Typed bodies read for each module outside the audit (`recordBodyRead`). */
+  final bodyReads = new Map<String, Int>();
 
   var replayedFiles = 0;
   var planFallback: Null<String> = null;
@@ -1879,6 +1891,25 @@ class IncrementalShadow {
   }
 
   /**
+   * Counts one typed field body that Genes read from Haxe for `module` (the
+   * module that declares the field), for `replayedBodyReads` in the report.
+   * Reads by the rolling replay audit do not count: the audit prints a
+   * replayed module on purpose. Without an active shadow this does nothing.
+   *
+   * Example: `Module.fieldsOf` calls it the first time a caller reads
+   * `Field.expr` of a field of a class.
+   */
+  public static function recordBodyRead(module: String): Void {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return;
+    if (shadow.clockModule != null && shadow.clockPhase == Audit)
+      return;
+    final before = shadow.bodyReads.get(module);
+    shadow.bodyReads.set(module, (before == null ? 0 : before) + 1);
+  }
+
+  /**
    * Records one warning that the printer is about to report for the module
    * that it prints now. The caller still reports the warning itself; without
    * an active shadow this does nothing.
@@ -2256,6 +2287,11 @@ class IncrementalShadow {
       replayable: [for (module in replayable.keys()) if (files.exists(module)) module].length,
       replayed: [for (_ in replayed.keys()) 1].length,
       replayedFiles: replayedFiles,
+      replayedBodyReads: Lambda.fold([
+        for (module => count in bodyReads)
+          if (replayed.exists(module)) count
+      ],
+        (count, sum) -> sum + count, 0),
       planFallback: planFallback,
       sameObjectFailures: active ? GenerationChangeSet.sameObjectFailures()
         .length : 0,

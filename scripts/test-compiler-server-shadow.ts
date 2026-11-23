@@ -187,6 +187,11 @@ type ShadowReport = {
   readonly replayable: number;
   readonly replayed: number;
   readonly replayedFiles: number;
+  /**
+   * Typed field bodies that Genes read for the replayed modules, outside the
+   * replay audit (report format 6). It does not depend on host speed.
+   */
+  readonly replayedBodyReads: number;
   readonly replayMs: number;
   readonly planFallback: string | null;
   readonly haxePrinterModuleNames: ReadonlyArray<string>;
@@ -2566,6 +2571,14 @@ async function runPass(
       if (report.mode !== "reuse") {
         strictEqual(report.replayed, 0,
           `${label}: a ${report.mode} request replayed modules`);
+      }
+      // genes-wcd0: a replayed module is not printed, so no stage needs its
+      // typed bodies. Reading them was most of the inventory stage of a warm
+      // Caffeine edit. The count does not depend on host speed.
+      if (measured) {
+        strictEqual(report.replayedBodyReads, 0,
+          `${label}: Genes read ${report.replayedBodyReads} typed bodies of `
+          + `the ${report.replayed} replayed modules`);
       }
       const emittedModules: ShadowReport["modules"] = report.modules;
       for (const name of step.dirtyModules ?? []) {

@@ -290,7 +290,18 @@ For a request with no edit, every emitted module except the root module,
 adds) and modules that used Haxe's printer must be
 replayed (reuse) or replayable (compare), and the checks before emission must
 not fall back. The gate prints the replayed modules of each edit and fails
-when the reuse pass replayed none. `--only=<a|b>` runs the first request and
+when the reuse pass replayed none.
+
+A replayed module is not printed, so no stage needs its typed bodies
+(genes-wcd0). The report counts the bodies that Genes read for the replayed
+modules outside the replay audit (`replayedBodyReads`, report format 6), and
+the gate requires 0 on every request. The count does not depend on host
+speed. Before this rule, the inventory read every field body of every module
+when it made the `Module` values: the `no edit` row read 166 bodies of its
+106 replayed modules, and a one-component edit of Caffeine spent about 3 of
+its 4 s of inventory time on clean modules.
+
+`--only=<a|b>` runs the first request and
 the edits whose id contains `a` or `b` (`=a` for an exact id; plain text,
 never a regular expression); `--skip-plain` skips the server without the define.
 Such runs end with `compiler-server-shadow:partial`.
