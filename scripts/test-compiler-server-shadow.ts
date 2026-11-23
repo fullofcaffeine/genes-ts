@@ -316,7 +316,7 @@ const program = {
   defines: [] as string[],
   modules: [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy",
-    "inc.OrderA", "inc.OrderZ"
+    "inc.OrderA", "inc.OrderZ", "inc.OrderPair", "inc.OrderTwin"
   ] as string[]
 };
 
@@ -1894,6 +1894,70 @@ const edits: ReadonlyArray<Edit> = [
     settled: true,
     walk: "on-path"
   },
+  // A real member swap: `OrderPairB` moves before `OrderPairA`, so the
+  // printed order of `inc.OrderPair` changes. The request must generate in
+  // full, with the tree equal to cold.
+  {
+    id: "ORDER a static initializer swaps two members of a module that Haxe does not type again",
+    apply: () => edit("inc/OrderA.hx", "/*ORDER_SEED*/",
+      "public static var pair: Int = inc.OrderPair.OrderPairB.size(); /*ORDER_SEED*/"),
+    results: ["full"]
+  },
+  {
+    id: "ORDER no edit after the members swapped",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ORDER the members swap back",
+    apply: () => edit("inc/OrderA.hx",
+      "public static var pair: Int = inc.OrderPair.OrderPairB.size(); /*ORDER_SEED*/",
+      "/*ORDER_SEED*/"),
+    results: ["full"]
+  },
+  {
+    id: "ORDER no edit after the members swapped back",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  // Two classes of `inc.OrderTwin` share the emitted name `OrderTwinX`.
+  // `Module.addTypes` prints the first in list order, and their member-list
+  // lines are equal. When `OrderTwinB` moves first, the printed body
+  // changes; only the fingerprint in list order sees it (review of
+  // genes-ts #262). The request must generate in full.
+  {
+    id: "ORDER a static initializer moves the second of two classes with one emitted name first",
+    apply: () => edit("inc/OrderA.hx", "/*ORDER_SEED*/",
+      "public static var twin: String = inc.OrderTwin.OrderTwinB.id(); /*ORDER_SEED*/"),
+    results: ["full"],
+    reason: "inc.OrderTwin"
+  },
+  {
+    id: "ORDER no edit after the twin moved",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
+  {
+    id: "ORDER the twin moves back",
+    apply: () => edit("inc/OrderA.hx",
+      "public static var twin: String = inc.OrderTwin.OrderTwinB.id(); /*ORDER_SEED*/",
+      "/*ORDER_SEED*/"),
+    results: ["full"],
+    reason: "inc.OrderTwin"
+  },
+  {
+    id: "ORDER no edit after the twin moved back",
+    apply: () => {},
+    results: ["incremental"],
+    settled: true,
+    walk: "on-path"
+  },
   // Import aliases (genes-44h0). `import X as Alias` makes Haxe 4.3.7
   // create a private typedef of the importing module that is in no
   // declaration list; `TypedModuleInventory.importAlias` finds it, so the
@@ -2225,7 +2289,7 @@ function resetState(mode: GenerationMode): void {
   program.defines = options.reactRefresh ? ["genes.react_refresh_modules"] : [];
   program.modules = [
     "inc.Leaf", "inc.Leaf2", "inc.Clock", "inc.Embedded", "inc.Legacy",
-    "inc.OrderA", "inc.OrderZ"
+    "inc.OrderA", "inc.OrderZ", "inc.OrderPair", "inc.OrderTwin"
   ];
   request.afterTyping = "reuse";
   request.generation = mode;
