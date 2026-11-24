@@ -891,14 +891,24 @@ is emitted. A host must ignore an event kind that it does not know.
     incomplete, or when the server closes the pipe, the session stops that
     server and builds again on a new one, which gives the cold result. After
     two such failures in a row it builds in a new Haxe process for each
-    request (`compilerMode: "direct"`). Print from a macro with `trace` or
-    `Sys.println`; Haxe puts that text inside the frame.
+    request (`compilerMode: "direct"`). The session reports each such
+    failure as a `compiler-lifecycle` event of kind `transport-failed`, with
+    the reason and up to 64 bytes that broke the frame (`firstBytes`,
+    private paths removed).
+  - Which output is safe: `trace`, `Sys.print`, `Sys.println` and the output
+    of `Sys.command` reach the answer frame, as with `haxe --connect`. Only a
+    direct write to `Sys.stderr()` from a macro, or one of Haxe's rare
+    direct prints, lands outside a frame; each costs one cold rebuild.
   - Haxe 4.3.7 runs a full collection or compaction after every tenth
     request of any kind; on a large cache it takes seconds. When the server
-    has been idle for 250 ms, the session sends `-version` requests, which
-    compile nothing, until its request count is a multiple of ten, so that
-    collection runs while nobody waits. An edit that arrives during the
-    collection still waits for it.
+    has been idle for 250 ms and fewer than four requests remain before the
+    next tenth request, the session sends `-version` requests, which compile
+    nothing, up to it, so that collection runs while nobody waits and never
+    between the requests of the next build. Further from the boundary it
+    sends nothing, so Haxe collects as often as before (about once in 5 to
+    10 builds). An edit that arrives during the collection still waits for
+    it. `compilerServerIdleCollection: { delayMs }` changes the idle time;
+    `false` turns this off.
   - The server's lease (`<stateDirectory>/haxe-server.json`) has the schema
     `genes.tooling.haxe-wait-server-lease.stdio.v1` and no address, and the
     `started` compiler event has the endpoint
@@ -908,7 +918,13 @@ is emitted. A host must ignore an event kind that it does not know.
     JSON-RPC answer.
   - A save after an idle period starts its build 10 ms after the file event
     (`startDelayMs`). Saves that arrive while a build runs start one
-    follow-up build after the quiet time (`debounceMs`, 100 ms).
+    follow-up build after the quiet time (`debounceMs`, 100 ms). An editor
+    or a tool that saves several files more than 10 ms apart (for example a
+    rename that touches many modules) can start the first build on a
+    partial tree. That build may fail or show mixed code for a moment; the
+    events of the later files start the follow-up build, which sees the
+    whole tree. A host that saves many files in a row can set a larger
+    `startDelayMs`.
 - `resolveInvocation` is called when the session starts and again only when a
   plan input changes (an HXML or library provenance file, the process
   environment, or an extra input with `reinventory` or `restartCompiler`); an
@@ -965,7 +981,9 @@ is emitted. A host must ignore an event kind that it does not know.
   }]
   ```
 - `resolveInvocation().executable` is an absolute native Haxe compiler binary
-  that supports `--server-listen` and `--connect`, not a shell command string.
+  that supports `--wait stdio` (the session's owned server) and ordinary
+  direct runs (cold builds and the `direct` fallback), not a shell command
+  string.
   On POSIX, tooling starts a trusted Node handoff with no inherited environment,
   transfers the bounded Haxe environment over a private input pipe, and
   replaces that same child with Haxe through raw `execve`. A private control

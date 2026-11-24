@@ -7662,6 +7662,35 @@ await withHarness("generation-reuse-off", async (harness) => {
 // A wrong `generationReuse` value fails when the session is constructed.
 // An audit count above the Haxe `Int` range would make Genes refuse the
 // descriptor and turn incremental work off without an error.
+// compilerServerIdleCollection (genes-0emi review): false or { delayMs }.
+for (const compilerServerIdleCollection of [
+  { delayMs: -1 },
+  { delayMs: 600_001 },
+  { delayMs: 1.5 },
+  true,
+  null,
+] as const) {
+  const invalidRoot = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-idle-invalid-")),
+  );
+  try {
+    assert.throws(
+      () =>
+        makeHarness(
+          "idle-invalid",
+          undefined,
+          (options) => ({
+            ...options,
+            compilerServerIdleCollection: compilerServerIdleCollection as unknown as false,
+          }),
+          invalidRoot,
+        ),
+      /compilerServerIdleCollection must be false or \{ delayMs \}/u,
+    );
+  } finally {
+    rmSync(invalidRoot, { recursive: true, force: true });
+  }
+}
 for (const [generationReuse, message] of [
   [{ auditModules: -1 }, /generationReuse\.auditModules must be a whole number from 0 to 1000000/u],
   [{ auditModules: 1_000_001 }, /generationReuse\.auditModules must be a whole number from 0 to 1000000/u],

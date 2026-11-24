@@ -130,6 +130,16 @@ export const HAXE_SERVER_INVALIDATE_TIMEOUT_MS = 120_000;
 export const HAXE_SERVER_IDLE_COLLECTION_DELAY_MS = 250;
 
 /**
+ * Idle requests are sent only when fewer requests than this remain before
+ * the next multiple of `HAXE_SERVER_COLLECTION_PERIOD`: about the most that
+ * one build sends (the compile request, a `server/invalidate` or two, a
+ * query). So Haxe collects as often as before (about once in 5 to 10
+ * builds), and a build never starts so close to the boundary that the
+ * collection runs between its requests.
+ */
+export const HAXE_SERVER_BUILD_REQUEST_ALLOWANCE = 4;
+
+/**
  * After this many failures of the stdio channel in a row, the compiler stops
  * starting new servers for the same compatibility digest and builds in a
  * new Haxe process for each request (`direct` mode), as it does for a
@@ -139,6 +149,8 @@ const MAX_TRANSPORT_FAILURES = 2;
 
 /** Optional settings of `HaxeSessionCompiler`; tests use small values. */
 export interface HaxeSessionCompilerOptions {
+  /** False sends no idle requests. Default true. */
+  readonly idleCollection?: boolean;
   /** See `HAXE_SERVER_IDLE_COLLECTION_DELAY_MS`. */
   readonly idleCollectionDelayMs?: number;
   /** Passed to the channel; see `HaxeStdioChannelOptions`. */
@@ -545,12 +557,14 @@ interface StdioServer {
  *    on the pipe (`HaxeStdioChannel`). The request has the same arguments
  *    and the same `--cwd` as a `haxe --connect` client would send, so the
  *    output is the same as before; only the transport changed.
- * 2. When the server stays idle for `HAXE_SERVER_IDLE_COLLECTION_DELAY_MS`,
- *    it sends `-version` requests, which compile nothing, until the server's
- *    request count is a multiple of `HAXE_SERVER_COLLECTION_PERIOD`. Haxe
+ * 2. When the server stays idle for `HAXE_SERVER_IDLE_COLLECTION_DELAY_MS`
+ *    and fewer than `HAXE_SERVER_BUILD_REQUEST_ALLOWANCE` requests remain
+ *    before the next multiple of `HAXE_SERVER_COLLECTION_PERIOD`, it sends
+ *    `-version` requests, which compile nothing, up to that multiple. Haxe
  *    then runs its periodic full collection or compaction at once, while
- *    nobody waits, instead of after a later request of an edit. On a large
- *    cache that collection takes seconds.
+ *    nobody waits, instead of between the requests of the next build. On a
+ *    large cache that collection takes seconds. Further from the boundary
+ *    it sends nothing, so Haxe collects as often as before.
  *
  * When the pipe fails (for example a macro wrote to standard error directly,
  * so bytes arrived outside a frame), the compiler stops that server and
@@ -564,8 +578,10 @@ interface StdioServer {
 export class HaxeSessionCompiler implements SessionCompiler {
   readonly #server: OwnedHaxeWaitServer<CompilerResult>;
   readonly #shutdownTimeoutMs: number;
+  readonly #idleCollection: boolean;
   readonly #idleCollectionDelayMs: number;
   readonly #frameStallMs: number | undefined;
+  readonly #onEvent: (event: HaxeWaitServerEvent) => void;
   #request: ActiveRequest | null = null;
   #freshServers = 0;
   #transportFailures = 0;
@@ -580,6 +596,8 @@ export class HaxeSessionCompiler implements SessionCompiler {
     options: HaxeSessionCompilerOptions = {},
   ) {
     this.#shutdownTimeoutMs = shutdownTimeoutMs;
+    this.#onEvent = onEvent;
+    this.#idleCollection = options.idleCollection ?? true;
     this.#idleCollectionDelayMs =
       options.idleCollectionDelayMs ?? HAXE_SERVER_IDLE_COLLECTION_DELAY_MS;
     this.#frameStallMs = options.frameStallMs;
@@ -777,11 +795,31 @@ export class HaxeSessionCompiler implements SessionCompiler {
         this.#stdio.channel.close();
         this.#stdio = null;
       }
+      // Release this end of the pipes only after the exit: Haxe 4.3.7's
+      // stdio server does not stop at the end of its input, it writes an
+      // error frame for each failed read in a tight loop.
+      child.stdin?.destroy();
+      child.stderr?.destroy();
     });
     this.#stdio = {
       child,
       channel: new HaxeStdioChannel(child.stdin, child.stderr, {
         frameStallMs: this.#frameStallMs,
+        onBroken: (error) => {
+          // A pipe that the session closed itself is no failure to report.
+          if (this.#closed || error.reason === "the channel was closed") return;
+          try {
+            this.#onEvent(
+              Object.freeze({
+                kind: "transport-failed",
+                reason: error.reason,
+                firstBytes: error.firstBytes,
+              }),
+            );
+          } catch {
+            // Reporting must not change the compiler state.
+          }
+        },
       }),
       cwd,
       answered: false,
@@ -900,7 +938,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
 
   #scheduleIdleCollection(): void {
     this.#cancelIdleCollection();
-    if (this.#closed) return;
+    if (this.#closed || !this.#idleCollection) return;
     this.#idleTimer = setTimeout(() => {
       this.#idleTimer = null;
       void this.#collectWhileIdle();
@@ -917,14 +955,24 @@ export class HaxeSessionCompiler implements SessionCompiler {
 
   /**
    * Sends requests that compile nothing until the request count of the
-   * server is a multiple of `HAXE_SERVER_COLLECTION_PERIOD`. Haxe runs its
-   * collection right after the last of them. It stops as soon as a build
-   * starts, so a build waits for one small request at most, or for a
-   * collection that had already started.
+   * server is a multiple of `HAXE_SERVER_COLLECTION_PERIOD`, but only when
+   * fewer than `HAXE_SERVER_BUILD_REQUEST_ALLOWANCE` requests remain before
+   * it. Haxe runs its collection right after the last of them. It stops as
+   * soon as a build starts, so a build waits for one small request at most,
+   * or for a collection that had already started.
    */
   async #collectWhileIdle(): Promise<void> {
     const server = this.#stdio;
     if (server === null) return;
+    const remaining =
+      HAXE_SERVER_COLLECTION_PERIOD -
+      (server.channel.requests % HAXE_SERVER_COLLECTION_PERIOD);
+    if (
+      remaining === HAXE_SERVER_COLLECTION_PERIOD ||
+      remaining >= HAXE_SERVER_BUILD_REQUEST_ALLOWANCE
+    ) {
+      return;
+    }
     while (
       !this.#closed &&
       this.#request === null &&

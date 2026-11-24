@@ -63,6 +63,7 @@ assert.deepEqual(
     "readiness-timeout",
     "stale-exact-lease",
     "startup-exit",
+    "stdio-transport-addressless-lease",
     "unexpected-exit-restart",
     "unresponsive-connected-fallback",
   ],
@@ -84,6 +85,7 @@ for (const required of [
   "sigkill",
   "sigterm",
   "stale-lease",
+  "stdio-transport",
   "unexpected-exit",
 ]) {
   assert.equal(covers.has(required), true, `missing coverage: ${required}`);

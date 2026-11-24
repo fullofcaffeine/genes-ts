@@ -28,9 +28,13 @@ it.
   `DevelopmentSession.queryCompilerServer("server/contexts")` replaces a
   direct TCP request to the session's server.
 - Haxe's periodic full collection moves off the edit path (genes-0emi).
-  Haxe 4.3.7 runs it after every tenth request of any kind; when the server
-  has been idle for 250 ms, the session sends requests that compile nothing
-  until the count is a multiple of ten, so the collection runs then.
+  Haxe 4.3.7 runs it after every tenth request of any kind. When the server
+  has been idle for 250 ms and fewer than four requests remain before the
+  next tenth one, the session sends requests that compile nothing up to it,
+  so the collection runs then and as often as before.
+  `compilerServerIdleCollection` (new) sets the idle time or turns it off.
+- A broken pipe is reported as the new `compiler-lifecycle` event kind
+  `transport-failed` (`reason`, `firstBytes`); the v1 schema gains it.
 - A save after an idle period starts its build 10 ms after the file event
   (`startDelayMs`, new; `SerializedDirtyLoopOptions.startDelayMs`, new).
   Saves during a build still wait the quiet time (`debounceMs`, 100 ms)

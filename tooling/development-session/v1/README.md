@@ -184,6 +184,12 @@ transport of `OwnedHaxeWaitServer` reports `{"host","port","argument"}`. The
 schema accepts both shapes. This widens version 1 without a new version: the
 event kind and its meaning did not change. A host must not assume a port.
 
+A `compiler-lifecycle` event with `kind: "transport-failed"` reports that the
+pipe to the session's server broke (`reason`), with up to 64 bytes that broke
+the frame (`firstBytes`, private paths removed; for example a macro's direct
+`Sys.stderr()` write). The session then builds the same revision on a new
+server. A host that does not know this kind ignores it.
+
 A host that subscribes after `start()` (for example a browser server that
 opens after `firstAccepted`) has not seen the first `generation-accepted`
 event. It reads `inspect().accepted` after it subscribes, as for any late

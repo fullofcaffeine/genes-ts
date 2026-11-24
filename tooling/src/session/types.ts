@@ -788,6 +788,16 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * and the event of the last write starts a follow-up build.
    */
   readonly startDelayMs?: number;
+
+  /**
+   * Requests that compile nothing, sent while the owned Haxe server is
+   * idle, so that Haxe 4.3.7's periodic full collection (after every tenth
+   * request) runs then and not between the requests of a build. Default
+   * `{ delayMs: 250 }`: after 250 ms of idle time, and only when fewer than
+   * four requests remain before the next tenth request, so Haxe collects as
+   * often as before. `false` sends none.
+   */
+  readonly compilerServerIdleCollection?: false | { readonly delayMs?: number };
   readonly pollIntervalMs?: number;
   readonly shutdownTimeoutMs?: number;
 }

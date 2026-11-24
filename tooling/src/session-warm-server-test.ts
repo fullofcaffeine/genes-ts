@@ -42,6 +42,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -107,6 +108,12 @@ const projectRoot = realpathSync.native(
   mkdtempSync(path.join(os.tmpdir(), "genes-session-warm-")),
 );
 const buildTimeoutMs = 240_000;
+/**
+ * While this file exists, the fixture macro `servercase.Noise` writes to
+ * Haxe's standard error directly once and removes it. It lies outside the
+ * project, so writing or removing it is no watched input change.
+ */
+const noiseFlag = `${projectRoot}.noise-once`;
 
 /** The program arguments of `yarn test:compiler-server` for project A, without a target. */
 const programArguments = [
@@ -121,6 +128,8 @@ const programArguments = [
   "--macro genes.js.Async.enable()",
   "--macro genes.react.InlineMarkup.enable()",
   "--macro genes.react.ReactDiagnosticsMacro.install()",
+  // Writes to standard error directly while `noiseFlag` exists.
+  "--macro servercase.Noise.run()",
   "--macro addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')",
   "-cp src",
   "--main servercase.Main",
@@ -228,6 +237,14 @@ try {
     path.join(projectRoot, "src", "servercase", "EarlyType.hx"),
     "package servercase;\n\n#if macro\nclass EarlyType {\n  public static function install(): Void {\n" +
       "    haxe.macro.Context.getType('servercase.UnimportedLeaf');\n  }\n}\n#end\n",
+    "utf8",
+  );
+  writeFileSync(
+    path.join(projectRoot, "src", "servercase", "Noise.hx"),
+    "package servercase;\n\n#if macro\nclass Noise {\n  public static function run(): Void {\n" +
+      `    final flag = ${JSON.stringify(noiseFlag)};\n` +
+      "    if (sys.FileSystem.exists(flag)) {\n      sys.FileSystem.deleteFile(flag);\n" +
+      '      Sys.stderr().writeString("noise from a macro\\n");\n    }\n  }\n}\n#end\n',
     "utf8",
   );
   mkdirSync(path.join(projectRoot, "data"));
@@ -706,11 +723,49 @@ try {
     console.log(
       `warm session reuse after 20 idle requests: ${afterIdle.replayed} replayed modules, cold build equal`,
     );
+
+    // Parity stage 0 (genes-19wt): a macro writes to the server's standard
+    // error directly, so bytes arrive outside a frame. The session reports
+    // it, builds the same revision on a new server, and the result is
+    // published and equals cold.
+    const startsBefore = reuseEvents.filter((event) =>
+      event.event.kind === "compiler-lifecycle" && event.event.event.kind === "started").length;
+    writeFileSync(noiseFlag, "", "utf8");
+    const noiseFile = edit("servercase/UnimportedLeaf.hx", "leaf-idle-", "leaf-noise-");
+    setWholeSecond(noiseFile, Math.floor(statSync(noiseFile).mtimeMs / 1000) + 2);
+    const fourth = await coldChecks(4, "reuse edit while a macro writes to standard error");
+    assert.deepEqual(fourth[3], {
+      check: "cold-build",
+      revision: 4,
+      generation: 4,
+      result: "equal",
+      paths: [],
+    });
+    assert.equal(existsSync(noiseFlag), false, "the macro must have run on the warm server");
+    const lifecycle = reuseEvents.flatMap((event) =>
+      event.event.kind === "compiler-lifecycle" ? [event.event.event] : []);
+    const failed = lifecycle.filter((event) => event.kind === "transport-failed");
+    assert.equal(failed.length, 1, JSON.stringify(lifecycle));
+    assert.match(failed[0]!.kind === "transport-failed" ? failed[0]!.firstBytes : "",
+      /^noise from a macro\n/u);
+    assert.equal(
+      lifecycle.filter((event) => event.kind === "started").length,
+      startsBefore + 1,
+      "the session must build on one new server",
+    );
+    assert.equal(reuseSession.inspect().accepted?.compilerMode, "connected");
+    assert.equal(
+      readFileSync(path.join(projectRoot, "src-gen-reuse/servercase/UnimportedLeaf.ts"), "utf8")
+        .includes("leaf-noise-"),
+      true,
+    );
+    console.log("warm session broken pipe: reported, rebuilt on a new server, cold build equal");
   } finally {
     await reuseSession.close();
   }
 } finally {
   rmSync(projectRoot, { recursive: true, force: true });
+  rmSync(noiseFlag, { force: true });
 }
 
 console.log("genes tooling warm-server session gate: passed");

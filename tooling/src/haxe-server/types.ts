@@ -67,6 +67,19 @@ export type HaxeWaitServerEvent =
   | {
       readonly kind: "shutdown-timeout";
       readonly pid: number;
+    }
+  | {
+      /**
+       * The pipe to a `stdio` server broke. `OwnedHaxeWaitServer` never
+       * emits it; the development session's compiler does, before it
+       * replaces the server. `reason` says what broke; `firstBytes` holds up
+       * to 64 bytes that broke the frame (UTF-8, private paths removed by
+       * the session), for example `"noise from a macro\n"` when a macro
+       * wrote to `Sys.stderr()`.
+       */
+      readonly kind: "transport-failed";
+      readonly reason: string;
+      readonly firstBytes: string;
     };
 
 export interface HaxeWaitEnsureResult {

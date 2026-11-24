@@ -35,6 +35,7 @@ import { assertRealInputTrees } from "../watch/reconciled-watch.js";
 import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
 import {
   HaxeSessionCompiler,
+  type HaxeSessionCompilerOptions,
   snapshotHaxeInvocation,
   type CompilerResult,
   type SessionCompiler,
@@ -426,6 +427,7 @@ interface SessionDependencies<Diagnostic extends JsonValue> {
     layout: SessionLayout,
     onEvent: (event: HaxeWaitServerEvent) => void,
     shutdownTimeoutMs: number,
+    compilerOptions: HaxeSessionCompilerOptions,
   ) => SessionCompiler;
   readonly publish: (options: Parameters<typeof publishArtifacts>[0]) => Promise<PublicationOutcome>;
   readonly recover: (options: Parameters<typeof recoverArtifacts>[0]) => Promise<RecoveryOutcome>;
@@ -440,8 +442,8 @@ const REAL_DEPENDENCIES: SessionDependencies<JsonValue> = {
   now: () => Date.now(),
   inventory: inventoryHxmlForDevelopmentSession,
   watch: watchReconciledInputs,
-  createCompiler: (layout, onEvent, shutdownTimeoutMs) =>
-    new HaxeSessionCompiler(layout, onEvent, shutdownTimeoutMs),
+  createCompiler: (layout, onEvent, shutdownTimeoutMs, compilerOptions) =>
+    new HaxeSessionCompiler(layout, onEvent, shutdownTimeoutMs, compilerOptions),
   publish: publishArtifacts,
   recover: recoverArtifacts,
   acquireLock: acquireSessionLock,
@@ -738,13 +740,43 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (!Number.isInteger(shutdownTimeoutMs) || shutdownTimeoutMs <= 0) {
       throw new Error("shutdownTimeoutMs must be a positive integer");
     }
+    const idleCollection = options.compilerServerIdleCollection;
+    const idleDelay =
+      typeof idleCollection === "object" && idleCollection !== null
+        ? idleCollection.delayMs
+        : undefined;
+    if (
+      idleCollection !== undefined &&
+      idleCollection !== false &&
+      (typeof idleCollection !== "object" ||
+        idleCollection === null ||
+        (idleDelay !== undefined &&
+          (!Number.isInteger(idleDelay) || idleDelay < 0 || idleDelay > 600_000)))
+    ) {
+      throw new Error(
+        "compilerServerIdleCollection must be false or { delayMs } with a whole number from 0 to 600000",
+      );
+    }
     this.#compiler = dependencies.createCompiler(
       this.#layout,
       (event) => {
-        this.#lastCompilerEvent = event;
-        this.#emit({ kind: "compiler-lifecycle", event });
+        // Bytes that broke the pipe can name private folders.
+        const reported: HaxeWaitServerEvent =
+          event.kind === "transport-failed"
+            ? Object.freeze({
+                kind: "transport-failed",
+                reason: this.#sanitizeCoreMessage(event.reason),
+                firstBytes: this.#sanitizeCoreMessage(event.firstBytes),
+              })
+            : event;
+        this.#lastCompilerEvent = reported;
+        this.#emit({ kind: "compiler-lifecycle", event: reported });
       },
       shutdownTimeoutMs,
+      Object.freeze({
+        idleCollection: idleCollection !== false,
+        ...(idleDelay === undefined ? {} : { idleCollectionDelayMs: idleDelay }),
+      }),
     );
     this.#firstAcceptedPromise = new Promise((resolve, reject) => {
       this.#resolveFirstAccepted = resolve;

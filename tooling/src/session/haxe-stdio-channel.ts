@@ -30,11 +30,25 @@ const DEFAULT_FRAME_STALL_MS = 2_000;
  * length above the limit.
  */
 export class HaxeStdioTransportError extends Error {
-  constructor(message: string) {
-    super(`Haxe stdio channel failed: ${message}`);
+  /** Why the channel broke, without the prefix of `message`. */
+  readonly reason: string;
+  /**
+   * Up to `FIRST_BYTES_LIMIT` bytes that broke the frame, decoded as UTF-8,
+   * or empty. Example: `"noise from a macro\n"` when a macro wrote to
+   * `Sys.stderr()`. It helps find the code that wrote them.
+   */
+  readonly firstBytes: string;
+
+  constructor(reason: string, firstBytes = "") {
+    super(`Haxe stdio channel failed: ${reason}`);
     this.name = "HaxeStdioTransportError";
+    this.reason = reason;
+    this.firstBytes = firstBytes;
   }
 }
+
+/** The most bytes that `HaxeStdioTransportError.firstBytes` keeps. */
+export const FIRST_BYTES_LIMIT = 64;
 
 /**
  * The text of one Haxe server answer, split as the `haxe --connect` client
@@ -126,7 +140,14 @@ export class HaxeStdioChannel {
   readonly #maxFrameBytes: number;
   readonly #frameStallMs: number;
   readonly #onBroken: ((error: HaxeStdioTransportError) => void) | undefined;
-  #buffer: Buffer = Buffer.alloc(0);
+  /**
+   * The bytes of the answer that is arriving, as received. They are joined
+   * once, when the frame is complete, so a large answer costs linear time.
+   */
+  #chunks: Buffer[] = [];
+  #size = 0;
+  /** Header plus body length of the arriving frame, once its header is known. */
+  #frameSize: number | null = null;
   #pending: PendingAnswer | null = null;
   #tail: Promise<void> = Promise.resolve();
   #broken: HaxeStdioTransportError | null = null;
@@ -220,6 +241,9 @@ export class HaxeStdioChannel {
   close(): void {
     this.#break("the channel was closed");
     this.#output.off("data", this.#onData);
+    // Never end the input here: Haxe 4.3.7's stdio server does not stop at
+    // the end of its input; it answers each failed read with an error frame
+    // in a tight loop. The owner stops the process, then releases the pipe.
   }
 
   #send(lines: readonly string[]): Promise<Buffer> {
@@ -237,35 +261,49 @@ export class HaxeStdioChannel {
   readonly #onData = (chunk: Buffer): void => {
     if (this.#broken !== null) return;
     if (this.#pending === null) {
-      this.#break("bytes arrived outside a frame while no request waited");
+      this.#break("bytes arrived outside a frame while no request waited", chunk);
       return;
     }
     this.#received += chunk.length;
-    this.#buffer =
-      this.#buffer.length === 0 ? chunk : Buffer.concat([this.#buffer, chunk]);
-    if (this.#buffer.length < 4) return;
-    const length = this.#buffer.readInt32LE(0);
-    if (length < 0 || length > this.#maxFrameBytes) {
-      this.#break(
-        `a frame declared ${length} bytes, which is outside 0 to ${this.#maxFrameBytes}`,
-      );
-      return;
+    this.#chunks.push(chunk);
+    this.#size += chunk.length;
+    if (this.#frameSize === null) {
+      if (this.#size < 4) return;
+      const head = Buffer.concat(this.#chunks, 4);
+      const length = head.readInt32LE(0);
+      if (length < 0 || length > this.#maxFrameBytes) {
+        this.#break(
+          `a frame declared ${length} bytes, which is outside 0 to ${this.#maxFrameBytes}`,
+          Buffer.concat(this.#chunks, Math.min(this.#size, FIRST_BYTES_LIMIT)),
+        );
+        return;
+      }
+      this.#frameSize = 4 + length;
     }
-    if (this.#buffer.length < 4 + length) {
+    if (this.#size < this.#frameSize) {
       this.#armStall();
       return;
     }
-    if (this.#buffer.length > 4 + length) {
-      this.#break("bytes arrived after the end of an answer frame");
+    const frame = Buffer.concat(this.#chunks, this.#size);
+    if (this.#size > this.#frameSize) {
+      this.#break(
+        "bytes arrived after the end of an answer frame",
+        frame.subarray(this.#frameSize),
+      );
       return;
     }
     this.#clearStall();
-    const body = this.#buffer.subarray(4);
-    this.#buffer = Buffer.alloc(0);
+    this.#resetFrame();
     const pending = this.#pending;
     this.#pending = null;
-    pending.resolve(body);
+    pending.resolve(frame.subarray(4));
   };
+
+  #resetFrame(): void {
+    this.#chunks = [];
+    this.#size = 0;
+    this.#frameSize = null;
+  }
 
   readonly #onEnd = (): void => {
     this.#break("the server closed its standard error");
@@ -286,6 +324,7 @@ export class HaxeStdioChannel {
         if (this.#received === seen && this.#pending !== null) {
           this.#break(
             `a frame stayed incomplete for ${this.#frameStallMs} ms`,
+            Buffer.concat(this.#chunks, Math.min(this.#size, FIRST_BYTES_LIMIT)),
           );
         }
       });
@@ -300,12 +339,17 @@ export class HaxeStdioChannel {
     }
   }
 
-  #break(reason: string): void {
+  #break(reason: string, bytes?: Buffer): void {
     if (this.#broken !== null) return;
     this.#clearStall();
-    const error = new HaxeStdioTransportError(reason);
+    const error = new HaxeStdioTransportError(
+      reason,
+      bytes === undefined
+        ? ""
+        : bytes.subarray(0, FIRST_BYTES_LIMIT).toString("utf8"),
+    );
     this.#broken = error;
-    this.#buffer = Buffer.alloc(0);
+    this.#resetFrame();
     const pending = this.#pending;
     this.#pending = null;
     pending?.reject(error);

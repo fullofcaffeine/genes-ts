@@ -418,30 +418,80 @@ async function testSessionCompiler(haxe: string, root: string): Promise<void> {
     const firstPid = compiler.serverRequests!.pid;
     assert.equal(lease.serverPid, firstPid);
 
-    // Readiness request plus compile, then idle requests up to ten.
+    // Idle requests only near the boundary (genes-0emi review): after the
+    // readiness request and one compile, 8 requests remain before the tenth,
+    // so the compiler sends none and Haxe collects as often as before.
+    const idleSettled = async (): Promise<void> => sleep(150);
+    await idleSettled();
+    assert.deepEqual(compiler.serverRequests, {
+      pid: firstPid,
+      requests: 2,
+      idleRequests: 0,
+    });
+    // Builds 2 to 5 bring the count to 6: still 4 or more remain, no padding.
+    for (let build = 2; build <= 5; build += 1) {
+      assert.equal(await compile(), "connected");
+      await idleSettled();
+    }
+    assert.deepEqual(compiler.serverRequests, {
+      pid: firstPid,
+      requests: 6,
+      idleRequests: 0,
+    });
+    // Build 6 leaves 3 requests before the tenth, fewer than one build may
+    // send: the compiler sends them while idle, and Haxe collects then.
+    assert.equal(await compile(), "connected");
     await waitFor(
       () => compiler.serverRequests!.requests === HAXE_SERVER_COLLECTION_PERIOD,
       "idle requests up to the collection",
     );
-    await sleep(100);
+    await idleSettled();
     assert.deepEqual(compiler.serverRequests, {
       pid: firstPid,
       requests: 10,
-      idleRequests: 8,
+      idleRequests: 3,
     });
-    assert.equal(await compile(), "connected");
-    await waitFor(() => compiler.serverRequests!.requests === 20, "the next ten");
-    assert.equal(compiler.serverRequests!.idleRequests, 17);
-
+    // A query counts like any request and is followed by the same rule.
     const contexts = await compiler.query("server/contexts");
     assert.match(contexts ?? "", /"result"/u);
-    await waitFor(() => compiler.serverRequests!.requests === 30, "padding after a query");
+    await idleSettled();
+    assert.equal(compiler.serverRequests!.requests, 11);
+
+    // With idle collection off, the compiler never sends idle requests.
+    mkdirSync(path.join(root, ".genes", "quiet"), { recursive: true });
+    const quiet = new HaxeSessionCompiler(
+      resolveSessionLayout(root, "haxe-stdio-test-quiet", "dist/quiet.js", ".genes/quiet"),
+      () => {},
+      2_000,
+      { idleCollection: false, idleCollectionDelayMs: 1 },
+    );
+    try {
+      for (let build = 0; build < 7; build += 1) {
+        assert.equal(
+          (await quiet.compile(bound, "quiet", new AbortController().signal)).mode,
+          "connected",
+        );
+      }
+      await idleSettled();
+      assert.deepEqual(
+        { requests: quiet.serverRequests!.requests, idleRequests: quiet.serverRequests!.idleRequests },
+        { requests: 8, idleRequests: 0 },
+      );
+    } finally {
+      await quiet.close();
+    }
 
     // A macro writes to standard error once: the compiler stops that server
     // and builds on a new one.
     writeFileSync(path.join(root, "noise.once"), "");
     assert.equal(await compile(), "connected");
     assert.notEqual(compiler.serverRequests!.pid, firstPid);
+    const failures = events.filter((event) => event.kind === "transport-failed");
+    assert.equal(failures.length, 1, JSON.stringify(events));
+    assert.match(
+      failures[0]!.kind === "transport-failed" ? failures[0]!.firstBytes : "",
+      /^noise from a macro\n/u,
+    );
     assert.equal(
       events.filter((event) => event.kind === "started").length,
       2,

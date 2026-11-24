@@ -289,6 +289,16 @@
             "kind": { "enum": ["unexpected-exit", "shutdown-timeout"] },
             "pid": { "$ref": "#/$defs/positiveInteger" }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reason", "firstBytes"],
+          "properties": {
+            "kind": { "const": "transport-failed" },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "firstBytes": { "type": "string", "maxLength": 256 }
+          }
         }
       ]
     },
