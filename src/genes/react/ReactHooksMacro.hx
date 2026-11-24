@@ -704,12 +704,26 @@ function deps(arguments: Array<Expr>): Expr {
     position);
 }
 
+/**
+ * Returns the call that `State.set(next)` becomes: the private
+ * `__setDirect` or `__setPossiblyCallable` of the state, which only this
+ * macro may call (`@:privateAccess`).
+ *
+ * The new value keeps the access rules of the caller (`@:noPrivateAccess`):
+ * inside `@:privateAccess`, Haxe would let a private static extension or a
+ * private method of the program take a call in `next`, which
+ * `Context.typeof(next)` above skipped. Example: `state.set(item.describe())`
+ * with `using app.Labels; using app.Tools;` must call `Labels.describe` also
+ * after a private `describe` is added to `app.Tools`. The module requests of
+ * `genes.incremental.ModuleRequest` rely on this (genes-zbva). The receiver
+ * is already typed when Haxe calls the macro, so it needs no guard.
+ */
 function setState<Value>(state: ExprOf<State<Value>>,
     next: ExprOf<Value>): ExprOf<Void> {
   return if (mayBeCallable(Context.typeof(next))) {
-    macro @:privateAccess $state.__setPossiblyCallable($next);
+    macro @:privateAccess $state.__setPossiblyCallable(@:noPrivateAccess $next);
   } else {
-    macro @:privateAccess $state.__setDirect($next);
+    macro @:privateAccess $state.__setDirect(@:noPrivateAccess $next);
   }
 }
 #end

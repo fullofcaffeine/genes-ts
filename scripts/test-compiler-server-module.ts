@@ -1815,8 +1815,10 @@ function failedRequestGroups(): ReadonlyArray<Group> {
  * - `mr.Hints`: a module of typedefs that `mr.Main` imports and nothing
  *   reaches, so it has no file until a module names its typedef;
  * - `mr.Words`: keeps `StringTools.trim`;
- * - `mr.Styles`: a project macro function (opaque to Genes);
- * - `mr.Built` with `@:build(mr.BuildMacro.build())`;
+ * - `mr.Styles`: a project macro function (opaque to Genes), and `mr.Built`
+ *   with `@:build(mr.BuildMacro.build())`, which only the `std-macro` group
+ *   puts into its program (a project macro makes every private field count
+ *   as visible, see the `std-private-` groups);
  * - `mr.Box`: a `@:generic` class;
  * - `mr.CardUser`: imports `mr.Card`, so a call back closes a cycle;
  * - `mr.Tag`: the module of the macro row;
@@ -1831,11 +1833,11 @@ function failedRequestGroups(): ReadonlyArray<Group> {
  * - `mr.Ext` with a private extern class (round 2 of the review of #260).
  */
 const stdFiles: Readonly<Record<string, string>> = {
-  "mr/Main.hx": `package mr;\nimport mr.Hints;\nimport mr.Styles;\n\nclass Main {\n`
+  "mr/Main.hx": `package mr;\nimport mr.Hints;\n\nclass Main {\n`
     + `  static function main() {\n    trace(Button.render());\n    trace(new Panel('main').describe());\n`
     + `    trace(Consts.LIMIT + Consts.describe().length);\n    trace(Leaf.kindName(Leaf.Kind.Small));\n`
     + `    trace(Cycle.start());\n    trace(CycleB.next(0));\n    trace(Theme.size());\n`
-    + `    trace(Card.render());\n    trace(Words.clean(' x '));\n    trace(Built.value());\n`
+    + `    trace(Card.render());\n    trace(Words.clean(' x '));\n`
     + `    trace(new Box<String>('box').value);\n    trace(CardUser.use());\n    trace(Tag.text());\n`
     + `    trace(CyBase.make() != null);\n    trace(new CyChild() != null);\n`
     + `    trace(PxUser.same());\n    trace(RowUser.first());\n    trace((3 : Bag).count());\n`
@@ -1974,12 +1976,6 @@ function stdGroups(): ReadonlyArray<Group> {
             "  static function asButton(value: Dynamic): Button {\n    return cast(value, Button);\n  }\n\n"
             + "  static function title(): String {"),
           module: "mr.Card", expect: "feature-changed" },
-        { id: "std: new use of an imported project macro (opaque-macro)",
-          apply: () => {
-            edit("Tag.hx", "package mr;\n", "package mr;\n\nimport mr.Styles;\n");
-            edit("Tag.hx", "return 'tag';", "return Styles.css('tag') + '!';");
-          },
-          module: "mr.Tag", expect: "opaque-macro" },
         { id: "std: new instance of a generic class",
           apply: card("+ Leaf.kindName(Leaf.Kind.Large);",
             "+ Leaf.kindName(Leaf.Kind.Large) + new Box<Int>(1).value;"),
@@ -1987,11 +1983,6 @@ function stdGroups(): ReadonlyArray<Group> {
         { id: "std: a call back that closes an import cycle",
           apply: card("+ new Box<Int>(1).value;", "+ new Box<Int>(1).value + CardUser.tag();"),
           module: "mr.Card", expect: ["other-modules-typed", "import-cycle"] },
-        { id: "std: structural edit of a module with a build macro (opaque-macro)",
-          apply: () => edit("Built.hx", "  public static function value(): String {",
-            "  static function more(): String {\n    return 'more';\n  }\n\n"
-            + "  public static function value(): String {"),
-          module: "mr.Built", expect: "opaque-macro" },
         { id: "std: structural edit that breaks an import cycle (import-cycle)",
           apply: () => edit("Cycle.hx", "return 'cycle ' + CycleB.next(2);", "return 'cycle';"),
           module: "mr.Cycle", expect: "import-cycle" },
@@ -2109,6 +2100,8 @@ type ExtensionCallCase = {
   readonly receiver?: string;
   /** A metadata line above `class <name>User`. */
   readonly userMeta?: string;
+  /** More import lines of `mr.<name>User`, after its `using` line. */
+  readonly imports?: string;
   /** The members of `class <name>User`, with `public static function show(): String`. */
   readonly user: string;
 };
@@ -2128,7 +2121,7 @@ function extensionCallFiles(name: string, spec: ExtensionCallCase): Record<strin
     [`mr/${name}Tools.hx`]: `package mr;\n\nclass ${name}Tools {\n`
       + `  public static ${spec.inline === true ? "inline " : ""}function label(item: ${spec.receiver ?? name}): String {\n`
       + `    return 'tools ' + item.title();\n  }\n}\n`,
-    [`mr/${name}User.hx`]: `package mr;\n\nusing mr.${name}Tools;\n\n`
+    [`mr/${name}User.hx`]: `package mr;\n\nusing mr.${name}Tools;\n${spec.imports ?? ""}\n`
       + `${spec.userMeta === undefined ? "" : `${spec.userMeta}\n`}class ${name}User {\n${spec.user}}\n`
   };
   if (spec.parent !== undefined)
@@ -2164,8 +2157,9 @@ function reasonNames(text: string): (report: ModuleReport, label: string) => voi
  * receiver is a type parameter or a `@:forward` abstract (so
  * `shadowed-extension` saw no call), and the visible shape left out the
  * private field. The rule now keeps every private field of the requested
- * module in its visible shape when another module of the program has
- * `@:privateAccess` or `untyped` code, when a class or a field has
+ * module in its visible shape when another module of the program may see
+ * private fields without naming them (`@:privateAccess` or `untyped` code
+ * here, more ways in `privateReachGroups`), when a class or a field has
  * `@:allow`, and when another module names the class, one of its parent
  * classes or one of its fields in `@:access`.
  */
@@ -2190,8 +2184,17 @@ function privateAccessGroups(): ReadonlyArray<Group> {
     }
   };
   const accessFiles: Record<string, string> = {
-    "mr/Main.hx": mainOfUsers(Object.keys(accessCalls)),
-    "mr/GearRef.hx": "package mr;\n\n@:forward\nabstract GearRef(Gear) from Gear {}\n"
+    "mr/Main.hx": mainOfUsers([...Object.keys(accessCalls), "Jar"]),
+    "mr/GearRef.hx": "package mr;\n\n@:forward\nabstract GearRef(Gear) from Gear {}\n",
+    // A later row adds a private static `describe` to `mr.JarTools`: inside
+    // `@:privateAccess` it takes the call from `mr.JarLabels`.
+    "mr/Jar.hx": "package mr;\n\nclass Jar {\n  public function new() {}\n}\n",
+    "mr/JarLabels.hx": "package mr;\n\nclass JarLabels {\n"
+      + "  public static function describe(item: Jar): String {\n    return 'labels';\n  }\n}\n",
+    "mr/JarTools.hx": "package mr;\n\nclass JarTools {\n"
+      + "  public static function size(item: Jar): Int {\n    return 1;\n  }\n}\n",
+    "mr/JarUser.hx": "package mr;\n\nusing mr.JarLabels;\nusing mr.JarTools;\n\nclass JarUser {\n"
+      + "  public static function show(): String {\n    return @:privateAccess new Jar().describe();\n  }\n}\n"
   };
   for (const [name, spec] of Object.entries(accessCalls))
     Object.assign(accessFiles, extensionCallFiles(name, spec));
@@ -2252,19 +2255,25 @@ function privateAccessGroups(): ReadonlyArray<Group> {
           module: "mr.SprocketUser", expect: "preview" },
         { id: "std: a private method takes an inline extension call inside @:privateAccess (public-shape-changed)",
           apply: addPrivateLabel("Sprocket"), module: "mr.Sprocket", expect: "public-shape-changed",
-          check: reasonNames("has @:privateAccess or untyped code") },
+          check: reasonNames("has @:privateAccess code") },
         { id: "std: a private method takes an extension call on a type parameter inside @:privateAccess (public-shape-changed)",
           apply: addPrivateLabel("Gizmo"), module: "mr.Gizmo", expect: "public-shape-changed",
-          check: reasonNames("has @:privateAccess or untyped code") },
+          check: reasonNames("has @:privateAccess code") },
         { id: "std: a private method takes an extension call on a @:forward abstract inside @:privateAccess (public-shape-changed)",
           apply: addPrivateLabel("Gear"), module: "mr.Gear", expect: "public-shape-changed",
-          check: reasonNames("has @:privateAccess or untyped code") },
+          check: reasonNames("has @:privateAccess code") },
         // The rule is coarse: with @:privateAccess code in the program, a
         // private method with a fresh name is refused too.
         { id: "std: a private method with a fresh name while another module has @:privateAccess code (public-shape-changed)",
           apply: () => edit("Gizmo.hx", "  public function title(): String {",
             "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
-          module: "mr.Gizmo", expect: "public-shape-changed" }
+          module: "mr.Gizmo", expect: "public-shape-changed" },
+        // A private static extension: Haxe skips it where it cannot access
+        // it, and takes it inside `@:privateAccess`.
+        { id: "std: a private static extension takes a call inside @:privateAccess (public-shape-changed)",
+          apply: () => edit("JarTools.hx", "  public static function size(",
+            "  static function describe(item: Jar): String {\n    return 'tools';\n  }\n\n  public static function size("),
+          module: "mr.JarTools", expect: "public-shape-changed", check: reasonNames("has @:privateAccess code") }
       ]
     },
     {
@@ -2275,7 +2284,7 @@ function privateAccessGroups(): ReadonlyArray<Group> {
       steps: [
         { id: "std: a private method takes an inline extension call inside untyped (public-shape-changed)",
           apply: addPrivateLabel("Cog"), module: "mr.Cog", expect: "public-shape-changed",
-          check: reasonNames("mr.CogUser has @:privateAccess or untyped code") }
+          check: reasonNames("mr.CogUser has untyped code") }
       ]
     },
     {
@@ -2306,6 +2315,258 @@ function privateAccessGroups(): ReadonlyArray<Group> {
         { id: "std: a private method takes an inline extension call without private access, and the program no longer compiles (limit B)",
           apply: addPrivateLabel("Latch"), module: "mr.Latch", expect: "preview-program-fails",
           programFails: true, previewWhileProgramFails: true }
+      ]
+    },
+    ...privateReachGroups()
+  ];
+}
+
+/** A class `mr.<name>` with a public constructor and `title()`, and `meta` above it. */
+function plainClass(name: string, meta = ""): string {
+  return `package mr;\n\n${meta}class ${name} {\n  public function new() {}\n\n`
+    + `  public function title(): String {\n    return '${name.toLowerCase()}';\n  }\n}\n`;
+}
+
+/**
+ * The groups of round 4 of the review (Fable on 3fa8782c, genes-zbva):
+ * more ways in which a new private field changes another module's code.
+ * Each `label` or `describe` row published a preview that differed from
+ * cold on 3fa8782c (`--observe`), unless its comment says otherwise. Each
+ * group is its own program, so that its `check` shows the reason that
+ * refused it.
+ */
+function privateReachGroups(): ReadonlyArray<Group> {
+  const ownMain = (users: ReadonlyArray<string>) => ({ "mr/Main.hx": mainOfUsers(users) });
+  return [
+    {
+      // Genes' own `State.set` returned `@:privateAccess
+      // $state.__setDirect($next)`, so the new value was typed with private
+      // access, and a private static extension took the call. It now wraps
+      // the value in `@:noPrivateAccess`, and the preview equals cold.
+      name: "std-private-state",
+      dce: "std",
+      files: {
+        ...ownMain(["Rivet"]),
+        "mr/Rivet.hx": plainClass("Rivet"),
+        "mr/RivetLabels.hx": "package mr;\n\nclass RivetLabels {\n"
+          + "  public static function describe(item: Rivet): String {\n    return 'labels ' + item.title();\n  }\n}\n",
+        "mr/RivetTools.hx": "package mr;\n\nclass RivetTools {\n"
+          + "  public static function size(item: Rivet): Int {\n    return 1;\n  }\n}\n",
+        "mr/RivetUser.hx": "package mr;\n\nusing mr.RivetLabels;\nusing mr.RivetTools;\n\nclass RivetUser {\n"
+          + "  public static function show(): String {\n    final state: genes.react.State<String> = cast null;\n"
+          + "    state.set(new Rivet().describe());\n    return 'rivet';\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: a private static extension and the value of State.set (preview)",
+          apply: () => edit("RivetTools.hx", "  public static function size(",
+            "  static function describe(item: Rivet): String {\n    return 'tools';\n  }\n\n  public static function size("),
+          module: "mr.RivetTools", expect: "preview" }
+      ]
+    },
+    {
+      // `import mr.Dial.*` imports the private statics too, and Haxe types
+      // a pattern with the access check off: the capture `case label`
+      // becomes a comparison with the new `Dial.label`.
+      name: "std-private-import",
+      dce: "std",
+      files: {
+        ...ownMain(["Dial"]),
+        "mr/Dial.hx": "package mr;\n\nclass Dial {\n  public static final top = 1;\n}\n",
+        "mr/DialUser.hx": "package mr;\n\nimport mr.Dial.*;\n\nclass DialUser {\n"
+          + "  public static function show(): String {\n    return switch 'own' {\n"
+          + "      case label if (top > 0): 'first';\n      default: 'other';\n    }\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: a private static final turns a pattern capture of a module with import Dial.* into a comparison (public-shape-changed)",
+          apply: () => edit("Dial.hx", "  public static final top = 1;\n",
+            "  public static final top = 1;\n\n  static final label = 'own';\n"),
+          module: "mr.Dial", expect: "public-shape-changed",
+          check: reasonNames("mr.DialUser imports the static fields of a type") }
+      ]
+    },
+    {
+      // A private class field meets a private structure field: with a new
+      // private `label()`, `mr.Lamp` unifies with `mr.Peek`, and the call
+      // takes the other extension. The caller has no private access.
+      name: "std-private-structure",
+      dce: "std",
+      files: {
+        ...ownMain(["Lamp"]),
+        "mr/Lamp.hx": plainClass("Lamp"),
+        "mr/Peek.hx": "package mr;\n\ntypedef Peek = {\n  private function label(): String;\n}\n",
+        "mr/PeekTools.hx": "package mr;\n\nclass PeekTools {\n"
+          + "  public static function describe(item: Peek): String {\n    return 'peek';\n  }\n}\n",
+        "mr/LampTools.hx": "package mr;\n\nclass LampTools {\n"
+          + "  public static function describe(item: Lamp): String {\n    return 'lamp ' + item.title();\n  }\n}\n",
+        "mr/LampUser.hx": "package mr;\n\nusing mr.LampTools;\nusing mr.PeekTools;\n\nclass LampUser {\n"
+          + "  public static function show(): String {\n    return new Lamp().describe();\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: a private method makes a class unify with a structure that has a private field (public-shape-changed)",
+          apply: addPrivateLabel("Lamp"), module: "mr.Lamp", expect: "public-shape-changed",
+          check: reasonNames("mr.Peek has a structure type with a private field") }
+      ]
+    },
+    {
+      // Haxe drops the metadata of `__init__`, so its `@:access` cannot be
+      // read from the typed class.
+      name: "std-private-init",
+      dce: "std",
+      files: {
+        ...ownMain(["Knot"]),
+        ...extensionCallFiles("Knot", {
+          inline: true,
+          user: "  public static var shown = '';\n\n  @:access(mr.Knot)\n  static function __init__() {\n"
+            + "    shown = new Knot().label();\n  }\n\n  public static function show(): String {\n    return shown;\n  }\n"
+        })
+      },
+      steps: [
+        { id: "std: a private method takes an inline extension call in an __init__ with @:access (public-shape-changed)",
+          apply: addPrivateLabel("Knot"), module: "mr.Knot", expect: "public-shape-changed",
+          check: reasonNames("mr.KnotUser has an __init__ function with @:access or untyped code") }
+      ]
+    },
+    {
+      // A project macro returns `@:privateAccess` code from a helper that
+      // only Haxe's macro context loads, so no file of the program shows it.
+      name: "std-private-macro-helper",
+      dce: "std",
+      files: {
+        ...ownMain(["Sash"]),
+        ...extensionCallFiles("Sash", {
+          inline: true,
+          imports: "import mr.Wrap;\n",
+          user: "  public static function show(): String {\n    return Wrap.open(new Sash().label());\n  }\n"
+        }),
+        "mr/Wrap.hx": "package mr;\n\nclass Wrap {\n"
+          + "  public static macro function open(value: haxe.macro.Expr): haxe.macro.Expr {\n"
+          + "    return mr.WrapHelper.open(value);\n  }\n}\n",
+        "mr/WrapHelper.hx": "package mr;\n\n#if macro\nclass WrapHelper {\n"
+          + "  public static function open(value: haxe.macro.Expr): haxe.macro.Expr {\n"
+          + "    return macro @:privateAccess $value;\n  }\n}\n#end\n"
+      },
+      steps: [
+        { id: "std: a private method takes a call that a project macro wraps in @:privateAccess (public-shape-changed)",
+          apply: addPrivateLabel("Sash"), module: "mr.Sash", expect: "public-shape-changed",
+          check: reasonNames("project macro") }
+      ]
+    },
+    {
+      // A project macro of another module lists the fields of a class (a
+      // serializer), so a new private field changes that module's text.
+      name: "std-private-macro-fields",
+      dce: "std",
+      files: {
+        ...ownMain(["Crate"]),
+        "mr/Crate.hx": plainClass("Crate"),
+        "mr/Lister.hx": "package mr;\n\nclass Lister {\n"
+          + "  public static macro function names(): haxe.macro.Expr {\n"
+          + "    final names = switch haxe.macro.Context.getType('mr.Crate') {\n"
+          + "      case haxe.macro.Type.TInst(owner, _): [for (field in owner.get().fields.get()) field.name];\n"
+          + "      default: [];\n    }\n    return macro $v{names.join(',')};\n  }\n}\n",
+        "mr/CrateUser.hx": "package mr;\n\nimport mr.Lister;\n\nclass CrateUser {\n"
+          + "  public static function show(): String {\n    return Lister.names();\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: a private method changes the field list that a project macro of another module prints (public-shape-changed)",
+          apply: addPrivateLabel("Crate"), module: "mr.Crate", expect: "public-shape-changed",
+          check: reasonNames("project macro") }
+      ]
+    },
+    {
+      // A build macro of another module adds `@:privateAccess` code from a
+      // helper that only Haxe's macro context loads.
+      name: "std-private-build-macro",
+      dce: "std",
+      files: {
+        "mr/Main.hx": "package mr;\n\nclass Main {\n  static function main() {\n    trace(BeadUser.shown());\n  }\n}\n",
+        "mr/Bead.hx": plainClass("Bead"),
+        "mr/BeadTools.hx": "package mr;\n\nclass BeadTools {\n"
+          + "  public static inline function label(item: Bead): String {\n    return 'tools ' + item.title();\n  }\n}\n",
+        // The fields that the build macro adds are typed in this module, so
+        // its `using` line applies to them.
+        "mr/BeadUser.hx": "package mr;\n\nusing mr.BeadTools;\n\n@:build(mr.BeadMacro.build())\nclass BeadUser {\n"
+          + "  public static function show(): String {\n    return 'bead';\n  }\n}\n",
+        "mr/BeadMacro.hx": "package mr;\n\nclass BeadMacro {\n"
+          + "  public static macro function build(): Array<haxe.macro.Expr.Field> {\n"
+          + "    return mr.BeadHelper.build();\n  }\n}\n",
+        "mr/BeadHelper.hx": "package mr;\n\n#if macro\nclass BeadHelper {\n"
+          + "  public static function build(): Array<haxe.macro.Expr.Field> {\n"
+          + "    final extra = macro class Extra {\n      public static function shown(): String {\n"
+          + "        return @:privateAccess new mr.Bead().label();\n      }\n    };\n"
+          + "    return haxe.macro.Context.getBuildFields().concat(extra.fields);\n  }\n}\n#end\n"
+      },
+      steps: [
+        { id: "std: a private method takes a call that a build macro of another module adds inside @:privateAccess (public-shape-changed)",
+          apply: addPrivateLabel("Bead"), module: "mr.Bead", expect: "public-shape-changed",
+          check: reasonNames("mr.BeadUser runs the build macro") }
+      ]
+    },
+    {
+      // `untyped` in a static variable's value: Haxe marks the variable
+      // `:has_untyped`, which is the only place the rule reads it (on
+      // 3fa8782c the text also counted, so this row refused there too).
+      name: "std-private-untyped-var",
+      dce: "std",
+      files: {
+        ...ownMain(["Cam"]),
+        ...extensionCallFiles("Cam", {
+          inline: true,
+          user: "  static final shown: String = {\n    final item = new Cam();\n    untyped item.label();\n  };\n\n"
+            + "  public static function show(): String {\n    return shown;\n  }\n"
+        })
+      },
+      steps: [
+        { id: "std: a private method takes an inline extension call inside untyped in a static variable (public-shape-changed)",
+          apply: addPrivateLabel("Cam"), module: "mr.Cam", expect: "public-shape-changed",
+          check: reasonNames("mr.CamUser has untyped code") }
+      ]
+    },
+    {
+      // The word `untyped` in a comment is no private access. On 3fa8782c
+      // this row was refused (public-shape-changed).
+      name: "std-private-comment",
+      dce: "std",
+      files: {
+        ...ownMain(["Hinge"]),
+        ...extensionCallFiles("Hinge", {
+          user: "  // The label was untyped once; now it is a plain call.\n"
+            + "  public static function show(): String {\n    return new Hinge().title();\n  }\n"
+        })
+      },
+      steps: [
+        { id: "std: a private method with a fresh name beside a comment that says untyped (preview)",
+          apply: () => edit("Hinge.hx", "  public function title(): String {",
+            "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
+          module: "mr.Hinge", expect: "preview" }
+      ]
+    },
+    {
+      // The two project-macro rows of `std-structural` (genes-f8vc.14.7), in
+      // a program of their own: a project macro makes every private field of
+      // the program visible, so the private-function previews of
+      // `std-structural` need a program without one.
+      name: "std-macro",
+      dce: "std",
+      files: {
+        ...stdFiles,
+        "mr/Main.hx": "package mr;\n\nimport mr.Styles;\n\nclass Main {\n  static function main() {\n"
+          + "    trace(Tag.text());\n    trace(Built.value());\n    trace(Card.render());\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: new use of an imported project macro (opaque-macro)",
+          apply: () => {
+            edit("Tag.hx", "package mr;\n", "package mr;\n\nimport mr.Styles;\n");
+            edit("Tag.hx", "return 'tag';", "return Styles.css('tag') + '!';");
+          },
+          module: "mr.Tag", expect: "opaque-macro" },
+        { id: "std: structural edit of a module with a build macro (opaque-macro)",
+          apply: () => edit("Built.hx", "return 'built';", "return 'built' + Tag.text();"),
+          module: "mr.Built", expect: "opaque-macro" },
+        { id: "std: a new private function in a program with a project macro (public-shape-changed)",
+          apply: () => edit("Card.hx", "  static function unusedHelper(): String {",
+            "  static function subtitle(): String {\n    return 'sub';\n  }\n\n  static function unusedHelper(): String {"),
+          module: "mr.Card", expect: "public-shape-changed", check: reasonNames("mr.Built runs the build macro") }
       ]
     }
   ];

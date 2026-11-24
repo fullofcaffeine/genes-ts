@@ -96,12 +96,13 @@ typedef ModuleProfile = {
   final extensionCalls: Array<String>;
 
   /**
-   * True when the module's code may access private fields of other modules
-   * without naming them in metadata (`DceStdUses.privateAccessOf` of its
-   * source text, and of the source of each build macro that its metadata
-   * names); see `privateAccessors`.
+   * Why the module's code may see private fields of other modules without
+   * naming them in metadata (`DceStdUses.privateReachOf`, or a build macro
+   * outside Haxe's standard library and Genes' own folder), or `null`; see
+   * `privateAccessors`. Always `null` for a module of the standard library
+   * or of Genes' own folder.
    */
-  final privateAccess: Bool;
+  final privateReach: Null<String>;
 }
 
 /** The live facts of the requested module that the generator gives to `decide`. */
@@ -517,8 +518,8 @@ typedef ModuleRecordsReport = {
  * - the visible public shape before dead-code elimination (public fields
  *   with their kinds, types and metadata, private fields that another
  *   module uses or can reach through a subclass, `@:access` or `@:allow`,
- *   or, under `-dce std`, every private field when another module has
- *   `@:privateAccess` or `untyped` code (see below), and the bodies and
+ *   or, under `-dce std`, every private field when another module's code
+ *   may see private fields without naming them (see below), and the bodies and
  *   positions of inline fields) is the stored one, and the module defines
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
@@ -667,16 +668,27 @@ typedef ModuleRecordsReport = {
  * `@:resolve`, `@:from` and `@:to` fields from any module. Example: a new
  * private `@:op(A == B)` turns `a == b` of another module into a call.
  * Under `-dce std` it keeps every private field of the module when another
- * module of the program has `@:privateAccess` or `untyped` code
- * (`privateAccessors`, genes-zbva): there a new private method can take a
- * call that goes through `using`, also an inline one or one on a type
- * parameter or a `@:forward` abstract, which leaves no line for
- * `shadowed-extension`. Example: with `@:privateAccess item.label()` in
- * `mr.SprocketUser` and an inline extension `label`, a private `label()`
- * added to `mr.Sprocket` is refused (`public-shape-changed`). Without
- * private access, a new private field can only make another module fail to
- * compile, never change its output; a module request does not see that
- * failure, and the next full request reports it.
+ * module of the program, outside the standard library and Genes' own
+ * folder, may see private fields without naming them (`privateAccessors`,
+ * genes-zbva): it has `@:privateAccess` code, `untyped` code (`:has_untyped`),
+ * an `__init__` with `@:access` or `untyped` code, an `import <Type>.*`
+ * line (also in an `import.hx`), a structure type with a private field, or
+ * no readable source; or it runs a build macro outside the standard library
+ * and Genes' own folder, defines a project macro function, or loads a
+ * module that does (`DceStdUses.privateReachOf`, `commitProfiles`). In such
+ * code a new private method can take a call that goes through `using`,
+ * also an inline one or one on a type parameter or a `@:forward` abstract,
+ * which leaves no line for `shadowed-extension`; a new private static can
+ * turn a pattern capture into a comparison; a new private field can make a
+ * class unify with a structure; and a project macro can list the fields.
+ * Example: with `@:privateAccess item.label()` in `mr.SprocketUser` and an
+ * inline extension `label`, a private `label()` added to `mr.Sprocket` is
+ * refused (`public-shape-changed`). Without any of these, a new private
+ * field can only make another module fail to compile ("Cannot access
+ * private field"), never change its output: Haxe 4.3.7 grants private
+ * access only through these channels and a subclass (`can_access`), and
+ * skips a private static extension that it cannot access. A module request
+ * does not see that failure, and the next full request reports it.
  *
  * Why that is the complete affected output: a full build after the edit has
  * the stored input for every other module (their source files, epochs and
@@ -691,16 +703,14 @@ typedef ModuleRecordsReport = {
  * Limits of the `-dce std` rule: a macro that the module calls by its full
  * path without an import is not seen as a macro module; an expression macro
  * of Genes or the standard library is trusted to change only the code that
- * it returns. Private access is read from the source text of each module of
- * the program and of each build macro that its metadata names: a macro that
- * returns `@:privateAccess` code from another file that is not a module of
- * the program (a helper that only Haxe's macro context loads, or a build
- * macro whose name does not resolve to a file), or that defines a module
- * without a source file, is not seen. Genes' own
- * macros return no such code around a field lookup of the program: the
- * `@:privateAccess` of `State.set` types the receiver before and the new
- * value without private access first (`ReactHooksMacro.setState`). Every
- * other limit above applies too.
+ * it returns. Genes' own macros return no private-access code around a field
+ * lookup of the program: `State.set` (`ReactHooksMacro.setState`) passes its
+ * receiver as an already typed expression and wraps the new value in
+ * `@:noPrivateAccess`, and the HXX proof wraps only a Genes static field.
+ * An init macro (`--macro`) that changes a module's code without leaving
+ * build metadata on it is not seen, and neither is a macro that reads the
+ * body of a method that is not inline (the visible shape holds no such
+ * body). Every other limit above applies too.
  *
  * Effects on the compiler server: the roots are `@:keep` entries with the
  * argument `"genes.moduleRequest"`, which Genes adds after
@@ -938,12 +948,13 @@ class ModuleRequest {
     Array<String>> = new Map();
 
   /**
-   * The modules of the stored full request whose code may access private
-   * fields of other modules without naming them in metadata
-   * (`ModuleProfile.privateAccess`), outside Haxe's standard library and
-   * Genes' own folder. See `privateAccessors`.
+   * The modules of the stored full request whose code may see private
+   * fields of other modules without naming them in metadata, outside Haxe's
+   * standard library and Genes' own folder, each with the reason
+   * (`ModuleProfile.privateReach`, project macros, and `import.hx` files,
+   * whose path is the key). See `privateAccessors`.
    */
-  @:persistent static var storedPrivateAccess: Map<String, Bool> = new Map();
+  @:persistent static var storedPrivateAccess: Map<String, String> = new Map();
 
   /**
    * The last computed `-dce std` facts of each module, with the epochs that
@@ -2170,7 +2181,7 @@ class ModuleRequest {
                   moduleFiles.get(dependency)),
                 externBases: [],
                 extensionCalls: [],
-                privateAccess: false
+                privateReach: null
               });
           }
           profileSeconds += haxe.Timer.stamp() - profileStart;
@@ -2275,32 +2286,31 @@ class ModuleRequest {
       opaqueMacro: opaqueMacroModule(types, file),
       externBases: DceStdUses.externBasesOf(types),
       extensionCalls: DceStdUses.keptWhole(types) ? DceStdUses.extensionCallsOf(types) : [],
-      privateAccess: DceStdUses.privateAccessOf(types, text)
-      || buildMacroPrivateAccess(types)
+      privateReach: transparentFile(file) ? null : privateReachOf(types, text)
     };
   }
 
   /**
-   * Returns true when a build macro that the metadata of `types` names
-   * (`buildMacroCalls`) is in a source file outside Haxe's standard library
-   * and Genes' own folder whose text may give private access
-   * (`DceStdUses.privateAccessOf`).
+   * Returns why a module outside Haxe's standard library and Genes' own
+   * folder may see private fields of other modules
+   * (`DceStdUses.privateReachOf`), or why a build macro of it may add such
+   * code, or `null`. `commitProfiles` adds the project macro modules and the
+   * modules that load one.
    *
-   * Why: a build macro can add code with `@:privateAccess` to a module, and
-   * the module's own text then does not show it. The macro's class is often
-   * loaded only by Haxe's macro context, so it is not a module of the
-   * program. Example: `@:build(app.Model.build())`, where `app.Model`
-   * returns `macro @:privateAccess $owner.save()`. A macro call that does
-   * not resolve to a file is not read; see the limits of the class comment.
+   * Why build macros count: a build macro can add `@:privateAccess` code
+   * that is in no file of the program, for example from a helper class that
+   * only Haxe's macro context loads, and it can read the fields of another
+   * class. Example: `@:build(app.Model.build())`, where `app.Model` calls
+   * `app.ModelHelper.wrap()`, which returns `macro @:privateAccess
+   * $owner.save()`.
    */
-  static function buildMacroPrivateAccess(types: Array<Type>): Bool {
-    for (item in buildMacroCalls(types)) {
-      final file = macroFile(item.call);
-      if (file != null && !transparentFile(file)
-        && DceStdUses.privateAccessOf([], DceStdUses.sourceText(file)))
-        return true;
-    }
-    return false;
+  static function privateReachOf(types: Array<Type>,
+      text: Null<String>): Null<String> {
+    final own = DceStdUses.privateReachOf(types, text);
+    if (own != null)
+      return own;
+    final build = opaqueBuildMacro(types);
+    return build == null ? null : 'runs the build macro $build';
   }
 
   /**
@@ -2794,13 +2804,40 @@ class ModuleRequest {
             list.push(module);
         }
     storedExtensionCalls = calls;
-    // A module of the standard library or of Genes' own folder cannot name
-    // a class of the program, so its private access never reaches one.
-    final accessors = new Map<String, Bool>();
-    if (DceStdUses.stdProfile())
-      for (module => profile in requestProfiles)
-        if (profile.privateAccess && !transparentFile(moduleFiles.get(module)))
-          accessors.set(module, true);
+    // The modules whose code may see private fields of other modules
+    // (`privateAccessors`). A module of the standard library or of Genes'
+    // own folder cannot name a class of the program, so it never counts
+    // (`profileOf` gives it no reason).
+    final accessors = new Map<String, String>();
+    if (DceStdUses.stdProfile()) {
+      for (module => profile in requestProfiles) {
+        var reason = profile.privateReach;
+        // A project macro can return private-access code from a file that
+        // is not a module of the program, or read the fields of any class
+        // (a serializer that lists them).
+        if (reason == null && profile.opaqueMacro)
+          reason = 'defines a project macro function';
+        if (reason == null)
+          for (dependency in profile.dependencies) {
+            final loaded = requestProfiles.get(dependency);
+            if (loaded != null && loaded.opaqueMacro) {
+              reason = 'loads the project macro module $dependency';
+              break;
+            }
+          }
+        if (reason != null)
+          accessors.set(module, reason);
+      }
+      // `import <Type>.*` in an `import.hx` applies to every module of its
+      // folder, and their own text does not show it.
+      for (file => _ in requestDigests)
+        if (Path.withoutDirectory(file) == 'import.hx') {
+          final text = DceStdUses.sourceText(file);
+          if (text != null && DceStdUses.importsTypeStatics(text))
+            accessors.set(file,
+              'imports the static fields of a type for its folder (`import <Type>.*`)');
+        }
+    }
     storedPrivateAccess = accessors;
     final counts = new Map<String, Int>();
     for (_ => lines in uses)
@@ -2997,21 +3034,27 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the modules of the stored full request other than `module`
-   * whose code may access private fields without naming them in metadata
-   * (`storedPrivateAccess`), sorted. Empty under every profile other than
-   * `-dce std`.
+   * Returns the modules (or `import.hx` files) of the stored full request,
+   * other than `module`, whose code may see private fields of other modules
+   * without naming them in metadata (`storedPrivateAccess`), sorted. Empty
+   * under every profile other than `-dce std`.
    *
-   * Why: inside `@:privateAccess` or `untyped` code, Haxe lets a call
-   * through `using` go to a new private method of the same name, because it
-   * looks for a field of the class before it tries a static extension. The
-   * typed body of such a module may hold no trace of the call: an inline
-   * extension leaves its copied body, and a receiver whose type is a type
-   * parameter or a `@:forward` abstract gives `shadowedExtension` no class.
-   * So every private field of the requested module counts as visible, and
-   * any change of one is refused (`public-shape-changed`). Without private
-   * access, a new private field can only make another module fail to
-   * compile ("Cannot access private field"), never change its output.
+   * Why: in such code a new private field of the requested module can
+   * change how Haxe types a call, a pattern or a unification, and the typed
+   * body of that module may hold no trace of it. Examples: inside
+   * `@:privateAccess` or `untyped` code, Haxe lets a call through `using` go
+   * to a new private method of the same name, because it looks for a field
+   * of the class before it tries a static extension, and an inline
+   * extension leaves only its copied body; with `import app.Dial.*;`, a new
+   * private `static final label` turns the capture `case label:` into a
+   * comparison; and a new private `label()` makes a class unify with
+   * `{ private function label(): String; }`. A project macro can do any of
+   * this from a file that is not a module of the program, or list the fields
+   * of the class. So every private field of the requested module counts as
+   * visible, and any change of one is refused (`public-shape-changed`).
+   * Without any of these, a new private field can only make another module
+   * fail to compile ("Cannot access private field"), never change its
+   * output.
    *
    * Example: `mr.GizmoUser` has `static function of<T: Gizmo>(g: T) return
    * @:privateAccess g.label();` and `using mr.GizmoTools;`. A private
@@ -3176,14 +3219,14 @@ class ModuleRequest {
       return refuse('macro-or-generic',
         '$module defines a macro or a ' +
         '@:generic declaration, which other modules expand when Haxe types them');
-    // Another module with `@:privateAccess` or `untyped` code makes every
-    // private field of this module visible (`privateAccessors`).
+    // Another module whose code may see private fields makes every private
+    // field of this module visible (`privateAccessors`).
     final accessors = privateAccessors(module);
     final storedShape = visibleShape(record.shape, accessors.length > 0);
     final currentShape = visibleShape(shape, accessors.length > 0);
     final accessNote = accessors.length == 0 ? '' : ' (private fields count: '
-      + '${accessors[0]} has @:privateAccess or untyped code, where a new '
-      + 'private field can take a call that goes through `using`)';
+      + '${accessors[0]} ${storedPrivateAccess.get(accessors[0])}, so a new '
+      + 'private field can change how it types)';
     if (currentShape != storedShape)
       return refuse('public-shape-changed',
         'the public shape of $module ' +

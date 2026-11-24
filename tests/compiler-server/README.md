@@ -637,11 +637,9 @@ that each part of the rule needs, and edits it step by step:
   (`module-may-leave`: a full build drops `mr/OnlyHere.ts`); the first and
   the last reference to a typedef of `mr.Hints`, a module that nothing else
   reaches (`walk-target-added`, `walk-target-removed`); the first typed
-  cast of the program, which keeps `js.Boot.__cast` (`feature-changed`); a
-  call of the project macro `mr.Styles.css` (`opaque-macro`); a new
+  cast of the program, which keeps `js.Boot.__cast` (`feature-changed`); a new
   instance of the generic `mr.Box` and a call back that closes a cycle
-  (`other-modules-typed`); an edit of `mr.Built`, which has a build macro
-  (`opaque-macro`); and two edits that break a cycle (`import-cycle`): of
+  (`other-modules-typed`); and two edits that break a cycle (`import-cycle`): of
   `mr.Cycle`, and of `mr.CyBase`, whose subclass `mr.CyChild` prints its
   parent lazily while the cycle exists, so a full build changes
   `mr/CyChild.ts`;
@@ -695,6 +693,43 @@ prints `STALE mr/<name>User.ts`). Now each is refused
   cold fails with "Cannot access private field label". This is limit B of
   #260: no stale file results, and the full request reports the error
   (result `preview-program-fails`).
+
+Round 4 of the review (Fable on 3fa8782c) found more ways in which a new
+private field changes another module's code, each a group of its own. On
+3fa8782c the first six published a preview that differed from cold:
+
+- `std-private-state`: Genes' own `State.set` typed the new value inside
+  `@:privateAccess`, so a new private static extension in `mr.RivetTools`
+  took `new Rivet().describe()`. `ReactHooksMacro.setState` now wraps the
+  value in `@:noPrivateAccess`, and the row previews, equal to cold;
+- `std-private-import`: `import mr.Dial.*` imports private statics too,
+  and Haxe types a pattern without the access check, so a new private
+  `static final label` turns the capture `case label` into a comparison;
+- `std-private-structure`: a new private `label()` makes `mr.Lamp` unify
+  with `typedef Peek = { private function label(): String; }`, so the call
+  takes another extension, without private access in the caller;
+- `std-private-init`: `@:access(mr.Knot)` on `__init__`, whose metadata
+  Haxe drops;
+- `std-private-macro-helper`: a project macro wraps the call in
+  `@:privateAccess` from a helper that only Haxe's macro context loads;
+- `std-private-macro-fields`: a project macro of another module prints the
+  field names of `mr.Crate` (a serializer);
+- `std-private-build-macro`: a build macro adds `@:privateAccess` code from
+  such a helper;
+- `std-private-untyped-var`: `untyped` in a static variable's value, which
+  the rule reads only from Haxe's `:has_untyped` mark (on 3fa8782c the text
+  also counted, so it was refused there too);
+- `std-private-comment`: the word `untyped` in a comment no longer counts,
+  so a private method with a fresh name previews (refused on 3fa8782c).
+
+Each refused row's `check` names the module and the reason of the refusal.
+`std-private-access` also has a private static extension that takes a call
+inside `@:privateAccess`. Because a project macro makes every private field
+visible, the two project-macro rows of `std-structural` (a new use of
+`mr.Styles.css`, an edit of `mr.Built`, both `opaque-macro`) moved to
+`std-macro`, whose program imports `mr.Styles`; there a new private
+function of `mr.Card` is refused too. The `std-structural` program no longer
+loads them.
 
 `std-value-use` runs on its own server: `return Int;` in `mr.Words` is the
 first value use of `Int`, so cold prints `var Int = { };` in `Std.ts`, and
