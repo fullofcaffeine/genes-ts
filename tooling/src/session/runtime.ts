@@ -121,12 +121,18 @@ import {
   type HaxeInvocation,
   type JsonValue,
   type ColdBuildCheck,
+  type CompilerServerQueryMethod,
   type OutputCheck,
   type SessionFailure,
   type ValidationTree,
 } from "./types.js";
 
 const DEFAULT_DEBOUNCE_MS = 100;
+/**
+ * `GenesDevelopmentOptions.startDelayMs` when the host gives none: a save
+ * after an idle period starts its build 10 ms after the file event.
+ */
+const DEFAULT_START_DELAY_MS = 10;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 /** `GenerationReuseOptions.auditModules` when the host gives none. */
 const DEFAULT_AUDIT_MODULES = 2;
@@ -747,8 +753,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     // A host may attach after start. Keep Node from classifying the deliberate
     // fatal/close rejection as unhandled before that attachment.
     void this.#firstAcceptedPromise.catch(() => undefined);
+    const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.#loop = new SerializedDirtyLoop<BuildCause>({
-      debounceMs: options.debounceMs ?? DEFAULT_DEBOUNCE_MS,
+      debounceMs,
+      startDelayMs: Math.min(
+        options.startDelayMs ?? DEFAULT_START_DELAY_MS,
+        debounceMs,
+      ),
       merge: mergeCause,
       run: (cause) => this.#build(cause),
       onError: (error) => {
@@ -1202,6 +1213,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       });
     }
     return this.#watch.reconcile();
+  }
+
+  async queryCompilerServer(
+    method: CompilerServerQueryMethod,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (this.#closing !== null || this.#compiler.query === undefined) {
+      return null;
+    }
+    return await this.#compiler.query(method, signal);
   }
 
   async waitForIdle(): Promise<void> {

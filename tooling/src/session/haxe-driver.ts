@@ -1,14 +1,14 @@
 import type { ChildProcess } from "node:child_process";
+import { realpathSync } from "node:fs";
 import net from "node:net";
-import path from "node:path";
 import {
   OwnedHaxeWaitServer,
-  type HaxeWaitEndpoint,
+  type HaxeWaitLoopbackEndpoint,
   type HaxeWaitProcessExit,
   type HaxeWaitServerEvent,
   type OwnedHaxeWaitProcess,
 } from "../haxe-server/index.js";
-import type { HaxeInvocation } from "./types.js";
+import type { CompilerServerQueryMethod, HaxeInvocation } from "./types.js";
 import type { SessionLayout } from "./layout.js";
 import {
   GENES_DEV_INCREMENTAL_DEFINE,
@@ -18,6 +18,12 @@ import {
 } from "./effective-invocation.js";
 import { COMPILER_DATA_DEFINE } from "./compiler-data.js";
 import { launchHaxe } from "./haxe-launch.js";
+import {
+  HAXE_SERVER_COLLECTION_PERIOD,
+  HaxeStdioChannel,
+  HaxeStdioTransportError,
+  decodeHaxeServerAnswer,
+} from "./haxe-stdio-channel.js";
 
 const LOG_LIMIT = 128_000;
 
@@ -64,8 +70,23 @@ export interface SessionCompiler {
     prepared?: PreparedCompilerRequest,
   ): Promise<void>;
 
+  /**
+   * Sends one read-only JSON-RPC request of Haxe's display protocol (see
+   * `COMPILER_SERVER_QUERY_METHODS`) to the owned server and returns the
+   * answer text, or null when no server runs. Optional: an adapter without
+   * it has nothing to ask.
+   */
+  query?(
+    method: CompilerServerQueryMethod,
+    signal?: AbortSignal,
+  ): Promise<string | null>;
+
   close(): Promise<void>;
 }
+
+/** Every `CompilerServerQueryMethod`, for the check at run time. */
+const COMPILER_SERVER_QUERY_METHODS: readonly CompilerServerQueryMethod[] =
+  Object.freeze(["server/contexts"]);
 
 /**
  * The OCaml runtime setting for a compiler server that the session starts:
@@ -100,6 +121,42 @@ interface ActiveRequest {
  * take seconds. A longer wait ends in a new server instead of a failed build.
  */
 export const HAXE_SERVER_INVALIDATE_TIMEOUT_MS = 120_000;
+
+/**
+ * How long the owned server must be idle before the compiler sends the
+ * requests that compile nothing (see `HaxeSessionCompiler`). An edit that
+ * arrives in this time finds no collection in its way.
+ */
+export const HAXE_SERVER_IDLE_COLLECTION_DELAY_MS = 250;
+
+/**
+ * After this many failures of the stdio channel in a row, the compiler stops
+ * starting new servers for the same compatibility digest and builds in a
+ * new Haxe process for each request (`direct` mode), as it does for a
+ * server that does not answer.
+ */
+const MAX_TRANSPORT_FAILURES = 2;
+
+/** Optional settings of `HaxeSessionCompiler`; tests use small values. */
+export interface HaxeSessionCompilerOptions {
+  /** See `HAXE_SERVER_IDLE_COLLECTION_DELAY_MS`. */
+  readonly idleCollectionDelayMs?: number;
+  /** Passed to the channel; see `HaxeStdioChannelOptions`. */
+  readonly frameStallMs?: number;
+}
+
+/**
+ * The request counts of the owned server, for tests and measurements.
+ *
+ * `requests` counts every request that this server got, `idleRequests` only
+ * the requests that compile nothing, which the compiler sends while the
+ * server is idle so that Haxe's periodic collection runs then.
+ */
+export interface HaxeServerRequestCounts {
+  readonly pid: number;
+  readonly requests: number;
+  readonly idleRequests: number;
+}
 
 /**
  * A `server/invalidate` request failed or timed out. The compiler then starts
@@ -246,11 +303,9 @@ export function snapshotHaxeInvocation(
 
 function commandArgs(
   invocation: BoundHaxeInvocation,
-  endpoint: HaxeWaitEndpoint | null,
   prepared: PreparedCompilerRequest | undefined,
 ): readonly string[] {
   return Object.freeze([
-    ...(endpoint === null ? [] : ["--connect", endpoint.argument]),
     ...invocation.arguments,
     ...(prepared?.classPaths.flatMap((classPath) => ["-cp", classPath]) ?? []),
     ...(prepared === undefined
@@ -260,15 +315,39 @@ function commandArgs(
 }
 
 /**
+ * The lines of one JSON-RPC request of the Haxe display protocol, in the
+ * form that the Haxe client sends: `--cwd`, the folder, `--display`, the
+ * request.
+ */
+function displayRequestLines(
+  cwd: string,
+  method: string,
+  params: Readonly<Record<string, string>>,
+): readonly string[] {
+  const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
+  return ["--cwd", cwd, "--display", request];
+}
+
+/** Checks a display answer as `sendHaxeServerRequest` does. */
+function checkDisplayAnswer(method: string, answer: string): string {
+  if (!answer.includes('"result"') || answer.includes('"error"')) {
+    throw new Error(`Haxe server ${method} failed: ${answer.trim()}`);
+  }
+  return answer;
+}
+
+/**
  * Sends one JSON-RPC request of the Haxe display protocol to a running
- * compiler server and returns the text of the server's answer.
+ * compiler server on a loopback port (`haxe --wait PORT`) and returns the
+ * text of the server's answer.
  *
  * Why: some server methods do not compile anything. `server/invalidate`
  * marks the modules of one file as changed, and `server/contexts` lists the
  * caches. Starting a `haxe --connect` client process for each would cost more
  * than the request itself; this writes the request to the server socket
  * directly, in the same form as the Haxe client: one argument per line, then
- * a zero byte.
+ * a zero byte. The development session itself does not use it: its server
+ * takes requests on a pipe (`HaxeSessionCompiler`).
  *
  * Example: `sendHaxeServerRequest(endpoint, "/project", "server/invalidate",
  * { file: "/project/src/App.hx" }, { signal, timeoutMs: 120_000 })`.
@@ -278,15 +357,14 @@ function commandArgs(
  * answers with a JSON-RPC error.
  */
 export function sendHaxeServerRequest(
-  endpoint: HaxeWaitEndpoint,
+  endpoint: HaxeWaitLoopbackEndpoint,
   cwd: string,
   method: string,
   params: Readonly<Record<string, string>>,
   options: { readonly signal?: AbortSignal; readonly timeoutMs: number },
 ): Promise<string> {
   const { signal, timeoutMs } = options;
-  const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
-  const payload = `${["--cwd", cwd, "--display", request]
+  const payload = `${displayRequestLines(cwd, method, params)
     .map((line) => `${line}\n`)
     .join("")}\0`;
   return new Promise((resolve, reject) => {
@@ -304,10 +382,12 @@ export function sendHaxeServerRequest(
       socket.destroy();
       if (error !== null) {
         reject(error);
-      } else if (!answer.includes('"result"') || answer.includes('"error"')) {
-        reject(new Error(`Haxe server ${method} failed: ${answer.trim()}`));
       } else {
-        resolve(answer);
+        try {
+          resolve(checkDisplayAnswer(method, answer));
+        } catch (failure) {
+          reject(failure);
+        }
       }
     };
     if (signal?.aborted === true) {
@@ -443,24 +523,72 @@ class ChildWaitProcess implements OwnedHaxeWaitProcess {
   }
 }
 
-/** Concrete process adapter over the exact owned-server policy object. */
+/** One started stdio server: its process, its channel and its counts. */
+interface StdioServer {
+  readonly child: ChildProcess;
+  readonly channel: HaxeStdioChannel;
+  /** The physical working folder, as the Haxe client sends it in `--cwd`. */
+  readonly cwd: string;
+  /** True after the server answered its first request. */
+  answered: boolean;
+  idleRequests: number;
+}
+
+/**
+ * The development session's compiler: one owned `haxe --wait stdio` server,
+ * reached through one pipe that stays open.
+ *
+ * What it does for each build:
+ *
+ * 1. `server/invalidate` for each file that Haxe cannot see as changed (see
+ *    `SessionCompiler.compile`), then the compile request, each as one frame
+ *    on the pipe (`HaxeStdioChannel`). The request has the same arguments
+ *    and the same `--cwd` as a `haxe --connect` client would send, so the
+ *    output is the same as before; only the transport changed.
+ * 2. When the server stays idle for `HAXE_SERVER_IDLE_COLLECTION_DELAY_MS`,
+ *    it sends `-version` requests, which compile nothing, until the server's
+ *    request count is a multiple of `HAXE_SERVER_COLLECTION_PERIOD`. Haxe
+ *    then runs its periodic full collection or compaction at once, while
+ *    nobody waits, instead of after a later request of an edit. On a large
+ *    cache that collection takes seconds.
+ *
+ * When the pipe fails (for example a macro wrote to standard error directly,
+ * so bytes arrived outside a frame), the compiler stops that server and
+ * builds again on a new one, which gives the cold result. After
+ * `MAX_TRANSPORT_FAILURES` failures in a row it builds in a new Haxe process
+ * for each request instead.
+ *
+ * Cold builds of the output check (`compileCold`) and the fallback without a
+ * server (`direct` mode) still start one Haxe process for each request.
+ */
 export class HaxeSessionCompiler implements SessionCompiler {
   readonly #server: OwnedHaxeWaitServer<CompilerResult>;
   readonly #shutdownTimeoutMs: number;
+  readonly #idleCollectionDelayMs: number;
+  readonly #frameStallMs: number | undefined;
   #request: ActiveRequest | null = null;
   #freshServers = 0;
+  #transportFailures = 0;
+  #stdio: StdioServer | null = null;
+  #idleTimer: NodeJS.Timeout | null = null;
+  #closed = false;
 
   constructor(
     layout: SessionLayout,
     onEvent: (event: HaxeWaitServerEvent) => void,
     shutdownTimeoutMs: number,
+    options: HaxeSessionCompilerOptions = {},
   ) {
     this.#shutdownTimeoutMs = shutdownTimeoutMs;
+    this.#idleCollectionDelayMs =
+      options.idleCollectionDelayMs ?? HAXE_SERVER_IDLE_COLLECTION_DELAY_MS;
+    this.#frameStallMs = options.frameStallMs;
     this.#server = new OwnedHaxeWaitServer<CompilerResult>({
       projectRoot: layout.projectRoot,
       leasePath: layout.serverLeaseRelative,
       projectIdentity: layout.projectIdentity,
       ownerPid: process.pid,
+      transport: "stdio",
       isProcessAlive: (pid) => {
         try {
           process.kill(pid, 0);
@@ -474,12 +602,26 @@ export class HaxeSessionCompiler implements SessionCompiler {
           );
         }
       },
-      start: (endpoint) => this.#start(endpoint),
-      probe: (endpoint) => this.#probeServer(endpoint),
-      compileConnected: (endpoint) => this.#compileConnected(endpoint),
+      start: () => this.#start(),
+      probe: () => this.#probeServer(),
+      compileConnected: () => this.#compileConnected(),
       compileDirect: () => this.#compileDirect(),
       onEvent,
       shutdownTimeoutMs,
+    });
+  }
+
+  /**
+   * The request counts of the running server, or null when none runs. Tests
+   * and measurements use it to check when Haxe's periodic collection runs.
+   */
+  get serverRequests(): HaxeServerRequestCounts | null {
+    const server = this.#stdio;
+    if (server === null || server.child.pid === undefined) return null;
+    return Object.freeze({
+      pid: server.child.pid,
+      requests: server.channel.requests,
+      idleRequests: server.idleRequests,
     });
   }
 
@@ -491,6 +633,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
     prepared?: PreparedCompilerRequest,
     invalidatedFiles: readonly string[] = [],
   ): Promise<CompilerResult> {
+    this.#cancelIdleCollection();
     const request: ActiveRequest = {
       invocation,
       signal,
@@ -503,29 +646,40 @@ export class HaxeSessionCompiler implements SessionCompiler {
     try {
       let digest = this.#serverDigest(compatibilityDigest);
       request.invalidate = !(await this.#server.ensure(digest)).newlyStarted;
-      try {
-        return await this.#server.compile(digest);
-      } catch (error) {
-        if (!(error instanceof HaxeInvalidationError) || signal.aborted) {
-          throw error;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const result = await this.#server.compile(digest);
+          if (result.mode === "connected") this.#transportFailures = 0;
+          return result;
+        } catch (error) {
+          if (signal.aborted || attempt >= MAX_TRANSPORT_FAILURES) throw error;
+          if (error instanceof HaxeStdioTransportError) {
+            this.#transportFailures += 1;
+            // The next attempt finds the same broken server, which then
+            // reports that it cannot answer, so the build runs direct.
+            if (this.#transportFailures >= MAX_TRANSPORT_FAILURES) continue;
+          } else if (!(error instanceof HaxeInvalidationError)) {
+            throw error;
+          }
+          // The old server cannot be used. A new server has an empty cache,
+          // so it needs no invalidation and gives the cold result.
+          this.#freshServers += 1;
+          digest = this.#serverDigest(compatibilityDigest);
+          request.invalidate = false;
+          await this.#server.ensure(digest);
         }
-        // The old server could not take the invalidation. A new server has
-        // an empty cache, so it needs none and gives the cold result.
-        this.#freshServers += 1;
-        digest = this.#serverDigest(compatibilityDigest);
-        request.invalidate = false;
-        await this.#server.ensure(digest);
-        return await this.#server.compile(digest);
       }
     } finally {
       this.#request = null;
+      this.#scheduleIdleCollection();
     }
   }
 
   /**
    * Returns the digest that selects the owned server. It is the session's
    * compatibility digest, plus a counter of the servers replaced after a
-   * failed invalidation, so that such a replacement stays in use.
+   * failed invalidation or a failed pipe, so that such a replacement stays
+   * in use.
    */
   #serverDigest(compatibilityDigest: string): string {
     return this.#freshServers === 0
@@ -540,7 +694,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
   ): Promise<void> {
     const result = await runCommand(
       invocation,
-      commandArgs(invocation, null, prepared),
+      commandArgs(invocation, prepared),
       signal,
       this.#shutdownTimeoutMs,
     );
@@ -549,8 +703,32 @@ export class HaxeSessionCompiler implements SessionCompiler {
     }
   }
 
+  async query(
+    method: CompilerServerQueryMethod,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (!COMPILER_SERVER_QUERY_METHODS.includes(method)) {
+      throw new Error(`Haxe server method ${String(method)} is not a query`);
+    }
+    const server = this.#stdio;
+    if (server === null || server.channel.broken !== null) return null;
+    try {
+      const body = await server.channel.request(
+        displayRequestLines(server.cwd, method, {}),
+        signal,
+      );
+      return checkDisplayAnswer(method, body.toString("utf8"));
+    } finally {
+      if (this.#request === null) this.#scheduleIdleCollection();
+    }
+  }
+
   async close(): Promise<void> {
+    this.#closed = true;
+    this.#cancelIdleCollection();
     await this.#server.close();
+    this.#stdio?.channel.close();
+    this.#stdio = null;
   }
 
   #current(): ActiveRequest {
@@ -558,87 +736,146 @@ export class HaxeSessionCompiler implements SessionCompiler {
     return this.#request;
   }
 
-  async #start(endpoint: HaxeWaitEndpoint): Promise<OwnedHaxeWaitProcess> {
+  async #start(): Promise<OwnedHaxeWaitProcess> {
     const request = this.#current();
     await request.assertInvocationCurrent?.();
     if (request.signal.aborted) {
       throw new Error("Haxe compilation was cancelled");
     }
+    // The Haxe client sends its physical working folder, so this does too.
+    const cwd = realpathSync.native(request.invocation.cwd);
     const launch = launchHaxe(
       request.invocation.executable,
-      ["--server-listen", endpoint.argument],
+      ["--wait", "stdio"],
       {
         cwd: request.invocation.cwd,
         environment: {
           OCAMLRUNPARAM: HAXE_SERVER_OCAMLRUNPARAM,
           ...request.invocation.environment,
         },
+        stdin: "pipe",
         stdout: "ignore",
-        stderr: "ignore",
+        stderr: "pipe",
       },
     );
+    const { child } = launch;
+    // Errors of the pipes reach the channel; this only keeps a write to a
+    // closed pipe during the handoff from becoming an unhandled error.
+    child.stdin?.on("error", () => {});
     await launch.handoff;
     if (request.signal.aborted) {
-      await terminate(launch.child, this.#shutdownTimeoutMs);
+      await terminate(child, this.#shutdownTimeoutMs);
       throw new Error("Haxe compilation was cancelled");
     }
-    return new ChildWaitProcess(launch.child);
-  }
-
-  async #probeServer(endpoint: HaxeWaitEndpoint): Promise<boolean> {
-    return await new Promise<boolean>((resolve) => {
-      const socket = net.createConnection({
-        host: endpoint.host,
-        port: endpoint.port,
-      });
-      let settled = false;
-      const finish = (available: boolean): void => {
-        if (settled) return;
-        settled = true;
-        socket.destroy();
-        resolve(available);
-      };
-      socket.once("connect", () => finish(true));
-      socket.once("error", () => finish(false));
-      socket.setTimeout(this.#shutdownTimeoutMs, () => finish(false));
+    if (child.stdin === null || child.stderr === null) {
+      await terminate(child, this.#shutdownTimeoutMs);
+      throw new Error("Haxe server has no standard streams");
+    }
+    this.#stdio?.channel.close();
+    child.once("exit", () => {
+      if (this.#stdio?.child === child) {
+        this.#stdio.channel.close();
+        this.#stdio = null;
+      }
     });
+    this.#stdio = {
+      child,
+      channel: new HaxeStdioChannel(child.stdin, child.stderr, {
+        frameStallMs: this.#frameStallMs,
+      }),
+      cwd,
+      answered: false,
+      idleRequests: 0,
+    };
+    return new ChildWaitProcess(child);
   }
 
-  async #compileConnected(endpoint: HaxeWaitEndpoint): Promise<CompilerResult> {
+  /**
+   * Readiness and liveness of the stdio server. The first call waits for
+   * the answer of a request that compiles nothing. Later calls only check
+   * the process: a request would wait behind a running compile.
+   *
+   * A broken pipe on a live process counts as available while a new server
+   * may still be tried, so that `compile` gets the error and starts one.
+   */
+  async #probeServer(): Promise<boolean> {
+    const server = this.#stdio;
+    if (
+      server === null ||
+      server.child.exitCode !== null ||
+      server.child.signalCode !== null
+    ) {
+      return false;
+    }
+    if (server.channel.broken !== null) {
+      return this.#transportFailures < MAX_TRANSPORT_FAILURES;
+    }
+    if (server.answered) return true;
+    try {
+      await server.channel.request(this.#noOpLines(server));
+      server.answered = true;
+      return true;
+    } catch {
+      return (
+        server.channel.broken !== null &&
+        this.#transportFailures < MAX_TRANSPORT_FAILURES
+      );
+    }
+  }
+
+  async #compileConnected(): Promise<CompilerResult> {
     const request = this.#current();
+    const server = this.#stdio;
+    if (server === null) throw new Error("Haxe server is not running");
+    if (server.channel.broken !== null) throw server.channel.broken;
     for (const file of request.invalidate ? request.invalidatedFiles : []) {
       if (request.signal.aborted) {
         throw new Error("Haxe compilation was cancelled");
       }
       try {
-        await sendHaxeServerRequest(
-          endpoint,
-          request.invocation.cwd,
-          "server/invalidate",
-          { file },
-          {
-            signal: request.signal,
-            timeoutMs: HAXE_SERVER_INVALIDATE_TIMEOUT_MS,
-          },
+        const body = await server.channel.request(
+          displayRequestLines(server.cwd, "server/invalidate", { file }),
+          AbortSignal.any([
+            request.signal,
+            AbortSignal.timeout(HAXE_SERVER_INVALIDATE_TIMEOUT_MS),
+          ]),
         );
+        checkDisplayAnswer("server/invalidate", body.toString("utf8"));
       } catch (error) {
         if (request.signal.aborted) {
           throw new Error("Haxe compilation was cancelled");
         }
+        if (error instanceof HaxeStdioTransportError) throw error;
         throw new HaxeInvalidationError(error);
       }
     }
-    return await this.#run(endpoint, "connected");
+    await request.assertInvocationCurrent?.();
+    if (request.signal.aborted) {
+      throw new Error("Haxe compilation was cancelled");
+    }
+    const body = await server.channel.request(
+      [
+        `--cwd ${server.cwd}`,
+        ...commandArgs(request.invocation, request.prepared),
+      ],
+      request.signal,
+    );
+    const answer = decodeHaxeServerAnswer(body.toString("utf8"));
+    if (answer.failed) {
+      throw new HaxeCommandError(
+        {
+          code: 1,
+          signal: null,
+          stdout: answer.stdout.slice(-LOG_LIMIT),
+          stderr: answer.stderr.slice(-LOG_LIMIT),
+        },
+        request.invocation.candidateRoot,
+      );
+    }
+    return Object.freeze({ mode: "connected" });
   }
 
   async #compileDirect(): Promise<CompilerResult> {
-    return await this.#run(null, "direct");
-  }
-
-  async #run(
-    endpoint: HaxeWaitEndpoint | null,
-    mode: "connected" | "direct",
-  ): Promise<CompilerResult> {
     const request = this.#current();
     await request.assertInvocationCurrent?.();
     if (request.signal.aborted) {
@@ -646,13 +883,64 @@ export class HaxeSessionCompiler implements SessionCompiler {
     }
     const result = await runCommand(
       request.invocation,
-      commandArgs(request.invocation, endpoint, request.prepared),
+      commandArgs(request.invocation, request.prepared),
       request.signal,
       this.#shutdownTimeoutMs,
     );
     if (result.code !== 0) {
       throw new HaxeCommandError(result, request.invocation.candidateRoot);
     }
-    return Object.freeze({ mode });
+    return Object.freeze({ mode: "direct" });
+  }
+
+  /** A request that compiles nothing: Haxe prints its version. */
+  #noOpLines(server: StdioServer): readonly string[] {
+    return [`--cwd ${server.cwd}`, "-version"];
+  }
+
+  #scheduleIdleCollection(): void {
+    this.#cancelIdleCollection();
+    if (this.#closed) return;
+    this.#idleTimer = setTimeout(() => {
+      this.#idleTimer = null;
+      void this.#collectWhileIdle();
+    }, this.#idleCollectionDelayMs);
+    this.#idleTimer.unref();
+  }
+
+  #cancelIdleCollection(): void {
+    if (this.#idleTimer !== null) {
+      clearTimeout(this.#idleTimer);
+      this.#idleTimer = null;
+    }
+  }
+
+  /**
+   * Sends requests that compile nothing until the request count of the
+   * server is a multiple of `HAXE_SERVER_COLLECTION_PERIOD`. Haxe runs its
+   * collection right after the last of them. It stops as soon as a build
+   * starts, so a build waits for one small request at most, or for a
+   * collection that had already started.
+   */
+  async #collectWhileIdle(): Promise<void> {
+    const server = this.#stdio;
+    if (server === null) return;
+    while (
+      !this.#closed &&
+      this.#request === null &&
+      this.#stdio === server &&
+      server.channel.broken === null &&
+      !server.channel.busy &&
+      server.channel.requests % HAXE_SERVER_COLLECTION_PERIOD !== 0
+    ) {
+      try {
+        server.idleRequests += 1;
+        await server.channel.request(this.#noOpLines(server));
+      } catch {
+        // A broken pipe is found again by the next build, which replaces
+        // the server.
+        return;
+      }
+    }
   }
 }

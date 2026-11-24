@@ -15,37 +15,66 @@ import type {
   HaxeWaitEndpoint,
   HaxeWaitEnsureResult,
   HaxeWaitFallbackReason,
+  HaxeWaitLoopbackEndpoint,
   HaxeWaitServerEvent,
+  HaxeWaitStdioEndpoint,
+  HaxeWaitTransport,
   OwnedHaxeWaitProcess,
   OwnedHaxeWaitServerOptions,
 } from "./types.js";
 
 const LEASE_SCHEMA = "genes.tooling.haxe-wait-server-lease.v1";
+/**
+ * The lease of a server on its standard streams. It has no address, because
+ * no other process can send it a request.
+ */
+const STDIO_LEASE_SCHEMA = "genes.tooling.haxe-wait-server-lease.stdio.v1";
 const DEFAULT_READINESS_TIMEOUT_MS = 4_000;
 const DEFAULT_PROBE_INTERVAL_MS = 50;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1_500;
 
-interface Lease {
-  readonly schema: typeof LEASE_SCHEMA;
+/** The fixed endpoint of every owned server with the `stdio` transport. */
+export const HAXE_WAIT_STDIO_ENDPOINT: HaxeWaitStdioEndpoint = Object.freeze({
+  transport: "stdio",
+  argument: "stdio",
+});
+
+interface LeaseOwner {
   readonly projectIdentity: string;
   readonly compatibilityDigest: string;
   readonly ownerPid: number;
   readonly serverPid: number;
-  readonly host: "127.0.0.1";
-  readonly port: number;
 }
+
+type Lease =
+  | (LeaseOwner & {
+      readonly schema: typeof LEASE_SCHEMA;
+      readonly host: "127.0.0.1";
+      readonly port: number;
+    })
+  | (LeaseOwner & { readonly schema: typeof STDIO_LEASE_SCHEMA });
 
 function canonicalLease(lease: Lease): Buffer {
   return Buffer.from(
-    `${JSON.stringify({
-      compatibilityDigest: lease.compatibilityDigest,
-      host: lease.host,
-      ownerPid: lease.ownerPid,
-      port: lease.port,
-      projectIdentity: lease.projectIdentity,
-      schema: lease.schema,
-      serverPid: lease.serverPid,
-    })}\n`,
+    `${JSON.stringify(
+      lease.schema === LEASE_SCHEMA
+        ? {
+            compatibilityDigest: lease.compatibilityDigest,
+            host: lease.host,
+            ownerPid: lease.ownerPid,
+            port: lease.port,
+            projectIdentity: lease.projectIdentity,
+            schema: lease.schema,
+            serverPid: lease.serverPid,
+          }
+        : {
+            compatibilityDigest: lease.compatibilityDigest,
+            ownerPid: lease.ownerPid,
+            projectIdentity: lease.projectIdentity,
+            schema: lease.schema,
+            serverPid: lease.serverPid,
+          },
+    )}\n`,
     "utf8",
   );
 }
@@ -115,38 +144,53 @@ function decodeLease(bytes: Buffer): Lease | null {
     return null;
   }
   const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort().join(",");
   if (
-    Object.keys(record).sort().join(",") !==
-      "compatibilityDigest,host,ownerPid,port,projectIdentity,schema,serverPid" ||
-    record.schema !== LEASE_SCHEMA ||
     typeof record.projectIdentity !== "string" ||
     record.projectIdentity.length === 0 ||
     typeof record.compatibilityDigest !== "string" ||
     record.compatibilityDigest.length === 0 ||
-    record.host !== "127.0.0.1" ||
     !Number.isInteger(record.ownerPid) ||
     (record.ownerPid as number) <= 0 ||
     !Number.isInteger(record.serverPid) ||
-    (record.serverPid as number) <= 0 ||
-    !Number.isInteger(record.port) ||
-    (record.port as number) <= 0 ||
-    (record.port as number) > 65_535
+    (record.serverPid as number) <= 0
   ) {
     return null;
   }
-  const lease: Lease = {
-    schema: LEASE_SCHEMA,
+  const owner: LeaseOwner = {
     projectIdentity: record.projectIdentity,
     compatibilityDigest: record.compatibilityDigest,
     ownerPid: record.ownerPid as number,
     serverPid: record.serverPid as number,
-    host: "127.0.0.1",
-    port: record.port as number,
   };
+  let lease: Lease;
+  if (
+    record.schema === STDIO_LEASE_SCHEMA &&
+    keys === "compatibilityDigest,ownerPid,projectIdentity,schema,serverPid"
+  ) {
+    lease = { ...owner, schema: STDIO_LEASE_SCHEMA };
+  } else if (
+    record.schema === LEASE_SCHEMA &&
+    keys ===
+      "compatibilityDigest,host,ownerPid,port,projectIdentity,schema,serverPid" &&
+    record.host === "127.0.0.1" &&
+    Number.isInteger(record.port) &&
+    (record.port as number) > 0 &&
+    (record.port as number) <= 65_535
+  ) {
+    lease = {
+      ...owner,
+      schema: LEASE_SCHEMA,
+      host: "127.0.0.1",
+      port: record.port as number,
+    };
+  } else {
+    return null;
+  }
   return canonicalLease(lease).equals(bytes) ? Object.freeze(lease) : null;
 }
 
-export async function reserveLoopbackEndpoint(): Promise<HaxeWaitEndpoint> {
+export async function reserveLoopbackEndpoint(): Promise<HaxeWaitLoopbackEndpoint> {
   const server = net.createServer();
   await new Promise<void>((resolve, reject) => {
     server.once("error", (error) => {
@@ -182,6 +226,7 @@ export class OwnedHaxeWaitServer<Result> {
   readonly #readinessTimeoutMs: number;
   readonly #probeIntervalMs: number;
   readonly #shutdownTimeoutMs: number;
+  readonly #transport: HaxeWaitTransport;
   #process: OwnedHaxeWaitProcess | null = null;
   #endpoint: HaxeWaitEndpoint | null = null;
   #compatibilityDigest: string | null = null;
@@ -204,6 +249,10 @@ export class OwnedHaxeWaitServer<Result> {
       throw new Error("projectIdentity must not be empty");
     }
     positiveInteger(options.ownerPid, "ownerPid");
+    this.#transport = options.transport ?? "loopback";
+    if (this.#transport !== "loopback" && this.#transport !== "stdio") {
+      throw new Error("transport must be loopback or stdio");
+    }
     this.#readinessTimeoutMs = positiveInteger(
       options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
       "readinessTimeoutMs",
@@ -252,16 +301,21 @@ export class OwnedHaxeWaitServer<Result> {
     }
 
     let endpoint: HaxeWaitEndpoint;
-    try {
-      endpoint = await (
-        this.#options.reserveEndpoint?.() ?? reserveLoopbackEndpoint()
-      );
-      this.#validateEndpoint(endpoint);
-    } catch {
-      return this.#fallback(
-        compatibilityDigest,
-        "port-reservation-failed",
-      );
+    if (this.#transport === "stdio") {
+      endpoint = HAXE_WAIT_STDIO_ENDPOINT;
+    } else {
+      try {
+        const reserved = await (
+          this.#options.reserveEndpoint?.() ?? reserveLoopbackEndpoint()
+        );
+        this.#validateEndpoint(reserved);
+        endpoint = reserved;
+      } catch {
+        return this.#fallback(
+          compatibilityDigest,
+          "port-reservation-failed",
+        );
+      }
     }
 
     let processHandle: OwnedHaxeWaitProcess;
@@ -356,7 +410,7 @@ export class OwnedHaxeWaitServer<Result> {
     });
   }
 
-  #validateEndpoint(endpoint: HaxeWaitEndpoint): void {
+  #validateEndpoint(endpoint: HaxeWaitLoopbackEndpoint): void {
     if (
       endpoint.host !== "127.0.0.1" ||
       !Number.isInteger(endpoint.port) ||
@@ -421,15 +475,22 @@ export class OwnedHaxeWaitServer<Result> {
     compatibilityDigest: string,
     serverPid: number,
   ): boolean {
-    const bytes = canonicalLease({
-      schema: LEASE_SCHEMA,
+    const owner: LeaseOwner = {
       projectIdentity: this.#options.projectIdentity,
       compatibilityDigest,
       ownerPid: this.#options.ownerPid,
       serverPid,
-      host: endpoint.host,
-      port: endpoint.port,
-    });
+    };
+    const bytes = canonicalLease(
+      "transport" in endpoint
+        ? { ...owner, schema: STDIO_LEASE_SCHEMA }
+        : {
+            ...owner,
+            schema: LEASE_SCHEMA,
+            host: endpoint.host,
+            port: endpoint.port,
+          },
+    );
     let descriptor: number | null = null;
     try {
       descriptor = openSync(this.#checkedLeasePath(), "wx", 0o600);

@@ -6,6 +6,38 @@ it.
 
 ## Unreleased
 
+- The development session talks to its owned Haxe server through one pipe
+  that stays open (`haxe --wait stdio`), not through a Node helper and a
+  `haxe --connect` client process for each request (parity stage 0,
+  genes-19wt). A request that compiles nothing now takes well under 1 ms;
+  before, each request cost a new process plus Haxe 4.3.7's 50 ms TCP wait.
+  The output is unchanged. When bytes arrive outside a frame (for example a
+  macro writes to `Sys.stderr()` directly), the session builds again on a new
+  server, and after two failures in a row it builds without a server
+  (`direct`). Breaking for hosts that read the server's address:
+  - the lease (`haxe-server.json`) of the session's server now has the
+    schema `genes.tooling.haxe-wait-server-lease.stdio.v1` and no `host` or
+    `port`;
+  - the `started` compiler event has the endpoint
+    `{"transport":"stdio","argument":"stdio"}`; the v1 protocol schema
+    accepts both endpoint shapes;
+  - `HaxeWaitEndpoint` is now `HaxeWaitLoopbackEndpoint |
+    HaxeWaitStdioEndpoint`; `OwnedHaxeWaitServer` gains `transport`
+    (default `loopback`, unchanged) and `sendHaxeServerRequest` takes a
+    loopback endpoint.
+  `DevelopmentSession.queryCompilerServer("server/contexts")` replaces a
+  direct TCP request to the session's server.
+- Haxe's periodic full collection moves off the edit path (genes-0emi).
+  Haxe 4.3.7 runs it after every tenth request of any kind; when the server
+  has been idle for 250 ms, the session sends requests that compile nothing
+  until the count is a multiple of ten, so the collection runs then.
+- A save after an idle period starts its build 10 ms after the file event
+  (`startDelayMs`, new; `SerializedDirtyLoopOptions.startDelayMs`, new).
+  Saves during a build still wait the quiet time (`debounceMs`, 100 ms)
+  before their follow-up build.
+- The trusted launch helper no longer prints Node's `process.execve`
+  ExperimentalWarning to Haxe's standard error.
+
 - Add `generationReuse`, which asks Genes to replay the stored output of
   modules that its clean rules call unchanged (Stage 3 generation reuse,
   genes-f8vc.9.23). Two checks come with it and are on by default:

@@ -253,18 +253,31 @@
           "properties": {
             "kind": { "const": "started" },
             "endpoint": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["host", "port", "argument"],
-              "properties": {
-                "host": { "const": "127.0.0.1" },
-                "port": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 65535
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["host", "port", "argument"],
+                  "properties": {
+                    "host": { "const": "127.0.0.1" },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "argument": { "type": "string", "minLength": 1 }
+                  }
                 },
-                "argument": { "type": "string", "minLength": 1 }
-              }
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["transport", "argument"],
+                  "properties": {
+                    "transport": { "const": "stdio" },
+                    "argument": { "const": "stdio" }
+                  }
+                }
+              ]
             }
           }
         },

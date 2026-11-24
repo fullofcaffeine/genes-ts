@@ -61,7 +61,7 @@ import {
   type DevelopmentEvent,
   type JsonValue,
 } from "./session/index.js";
-import { sendHaxeServerRequest } from "./session/haxe-driver.js";
+import type { CompilerServerQueryMethod } from "./session/index.js";
 
 type Diagnostic = {
   readonly [key: string]: JsonValue;
@@ -295,24 +295,21 @@ try {
     return Date.now() - started;
   };
 
-  const lease = (): { readonly port: number; readonly serverPid: number } =>
+  const lease = (): { readonly schema: string; readonly serverPid: number } =>
     JSON.parse(
       readFileSync(path.join(projectRoot, ".genes/dev/haxe-server.json"), "utf8"),
-    ) as { readonly port: number; readonly serverPid: number };
+    ) as { readonly schema: string; readonly serverPid: number };
 
   /**
-   * Sends one display-protocol request to the session's server and returns
-   * its result value. Haxe 4.3.7 wraps the value as `{result, timestamp}`.
+   * Sends one display-protocol request to the session's server, through the
+   * session's own pipe, and returns its result value. Haxe 4.3.7 wraps the
+   * value as `{result, timestamp}`.
    */
-  const serverResult = async (method: string): Promise<unknown> => {
-    const { port } = lease();
-    const answer = await sendHaxeServerRequest(
-      { host: "127.0.0.1", port, argument: `127.0.0.1:${port}` },
-      projectRoot,
-      method,
-      {},
-      { timeoutMs: 30_000 },
-    );
+  const serverResult = async (method: CompilerServerQueryMethod): Promise<unknown> => {
+    assert.equal(lease().schema, "genes.tooling.haxe-wait-server-lease.stdio.v1");
+    const answer = await session.queryCompilerServer(method);
+    assert.notEqual(answer, null, `${method}: the session has no server`);
+    if (answer === null) throw new Error("unreachable");
     const start = answer.indexOf("{");
     assert.notEqual(start, -1, `${method} gave no JSON: ${answer}`);
     // BOUNDARY_DYNAMIC: the Haxe display protocol answer is foreign JSON;
@@ -681,6 +678,33 @@ try {
     );
     console.log(
       `warm session reuse: ${report.replayed} replayed modules, audit ${report.audit.audited.length} modules in ${report.audit.ms} ms, cold build equal twice`,
+    );
+
+    // Parity stage 0 (genes-0emi): requests that compile nothing, between
+    // builds, must not change what the next build replays. Twenty queries
+    // here, plus the `-version` requests that the compiler sends while the
+    // server is idle, run Haxe's periodic collection at least twice.
+    for (let index = 0; index < 20; index += 1) {
+      assert.notEqual(await reuseSession.queryCompilerServer("server/contexts"), null);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const idleFile = edit("servercase/UnimportedLeaf.hx", "leaf-reuse-", "leaf-idle-");
+    setWholeSecond(idleFile, Math.floor(statSync(idleFile).mtimeMs / 1000) + 2);
+    const third = await coldChecks(3, "reuse edit after idle requests");
+    assert.deepEqual(third[2], {
+      check: "cold-build",
+      revision: 3,
+      generation: 3,
+      result: "equal",
+      paths: [],
+    });
+    const afterIdle = reuseReport();
+    assert.equal(afterIdle.mode, "reuse");
+    assert.equal(afterIdle.replayed, report.replayed,
+      "after idle requests the build must replay as many modules as before");
+    assert.deepEqual(afterIdle.audit.mismatches, [], "the audit found a difference");
+    console.log(
+      `warm session reuse after 20 idle requests: ${afterIdle.replayed} replayed modules, cold build equal`,
     );
   } finally {
     await reuseSession.close();

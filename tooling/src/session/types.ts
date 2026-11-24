@@ -333,6 +333,23 @@ export interface DevelopmentSession<Diagnostic extends JsonValue> {
    */
   acquirePublishedRead(): Promise<PublishedReadLease>;
 
+  /**
+   * Sends one read-only request (`CompilerServerQueryMethod`) to the owned
+   * Haxe server and resolves with the server's JSON-RPC answer text, or with
+   * null when no server runs (before the first build, in `direct` mode, or
+   * after close).
+   *
+   * Why: the owned server takes requests only on a pipe that the session
+   * holds, so a test or a host check cannot connect to it. Example: a gate
+   * compares `server/contexts` after each build to prove that the session
+   * keeps one cache. The request waits for a running build and counts as a
+   * server request like any other.
+   */
+  queryCompilerServer(
+    method: CompilerServerQueryMethod,
+    signal?: AbortSignal,
+  ): Promise<string | null>;
+
   /** Subscribes to future events; the returned unsubscribe is idempotent. */
   subscribe(
     listener: (event: DevelopmentEvent<Diagnostic>) => void,
@@ -341,6 +358,16 @@ export interface DevelopmentSession<Diagnostic extends JsonValue> {
   /** Bounded and idempotent; never stops a process the session does not own. */
   close(): Promise<void>;
 }
+
+/**
+ * A compiler-server method that `DevelopmentSession.queryCompilerServer` may
+ * send. `server/contexts` only reads the cache: it lists the caches by define
+ * signature. A method that changes the cache, such as `server/invalidate`,
+ * stays with the session, which must know about each change.
+ * `server/memory` is left out on purpose: on Haxe 4.3.7 for macOS arm64 it
+ * ends the server with SIGBUS.
+ */
+export type CompilerServerQueryMethod = "server/contexts";
 
 /** One file presented to a host validator at its eventual logical location. */
 export interface CandidateFile {
@@ -745,7 +772,22 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   /** Canonical JSON that invalidates an earlier admission when it changes. */
   readonly validatorPolicyFacts: JsonValue;
 
+  /**
+   * The quiet time in milliseconds before a build that follows a running
+   * build: saves during a build start one follow-up build, after no save
+   * came for this long. Default 100.
+   */
   readonly debounceMs?: number;
+
+  /**
+   * The delay in milliseconds between the file event of a save after an
+   * idle period and the start of its build. Default 10; a value above
+   * `debounceMs` acts as `debounceMs`. A save in this delay restarts it, so
+   * the writes of one save still give one build. If a build reads a file
+   * while an editor still writes it, the build fails or shows that text,
+   * and the event of the last write starts a follow-up build.
+   */
+  readonly startDelayMs?: number;
   readonly pollIntervalMs?: number;
   readonly shutdownTimeoutMs?: number;
 }
