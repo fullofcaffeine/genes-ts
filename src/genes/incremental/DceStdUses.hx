@@ -448,13 +448,12 @@ class DceStdUses {
    *   off (`matcher.ml`). Example: with `import app.Dial.*;`, the capture
    *   `case label:` becomes a comparison with a new private
    *   `static final label`. Lines inside `#if` count too.
-   * - `has a structure type with a private field`: a private field of a
-   *   class meets a private field of a structure (`tUnification.ml`), so a
-   *   new private field can make a class unify with such a structure and,
-   *   for example, choose another static extension
-   *   (`privateStructureOf`).
    * - `has no readable source`: `text` is `null`, so nothing above can be
    *   read (for example a module that a macro defines without a file).
+   *
+   * A structure type with a private field is a reason too, but it counts
+   * also for the requested module itself, so `ModuleRequest` reads it on its
+   * own (`privateStructureOf`).
    */
   public static function privateReachOf(types: Array<Type>,
       text: Null<String>): Null<String> {
@@ -480,8 +479,6 @@ class DceStdUses {
       }
     if (importsTypeStatics(text))
       return 'imports the static fields of a type (`import <Type>.*`)';
-    if (privateStructureOf(types))
-      return 'has a structure type with a private field';
     return null;
   }
 
@@ -526,11 +523,17 @@ class DceStdUses {
    * (`tUnification.ml`), so a new private `label()` of `app.Lamp` makes it
    * unify with `Peek`. A static extension `describe(item: Peek)` can then
    * take `lamp.describe()` from `describe(item: Lamp)`, without any private
-   * access in the caller.
+   * access in the caller. This holds also when `Peek` is declared in the
+   * module of `app.Lamp` itself, so the requested module counts too.
+   *
+   * A typedef that a type names is followed once (also one of the standard
+   * library), so `typedef Pair = { final peek: Peek; }` counts where `Pair`
+   * is used.
    */
   public static function privateStructureOf(types: Array<Type>): Bool {
     var found = false;
     final seenParams = new Map<String, Bool>();
+    final seenTypedefs = new Map<String, Bool>();
     function inType(value: Null<Type>, depth: Int): Void {
       if (found || value == null)
         return;
@@ -567,7 +570,16 @@ class DceStdUses {
           }
           for (param in params)
             inType(param, depth + 1);
-        case TEnum(_, params) | TType(_, params) | TAbstract(_, params):
+        case TType(owner, params):
+          final def = owner.get();
+          final key = TypeUtil.baseTypeFullName(def);
+          if (!seenTypedefs.exists(key)) {
+            seenTypedefs.set(key, true);
+            inType(def.type, depth + 1);
+          }
+          for (param in params)
+            inType(param, depth + 1);
+        case TEnum(_, params) | TAbstract(_, params):
           for (param in params)
             inType(param, depth + 1);
         case TFun(args, result):

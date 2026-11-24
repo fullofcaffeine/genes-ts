@@ -2542,6 +2542,75 @@ function privateReachGroups(): ReadonlyArray<Group> {
       ]
     },
     {
+      // Round 3 of Fable on 58bff340: the structure with a private field is
+      // declared in the requested module itself, before the class. A new
+      // private `label()` makes `mr.Globe` unify with `GlobePeek`, so
+      // `mr.GlobeUser` takes `PeekTools.describe` (stale on 58bff340).
+      name: "std-private-own-structure",
+      dce: "std",
+      files: {
+        ...ownMain(["Globe"]),
+        "mr/Globe.hx": "package mr;\n\ntypedef GlobePeek = {\n  private function label(): String;\n}\n\n"
+          + "class PeekTools {\n  public static function describe(item: GlobePeek): String {\n    return 'peek';\n  }\n}\n\n"
+          + "class Globe {\n  public function new() {}\n\n  public function title(): String {\n    return 'globe';\n  }\n}\n",
+        "mr/AnyTools.hx": "package mr;\n\nclass AnyTools {\n"
+          + "  public static function describe(item: Globe): String {\n    return 'any ' + item.title();\n  }\n}\n",
+        "mr/GlobeUser.hx": "package mr;\n\nusing mr.AnyTools;\nusing mr.Globe.PeekTools;\n\nclass GlobeUser {\n"
+          + "  public static function show(): String {\n    return new Globe().describe();\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: a private method makes a class unify with a structure of its own module (public-shape-changed)",
+          apply: addPrivateLabel("Globe"), module: "mr.Globe", expect: "public-shape-changed",
+          check: reasonNames("mr.Globe has a structure type with a private field") }
+      ]
+    },
+    {
+      // The same with the class first: the edit then also moves the typedef
+      // and the extension class that `mr.OrbUser` imports
+      // (`position-changed` on 58bff340), and the structure rule refuses it
+      // first.
+      name: "std-private-own-structure-first",
+      dce: "std",
+      files: {
+        ...ownMain(["Orb"]),
+        "mr/Orb.hx": "package mr;\n\nclass Orb {\n  public function new() {}\n\n  public function title(): String {\n    return 'orb';\n  }\n}\n\n"
+          + "typedef OrbPeek = {\n  private function label(): String;\n}\n\n"
+          + "class OrbPeekTools {\n  public static function describe(item: OrbPeek): String {\n    return 'peek';\n  }\n}\n",
+        "mr/OrbAny.hx": "package mr;\n\nclass OrbAny {\n"
+          + "  public static function describe(item: Orb): String {\n    return 'any ' + item.title();\n  }\n}\n",
+        "mr/OrbUser.hx": "package mr;\n\nusing mr.OrbAny;\nusing mr.Orb.OrbPeekTools;\n\nclass OrbUser {\n"
+          + "  public static function show(): String {\n    return new Orb().describe();\n  }\n}\n"
+      },
+      steps: [
+        { id: "std: a private method makes a class unify with a structure declared below it in its module (public-shape-changed)",
+          apply: addPrivateLabel("Orb"), module: "mr.Orb", expect: "public-shape-changed",
+          check: reasonNames("mr.Orb has a structure type with a private field") }
+      ]
+    },
+    {
+      // An init macro other than Genes' own and the calls that only record
+      // a define, metadata or a class path can change code without metadata,
+      // so every private field counts. This one does nothing, so the row
+      // previewed on 58bff340 too; it guards the rule.
+      name: "std-private-init-macro",
+      dce: "std",
+      extraArgs: ["--macro", "mr.Spy.install()"],
+      files: {
+        ...ownMain(["Pod"]),
+        "mr/Spy.hx": "package mr;\n\nclass Spy {\n  public static function install(): Void {}\n}\n",
+        ...extensionCallFiles("Pod", {
+          user: "  public static function show(): String {\n    return new Pod().title();\n  }\n"
+        })
+      },
+      steps: [
+        { id: "std: a private method with a fresh name in a program with a project init macro (public-shape-changed)",
+          apply: () => edit("Pod.hx", "  public function title(): String {",
+            "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
+          module: "mr.Pod", expect: "public-shape-changed",
+          check: reasonNames("--macro mr.Spy.install() is an init macro outside Genes") }
+      ]
+    },
+    {
       // The two project-macro rows of `std-structural` (genes-f8vc.14.7), in
       // a program of their own: a project macro makes every private field of
       // the program visible, so the private-function previews of

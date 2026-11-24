@@ -103,6 +103,15 @@ typedef ModuleProfile = {
    * or of Genes' own folder.
    */
   final privateReach: Null<String>;
+
+  /**
+   * True when a declaration, field type or typed body of the module holds a
+   * structure type with a private field (`DceStdUses.privateStructureOf`).
+   * Unlike the other reasons of `privateReach`, it counts also when the
+   * module is the requested one (`privateAccessors`). Always `false` for a
+   * module of the standard library or of Genes' own folder.
+   */
+  final privateStructure: Bool;
 }
 
 /** The live facts of the requested module that the generator gives to `decide`. */
@@ -675,7 +684,11 @@ typedef ModuleRecordsReport = {
  * line (also in an `import.hx`), a structure type with a private field, or
  * no readable source; or it runs a build macro outside the standard library
  * and Genes' own folder, defines a project macro function, or loads a
- * module that does (`DceStdUses.privateReachOf`, `commitProfiles`). In such
+ * module that does (`DceStdUses.privateReachOf`, `commitProfiles`). The
+ * module itself counts when it holds such a structure, because other modules
+ * unify with it; and so does any init macro (`--macro`) other than Genes'
+ * own and the calls of `INIT_ONLY_CALLS`, because it can change code without
+ * leaving metadata. In such
  * code a new private method can take a call that goes through `using`,
  * also an inline one or one on a type parameter or a `@:forward` abstract,
  * which leaves no line for `shadowed-extension`; a new private static can
@@ -707,10 +720,9 @@ typedef ModuleRecordsReport = {
  * lookup of the program: `State.set` (`ReactHooksMacro.setState`) passes its
  * receiver as an already typed expression and wraps the new value in
  * `@:noPrivateAccess`, and the HXX proof wraps only a Genes static field.
- * An init macro (`--macro`) that changes a module's code without leaving
- * build metadata on it is not seen, and neither is a macro that reads the
- * body of a method that is not inline (the visible shape holds no such
- * body). Every other limit above applies too.
+ * A macro that reads the body of a method that is not inline is not seen
+ * (the visible shape holds no such body). Every other limit above applies
+ * too.
  *
  * Effects on the compiler server: the roots are `@:keep` entries with the
  * argument `"genes.moduleRequest"`, which Genes adds after
@@ -955,6 +967,15 @@ class ModuleRequest {
    * whose path is the key). See `privateAccessors`.
    */
   @:persistent static var storedPrivateAccess: Map<String, String> = new Map();
+
+  /**
+   * The modules of the stored full request with a structure type with a
+   * private field (`ModuleProfile.privateStructure`). A requested module
+   * counts in `privateAccessors` when it is one of them, or when it holds
+   * such a structure in this request.
+   */
+  @:persistent static var storedPrivateStructures: Map<String,
+    Bool> = new Map();
 
   /**
    * The last computed `-dce std` facts of each module, with the epochs that
@@ -1685,6 +1706,23 @@ class ModuleRequest {
   }
 
   /**
+   * Returns the text of every init macro of this request (each argument
+   * after `--macro`), in order, or one text that no call matches when the
+   * arguments are not known. Example: `--macro include('app') --macro
+   * genes.Generator.use()` gives `include('app')` and `genes.Generator.use()`.
+   */
+  static function initMacros(): Array<String> {
+    final configuration = haxe.macro.Compiler.getConfiguration();
+    if (configuration == null)
+      return ['(the compiler arguments are not known)'];
+    final args = configuration.args;
+    return [
+      for (index in 0...args.length - 1)
+        if (args[index] == '--macro') args[index + 1]
+    ];
+  }
+
+  /**
    * Returns the full path of the function that the init macro `text` calls,
    * as Haxe resolves it: `nullSafety(...)` calls
    * `haxe.macro.Compiler.nullSafety`, `server.setModuleCheckPolicy(...)`
@@ -2181,7 +2219,8 @@ class ModuleRequest {
                   moduleFiles.get(dependency)),
                 externBases: [],
                 extensionCalls: [],
-                privateReach: null
+                privateReach: null,
+                privateStructure: false
               });
           }
           profileSeconds += haxe.Timer.stamp() - profileStart;
@@ -2274,6 +2313,8 @@ class ModuleRequest {
       epochs: String): ModuleProfile {
     final file = moduleFiles.get(module);
     final text = DceStdUses.sourceText(file);
+    final transparent = transparentFile(file);
+    final structure = !transparent && DceStdUses.privateStructureOf(types);
     return {
       epochs: epochs,
       uses: DceStdUses.keptWhole(types) ? DceStdUses.usesOf(module,
@@ -2286,16 +2327,18 @@ class ModuleRequest {
       opaqueMacro: opaqueMacroModule(types, file),
       externBases: DceStdUses.externBasesOf(types),
       extensionCalls: DceStdUses.keptWhole(types) ? DceStdUses.extensionCallsOf(types) : [],
-      privateReach: transparentFile(file) ? null : privateReachOf(types, text)
+      privateReach: transparent ? null : privateReachOf(types, text, structure),
+      privateStructure: structure
     };
   }
 
   /**
    * Returns why a module outside Haxe's standard library and Genes' own
    * folder may see private fields of other modules
-   * (`DceStdUses.privateReachOf`), or why a build macro of it may add such
-   * code, or `null`. `commitProfiles` adds the project macro modules and the
-   * modules that load one.
+   * (`DceStdUses.privateReachOf`, or `structure`: it holds a structure type
+   * with a private field), or why a build macro of it may add such code, or
+   * `null`. `commitProfiles` adds the project macro modules, the modules that
+   * load one, and the init macros.
    *
    * Why build macros count: a build macro can add `@:privateAccess` code
    * that is in no file of the program, for example from a helper class that
@@ -2304,14 +2347,19 @@ class ModuleRequest {
    * `app.ModelHelper.wrap()`, which returns `macro @:privateAccess
    * $owner.save()`.
    */
-  static function privateReachOf(types: Array<Type>,
-      text: Null<String>): Null<String> {
+  static function privateReachOf(types: Array<Type>, text: Null<String>,
+      structure: Bool): Null<String> {
     final own = DceStdUses.privateReachOf(types, text);
     if (own != null)
       return own;
+    if (structure)
+      return STRUCTURE_REASON;
     final build = opaqueBuildMacro(types);
     return build == null ? null : 'runs the build macro $build';
   }
+
+  /** The reason of a module with a structure type with a private field (`privateAccessors`). */
+  static inline final STRUCTURE_REASON = 'has a structure type with a private field';
 
   /**
    * Returns true when the module of `types` (source file `file`) declares a
@@ -2349,8 +2397,13 @@ class ModuleRequest {
   static function transparentFile(file: Null<String>): Bool {
     if (file == null)
       return false;
-    if (DceStdUses.isStdFile(file))
-      return true;
+    return DceStdUses.isStdFile(file) || genesFile(file);
+  }
+
+  /** Returns true when `file` is in Genes' own source folder (`genesRoot`). */
+  static function genesFile(file: Null<String>): Bool {
+    if (file == null)
+      return false;
     final root = genesRoot();
     return root != null
       && StringTools.startsWith(PathUtil.normalize(FileSystem.absolutePath(file)),
@@ -2809,6 +2862,7 @@ class ModuleRequest {
     // own folder cannot name a class of the program, so it never counts
     // (`profileOf` gives it no reason).
     final accessors = new Map<String, String>();
+    final structures = new Map<String, Bool>();
     if (DceStdUses.stdProfile()) {
       for (module => profile in requestProfiles) {
         var reason = profile.privateReach;
@@ -2828,6 +2882,19 @@ class ModuleRequest {
         if (reason != null)
           accessors.set(module, reason);
       }
+      for (module => profile in requestProfiles)
+        if (profile.privateStructure)
+          structures.set(module, true);
+      // An init macro other than Genes' own and the calls that only record a
+      // define, metadata or a class path (`INIT_ONLY_CALLS`) can change the
+      // code of a module without leaving metadata on it.
+      for (text in initMacros()) {
+        final call = initMacroCall(text);
+        if (call == null
+          || (INIT_ONLY_CALLS.indexOf(call) < 0 && !genesFile(macroFile(call))))
+          accessors.set('--macro $text',
+            'is an init macro outside Genes, which can change code without metadata');
+      }
       // `import <Type>.*` in an `import.hx` applies to every module of its
       // folder, and their own text does not show it.
       for (file => _ in requestDigests)
@@ -2839,6 +2906,7 @@ class ModuleRequest {
         }
     }
     storedPrivateAccess = accessors;
+    storedPrivateStructures = structures;
     final counts = new Map<String, Int>();
     for (_ => lines in uses)
       for (line in lines)
@@ -2960,6 +3028,7 @@ class ModuleRequest {
     storedExternBases = new Map();
     storedExtensionCalls = new Map();
     storedPrivateAccess = new Map();
+    storedPrivateStructures = new Map();
   }
 
   /**
@@ -3034,10 +3103,13 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the modules (or `import.hx` files) of the stored full request,
-   * other than `module`, whose code may see private fields of other modules
-   * without naming them in metadata (`storedPrivateAccess`), sorted. Empty
-   * under every profile other than `-dce std`.
+   * Returns the modules (or `import.hx` files and init macros) of the stored
+   * full request, other than `module`, whose code may see private fields of
+   * other modules without naming them in metadata (`storedPrivateAccess`),
+   * each with its reason, sorted by name. `module` itself is in the list when
+   * it holds a structure type with a private field, now or in the stored full
+   * request (`ModuleProfile.privateStructure`). Empty under every profile
+   * other than `-dce std`.
    *
    * Why: in such code a new private field of the requested module can
    * change how Haxe types a call, a pattern or a unification, and the typed
@@ -3061,12 +3133,27 @@ class ModuleRequest {
    * `label()` added to `mr.Gizmo` makes a full build print `g.label()`; the
    * module request of `mr.Gizmo` is refused.
    */
-  static function privateAccessors(module: String): Array<String> {
-    final found = new Map<String, Bool>();
-    for (name => _ in storedPrivateAccess)
+  static function privateAccessors(module: String): Array<{
+    name: String,
+    reason: String
+  }> {
+    final found = new Map<String, String>();
+    for (name => reason in storedPrivateAccess)
       if (name != module)
-        found.set(name, true);
-    return sortedKeys(found);
+        found.set(name, reason);
+    // A structure with a private field in the requested module itself lets
+    // other modules unify with it (`DceStdUses.privateStructureOf`); its other
+    // reasons only change its own code, which the request types again.
+    final own = requestProfiles.get(module);
+    if ((own != null && own.privateStructure)
+      || storedPrivateStructures.exists(module))
+      found.set(module, STRUCTURE_REASON);
+    final names = [for (name in found.keys()) name];
+    names.sort(compareStrings);
+    return [
+      for (name in names)
+        {name: name, reason: found.get(name)}
+    ];
   }
 
   /**
@@ -3225,8 +3312,8 @@ class ModuleRequest {
     final storedShape = visibleShape(record.shape, accessors.length > 0);
     final currentShape = visibleShape(shape, accessors.length > 0);
     final accessNote = accessors.length == 0 ? '' : ' (private fields count: '
-      + '${accessors[0]} ${storedPrivateAccess.get(accessors[0])}, so a new '
-      + 'private field can change how it types)';
+      + '${accessors[0].name} ${accessors[0].reason}, so a new private field '
+      + 'can change how other modules type)';
     if (currentShape != storedShape)
       return refuse('public-shape-changed',
         'the public shape of $module ' +

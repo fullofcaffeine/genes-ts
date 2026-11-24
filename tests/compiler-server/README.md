@@ -722,6 +722,23 @@ private field changes another module's code, each a group of its own. On
 - `std-private-comment`: the word `untyped` in a comment no longer counts,
   so a private method with a fresh name previews (refused on 3fa8782c).
 
+Round 3 of Fable on 58bff340 added three groups:
+
+- `std-private-own-structure`: the structure with a private field is in
+  the requested module itself (`mr.Globe` declares `GlobePeek` and its
+  extension class before the class). A new private `label()` makes
+  `mr.Globe` unify with it, so `mr.GlobeUser` takes the other extension.
+  Stale on 58bff340, now refused: the requested module counts when it holds
+  such a structure;
+- `std-private-own-structure-first`: the same with the class first. The edit
+  then also moves the declarations that `mr.OrbUser` imports
+  (`position-changed` on 58bff340); the structure rule refuses it first;
+- `std-private-init-macro`: an init macro other than Genes' own and the
+  calls that only record a define, metadata or a class path
+  (`--macro mr.Spy.install()`) makes every private field count, because it
+  can change code without leaving metadata. This one does nothing, so the
+  row previewed on 58bff340; it guards the rule.
+
 Each refused row's `check` names the module and the reason of the refusal.
 `std-private-access` also has a private static extension that takes a call
 inside `@:privateAccess`. Because a project macro makes every private field
