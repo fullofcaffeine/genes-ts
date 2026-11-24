@@ -893,8 +893,15 @@ is emitted. A host must ignore an event kind that it does not know.
     two such failures in a row it builds in a new Haxe process for each
     request (`compilerMode: "direct"`). The session reports each such
     failure as a `compiler-lifecycle` event of kind `transport-failed`, with
-    the reason and up to 64 bytes that broke the frame (`firstBytes`,
-    private paths removed).
+    the reason and the first 64 bytes that broke the frame (`firstBytes`).
+    The compiler passes up to 1 KiB raw; the session first replaces the
+    paths that it knows as private (project, state, candidates, declared
+    external roots, as in its diagnostics) and cuts to 64 bytes only then,
+    so a private path is never left half-replaced. `firstBytes` is no
+    secret filter: other text that a macro prints stays, the same exposure
+    as compiler error text. A planned stop (a new compatibility digest, a
+    fresh cache, `close()`) is never reported. A break while the server is
+    idle starts no build; the next build replaces the server.
   - Which output is safe: `trace`, `Sys.print`, `Sys.println` and the output
     of `Sys.command` reach the answer frame, as with `haxe --connect`. Only a
     direct write to `Sys.stderr()` from a macro, or one of Haxe's rare
@@ -905,9 +912,11 @@ is emitted. A host must ignore an event kind that it does not know.
     next tenth request, the session sends `-version` requests, which compile
     nothing, up to it, so that collection runs while nobody waits and never
     between the requests of the next build. Further from the boundary it
-    sends nothing, so Haxe collects as often as before (about once in 5 to
-    10 builds). An edit that arrives during the collection still waits for
-    it. `compilerServerIdleCollection: { delayMs }` changes the idle time;
+    sends nothing. So Haxe collects a little more often than without idle
+    requests: after every 7th build when each build sends one request
+    (without: every 10th), and after every 4th when each sends two
+    (without: every 5th). An edit that arrives during the collection still
+    waits for it. `compilerServerIdleCollection: { delayMs }` changes the idle time;
     `false` turns this off.
   - The server's lease (`<stateDirectory>/haxe-server.json`) has the schema
     `genes.tooling.haxe-wait-server-lease.stdio.v1` and no address, and the

@@ -185,10 +185,19 @@ schema accepts both shapes. This widens version 1 without a new version: the
 event kind and its meaning did not change. A host must not assume a port.
 
 A `compiler-lifecycle` event with `kind: "transport-failed"` reports that the
-pipe to the session's server broke (`reason`), with up to 64 bytes that broke
-the frame (`firstBytes`, private paths removed; for example a macro's direct
-`Sys.stderr()` write). The session then builds the same revision on a new
-server. A host that does not know this kind ignores it.
+pipe to the session's server broke without a stop request (`reason`), with
+the first 64 bytes that broke the frame (`firstBytes`; for example a macro's
+direct `Sys.stderr()` write). The session replaces the private paths that it
+knows (project, state, candidates, declared external roots) before it cuts
+the text to 64 bytes. `firstBytes` is no secret filter: other text that a
+macro prints stays, the same exposure as compiler error text. A planned stop
+(a new compatibility digest, a fresh cache, `close()`) is not reported.
+
+When the pipe breaks during a build, the session builds the same revision on
+a new server. After a second failure in a row it builds in a new Haxe process
+for each request (`compilerMode: "direct"`). A break while the server is
+idle starts no build; the next build replaces the server. A host that does
+not know this kind ignores it.
 
 A host that subscribes after `start()` (for example a browser server that
 opens after `firstAccepted`) has not seen the first `generation-accepted`

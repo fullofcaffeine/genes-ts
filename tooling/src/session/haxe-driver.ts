@@ -133,9 +133,10 @@ export const HAXE_SERVER_IDLE_COLLECTION_DELAY_MS = 250;
  * Idle requests are sent only when fewer requests than this remain before
  * the next multiple of `HAXE_SERVER_COLLECTION_PERIOD`: about the most that
  * one build sends (the compile request, a `server/invalidate` or two, a
- * query). So Haxe collects as often as before (about once in 5 to 10
- * builds), and a build never starts so close to the boundary that the
- * collection runs between its requests.
+ * query). A build then never starts so close to the boundary that the
+ * collection runs between its requests. Haxe collects after every 7th
+ * build when each build sends one request (without idle requests: every
+ * 10th), and after every 4th when each sends two (without: every 5th).
  */
 export const HAXE_SERVER_BUILD_REQUEST_ALLOWANCE = 4;
 
@@ -518,8 +519,11 @@ class ChildWaitProcess implements OwnedHaxeWaitProcess {
   readonly pid: number;
   readonly exit: Promise<HaxeWaitProcessExit>;
   readonly #child: ChildProcess;
+  readonly #onSignal: () => void;
 
-  constructor(child: ChildProcess) {
+  /** `onSignal` runs before each stop signal that the owner sends. */
+  constructor(child: ChildProcess, onSignal: () => void = () => {}) {
+    this.#onSignal = onSignal;
     if (child.pid === undefined) throw new Error("Haxe server has no PID");
     this.pid = child.pid;
     this.#child = child;
@@ -531,6 +535,7 @@ class ChildWaitProcess implements OwnedHaxeWaitProcess {
   }
 
   signal(signal: "SIGTERM" | "SIGKILL"): void {
+    this.#onSignal();
     this.#child.kill(signal);
   }
 }
@@ -564,7 +569,8 @@ interface StdioServer {
  *    then runs its periodic full collection or compaction at once, while
  *    nobody waits, instead of between the requests of the next build. On a
  *    large cache that collection takes seconds. Further from the boundary
- *    it sends nothing, so Haxe collects as often as before.
+ *    it sends nothing (see `HAXE_SERVER_BUILD_REQUEST_ALLOWANCE` for the
+ *    resulting frequency).
  *
  * When the pipe fails (for example a macro wrote to standard error directly,
  * so bytes arrived outside a frame), the compiler stops that server and
@@ -790,6 +796,10 @@ export class HaxeSessionCompiler implements SessionCompiler {
       throw new Error("Haxe server has no standard streams");
     }
     this.#stdio?.channel.close();
+    // Set when the owner stops this server on purpose (a new compatibility
+    // digest, a fresh cache, close). The pipe then closes before the exit
+    // event, and that is no failure to report.
+    let stopRequested = false;
     child.once("exit", () => {
       if (this.#stdio?.child === child) {
         this.#stdio.channel.close();
@@ -806,8 +816,15 @@ export class HaxeSessionCompiler implements SessionCompiler {
       channel: new HaxeStdioChannel(child.stdin, child.stderr, {
         frameStallMs: this.#frameStallMs,
         onBroken: (error) => {
-          // A pipe that the session closed itself is no failure to report.
-          if (this.#closed || error.reason === "the channel was closed") return;
+          // A pipe that the session closed or stopped itself is no failure
+          // to report.
+          if (
+            this.#closed ||
+            stopRequested ||
+            error.reason === "the channel was closed"
+          ) {
+            return;
+          }
           try {
             this.#onEvent(
               Object.freeze({
@@ -825,7 +842,9 @@ export class HaxeSessionCompiler implements SessionCompiler {
       answered: false,
       idleRequests: 0,
     };
-    return new ChildWaitProcess(child);
+    return new ChildWaitProcess(child, () => {
+      stopRequested = true;
+    });
   }
 
   /**

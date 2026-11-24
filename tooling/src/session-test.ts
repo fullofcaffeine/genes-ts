@@ -7662,6 +7662,80 @@ await withHarness("generation-reuse-off", async (harness) => {
 // A wrong `generationReuse` value fails when the session is constructed.
 // An audit count above the Haxe `Int` range would make Genes refuse the
 // descriptor and turn incremental work off without an error.
+// transport-failed (genes-19wt review round 2): the session removes private
+// paths from the raw bytes first and cuts to 64 bytes only then, so a path
+// that crosses byte 64 never leaves a cut, unmatched prefix behind.
+{
+  let emitCompilerEvent: ((event: HaxeWaitServerEvent) => void) | null = null;
+  const harness = makeHarness("transport-failed", (dependencies) => ({
+    ...dependencies,
+    createCompiler: (layout, onEvent, shutdownTimeoutMs, compilerOptions) => {
+      emitCompilerEvent = onEvent;
+      return dependencies.createCompiler(layout, onEvent, shutdownTimeoutMs, compilerOptions);
+    },
+  }));
+  try {
+    const prefix = "Error: cannot open ";
+    const raw = `${prefix}${harness.root}/src/secret/Thing.hx\n`;
+    assert.ok(Buffer.byteLength(prefix) + harness.root.length > 64, "the path must cross byte 64");
+    for (const [firstBytes, expected] of [
+      [raw, `${prefix}<project>/src/secret/Thing.hx\n`],
+      ["noise from a macro\n", "noise from a macro\n"],
+      ["é".repeat(40), "é".repeat(32)],
+    ] as const) {
+      emitCompilerEvent!({ kind: "transport-failed", reason: "bytes arrived outside a frame", firstBytes });
+      assert.deepEqual(harness.session.inspect().lastCompilerEvent, {
+        kind: "transport-failed",
+        reason: "bytes arrived outside a frame",
+        firstBytes: expected,
+      });
+      assert.ok(Buffer.byteLength(expected) <= 64);
+    }
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+// A raw text that the compiler cut at its 1 KiB limit inside a private
+// root: with a long project root, the replacements shrink the text so much
+// that the cut start of the root would land in the first 64 bytes. The
+// session drops that tail before it replaces and cuts.
+{
+  const base = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-transport-cut-")),
+  );
+  const deepRoot = path.join(base, ...Array.from({ length: 6 }, (_, index) => `deep-folder-${index}-of-a-long-project-path`));
+  mkdirSync(deepRoot, { recursive: true });
+  // Three whole copies and the start of a fourth fit in 1 KiB.
+  assert.ok(deepRoot.length > 250 && 3 * (deepRoot.length + 1) < 1_000, String(deepRoot.length));
+  let emitCompilerEvent: ((event: HaxeWaitServerEvent) => void) | null = null;
+  const harness = makeHarness(
+    "transport-cut",
+    (dependencies) => ({
+      ...dependencies,
+      createCompiler: (layout, onEvent, shutdownTimeoutMs, compilerOptions) => {
+        emitCompilerEvent = onEvent;
+        return dependencies.createCompiler(layout, onEvent, shutdownTimeoutMs, compilerOptions);
+      },
+    }),
+    undefined,
+    deepRoot,
+  );
+  try {
+    const cut = `${deepRoot} `.repeat(3).concat(deepRoot).slice(0, 1_024);
+    assert.ok(!cut.endsWith(deepRoot) && cut.length === 1_024);
+    emitCompilerEvent!({ kind: "transport-failed", reason: "r", firstBytes: cut });
+    const reported = harness.session.inspect().lastCompilerEvent;
+    const firstBytes = reported?.kind === "transport-failed" ? reported.firstBytes : null;
+    assert.equal(firstBytes, "<project> <project> <project> ");
+    assert.equal(firstBytes!.includes(base.slice(0, 8)), false);
+  } finally {
+    await harness.session.close();
+    rmSync(base, { recursive: true, force: true });
+  }
+}
+
 // compilerServerIdleCollection (genes-0emi review): false or { delayMs }.
 for (const compilerServerIdleCollection of [
   { delayMs: -1 },

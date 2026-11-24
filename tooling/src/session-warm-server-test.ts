@@ -601,6 +601,11 @@ try {
       step.expect?.();
       assert.deepEqual(publicTree(), coldTree(step.label), `${step.label}: tree differs from cold`);
     }
+    // Every server that these steps replaced was stopped on purpose (new
+    // modules, a macro input, a fresh cache): none of them is a pipe failure.
+    const pipeFailures = events.filter((event) =>
+      event.event.kind === "compiler-lifecycle" && event.event.event.kind === "transport-failed");
+    assert.deepEqual(pipeFailures, [], "a planned server replacement must not report transport-failed");
   } finally {
     await session.close();
   }

@@ -858,8 +858,10 @@ launch and Haxe 4.3.7's 50 ms TCP wait from each request (parity stage 0,
 genes-19wt). The session sends one request at a time and counts them. Haxe
 runs a full collection after every tenth request. When the server is idle
 and fewer than four requests remain before that tenth request, the session
-sends requests that compile nothing up to it, so the collection runs then,
-as often as before, and never between the requests of a build (genes-0emi). A byte outside a frame breaks the pipe; the session
+sends requests that compile nothing up to it, so the collection runs then
+and never between the requests of a build (genes-0emi). Haxe then collects
+after every 7th build at one request per build (without idle requests:
+every 10th), and after every 4th at two (without: every 5th). A byte outside a frame breaks the pipe; the session
 then builds on a new server, which gives the cold result, and after a second
 failure in a row it builds without a server.
 

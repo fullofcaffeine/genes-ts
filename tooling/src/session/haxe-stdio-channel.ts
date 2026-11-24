@@ -33,9 +33,11 @@ export class HaxeStdioTransportError extends Error {
   /** Why the channel broke, without the prefix of `message`. */
   readonly reason: string;
   /**
-   * Up to `FIRST_BYTES_LIMIT` bytes that broke the frame, decoded as UTF-8,
-   * or empty. Example: `"noise from a macro\n"` when a macro wrote to
-   * `Sys.stderr()`. It helps find the code that wrote them.
+   * Up to `FIRST_BYTES_RAW_LIMIT` bytes that broke the frame, decoded as
+   * UTF-8, or empty. Example: `"noise from a macro\n"` when a macro wrote
+   * to `Sys.stderr()`. It helps find the code that wrote them. The text is
+   * raw: it can hold private paths. The session removes them before it
+   * reports the first 64 bytes.
    */
   readonly firstBytes: string;
 
@@ -47,8 +49,12 @@ export class HaxeStdioTransportError extends Error {
   }
 }
 
-/** The most bytes that `HaxeStdioTransportError.firstBytes` keeps. */
-export const FIRST_BYTES_LIMIT = 64;
+/**
+ * The most bytes that `HaxeStdioTransportError.firstBytes` keeps (1 KiB).
+ * More than the session reports, so that a private path near the start is
+ * still whole when the session removes it.
+ */
+export const FIRST_BYTES_RAW_LIMIT = 1_024;
 
 /**
  * The text of one Haxe server answer, split as the `haxe --connect` client
@@ -274,7 +280,7 @@ export class HaxeStdioChannel {
       if (length < 0 || length > this.#maxFrameBytes) {
         this.#break(
           `a frame declared ${length} bytes, which is outside 0 to ${this.#maxFrameBytes}`,
-          Buffer.concat(this.#chunks, Math.min(this.#size, FIRST_BYTES_LIMIT)),
+          Buffer.concat(this.#chunks, Math.min(this.#size, FIRST_BYTES_RAW_LIMIT)),
         );
         return;
       }
@@ -324,7 +330,7 @@ export class HaxeStdioChannel {
         if (this.#received === seen && this.#pending !== null) {
           this.#break(
             `a frame stayed incomplete for ${this.#frameStallMs} ms`,
-            Buffer.concat(this.#chunks, Math.min(this.#size, FIRST_BYTES_LIMIT)),
+            Buffer.concat(this.#chunks, Math.min(this.#size, FIRST_BYTES_RAW_LIMIT)),
           );
         }
       });
@@ -346,7 +352,7 @@ export class HaxeStdioChannel {
       reason,
       bytes === undefined
         ? ""
-        : bytes.subarray(0, FIRST_BYTES_LIMIT).toString("utf8"),
+        : bytes.subarray(0, FIRST_BYTES_RAW_LIMIT).toString("utf8"),
     );
     this.#broken = error;
     this.#resetFrame();

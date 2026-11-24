@@ -457,6 +457,33 @@ async function testSessionCompiler(haxe: string, root: string): Promise<void> {
     await idleSettled();
     assert.equal(compiler.serverRequests!.requests, 11);
 
+    // A planned replacement (a new compatibility digest each build) and a
+    // close stop servers on purpose: no transport-failed (review round 2).
+    mkdirSync(path.join(root, ".genes", "replace"), { recursive: true });
+    const replaceEvents: HaxeWaitServerEvent[] = [];
+    const replacing = new HaxeSessionCompiler(
+      resolveSessionLayout(root, "haxe-stdio-test-replace", "dist/replace.js", ".genes/replace"),
+      (event) => replaceEvents.push(event),
+      2_000,
+    );
+    try {
+      for (let build = 0; build < 4; build += 1) {
+        assert.equal(
+          (await replacing.compile(bound, `replace-${build}`, new AbortController().signal)).mode,
+          "connected",
+        );
+      }
+    } finally {
+      await replacing.close();
+    }
+    await sleep(200);
+    assert.equal(replaceEvents.filter((event) => event.kind === "started").length, 4);
+    assert.deepEqual(
+      replaceEvents.filter((event) => event.kind === "transport-failed"),
+      [],
+      JSON.stringify(replaceEvents),
+    );
+
     // With idle collection off, the compiler never sends idle requests.
     mkdirSync(path.join(root, ".genes", "quiet"), { recursive: true });
     const quiet = new HaxeSessionCompiler(

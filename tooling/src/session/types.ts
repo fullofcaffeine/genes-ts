@@ -794,8 +794,10 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * idle, so that Haxe 4.3.7's periodic full collection (after every tenth
    * request) runs then and not between the requests of a build. Default
    * `{ delayMs: 250 }`: after 250 ms of idle time, and only when fewer than
-   * four requests remain before the next tenth request, so Haxe collects as
-   * often as before. `false` sends none.
+   * four requests remain before the next tenth request. Haxe then collects
+   * after every 7th build when each build sends one request (without idle
+   * requests: every 10th), and after every 4th when each sends two
+   * (without: every 5th). `false` sends none.
    */
   readonly compilerServerIdleCollection?: false | { readonly delayMs?: number };
   readonly pollIntervalMs?: number;

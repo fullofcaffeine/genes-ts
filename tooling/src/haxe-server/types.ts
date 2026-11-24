@@ -70,12 +70,16 @@ export type HaxeWaitServerEvent =
     }
   | {
       /**
-       * The pipe to a `stdio` server broke. `OwnedHaxeWaitServer` never
-       * emits it; the development session's compiler does, before it
-       * replaces the server. `reason` says what broke; `firstBytes` holds up
-       * to 64 bytes that broke the frame (UTF-8, private paths removed by
-       * the session), for example `"noise from a macro\n"` when a macro
-       * wrote to `Sys.stderr()`.
+       * The pipe to a `stdio` server broke without a stop request.
+       * `OwnedHaxeWaitServer` never emits it; the development session's
+       * compiler does, before it replaces the server. `reason` says what
+       * broke. `firstBytes` holds the bytes that broke the frame as UTF-8,
+       * for example `"noise from a macro\n"` when a macro wrote to
+       * `Sys.stderr()`: the compiler passes up to 1 KiB raw, and the
+       * session removes the paths that it knows as private (project,
+       * state, candidates, declared external roots) and then keeps the
+       * first 64 bytes. It is no secret filter: other text that a macro
+       * prints stays, the same exposure as compiler error text.
        */
       readonly kind: "transport-failed";
       readonly reason: string;

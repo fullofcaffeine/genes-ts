@@ -33,6 +33,7 @@ import {
 } from "../watch/index.js";
 import { assertRealInputTrees } from "../watch/reconciled-watch.js";
 import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
+import { FIRST_BYTES_RAW_LIMIT } from "./haxe-stdio-channel.js";
 import {
   HaxeSessionCompiler,
   type HaxeSessionCompilerOptions,
@@ -134,6 +135,8 @@ const DEFAULT_DEBOUNCE_MS = 100;
  * after an idle period starts its build 10 ms after the file event.
  */
 const DEFAULT_START_DELAY_MS = 10;
+/** The most bytes of `firstBytes` that a `transport-failed` event reports. */
+const REPORTED_FIRST_BYTES = 64;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 /** `GenerationReuseOptions.auditModules` when the host gives none. */
 const DEFAULT_AUDIT_MODULES = 2;
@@ -766,7 +769,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             ? Object.freeze({
                 kind: "transport-failed",
                 reason: this.#sanitizeCoreMessage(event.reason),
-                firstBytes: this.#sanitizeCoreMessage(event.firstBytes),
+                firstBytes: this.#reportedFirstBytes(event.firstBytes),
               })
             : event;
         this.#lastCompilerEvent = reported;
@@ -2806,6 +2809,63 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       ...this.#layout.candidatesRelative.split("/"),
     );
     rmSync(absolute, { recursive: true, force: true });
+  }
+
+  /**
+   * Returns the `firstBytes` of a `transport-failed` event as the session
+   * reports it: private paths removed, then at most
+   * `REPORTED_FIRST_BYTES` bytes, cut at a character boundary.
+   *
+   * The compiler passes up to `FIRST_BYTES_RAW_LIMIT` raw bytes. Cutting
+   * before the paths are removed could leave the start of a private path
+   * that no longer matches, for example `/Users/me/work/proj` cut to
+   * `/Users/me/wo`. So the raw text is cut only after the replacement. When
+   * the raw text itself was cut at its limit, a tail that is the start of a
+   * private root is dropped first.
+   */
+  #reportedFirstBytes(raw: string): string {
+    let text = raw;
+    if (Buffer.byteLength(text, "utf8") >= FIRST_BYTES_RAW_LIMIT) {
+      for (const root of this.#privateRoots()) {
+        for (let length = Math.min(root.length, text.length); length > 0; length -= 1) {
+          if (text.endsWith(root.slice(0, length))) {
+            text = text.slice(0, text.length - length);
+            break;
+          }
+        }
+      }
+    }
+    let kept = "";
+    let bytes = 0;
+    for (const character of this.#sanitizeCoreMessage(text)) {
+      const size = Buffer.byteLength(character, "utf8");
+      if (bytes + size > REPORTED_FIRST_BYTES) break;
+      kept += character;
+      bytes += size;
+    }
+    return kept;
+  }
+
+  /** The folders that `#sanitizeCoreMessage` replaces, in its spellings. */
+  #privateRoots(): readonly string[] {
+    const roots = [
+      path.join(
+        this.#layout.projectRoot,
+        ...this.#layout.candidatesRelative.split("/"),
+      ),
+      this.#layout.stateRoot,
+      this.#layout.projectRoot,
+      ...(this.#inventory?.allowedRoots ?? this.#options.hxml.allowedRoots),
+    ];
+    return roots.flatMap((root) => {
+      const absolute = path.resolve(root);
+      try {
+        const real = realpathSync.native(absolute);
+        return real === absolute ? [absolute] : [absolute, real];
+      } catch {
+        return [absolute];
+      }
+    });
   }
 
   #sanitizeCoreMessage(
