@@ -753,7 +753,11 @@ is emitted. A host must ignore an event kind that it does not know.
   or new code (for example `module-may-leave`, `position-changed`,
   `dce-use-added` or `dce-uses-unknown`), publishes nothing; `-dce std` is
   Haxe's default when a build names no `-dce`, and the client then runs the
-  program request, which stays the authority. A client that sends module
+  program request, which stays the authority. A preview can still be
+  published when the edit makes another module fail to compile (a new
+  private method that takes a `using` call of a module without private
+  access, genes-zbva); no stale file results, and the next program request
+  reports the error. A client that sends module
   requests must send a request again
   once after `GENES-MODULE-REQUEST-003` or the refusal
   `init-macro-before-genes`, and report a second refusal instead of

@@ -667,6 +667,35 @@ module only imports (`dce-use-added`; cold adds `haxe/ds/List.ts`).
 private field label", and the rule refuses it (`shadowed-extension`;
 `programFails`: the cold build and the full request must fail).
 
+Round 3 of that review (genes-zbva) added the `std-private-` groups. Each
+adds a private `label()` to a class `mr.<name>` that `mr.<name>User` calls
+through `using` in a way that `shadowed-extension` cannot see: the
+extension is inline (Haxe copies its body, so no call is left), or the
+receiver's type is a type parameter (`of<T: Gizmo>(item: T)`) or a
+`@:forward` abstract (`mr.GearRef`). Where the user may access private
+fields, Haxe then finds the new method before the extension, and cold
+prints `item.label()`. On main 938a758b each of these rows published a
+preview that differed from cold (`--observe` with `GENES_TEST_SOURCE`
+prints `STALE mr/<name>User.ts`). Now each is refused
+(`public-shape-changed`), and its `check` names the rule that refused it:
+
+- `std-private-access`: `@:privateAccess` around the call, for the three
+  shapes (`mr.Sprocket`, `mr.Gizmo`, `mr.Gear`). Another module with
+  `@:privateAccess` or `untyped` code keeps every private field of the
+  requested module visible. So the group also shows that a private method
+  with a fresh name is refused there, and that a structural edit without a
+  new field still previews;
+- `std-private-untyped`: `untyped` around the call (`mr.Cog`);
+- `std-private-allow`, a program without such code: `@:allow` on the class
+  (`mr.Bolt`) and on the new method (`mr.Nut`), and `@:access` on the user
+  that names a parent class (`@:access(mr.LeverBase)` for `mr.Lever`) or
+  the field (`@:access(mr.Pin.label)`). Its last rows are controls. A
+  private method with a fresh name in `mr.Latch` previews. A private
+  `label()` there, whose user has no private access, previews although
+  cold fails with "Cannot access private field label". This is limit B of
+  #260: no stale file results, and the full request reports the error
+  (result `preview-program-fails`).
+
 `std-value-use` runs on its own server: `return Int;` in `mr.Words` is the
 first value use of `Int`, so cold prints `var Int = { };` in `Std.ts`, and
 its removal drops it again (both `feature-changed`). In `std-structural` the

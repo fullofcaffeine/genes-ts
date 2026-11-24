@@ -292,6 +292,13 @@ type Step = {
    * full request must fail with the same errors (as for `typeError`).
    */
   readonly programFails?: boolean;
+  /**
+   * With `programFails`: the module request may publish a preview (limit B
+   * of the review of genes-ts #260). The step's result is then
+   * `preview-program-fails`. No stale file results: the full request after
+   * it fails with the errors of the cold build, as `programFails` checks.
+   */
+  readonly previewWhileProgramFails?: boolean;
 };
 
 /**
@@ -2087,6 +2094,223 @@ function stdGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/**
+ * How one module calls a static extension on a class `mr.<name>` in the
+ * private-access groups (genes-zbva, round 3 of the review of #260).
+ */
+type ExtensionCallCase = {
+  /** A metadata line above `class <name>`, for example `@:allow(mr.BoltUser)`. */
+  readonly classMeta?: string;
+  /** The parent class of `<name>`, in a module of its own. */
+  readonly parent?: string;
+  /** True for an inline extension: Haxe copies its body into the caller, so no static call is left. */
+  readonly inline?: boolean;
+  /** The type of the extension's first argument; `<name>` when not given. */
+  readonly receiver?: string;
+  /** A metadata line above `class <name>User`. */
+  readonly userMeta?: string;
+  /** The members of `class <name>User`, with `public static function show(): String`. */
+  readonly user: string;
+};
+
+/**
+ * The files of one `ExtensionCallCase`: `mr.<name>` with a public
+ * `title()`, `mr.<name>Tools` with the static extension `label(item)`, and
+ * `mr.<name>User` with `using mr.<name>Tools;`. A later row adds a private
+ * `label()` to `mr.<name>`, which Haxe then finds before the extension.
+ */
+function extensionCallFiles(name: string, spec: ExtensionCallCase): Record<string, string> {
+  const files: Record<string, string> = {
+    [`mr/${name}.hx`]: `package mr;\n\n${spec.classMeta === undefined ? "" : `${spec.classMeta}\n`}`
+      + `class ${name}${spec.parent === undefined ? "" : ` extends ${spec.parent}`} {\n`
+      + `  public function new() {${spec.parent === undefined ? "" : "\n    super();\n  "}}\n\n`
+      + `  public function title(): String {\n    return '${name.toLowerCase()}';\n  }\n}\n`,
+    [`mr/${name}Tools.hx`]: `package mr;\n\nclass ${name}Tools {\n`
+      + `  public static ${spec.inline === true ? "inline " : ""}function label(item: ${spec.receiver ?? name}): String {\n`
+      + `    return 'tools ' + item.title();\n  }\n}\n`,
+    [`mr/${name}User.hx`]: `package mr;\n\nusing mr.${name}Tools;\n\n`
+      + `${spec.userMeta === undefined ? "" : `${spec.userMeta}\n`}class ${name}User {\n${spec.user}}\n`
+  };
+  if (spec.parent !== undefined)
+    files[`mr/${spec.parent}.hx`] = `package mr;\n\nclass ${spec.parent} {\n  public function new() {}\n}\n`;
+  return files;
+}
+
+/** The text of `mr.Main` that calls `show()` of each `mr.<name>User`. */
+function mainOfUsers(names: ReadonlyArray<string>): string {
+  return `package mr;\n\nclass Main {\n  static function main() {\n`
+    + names.map((name) => `    trace(${name}User.show());\n`).join("") + "  }\n}\n";
+}
+
+/** The edit that adds a private method `label()` to `mr.<name>`, with `meta` above it. */
+function addPrivateLabel(name: string, meta = ""): () => void {
+  return () => edit(`${name}.hx`, "  public function title(): String {",
+    `  ${meta}function label(): String {\n    return 'own';\n  }\n\n  public function title(): String {`);
+}
+
+/** A `check` that the refusal reason names `text`, so that the row proves which rule refused it. */
+function reasonNames(text: string): (report: ModuleReport, label: string) => void {
+  return (report, label) => ok(String(report.reason).includes(text),
+    `${label}: the reason must name ${JSON.stringify(text)}: ${String(report.reason)}`);
+}
+
+/**
+ * The private-access groups (genes-zbva). Under `-dce std`, a new private
+ * method can take a call that another module makes through `using`, when
+ * that module may access private fields: Haxe looks for a field of the
+ * class before it tries a static extension. On main 938a758b each `label`
+ * row below published a preview that differed from cold (`--observe`
+ * prints `STALE mr/<name>User.ts`): the extension call is inline, its
+ * receiver is a type parameter or a `@:forward` abstract (so
+ * `shadowed-extension` saw no call), and the visible shape left out the
+ * private field. The rule now keeps every private field of the requested
+ * module in its visible shape when another module of the program has
+ * `@:privateAccess` or `untyped` code, when a class or a field has
+ * `@:allow`, and when another module names the class, one of its parent
+ * classes or one of its fields in `@:access`.
+ */
+function privateAccessGroups(): ReadonlyArray<Group> {
+  const accessCalls: Record<string, ExtensionCallCase> = {
+    // An inline extension inside `@:privateAccess`.
+    Sprocket: {
+      inline: true,
+      user: "  public static function show(): String {\n    final item = new Sprocket();\n"
+        + "    return @:privateAccess item.label();\n  }\n"
+    },
+    // A receiver whose type is a type parameter constrained to the class.
+    Gizmo: {
+      user: "  static function of<T: Gizmo>(item: T): String {\n    return @:privateAccess item.label();\n  }\n\n"
+        + "  public static function show(): String {\n    return of(new Gizmo());\n  }\n"
+    },
+    // A receiver whose type is a `@:forward` abstract over the class.
+    Gear: {
+      receiver: "GearRef",
+      user: "  public static function show(): String {\n    final item: GearRef = new Gear();\n"
+        + "    return @:privateAccess item.label();\n  }\n"
+    }
+  };
+  const accessFiles: Record<string, string> = {
+    "mr/Main.hx": mainOfUsers(Object.keys(accessCalls)),
+    "mr/GearRef.hx": "package mr;\n\n@:forward\nabstract GearRef(Gear) from Gear {}\n"
+  };
+  for (const [name, spec] of Object.entries(accessCalls))
+    Object.assign(accessFiles, extensionCallFiles(name, spec));
+  const allowCalls: Record<string, ExtensionCallCase> = {
+    // `@:allow` on the class lets `mr.BoltUser` access its private fields.
+    Bolt: {
+      inline: true,
+      classMeta: "@:allow(mr.BoltUser)",
+      user: "  public static function show(): String {\n    return new Bolt().label();\n  }\n"
+    },
+    // `@:allow` on the new field itself (the row adds it).
+    Nut: {
+      inline: true,
+      user: "  public static function show(): String {\n    return new Nut().label();\n  }\n"
+    },
+    // `@:access` names a parent class: Haxe then allows the private fields
+    // of every subclass (`can_access` walks the parents of the class).
+    Lever: {
+      inline: true,
+      parent: "LeverBase",
+      userMeta: "@:access(mr.LeverBase)",
+      user: "  public static function show(): String {\n    return new Lever().label();\n  }\n"
+    },
+    // `@:access` names a field of the class, before the field exists.
+    Pin: {
+      inline: true,
+      userMeta: "@:access(mr.Pin.label)",
+      user: "  public static function show(): String {\n    return new Pin().label();\n  }\n"
+    },
+    // No private access: the private field breaks the program (limit B).
+    Latch: {
+      inline: true,
+      user: "  public static function show(): String {\n    return new Latch().label();\n  }\n"
+    }
+  };
+  const allowFiles: Record<string, string> = { "mr/Main.hx": mainOfUsers(Object.keys(allowCalls)) };
+  for (const [name, spec] of Object.entries(allowCalls))
+    Object.assign(allowFiles, extensionCallFiles(name, spec));
+  const untypedFiles: Record<string, string> = {
+    "mr/Main.hx": mainOfUsers(["Cog"]),
+    ...extensionCallFiles("Cog", {
+      inline: true,
+      user: "  public static function show(): String {\n    final item = new Cog();\n"
+        + "    return untyped item.label();\n  }\n"
+    })
+  };
+  return [
+    {
+      name: "std-private-access",
+      dce: "std",
+      files: accessFiles,
+      steps: [
+        // The rule does not refuse every structural edit: this one adds no
+        // field.
+        { id: "std: a new call in a module with @:privateAccess code (preview)",
+          apply: () => edit("SprocketUser.hx", "return @:privateAccess item.label();",
+            "return @:privateAccess item.label() + item.title();"),
+          module: "mr.SprocketUser", expect: "preview" },
+        { id: "std: a private method takes an inline extension call inside @:privateAccess (public-shape-changed)",
+          apply: addPrivateLabel("Sprocket"), module: "mr.Sprocket", expect: "public-shape-changed",
+          check: reasonNames("has @:privateAccess or untyped code") },
+        { id: "std: a private method takes an extension call on a type parameter inside @:privateAccess (public-shape-changed)",
+          apply: addPrivateLabel("Gizmo"), module: "mr.Gizmo", expect: "public-shape-changed",
+          check: reasonNames("has @:privateAccess or untyped code") },
+        { id: "std: a private method takes an extension call on a @:forward abstract inside @:privateAccess (public-shape-changed)",
+          apply: addPrivateLabel("Gear"), module: "mr.Gear", expect: "public-shape-changed",
+          check: reasonNames("has @:privateAccess or untyped code") },
+        // The rule is coarse: with @:privateAccess code in the program, a
+        // private method with a fresh name is refused too.
+        { id: "std: a private method with a fresh name while another module has @:privateAccess code (public-shape-changed)",
+          apply: () => edit("Gizmo.hx", "  public function title(): String {",
+            "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
+          module: "mr.Gizmo", expect: "public-shape-changed" }
+      ]
+    },
+    {
+      // `untyped` skips the access check of a field, as `@:privateAccess` does.
+      name: "std-private-untyped",
+      dce: "std",
+      files: untypedFiles,
+      steps: [
+        { id: "std: a private method takes an inline extension call inside untyped (public-shape-changed)",
+          apply: addPrivateLabel("Cog"), module: "mr.Cog", expect: "public-shape-changed",
+          check: reasonNames("mr.CogUser has @:privateAccess or untyped code") }
+      ]
+    },
+    {
+      // No @:privateAccess or untyped code in this program.
+      name: "std-private-allow",
+      dce: "std",
+      files: allowFiles,
+      steps: [
+        { id: "std: a private method takes an inline extension call, and the class has @:allow (public-shape-changed)",
+          apply: addPrivateLabel("Bolt"), module: "mr.Bolt", expect: "public-shape-changed",
+          check: reasonNames("became \"  field label ") },
+        { id: "std: a private method with @:allow takes an inline extension call (public-shape-changed)",
+          apply: addPrivateLabel("Nut", "@:allow(mr.NutUser) "), module: "mr.Nut", expect: "public-shape-changed",
+          check: reasonNames("became \"  field label ") },
+        { id: "std: a private method takes an inline extension call of a module with @:access on a parent class (public-shape-changed)",
+          apply: addPrivateLabel("Lever"), module: "mr.Lever", expect: "public-shape-changed",
+          check: reasonNames("became \"  private mr.Lever.Lever i:label ") },
+        { id: "std: a private method takes an inline extension call of a module with @:access on the field (public-shape-changed)",
+          apply: addPrivateLabel("Pin"), module: "mr.Pin", expect: "public-shape-changed",
+          check: reasonNames("became \"  private mr.Pin.Pin i:label ") },
+        // Without private access anywhere, a private method still previews.
+        { id: "std: a private method with a fresh name, without private access (preview)",
+          apply: () => edit("Latch.hx", "  public function title(): String {",
+            "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
+          module: "mr.Latch", expect: "preview" },
+        // Limit B of #260: the module types alone, but a full build fails
+        // with "Cannot access private field label". No stale file results.
+        { id: "std: a private method takes an inline extension call without private access, and the program no longer compiles (limit B)",
+          apply: addPrivateLabel("Latch"), module: "mr.Latch", expect: "preview-program-fails",
+          programFails: true, previewWhileProgramFails: true }
+      ]
+    }
+  ];
+}
+
 /** One generated UI module of the sweep: its package, name, UI imports and the module that its third edit imports. */
 type SweepModule = {
   readonly pack: string;
@@ -2224,6 +2448,7 @@ function sweepGroup(): Group {
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...stdGroups(),
+  ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
     name: "s02-enum-by-param-type",
@@ -3203,6 +3428,8 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   const outcome = report.result === "preview" ? "preview" : report.refusal ?? report.result;
   if (report.result === "preview" && step.programFails === true) {
     // A preview of a program that no longer compiles: cold has no tree.
+    if (step.previewWhileProgramFails === true)
+      return { outcome: "preview-program-fails", ms, report };
     ok(observe, `${label}: a preview was published although the program does not compile`);
     return { outcome: "STALE cold fails", ms, report };
   }

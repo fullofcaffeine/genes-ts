@@ -94,6 +94,14 @@ typedef ModuleProfile = {
    * static calls that a `using` line can make, as `<class> <name>`.
    */
   final extensionCalls: Array<String>;
+
+  /**
+   * True when the module's code may access private fields of other modules
+   * without naming them in metadata (`DceStdUses.privateAccessOf` of its
+   * source text, and of the source of each build macro that its metadata
+   * names); see `privateAccessors`.
+   */
+  final privateAccess: Bool;
 }
 
 /** The live facts of the requested module that the generator gives to `decide`. */
@@ -508,7 +516,9 @@ typedef ModuleRecordsReport = {
  *   skeleton, so that a structural edit keeps its own refusal code;
  * - the visible public shape before dead-code elimination (public fields
  *   with their kinds, types and metadata, private fields that another
- *   module uses or can reach through a subclass, and the bodies and
+ *   module uses or can reach through a subclass, `@:access` or `@:allow`,
+ *   or, under `-dce std`, every private field when another module has
+ *   `@:privateAccess` or `untyped` code (see below), and the bodies and
  *   positions of inline fields) is the stored one, and the module defines
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
@@ -649,11 +659,24 @@ typedef ModuleRecordsReport = {
  * - `kept-changed`: Haxe kept every field of the module.
  *
  * The visible shape also keeps every private field of a class that another
- * module names in `@:access` (or whose package it names), and every field
+ * module names in `@:access` (its class, its package, one of its parent
+ * classes, or one of its fields; `accessReaches`), every private field of a
+ * class with `@:allow`, every private field with `@:allow`, and every field
  * of an abstract's implementation class,
  * also a private one: Haxe resolves its `@:op`, `@:arrayAccess`,
  * `@:resolve`, `@:from` and `@:to` fields from any module. Example: a new
  * private `@:op(A == B)` turns `a == b` of another module into a call.
+ * Under `-dce std` it keeps every private field of the module when another
+ * module of the program has `@:privateAccess` or `untyped` code
+ * (`privateAccessors`, genes-zbva): there a new private method can take a
+ * call that goes through `using`, also an inline one or one on a type
+ * parameter or a `@:forward` abstract, which leaves no line for
+ * `shadowed-extension`. Example: with `@:privateAccess item.label()` in
+ * `mr.SprocketUser` and an inline extension `label`, a private `label()`
+ * added to `mr.Sprocket` is refused (`public-shape-changed`). Without
+ * private access, a new private field can only make another module fail to
+ * compile, never change its output; a module request does not see that
+ * failure, and the next full request reports it.
  *
  * Why that is the complete affected output: a full build after the edit has
  * the stored input for every other module (their source files, epochs and
@@ -668,7 +691,16 @@ typedef ModuleRecordsReport = {
  * Limits of the `-dce std` rule: a macro that the module calls by its full
  * path without an import is not seen as a macro module; an expression macro
  * of Genes or the standard library is trusted to change only the code that
- * it returns. Every other limit above applies too.
+ * it returns. Private access is read from the source text of each module of
+ * the program and of each build macro that its metadata names: a macro that
+ * returns `@:privateAccess` code from another file that is not a module of
+ * the program (a helper that only Haxe's macro context loads, or a build
+ * macro whose name does not resolve to a file), or that defines a module
+ * without a source file, is not seen. Genes' own
+ * macros return no such code around a field lookup of the program: the
+ * `@:privateAccess` of `State.set` types the receiver before and the new
+ * value without private access first (`ReactHooksMacro.setState`). Every
+ * other limit above applies too.
  *
  * Effects on the compiler server: the roots are `@:keep` entries with the
  * argument `"genes.moduleRequest"`, which Genes adds after
@@ -726,7 +758,9 @@ class ModuleRequest {
    * The private fields that other modules can see in the stored full
    * request: `<type> <s|i>:<name>` (or `<type> new`) of each field that a
    * module uses from another module, and `<type> *` for each class that a
-   * class of another module extends (directly or through a parent).
+   * class of another module extends (directly or through a parent), and for
+   * each class that another module reaches with `@:access`
+   * (`accessReaches`).
    */
   @:persistent static var externalUses: Map<String, Bool> = new Map();
 
@@ -902,6 +936,14 @@ class ModuleRequest {
    */
   @:persistent static var storedExtensionCalls: Map<String,
     Array<String>> = new Map();
+
+  /**
+   * The modules of the stored full request whose code may access private
+   * fields of other modules without naming them in metadata
+   * (`ModuleProfile.privateAccess`), outside Haxe's standard library and
+   * Genes' own folder. See `privateAccessors`.
+   */
+  @:persistent static var storedPrivateAccess: Map<String, Bool> = new Map();
 
   /**
    * The last computed `-dce std` facts of each module, with the epochs that
@@ -2127,7 +2169,8 @@ class ModuleRequest {
                 opaqueMacro: opaqueMacroModule(list,
                   moduleFiles.get(dependency)),
                 externBases: [],
-                extensionCalls: []
+                extensionCalls: [],
+                privateAccess: false
               });
           }
           profileSeconds += haxe.Timer.stamp() - profileStart;
@@ -2219,19 +2262,45 @@ class ModuleRequest {
   static function profileOf(module: String, types: Array<Type>,
       epochs: String): ModuleProfile {
     final file = moduleFiles.get(module);
+    final text = DceStdUses.sourceText(file);
     return {
       epochs: epochs,
       uses: DceStdUses.keptWhole(types) ? DceStdUses.usesOf(module,
         types) : null,
-      dependencies: DceStdUses.dependenciesOf(module, types, file),
+      dependencies: DceStdUses.dependenciesOf(module, types, text),
       listeners: [
         for (item in DceStdUses.listenersOf(types))
           '${item.feature}\t${item.line}'
       ],
       opaqueMacro: opaqueMacroModule(types, file),
       externBases: DceStdUses.externBasesOf(types),
-      extensionCalls: DceStdUses.keptWhole(types) ? DceStdUses.extensionCallsOf(types) : []
+      extensionCalls: DceStdUses.keptWhole(types) ? DceStdUses.extensionCallsOf(types) : [],
+      privateAccess: DceStdUses.privateAccessOf(types, text)
+      || buildMacroPrivateAccess(types)
     };
+  }
+
+  /**
+   * Returns true when a build macro that the metadata of `types` names
+   * (`buildMacroCalls`) is in a source file outside Haxe's standard library
+   * and Genes' own folder whose text may give private access
+   * (`DceStdUses.privateAccessOf`).
+   *
+   * Why: a build macro can add code with `@:privateAccess` to a module, and
+   * the module's own text then does not show it. The macro's class is often
+   * loaded only by Haxe's macro context, so it is not a module of the
+   * program. Example: `@:build(app.Model.build())`, where `app.Model`
+   * returns `macro @:privateAccess $owner.save()`. A macro call that does
+   * not resolve to a file is not read; see the limits of the class comment.
+   */
+  static function buildMacroPrivateAccess(types: Array<Type>): Bool {
+    for (item in buildMacroCalls(types)) {
+      final file = macroFile(item.call);
+      if (file != null && !transparentFile(file)
+        && DceStdUses.privateAccessOf([], DceStdUses.sourceText(file)))
+        return true;
+    }
+    return false;
   }
 
   /**
@@ -2573,9 +2642,10 @@ class ModuleRequest {
           }
         default:
       }
-    // A module that names a class (or its package) in `@:access` can reach
-    // every private field of it, so all of them are visible
-    // (`visibleShape`). Example: `@:access(mr.Gadget) class GadgetUser`.
+    // A module that names a class, its package, a parent class or a field
+    // of one of them in `@:access` can reach private fields of the class, so
+    // all of them are visible (`visibleShape`, `accessReaches`). Example:
+    // `@:access(mr.Gadget) class GadgetUser`.
     final accesses: Array<{path: String, module: String}> = [];
     for (type in types)
       switch type {
@@ -2601,11 +2671,9 @@ class ModuleRequest {
         switch type {
           case TInst(reference, _):
             final cls = reference.get();
-            final path = cls.pack.concat([cls.name]).join('.');
             for (access in accesses)
               if (access.module != cls.module
-                && (path == access.path
-                  || StringTools.startsWith(path, access.path + '.')))
+                && accessReaches(access.path, cls))
                 uses.set('${TypeUtil.baseTypeFullName(cls)} *', true);
           default:
         }
@@ -2630,6 +2698,51 @@ class ModuleRequest {
     storedOutputFolder = absoluteFolder(outputFile);
     records = made;
     writeRecordsReport(descriptor, true, null, walked, shapesComputed, started);
+  }
+
+  /**
+   * Returns true when the `@:access` path `path` (as written, for example
+   * `mr.Gadget`) may let its module access a private field of `cls`, also a
+   * field that does not exist yet.
+   *
+   * Why: Haxe 4.3.7's `can_access` (`typecore.ml`) compares the path with
+   * `<package>.<class>.<field>` of the class and of each of its parent
+   * classes, and accepts a path that starts that text. So `@:access(mr)`,
+   * `@:access(mr.Base)` (a parent class) and `@:access(mr.Gadget.label)` (one
+   * field) each reach a new private `label` of `mr.Gadget`. The test here is
+   * wider: a path that starts with the class path, or that the class path
+   * starts, matches; for a private class the path without its `_Module`
+   * part counts too, as Haxe writes it; and `std` matches a class in no
+   * package (`@:access(std)`). A parent chain longer than 64 classes
+   * matches.
+   */
+  static function accessReaches(path: String, cls: ClassType): Bool {
+    function matches(candidate: String): Bool {
+      return candidate == path
+        || StringTools.startsWith(candidate, path + '.')
+        || StringTools.startsWith(path, candidate + '.')
+        || (path == 'std' && candidate.indexOf('.') < 0);
+    }
+    var current: Null<ClassType> = cls;
+    var depth = 0;
+    while (current != null) {
+      if (depth++ > 64)
+        return true;
+      final named = switch current.kind {
+        case KGenericInstance(base, _): base.get();
+        default: current;
+      }
+      if (matches(named.pack.concat([named.name]).join('.')))
+        return true;
+      // Haxe's `make_path` leaves out the `_Module` part of a private class.
+      final outer = named.pack.slice(0, named.pack.length - 1);
+      if (named.isPrivate && named.pack.length > 0
+        && matches(outer.concat([named.name]).join('.')))
+        return true;
+      final parent = current.superClass;
+      current = parent == null ? null : parent.t.get();
+    }
+    return false;
   }
 
   /**
@@ -2681,6 +2794,14 @@ class ModuleRequest {
             list.push(module);
         }
     storedExtensionCalls = calls;
+    // A module of the standard library or of Genes' own folder cannot name
+    // a class of the program, so its private access never reaches one.
+    final accessors = new Map<String, Bool>();
+    if (DceStdUses.stdProfile())
+      for (module => profile in requestProfiles)
+        if (profile.privateAccess && !transparentFile(moduleFiles.get(module)))
+          accessors.set(module, true);
+    storedPrivateAccess = accessors;
     final counts = new Map<String, Int>();
     for (_ => lines in uses)
       for (line in lines)
@@ -2801,6 +2922,7 @@ class ModuleRequest {
     storedHaxePrinter = false;
     storedExternBases = new Map();
     storedExtensionCalls = new Map();
+    storedPrivateAccess = new Map();
   }
 
   /**
@@ -2836,18 +2958,27 @@ class ModuleRequest {
   /**
    * Returns `shape` without the lines of private fields that no other
    * module can see: no module of the stored full request uses the field
-   * from another module, no class of another module extends its class, and
-   * no other module names its class or package in `@:access`.
+   * from another module, no class of another module extends its class, no
+   * other module names its class, a parent class or a field of it in
+   * `@:access` (`externalUses`), and `allPrivate` is false. A field of a
+   * class with `@:allow`, or with `@:allow` itself, is always visible
+   * (`shapeOf`).
    * Such a field can change without a new typing of the modules that import
    * this one; `kept` and the reference checks still guard what it does to
    * this module's own file.
+   *
+   * `allPrivate` keeps every private field: `decide` sets it when another
+   * module of the program may access private fields without naming them
+   * (`privateAccessors`).
    *
    * Example: changing the type of a private helper of `app.Button` that no
    * other module uses keeps the visible shape. (The edit is still refused,
    * by the signature check of `decide`; the visible shape only decides
    * whether modules that import this one need a new typing.)
    */
-  static function visibleShape(shape: String): String {
+  static function visibleShape(shape: String, allPrivate: Bool): String {
+    if (allPrivate)
+      return shape;
     return [
       for (line in shape.split('\n'))
         if (isVisibleLine(line)) line
@@ -2863,6 +2994,36 @@ class ModuleRequest {
       return true;
     return externalUses.exists('${parts[0]} ${parts[1]}')
       || externalUses.exists('${parts[0]} *');
+  }
+
+  /**
+   * Returns the modules of the stored full request other than `module`
+   * whose code may access private fields without naming them in metadata
+   * (`storedPrivateAccess`), sorted. Empty under every profile other than
+   * `-dce std`.
+   *
+   * Why: inside `@:privateAccess` or `untyped` code, Haxe lets a call
+   * through `using` go to a new private method of the same name, because it
+   * looks for a field of the class before it tries a static extension. The
+   * typed body of such a module may hold no trace of the call: an inline
+   * extension leaves its copied body, and a receiver whose type is a type
+   * parameter or a `@:forward` abstract gives `shadowedExtension` no class.
+   * So every private field of the requested module counts as visible, and
+   * any change of one is refused (`public-shape-changed`). Without private
+   * access, a new private field can only make another module fail to
+   * compile ("Cannot access private field"), never change its output.
+   *
+   * Example: `mr.GizmoUser` has `static function of<T: Gizmo>(g: T) return
+   * @:privateAccess g.label();` and `using mr.GizmoTools;`. A private
+   * `label()` added to `mr.Gizmo` makes a full build print `g.label()`; the
+   * module request of `mr.Gizmo` is refused.
+   */
+  static function privateAccessors(module: String): Array<String> {
+    final found = new Map<String, Bool>();
+    for (name => _ in storedPrivateAccess)
+      if (name != module)
+        found.set(name, true);
+    return sortedKeys(found);
   }
 
   /**
@@ -3015,12 +3176,18 @@ class ModuleRequest {
       return refuse('macro-or-generic',
         '$module defines a macro or a ' +
         '@:generic declaration, which other modules expand when Haxe types them');
-    final storedShape = visibleShape(record.shape);
-    final currentShape = visibleShape(shape);
+    // Another module with `@:privateAccess` or `untyped` code makes every
+    // private field of this module visible (`privateAccessors`).
+    final accessors = privateAccessors(module);
+    final storedShape = visibleShape(record.shape, accessors.length > 0);
+    final currentShape = visibleShape(shape, accessors.length > 0);
+    final accessNote = accessors.length == 0 ? '' : ' (private fields count: '
+      + '${accessors[0]} has @:privateAccess or untyped code, where a new '
+      + 'private field can take a call that goes through `using`)';
     if (currentShape != storedShape)
       return refuse('public-shape-changed',
         'the public shape of $module ' +
-        'changed: ${firstDifference(storedShape, currentShape)}');
+        'changed: ${firstDifference(storedShape, currentShape)}$accessNote');
     // Under `-dce std` Haxe keeps every class of each module that it loads,
     // so the set of loaded modules is part of the output: also an edit that
     // only removes an unused import can drop a module's file
@@ -3291,56 +3458,61 @@ class ModuleRequest {
    * `@:build(app.Model.build())` is foreign.
    */
   static function opaqueBuildMacro(types: Array<Type>): Null<String> {
-    function foreign(meta: MetaAccess, names: Array<String>): Null<String> {
+    for (item in buildMacroCalls(types))
+      if (!transparentFile(macroFile(item.call)))
+        return '@${item.meta}(${item.call})';
+    return null;
+  }
+
+  /**
+   * Returns the build macro calls that the metadata of `types` names, in
+   * order, each once, with the name of the metadata: `@:build`,
+   * `@:autoBuild` and `@:genericBuild` on a class, `@:autoBuild` on a parent
+   * class or an interface, and `@:build` on an enum. Example:
+   * `@:build(app.Model.build())` gives the call `app.Model.build()` with the
+   * metadata `:build`.
+   */
+  static function buildMacroCalls(types: Array<Type>): Array<{
+    meta: String,
+    call: String
+  }> {
+    final calls = [];
+    final seenCalls = new Map<String, Bool>();
+    function add(meta: MetaAccess, names: Array<String>): Void {
       for (name in names)
         for (entry in meta.extract(name))
           for (param in (entry.params == null ? [] : entry.params)) {
             final text = haxe.macro.ExprTools.toString(param);
-            if (!transparentFile(macroFile(text)))
-              return '@$name($text)';
+            if (!seenCalls.exists(text)) {
+              seenCalls.set(text, true);
+              calls.push({meta: name, call: text});
+            }
           }
-      return null;
     }
     final seen = new Map<String, Bool>();
-    function inherited(cls: ClassType): Null<String> {
+    function inherited(cls: ClassType): Void {
       final key = TypeUtil.baseTypeFullName(cls);
       if (seen.exists(key))
-        return null;
+        return;
       seen.set(key, true);
-      final own = foreign(cls.meta, [':autoBuild']);
-      if (own != null)
-        return own;
+      add(cls.meta, [':autoBuild']);
       final parent = cls.superClass;
-      if (parent != null) {
-        final found = inherited(parent.t.get());
-        if (found != null)
-          return found;
-      }
-      for (item in cls.interfaces) {
-        final found = inherited(item.t.get());
-        if (found != null)
-          return found;
-      }
-      return null;
+      if (parent != null)
+        inherited(parent.t.get());
+      for (item in cls.interfaces)
+        inherited(item.t.get());
     }
     for (type in types)
       switch type {
         case TInst(reference, _):
           final cls = reference.get();
-          final own = foreign(cls.meta,
-            [':build', ':autoBuild', ':genericBuild']);
-          if (own != null)
-            return own;
-          final found = inherited(cls);
-          if (found != null)
-            return found;
+          add(cls.meta, [':build', ':autoBuild', ':genericBuild']);
+          inherited(cls);
         case TEnum(reference, _):
-          final own = foreign(reference.get().meta, [':build']);
-          if (own != null)
-            return own;
+          add(reference.get().meta, [':build']);
         default:
       }
-    return null;
+    return calls;
   }
 
   /**
@@ -3356,9 +3528,18 @@ class ModuleRequest {
    * `label()` in `mr.Gadget` makes a full build print `g.label()` as a
    * method call, or, without `@:access`, fail with "Cannot access private
    * field label".
+   *
+   * It sees only a call that is left in a typed body with a first argument
+   * of a class type (`DceStdUses.extensionCallsOf`). An inline extension,
+   * or a receiver whose type is a type parameter or a `@:forward` abstract,
+   * leaves no line. Such a call can change only where its module may access
+   * private fields, and the visible shape then holds every private field
+   * (`privateAccessors`, `@:allow`, `@:access`; genes-zbva).
    */
   static function shadowedExtension(module: String,
-      record: ModuleRecord): Null<{code: String, reason: String
+      record: ModuleRecord): Null<{
+      code: String,
+      reason: String
     }> {
     final declared = requestDeclared;
     if (declared == null)
@@ -4395,16 +4576,21 @@ class ModuleRequest {
           // and casts from any module, also private ones (example: a private
           // `@:op(A == B)` turns `a == b` of another module into a call), so
           // every field of an abstract's implementation class is visible.
-          final abstractImpl = cls.kind.match(KAbstractImpl(_));
+          // `@:allow` on the class lets other modules access every private
+          // field, also a new one that takes a call through `using`
+          // (genes-zbva); `addShapeField` does the same for `@:allow` on a
+          // field.
+          final visible = cls.kind.match(KAbstractImpl(_))
+            || cls.meta.has(':allow');
           if (constructor != null)
             addShapeField(buffer, owner, 'new', 'i:new', constructor.get(),
-              abstractImpl);
+              visible);
           for (field in cls.fields.get())
             addShapeField(buffer, owner, 'field', 'i:${field.name}', field,
-              abstractImpl);
+              visible);
           for (field in cls.statics.get())
             addShapeField(buffer, owner, 'static', 's:${field.name}', field,
-              abstractImpl);
+              visible);
         case TEnum(reference, _):
           final enm = reference.get();
           buffer.add('enum ${TypeUtil.baseTypeFullName(enm)} ${paramsText(enm.params)}');
@@ -4437,12 +4623,6 @@ class ModuleRequest {
   }
 
   /**
-   * Adds one field line to a shape. A private field that other modules
-   * cannot copy (not inline, not a macro) gets the line
-   * `  private <type> <key> ...`, which `visibleShape` keeps only when
-   * another module uses the field or extends its class.
-   */
-  /**
    * Returns type parameters as one text with their constraints, for
    * example `<T:mr.Shapes.Square,U>`: a constraint is a type that dead-code
    * elimination marks, so a changed constraint is a changed signature.
@@ -4464,14 +4644,29 @@ class ModuleRequest {
     ].join(',') + '>';
   }
 
+  /**
+   * Adds one field line to a shape. A private field that other modules
+   * cannot copy (not inline, not a macro) gets the line
+   * `  private <type> <key> ...`, which `visibleShape` keeps only when
+   * another module uses the field, extends its class or names it in
+   * `@:access`, or may access private fields without naming them. A field
+   * of a class that is `visible` (an abstract's implementation, or a class
+   * with `@:allow`) and a field with `@:allow` get a visible line instead:
+   * Haxe lets the modules that `@:allow` names access it, also when it is
+   * new (example: `@:allow(app.Panel) function label()` takes the call
+   * `item.label()` that `app.Panel` makes through `using`).
+   */
   static function addShapeField(buffer: StringBuf, owner: String,
       label: String, key: String, field: ClassField, visible: Bool): Void {
     final copied = switch field.kind {
       case FMethod(MethInline) | FMethod(MethMacro) | FVar(AccInline, _): true;
       default: false;
     }
-    final start = field.isPublic || copied
-      || visible ? '\n  $label ${field.name}' : '\n  $PRIVATE_MARK$owner $key';
+    final shown = field.isPublic
+      || copied
+      || visible
+      || field.meta.has(':allow');
+    final start = shown ? '\n  $label ${field.name}' : '\n  $PRIVATE_MARK$owner $key';
     buffer.add('$start ${Std.string(field.kind)} '
       + TypeTools.toString(field.type));
     buffer.add(field.isPublic ? ' public' : '');

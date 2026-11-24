@@ -293,6 +293,14 @@ class DceStdUses {
    * label`; a new private `label()` in `app.Gadget` then takes the call. A
    * plain static call with an argument gives a line too, which can only
    * refuse a preview.
+   *
+   * Limits: an inline extension leaves no static call in the typed body,
+   * and a first argument whose type is a type parameter or an abstract
+   * gives no line. Such a call is changed by a new private field only where
+   * the caller may access private fields, and `ModuleRequest` then keeps
+   * every private field in the visible shape (`privateAccessOf`, `@:allow`,
+   * `@:access`). Elsewhere the new field makes the program fail to compile
+   * ("Cannot access private field"), which a module request does not see.
    */
   public static function extensionCallsOf(types: Array<Type>): Array<String> {
     final found = new Map<String, Bool>();
@@ -397,11 +405,70 @@ class DceStdUses {
   }
 
   /**
+   * Returns the text of a module's source file, or `null` when there is no
+   * file or it cannot be read. `dependenciesOf` and `privateAccessOf` read
+   * the same text, so a module request reads each file once.
+   */
+  public static function sourceText(file: Null<String>): Null<String> {
+    if (file == null || !FileSystem.exists(file))
+      return null;
+    return try sys.io.File.getContent(file) catch (_:haxe.Exception) null;
+  }
+
+  /**
+   * Returns true when the code of a module (its declarations `types` and
+   * its source `text`) may read or call a private field of a class of
+   * another module without naming that class in metadata: the text holds
+   * `privateAccess` (the `@:privateAccess` metadata) or the word `untyped`,
+   * or Haxe marked a field with `:has_untyped`.
+   *
+   * Why: inside such code, Haxe skips the access check of a private field
+   * (`can_access` and `check_field_access` of Haxe 4.3.7), and it looks for
+   * a field of the class before it tries a static extension (`type_field`
+   * in `fields.ml`). So a new private method of another module can take a
+   * call here, and a full build prints another call. Example: `using
+   * app.Tools; return @:privateAccess gizmo.label();` calls the inline
+   * extension `Tools.label(gizmo)`; after a private `label()` is added to
+   * `app.Gizmo`, a full build calls `gizmo.label()`. The typed body keeps no
+   * trace of `@:privateAccess`, nor of the inlined call, so only the text can
+   * show it. `ModuleRequest` then keeps every private field of the requested
+   * module in its visible shape.
+   *
+   * The text test is coarse on purpose: a match in a comment, a string or a
+   * longer name only refuses more previews. `:has_untyped` also catches
+   * `untyped` code that a macro returned (Haxe adds it while it types the
+   * field).
+   */
+  public static function privateAccessOf(types: Array<Type>,
+      text: Null<String>): Bool {
+    if (text != null
+      && (text.indexOf('privateAccess') >= 0 || UNTYPED_WORD.match(text)))
+      return true;
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final fields = cls.statics.get().concat(cls.fields.get());
+          final constructor = cls.constructor;
+          if (constructor != null)
+            fields.push(constructor.get());
+          for (field in fields)
+            if (field.meta.has(':has_untyped'))
+              return true;
+        default:
+      }
+    return false;
+  }
+
+  /** The word `untyped`, not a part of a longer name. */
+  static final UNTYPED_WORD = ~/(^|[^A-Za-z0-9_])untyped($|[^A-Za-z0-9_])/;
+
+  /**
    * Returns the modules other than `module` that its declarations `types`
    * make Haxe load, sorted: the module of every declaration that a field
    * type, a parent class, an interface, an enum constructor, a typedef, an
    * abstract or a typed body names, and the modules of its import and using
-   * lines (`file` is its source file, or `null`).
+   * lines (`text` is its source text, see `sourceText`, or `null`).
    *
    * Example: `class Card { static function render() return Badge.render(); }`
    * with `import app.ui.Badge;` gives `app.ui.Badge` (once).
@@ -411,7 +478,7 @@ class DceStdUses {
    * refuse.
    */
   public static function dependenciesOf(module: String, types: Array<Type>,
-      file: Null<String>): Array<String> {
+      text: Null<String>): Array<String> {
     final found = new Map<String, Bool>();
     function add(name: Null<String>): Void {
       if (name != null && name.length > 0 && name != module)
@@ -551,13 +618,9 @@ class DceStdUses {
             addType(item.t, 0);
         default:
       }
-    if (file != null && FileSystem.exists(file)) {
-      final text = try sys.io.File.getContent(file) catch (_:haxe.Exception)
-        null;
-      if (text != null)
-        for (imported in importsOf(text))
-          add(imported);
-    }
+    if (text != null)
+      for (imported in importsOf(text))
+        add(imported);
     final result = [for (name in found.keys()) name];
     result.sort(compareStrings);
     return result;

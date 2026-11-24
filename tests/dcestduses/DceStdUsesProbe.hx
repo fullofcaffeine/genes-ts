@@ -9,7 +9,8 @@ import haxe.macro.Expr;
 /**
  * Compile-time checks of `DceStdUses.importsOf`, which the `-dce std` rule
  * of a module request reads to know which modules a module's import and
- * using lines load (genes-f8vc.14.7).
+ * using lines load (genes-f8vc.14.7), and of the text test of
+ * `DceStdUses.privateAccessOf` (genes-zbva).
  *
  * Why it matters: the rule refuses a structural edit when a module of the
  * program may leave a full build (`module-may-leave`). A line that this
@@ -21,6 +22,11 @@ import haxe.macro.Expr;
  * Cases: plain, sub-type and enum-constructor imports, `using`, `as` and
  * `in` aliases, whole-package imports, comments, `#if` blocks, metadata and
  * a declaration that end the header, and a repeated module.
+ *
+ * `privateAccessOf` must find `@:privateAccess` and `untyped` code, where a
+ * new private method of another module can take a `using` call. A text
+ * that it misses could publish a stale preview; a match in a comment only
+ * refuses one. The word `untyped` inside a longer name does not count.
  *
  * `test.hxml` runs this probe, so `yarn test` fails when a case fails.
  */
@@ -48,10 +54,38 @@ class DceStdUsesProbe {
     same(DceStdUses.importsOf('package  app ;\nimport\n  app.ui.Button\n  ;\nfinal x = 1;\n'),
       ['app.ui.Button'],
       'spaces and line breaks inside lines, and a module-level field');
+    access(true,
+      'class X {\n  static function f(g: G) return @:privateAccess g.label();\n}\n',
+      '@:privateAccess around a call');
+    access(true,
+      'class X {\n  static function f() @:privateAccess {\n    return 1;\n  }\n}\n',
+      '@:privateAccess on a function body');
+    access(true,
+      'class X {\n  static function f(g: G) return untyped g.label();\n}\n',
+      'untyped around a call');
+    access(true,
+      'class X {\n  static function f(g: G) return (untyped\tg).label();\n}\n',
+      'untyped before a tab');
+    access(true, '// @:privateAccess was here\nclass X {}\n',
+      'a comment counts');
+    access(false,
+      'class X {\n  static function f(g: G) return g.label();\n}\n',
+      'no private access');
+    access(false,
+      'class X {\n  static function isUntyped() return untypedValue + my_untyped + typedOnly;\n}\n',
+      'untyped inside longer names');
+    access(false, null, 'no source text');
     return macro null;
   }
 
   #if macro
+  static function access(expected: Bool, text: Null<String>,
+      label: String): Void {
+    if (DceStdUses.privateAccessOf([], text) != expected)
+      Context.fatalError('DceStdUses.privateAccessOf, $label: expected $expected',
+        Context.currentPos());
+  }
+
   static function same(found: Array<String>, expected: Array<String>,
       label: String): Void {
     if (found.join(',') != expected.join(','))
