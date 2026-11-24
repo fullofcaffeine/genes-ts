@@ -1,0 +1,6 @@
+-lib genes-ts
+-cp tests/genes-ts/repros/nullable-record-widening/src
+-main NullableRecordProbe
+-D genes.ts
+-D genes.ts.minimal_runtime
+-js tests/genes-ts/repros/nullable-record-widening/out/typescript/index.ts
