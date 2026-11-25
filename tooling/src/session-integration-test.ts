@@ -594,6 +594,7 @@ try {
 
   const events: DevelopmentEvent<Diagnostic>[] = [];
   const observedCompilerData: string[] = [];
+  const validatedManifests: string[] = [];
   const session = createGenesDevelopmentSession<Diagnostic>({
     projectRoot,
     projectIdentity: "real-haxe-session-fixture",
@@ -643,6 +644,7 @@ try {
       },
     }),
     validate: async (tree) => {
+      validatedManifests.push(tree.manifestDigest);
       const entry = tree.files.find(
         (file) => file.logicalPath === "src-gen/index.ts",
       );
@@ -687,6 +689,11 @@ try {
     const first = await session.firstAccepted;
     assert.equal(first.generation, 1);
     assert.equal(first.compilerMode, "connected");
+    // A host that subscribes after startup finds the accepted tree through
+    // inspect() and the digest of a tree that its validator saw (the first
+    // edit is then shown first; see development-session/v1/README.md).
+    assert.equal(session.inspect().accepted?.manifestDigest, first.manifestDigest);
+    assert.equal(validatedManifests.includes(first.manifestDigest), true);
     assert.equal(
       readFileSync(path.join(projectRoot, "src-gen/index.ts")).byteLength > 0,
       true,

@@ -711,11 +711,9 @@ that each part of the rule needs, and edits it step by step:
   (`module-may-leave`: a full build drops `mr/OnlyHere.ts`); the first and
   the last reference to a typedef of `mr.Hints`, a module that nothing else
   reaches (`walk-target-added`, `walk-target-removed`); the first typed
-  cast of the program, which keeps `js.Boot.__cast` (`feature-changed`); a
-  call of the project macro `mr.Styles.css` (`opaque-macro`); a new
+  cast of the program, which keeps `js.Boot.__cast` (`feature-changed`); a new
   instance of the generic `mr.Box` and a call back that closes a cycle
-  (`other-modules-typed`); an edit of `mr.Built`, which has a build macro
-  (`opaque-macro`); and two edits that break a cycle (`import-cycle`): of
+  (`other-modules-typed`); and two edits that break a cycle (`import-cycle`): of
   `mr.Cycle`, and of `mr.CyBase`, whose subclass `mr.CyChild` prints its
   parent lazily while the cycle exists, so a full build changes
   `mr/CyChild.ts`;
@@ -740,6 +738,89 @@ module only imports (`dce-use-added`; cold adds `haxe/ds/List.ts`).
 `@:access`: the module types alone, but cold fails with "Cannot access
 private field label", and the rule refuses it (`shadowed-extension`;
 `programFails`: the cold build and the full request must fail).
+
+Round 3 of that review (genes-zbva) added the `std-private-` groups. Each
+adds a private `label()` to a class `mr.<name>` that `mr.<name>User` calls
+through `using` in a way that `shadowed-extension` cannot see: the
+extension is inline (Haxe copies its body, so no call is left), or the
+receiver's type is a type parameter (`of<T: Gizmo>(item: T)`) or a
+`@:forward` abstract (`mr.GearRef`). Where the user may access private
+fields, Haxe then finds the new method before the extension, and cold
+prints `item.label()`. On main 938a758b each of these rows published a
+preview that differed from cold (`--observe` with `GENES_TEST_SOURCE`
+prints `STALE mr/<name>User.ts`). Now each is refused
+(`public-shape-changed`), and its `check` names the rule that refused it:
+
+- `std-private-access`: `@:privateAccess` around the call, for the three
+  shapes (`mr.Sprocket`, `mr.Gizmo`, `mr.Gear`). Another module with
+  `@:privateAccess` or `untyped` code keeps every private field of the
+  requested module visible. So the group also shows that a private method
+  with a fresh name is refused there, and that a structural edit without a
+  new field still previews;
+- `std-private-untyped`: `untyped` around the call (`mr.Cog`);
+- `std-private-allow`, a program without such code: `@:allow` on the class
+  (`mr.Bolt`) and on the new method (`mr.Nut`), and `@:access` on the user
+  that names a parent class (`@:access(mr.LeverBase)` for `mr.Lever`) or
+  the field (`@:access(mr.Pin.label)`). Its last rows are controls. A
+  private method with a fresh name in `mr.Latch` previews. A private
+  `label()` there, whose user has no private access, previews although
+  cold fails with "Cannot access private field label". This is limit B of
+  #260: no stale file results, and the full request reports the error
+  (result `preview-program-fails`).
+
+Round 4 of the review (Fable on 3fa8782c) found more ways in which a new
+private field changes another module's code, each a group of its own. On
+3fa8782c the first six published a preview that differed from cold:
+
+- `std-private-state`: Genes' own `State.set` typed the new value inside
+  `@:privateAccess`, so a new private static extension in `mr.RivetTools`
+  took `new Rivet().describe()`. `ReactHooksMacro.setState` now wraps the
+  value in `@:noPrivateAccess`, and the row previews, equal to cold;
+- `std-private-import`: `import mr.Dial.*` imports private statics too,
+  and Haxe types a pattern without the access check, so a new private
+  `static final label` turns the capture `case label` into a comparison;
+- `std-private-structure`: a new private `label()` makes `mr.Lamp` unify
+  with `typedef Peek = { private function label(): String; }`, so the call
+  takes another extension, without private access in the caller;
+- `std-private-init`: `@:access(mr.Knot)` on `__init__`, whose metadata
+  Haxe drops;
+- `std-private-macro-helper`: a project macro wraps the call in
+  `@:privateAccess` from a helper that only Haxe's macro context loads;
+- `std-private-macro-fields`: a project macro of another module prints the
+  field names of `mr.Crate` (a serializer);
+- `std-private-build-macro`: a build macro adds `@:privateAccess` code from
+  such a helper;
+- `std-private-untyped-var`: `untyped` in a static variable's value, which
+  the rule reads only from Haxe's `:has_untyped` mark (on 3fa8782c the text
+  also counted, so it was refused there too);
+- `std-private-comment`: the word `untyped` in a comment no longer counts,
+  so a private method with a fresh name previews (refused on 3fa8782c).
+
+Round 3 of Fable on 58bff340 added three groups:
+
+- `std-private-own-structure`: the structure with a private field is in
+  the requested module itself (`mr.Globe` declares `GlobePeek` and its
+  extension class before the class). A new private `label()` makes
+  `mr.Globe` unify with it, so `mr.GlobeUser` takes the other extension.
+  Stale on 58bff340, now refused: the requested module counts when it holds
+  such a structure;
+- `std-private-own-structure-first`: the same with the class first. The edit
+  then also moves the declarations that `mr.OrbUser` imports
+  (`position-changed` on 58bff340); the structure rule refuses it first;
+- `std-private-init-macro`: an init macro other than Genes' own and the
+  calls that only record a define, metadata or a class path
+  (`--macro mr.Spy.install()`) makes every private field count, because it
+  can change code without leaving metadata. This one does nothing, so the
+  row previewed on 58bff340; it guards the rule.
+
+Each refused row's `check` names the module and the reason of the refusal.
+`std-private-access` also has a private static extension that takes a call
+inside `@:privateAccess`. Because a project macro makes every private field
+visible, the two project-macro rows of `std-structural` (a new use of
+`mr.Styles.css`, an edit of `mr.Built`, both `opaque-macro`) moved to
+`std-macro`, whose program imports `mr.Styles`; there a new private
+function of `mr.Card` is refused too. The `std-structural` program no longer
+loads them.
 
 `std-value-use` runs on its own server: `return Int;` in `mr.Words` is the
 first value use of `Int`, so cold prints `var Int = { };` in `Std.ts`, and

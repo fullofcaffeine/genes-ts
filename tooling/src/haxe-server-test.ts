@@ -14,7 +14,7 @@ import path from "node:path";
 import {
   OwnedHaxeWaitServer,
   reserveLoopbackEndpoint,
-  type HaxeWaitEndpoint,
+  type HaxeWaitLoopbackEndpoint,
   type HaxeWaitProcessExit,
   type HaxeWaitServerEvent,
   type OwnedHaxeWaitProcess,
@@ -67,7 +67,7 @@ class FakeProcess implements OwnedHaxeWaitProcess {
   }
 }
 
-function endpoint(port: number): HaxeWaitEndpoint {
+function endpoint(port: number): HaxeWaitLoopbackEndpoint {
   return Object.freeze({
     host: "127.0.0.1",
     port,
@@ -457,6 +457,94 @@ async function main(): Promise<void> {
           compileDirect: async () => {},
         }),
       /leasePath/u,
+    );
+
+    // The stdio transport reserves no port, passes the fixed stdio endpoint,
+    // and writes a lease without an address. A stale lease of either schema
+    // is claimed; a live one blocks.
+    const stdioRoot = path.join(root, "stdio");
+    mkdirSync(stdioRoot);
+    const stdioLease = path.join(stdioRoot, "lease.json");
+    const stdioBytes = (ownerPid: number, serverPid: number): string =>
+      `${JSON.stringify({
+        compatibilityDigest: "digest",
+        ownerPid,
+        projectIdentity: "project-stdio",
+        schema: "genes.tooling.haxe-wait-server-lease.stdio.v1",
+        serverPid,
+      })}\n`;
+    const stdioEvents: HaxeWaitServerEvent[] = [];
+    const seenEndpoints: unknown[] = [];
+    const stdioServer = (alive: (pid: number) => boolean) =>
+      new OwnedHaxeWaitServer<string>({
+        projectRoot: stdioRoot,
+        leasePath: "lease.json",
+        projectIdentity: "project-stdio",
+        ownerPid: 41,
+        transport: "stdio",
+        isProcessAlive: alive,
+        reserveEndpoint: async () => {
+          throw new Error("a stdio server must not reserve a port");
+        },
+        start: async (startEndpoint) => {
+          seenEndpoints.push(startEndpoint);
+          return new FakeProcess(700);
+        },
+        probe: async (probeEndpoint) => {
+          seenEndpoints.push(probeEndpoint);
+          return true;
+        },
+        compileConnected: async () => "connected",
+        compileDirect: async () => "direct",
+        onEvent: (event) => stdioEvents.push(event),
+        readinessTimeoutMs: 40,
+        probeIntervalMs: 1,
+        shutdownTimeoutMs: 5,
+      });
+    writeFileSync(stdioLease, leaseBytes("project-stdio", "digest", 998, 888, 7300));
+    const afterStaleLoopback = stdioServer(() => false);
+    assert.deepEqual(await afterStaleLoopback.ensure("digest"), {
+      mode: "connected",
+      newlyStarted: true,
+    });
+    assert.equal(readFileSync(stdioLease, "utf8"), stdioBytes(41, 700));
+    assert.deepEqual(seenEndpoints, [
+      { transport: "stdio", argument: "stdio" },
+      { transport: "stdio", argument: "stdio" },
+    ]);
+    assert.deepEqual(stdioEvents, [
+      { kind: "started", endpoint: { transport: "stdio", argument: "stdio" } },
+    ]);
+    assert.equal(await afterStaleLoopback.compile("digest"), "connected");
+    await afterStaleLoopback.close();
+    assert.equal(existsSync(stdioLease), false);
+
+    writeFileSync(stdioLease, stdioBytes(998, 888));
+    const blocked = stdioServer((pid) => pid === 888);
+    assert.deepEqual(await blocked.ensure("digest"), {
+      mode: "direct",
+      newlyStarted: false,
+    });
+    assert.equal(readFileSync(stdioLease, "utf8"), stdioBytes(998, 888));
+    await blocked.close();
+    const afterStaleStdio = stdioServer(() => false);
+    assert.equal((await afterStaleStdio.ensure("digest")).mode, "connected");
+    await afterStaleStdio.close();
+    // A stdio lease with an address is not a lease that tooling wrote.
+    writeFileSync(
+      stdioLease,
+      stdioBytes(998, 888).replace('"ownerPid"', '"host":"127.0.0.1","ownerPid"'),
+    );
+    const untrusted = stdioServer(() => false);
+    assert.deepEqual(await untrusted.ensure("digest"), {
+      mode: "direct",
+      newlyStarted: false,
+    });
+    await untrusted.close();
+    assert.ok(
+      stdioEvents.some(
+        (event) => event.kind === "fallback" && event.reason === "untrusted-lease",
+      ),
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

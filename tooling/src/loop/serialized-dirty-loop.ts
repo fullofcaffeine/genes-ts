@@ -1,5 +1,17 @@
 export interface SerializedDirtyLoopOptions<Cause> {
+  /**
+   * The quiet time before a follow-up run: a request that arrives while a
+   * run is active starts the next run only after no request came for this
+   * long. Bursts of saves then end in one run, not in one run for each save.
+   */
   readonly debounceMs: number;
+  /**
+   * The delay before the first run after an idle period. Default
+   * `debounceMs`. A small value (for example 10 ms) starts the build of a
+   * single save at once and still joins the writes of one save; a request
+   * in that delay restarts it.
+   */
+  readonly startDelayMs?: number;
   readonly merge: (left: Cause, right: Cause) => Cause;
   readonly run: (cause: Cause) => Promise<void>;
   readonly onError: (error: Error) => void;
@@ -29,6 +41,8 @@ export class SerializedDirtyLoop<Cause> {
   #hasPending = false;
   #lastRequestAt = 0;
   #timer: NodeJS.Timeout | null = null;
+  /** True while the timer waits for the quiet time of a follow-up run. */
+  #followUp = false;
   #active: Promise<void> | null = null;
   #idleWaiters: Array<() => void> = [];
 
@@ -36,6 +50,14 @@ export class SerializedDirtyLoop<Cause> {
     if (!Number.isInteger(options.debounceMs) || options.debounceMs < 0) {
       throw new Error(
         "SerializedDirtyLoop debounceMs must be a non-negative integer",
+      );
+    }
+    if (
+      options.startDelayMs !== undefined &&
+      (!Number.isInteger(options.startDelayMs) || options.startDelayMs < 0)
+    ) {
+      throw new Error(
+        "SerializedDirtyLoop startDelayMs must be a non-negative integer",
       );
     }
     this.#options = options;
@@ -57,7 +79,12 @@ export class SerializedDirtyLoop<Cause> {
     if (this.#state === "running") {
       return;
     }
-    this.#schedule(this.#options.debounceMs);
+    this.#schedule(
+      this.#followUp
+        ? this.#options.debounceMs
+        : (this.#options.startDelayMs ?? this.#options.debounceMs),
+      this.#followUp,
+    );
   }
 
   async waitForIdle(): Promise<void> {
@@ -73,6 +100,7 @@ export class SerializedDirtyLoop<Cause> {
         clearTimeout(this.#timer);
         this.#timer = null;
       }
+      this.#followUp = false;
       this.#hasPending = false;
       this.#state = "closed";
     }
@@ -91,13 +119,15 @@ export class SerializedDirtyLoop<Cause> {
     );
   }
 
-  #schedule(delay: number): void {
+  #schedule(delay: number, followUp: boolean): void {
     if (this.#timer !== null) {
       clearTimeout(this.#timer);
     }
     this.#state = "debouncing";
+    this.#followUp = followUp;
     this.#timer = setTimeout(() => {
       this.#timer = null;
+      this.#followUp = false;
       this.#start();
     }, delay);
   }
@@ -129,7 +159,10 @@ export class SerializedDirtyLoop<Cause> {
           return;
         }
         const elapsed = Math.max(0, Date.now() - this.#lastRequestAt);
-        this.#schedule(Math.max(0, this.#options.debounceMs - elapsed));
+        this.#schedule(
+          Math.max(0, this.#options.debounceMs - elapsed),
+          true,
+        );
       });
     this.#active = active;
   }

@@ -6,6 +6,7 @@ export type {
   ChangeImpact,
   CompilerDataDeclaration,
   ColdBuildCheck,
+  CompilerServerQueryMethod,
   CompilerDataFile,
   DevelopmentEvent,
   DevelopmentEventBody,
