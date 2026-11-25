@@ -1384,8 +1384,9 @@ function earlyInitMacroGroups(): ReadonlyArray<Group> {
       // Haxe 4.3.7 accepts it and keeps it in
       // `Compiler.getConfiguration().args` (genes-f8vc.14.22). Before the
       // fix, Genes looked only for `--macro` as an argument of its own, so
-      // the rule missed this macro and the full request published the old
-      // `mr/Fresh.ts`.
+      // the init-macro rule missed this macro: the full request of step 1
+      // was refused only by the kept-stale check, and the module request of
+      // step 2 was refused as `stale-source` instead of by this rule.
       name: "early-init-inline-macro",
       files: {
         "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
