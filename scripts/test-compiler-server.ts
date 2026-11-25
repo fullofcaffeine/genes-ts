@@ -1093,7 +1093,7 @@ async function assertSourcePropsServerIsolation(
  * What: `IntrinsicCompA` and `IntrinsicCompB` both use `x-box` of
  * `IntrinsicProvider`. After one request, the test changes the payload of
  * `onPing` from `PingA` to `PingB` and compiles again. Both trees must equal
- * cold, and both modules must name `PingB` only. Red on ca88a9cd:
+ * cold, and both modules must name `PingB` only. Before the genes-gz0l fix,
  * `IntrinsicCompB.tsx` kept `PingA`.
  */
 async function assertIntrinsicProviderEditServerIsolation(
