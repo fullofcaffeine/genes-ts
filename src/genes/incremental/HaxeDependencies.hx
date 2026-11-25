@@ -57,19 +57,28 @@ import genes.util.PathUtil;
  *
  * - the file is the file of exactly one module of the program, and that
  *   file ends with the module's path (`app/ui/Card.hx` for `app.ui.Card`);
+ * - the module is not in Haxe's standard library (see `edges`);
  * - and either the file is listed twice for the dependent (two modules of
  *   one file: a macro call on a class of `X` also resolves the class in
- *   the program first, so the second module is `X`), or `X` has no macro
- *   function, the dependent ran no build macro (`@:build`, also from
- *   `@:autoBuild` or `addGlobalMetadata`), and no class of the program has
- *   `@:genericBuild`. A macro module that the dependent loaded without `X`
- *   comes only from such a call (`load_macro'` in `macroContext.ml`, called
- *   for expression macros, build macros and generic builds).
+ *   the program first, so the second module is `X`), or `X` can be no
+ *   macro module of the dependent: `X` has no macro function, `X` is not
+ *   the module of a build macro that the dependent ran (`@:build`, also
+ *   from `@:autoBuild` or `addGlobalMetadata`), and `X` is not the module
+ *   of a `@:genericBuild` macro of any class of the program. Haxe adds a
+ *   macro module to a program module's list only for such a call
+ *   (`load_macro'` in `macroContext.ml`, called for expression macros,
+ *   build macros and generic builds), and it names the macro's class by
+ *   the path written in the metadata, without imports
+ *   (`load_macro_module`). A build or generic-build entry that is not a
+ *   call of a dotted path makes every single line of the dependent (or of
+ *   the program) count as unknown.
  *
  * Example: `genes/ts/Json.hx` lists `genes/ts/JsonCodec.hx` once;
- * `genes.ts.JsonCodec` has no macro function and `genes.ts.Json` has no
- * build macro, so `genes.ts.Json` loads `genes.ts.JsonCodec`. A module that
- * calls `TypeArguments.call` lists `genes/ts/TypeArguments.hx` twice.
+ * `genes.ts.JsonCodec` has no macro function, and the build macros of
+ * `genes.ts.Json` (`genes.js.Async.build()` and the other global ones of
+ * a session) name other modules, so `genes.ts.Json` loads
+ * `genes.ts.JsonCodec`. A module that calls `TypeArguments.call` lists
+ * `genes/ts/TypeArguments.hx` twice.
  *
  * Why it is safe: an edge only lets the rule count one more module as
  * staying, so a wrong edge could hide a module that leaves. Every edge
@@ -103,11 +112,18 @@ class HaxeDependencies {
    */
   @:persistent static var noted: Map<String, ModuleMacroFacts> = new Map();
 
-  /** True when a class of the program of the last full request had `@:genericBuild` (`noteModules`). */
-  @:persistent static var storedGenericBuild = false;
+  /**
+   * The macro class paths of the `@:genericBuild` entries of the program of
+   * the last full request (`noteModules`), or `null` when one could not be
+   * read.
+   */
+  @:persistent static var storedGenericPaths: Null<Array<String>> = [];
 
-  /** True when a class of this request's program has `@:genericBuild`. */
-  static var genericBuild = false;
+  /** The macro class paths of the `@:genericBuild` entries of this request, or `null` when one could not be read. */
+  static var genericPaths: Null<Array<String>> = [];
+
+  /** The module of each declaration of this request, by its full path (`pack.Name`), as Haxe's `type_to_module`. */
+  static var typeModules: Map<String, String> = new Map();
 
   /** The modules of this request with their files (`noteModules`). */
   static var files: Map<String, String> = new Map();
@@ -139,7 +155,8 @@ class HaxeDependencies {
     read = null;
     files = new Map();
     facts = new Map();
-    genericBuild = false;
+    genericPaths = [];
+    typeModules = new Map();
     folder = null;
     owned = false;
     if (Context.defined('dump-path') || Context.defined('dump-dependencies')) {
@@ -181,17 +198,18 @@ class HaxeDependencies {
 
   /**
    * Notes the facts of the modules of this request that `edges` needs:
-   * each module's file, whether it has a macro function, whether it ran a
-   * build macro, and whether a class has `@:genericBuild`. `grouped` holds
-   * every declaration by module, before dead-code elimination (which can
-   * remove a macro function); `moduleFiles` holds each module's file.
-   * `ModuleRequest.afterSaveSteps` calls it.
+   * each module's file and declarations, whether it has a macro function,
+   * the build macros that it ran and the `@:genericBuild` macros of its
+   * classes. `grouped` holds every declaration by module, before dead-code
+   * elimination (which can remove a macro function); `moduleFiles` holds
+   * each module's file. `ModuleRequest.afterSaveSteps` calls it.
    */
   public static function noteModules(grouped: Map<String, Array<Type>>,
       moduleFiles: Map<String, String>, full: Bool): Void {
     files = moduleFiles;
     facts = new Map();
-    var generic = false;
+    typeModules = new Map();
+    var generic: Null<Array<String>> = [];
     for (module => types in grouped) {
       final epochs = GenerationChangeSet.epochs(module);
       final known = noted.get(module);
@@ -203,33 +221,62 @@ class HaxeDependencies {
         made;
       }
       facts.set(module, own);
-      if (own.genericBuild)
-        generic = true;
+      final paths = own.genericPaths;
+      generic = generic == null || paths == null ? null : generic.concat(paths);
+      for (type in types)
+        switch type {
+          case TInst(reference, _):
+            final cls = reference.get();
+            typeModules.set(fullName(cls.pack, cls.name), cls.module);
+          case TEnum(reference, _):
+            final enm = reference.get();
+            typeModules.set(fullName(enm.pack, enm.name), enm.module);
+          case TType(reference, _):
+            final def = reference.get();
+            typeModules.set(fullName(def.pack, def.name), def.module);
+          case TAbstract(reference, _):
+            final abs = reference.get();
+            typeModules.set(fullName(abs.pack, abs.name), abs.module);
+          default:
+        }
     }
-    // A module request sees only its own part of the program: a class with
-    // `@:genericBuild` elsewhere counts from the last full request, so the
-    // requested module's edges are the ones that a full request finds.
-    genericBuild = generic || (!full && storedGenericBuild);
+    // A module request sees only its own part of the program: a
+    // `@:genericBuild` class elsewhere counts from the last full request, so
+    // the requested module's edges are the ones that a full request finds.
+    final stored = storedGenericPaths;
+    genericPaths = full ? generic : generic == null
+      || stored == null ? null : generic.concat(stored);
     if (full)
-      storedGenericBuild = generic;
+      storedGenericPaths = generic;
+  }
+
+  /** Returns `pack.name`, or `name` in the root package. */
+  static function fullName(pack: Array<String>, name: String): String {
+    return pack.length == 0 ? name : pack.join('.') + '.' + name;
   }
 
   /**
    * Returns the module facts of one module's declarations `types`.
    * Example: a class with `public static macro function twice(...)` gives
    * `macroFunction`; a class with `@:build(app.Model.build())`, also one
-   * that Haxe gave it from a parent's `@:autoBuild`, gives `buildMacro`.
+   * that Haxe gave it from a parent's `@:autoBuild` or from
+   * `addGlobalMetadata`, gives the build path `app.Model`.
    */
   static function macroFactsOf(types: Array<Type>,
       epochs: String): ModuleMacroFacts {
     var macroFunction = false;
-    var buildMacro = false;
-    var generic = false;
+    var buildPaths: Null<Array<String>> = [];
+    var genericPaths: Null<Array<String>> = [];
+    function addBuilds(meta: MetaAccess): Void {
+      final found = macroPaths(meta, ':build');
+      buildPaths = buildPaths == null
+        || found == null ? null : buildPaths.concat(found);
+    }
     function inClass(cls: ClassType): Void {
-      if (cls.meta.has(':build'))
-        buildMacro = true;
-      if (cls.meta.has(':genericBuild') || cls.kind.match(KGenericBuild))
-        generic = true;
+      addBuilds(cls.meta);
+      final generic = macroPaths(cls.meta, ':genericBuild');
+      genericPaths = genericPaths == null
+        || generic == null ? null : genericPaths.concat(generic);
       for (field in cls.statics.get().concat(cls.fields.get()))
         if (field.kind.match(FMethod(MethMacro)))
           macroFunction = true;
@@ -239,12 +286,10 @@ class HaxeDependencies {
         case TInst(reference, _):
           inClass(reference.get());
         case TEnum(reference, _):
-          if (reference.get().meta.has(':build'))
-            buildMacro = true;
+          addBuilds(reference.get().meta);
         case TAbstract(reference, _):
           final abs = reference.get();
-          if (abs.meta.has(':build'))
-            buildMacro = true;
+          addBuilds(abs.meta);
           final impl = abs.impl;
           if (impl != null)
             inClass(impl.get());
@@ -253,9 +298,77 @@ class HaxeDependencies {
     return {
       epochs: epochs,
       macroFunction: macroFunction,
-      buildMacro: buildMacro,
-      genericBuild: generic
+      buildPaths: buildPaths,
+      genericPaths: genericPaths
     };
+  }
+
+  /**
+   * Returns the macro class path of each `name` entry of `meta`
+   * (`@:build(genes.js.Async.build())` gives `genes.js.Async`), or `null`
+   * when an entry is not a call of a dotted path.
+   */
+  static function macroPaths(meta: MetaAccess,
+      name: String): Null<Array<String>> {
+    final found = [];
+    for (entry in meta.extract(name)) {
+      final params = entry.params == null ? [] : entry.params;
+      if (params.length != 1)
+        return null;
+      switch params[0].expr {
+        case ECall(callee, _):
+          final parts = dottedPath(callee);
+          if (parts == null || parts.length < 2)
+            return null;
+          found.push(parts.slice(0, parts.length - 1).join('.'));
+        default:
+          return null;
+      }
+    }
+    return found;
+  }
+
+  /** Returns the names of a dotted path expression (`a.b.C.build`), or `null` for any other expression. */
+  static function dottedPath(expression: haxe.macro.Expr): Null<Array<String>> {
+    return switch expression.expr {
+      case EConst(CIdent(name)): [name];
+      case EField(owner, name):
+        final left = dottedPath(owner);
+        left == null ? null : left.concat([name]);
+      case EParenthesis(inner): dottedPath(inner);
+      default: null;
+    }
+  }
+
+  /**
+   * Returns the modules that Haxe 4.3.7 loads for the macro class path
+   * `path` (`load_macro'` and `load_macro_module`): when the name before
+   * the class is a type (`a.b.Mod.Sub`), the module `a.b.Mod`; otherwise
+   * the module `path` and, when a declaration of this request has that full
+   * path, its module (`type_to_module`).
+   */
+  static function macroModules(path: String): Array<String> {
+    final parts = path.split('.');
+    if (parts.length >= 2) {
+      final owner = parts[parts.length - 2];
+      final first = owner.length > 0 ? StringTools.fastCodeAt(owner, 0) : 0;
+      if (first >= 'A'.code && first <= 'Z'.code)
+        return [parts.slice(0, parts.length - 1).join('.')];
+    }
+    final declared = typeModules.get(path);
+    return declared == null || declared == path ? [path] : [path, declared];
+  }
+
+  /** Returns the modules of each path of `paths` (`macroModules`), or `null` for `null`. */
+  static function macroModulesOf(paths: Null<Array<String>>): Null<Map<String,
+    Bool>> {
+    if (paths == null)
+      return null;
+    final result = new Map<String, Bool>();
+    for (path in paths)
+      for (module in macroModules(path))
+        result.set(module, true);
+    return result;
   }
 
   /**
@@ -304,6 +417,7 @@ class HaxeDependencies {
     }
     for (full in shared.keys())
       byFile.remove(full);
+    final generics = macroModulesOf(genericPaths);
     var current: Null<String> = null;
     var counts = new Map<String, Int>();
     function finish(): Void {
@@ -311,13 +425,16 @@ class HaxeDependencies {
       if (module == null)
         return;
       final own = facts.get(module);
-      final trustOnce = own != null && !own.buildMacro && !genericBuild;
+      final builds = own == null ? null : macroModulesOf(own.buildPaths);
       final found = [];
       for (dependency => count in counts) {
         if (dependency == module)
           continue;
         final other = facts.get(dependency);
-        if (count >= 2 || (trustOnce && other != null && !other.macroFunction))
+        if (count >= 2
+          || (other != null && !other.macroFunction && builds != null
+            && !builds.exists(dependency) && generics != null
+            && !generics.exists(dependency)))
           found.push(dependency);
       }
       found.sort(compareStrings);
@@ -406,10 +523,15 @@ typedef ModuleMacroFacts = {
   /** True when a class of the module (also an abstract's implementation) has a macro function. */
   final macroFunction: Bool;
 
-  /** True when a class, enum or abstract of the module has `@:build` (Haxe adds it for `@:autoBuild`). */
-  final buildMacro: Bool;
+  /**
+   * The macro class path of each `@:build` entry of a class, enum or
+   * abstract of the module (Haxe adds one for `@:autoBuild` and
+   * `addGlobalMetadata`), for example `genes.js.Async`; `null` when an entry
+   * is not a call of a dotted path.
+   */
+  final buildPaths: Null<Array<String>>;
 
-  /** True when a class of the module has `@:genericBuild`. */
-  final genericBuild: Bool;
+  /** The macro class path of each `@:genericBuild` entry of a class of the module, or `null` as for `buildPaths`. */
+  final genericPaths: Null<Array<String>>;
 }
 #end

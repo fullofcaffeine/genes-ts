@@ -3658,8 +3658,13 @@ function inlineReachGroups(): ReadonlyArray<Group> {
       // `GraphReferenceCard.CitationProperty`); and a Genes macro call
       // (`genes.ts.TypeArguments.call`) loads its macro class, which
       // nothing else names. Each one made every request `module-may-leave`.
+      // `genes.js.Async.enable()` gives every class a global build macro, as
+      // Caffeine's development build does. On d64d0ee2, which distrusted
+      // every single line of Haxe's list for a module that ran any build
+      // macro, each preview row here was still `module-may-leave`.
       name: "std-inline-reach-caffeine-shaped",
       dce: "std",
+      extraArgs: ["--macro", "genes.js.Async.enable()"],
       files: {
         "mr/Main.hx": mainWith(["trace(app.read.ReadModel.text());"]),
         "app/graph/ReferenceCard.hx": "package app.graph;\n\nclass ReferenceCard {\n"

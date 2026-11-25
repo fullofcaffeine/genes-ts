@@ -1055,10 +1055,14 @@ the modules that each module loads (`HaxeDependencies`, written with
   `unsafeAssumeJson`, and reads `app.graph.ReferenceCard.CitationProperty`,
   a `public static inline final` of another package. `app.read.Typed`, which
   an `include` line adds, calls the Genes macro `genes.ts.TypeArguments.call`.
-  Literal edits of `mr.Button`, `app.read.ReadModel` and `app.read.Typed`
-  and a structural edit of `app.read.Typed` preview (each was
-  `module-may-leave` on ad63a932); removing the only read of the constant
-  is refused (`module-may-leave`, naming `app.graph.ReferenceCard`).
+  `--macro genes.js.Async.enable()` gives every class a global build
+  macro, as in Caffeine's development build. Literal edits of `mr.Button`,
+  `app.read.ReadModel` and `app.read.Typed` and a structural edit of
+  `app.read.Typed` preview (each was `module-may-leave` on ad63a932; on
+  d64d0ee2, which distrusted every line of Haxe's list that is listed once
+  for a module that ran any build macro, all but the `app.read.ReadModel`
+  row still were); removing the only read of the constant is refused
+  (`module-may-leave`, naming `app.graph.ReferenceCard`).
 
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
