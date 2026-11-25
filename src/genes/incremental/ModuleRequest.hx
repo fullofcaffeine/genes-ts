@@ -713,7 +713,9 @@ typedef ModuleRecordsReport = {
  * - `module-may-leave` (every `-dce std` request, also a literal edit):
  *   every module with an output file stays loaded. Haxe loads a module with
  *   each module that names it (`DceStdUses.dependenciesOf`: typed references
- *   and import lines), and the request's own modules surely stay, and so do
+ *   and import lines; and Haxe's own list, `HaxeDependencies`, for a class
+ *   that only an inline function, an inline constant or a macro call
+ *   names, genes-f8vc.14.26), and the request's own modules surely stay, and so do
  *   the module of the stored `--main` class, each class-name argument and
  *   each module that an `include` line adds (`ProgramRoots`,
  *   genes-f8vc.14.12). Example: an edit removes the only
@@ -1310,6 +1312,12 @@ class ModuleRequest {
     pendingRetype = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
+    // Before any define is read (`definesKey`): Haxe's own dependency list
+    // for the `module-may-leave` rule, which only `-dce std` has
+    // (genes-f8vc.14.26).
+    final listed = IncrementalRequest.descriptor();
+    HaxeDependencies.prepare(Context.definedValue(IncrementalRequest.DEFINE), listed != null && DceStdUses.stdProfile() && (listed.moduleRecords == true
+      || listed.kind.match(Module(_))));
     // Every request with the define that is not a module request fires the
     // mark of the modules that module requests typed alone, also a request
     // that left the incremental path (an editor request, an unreadable
@@ -2566,6 +2574,12 @@ class ModuleRequest {
         list.push(type);
       }
     }
+    // What tells whether a line of Haxe's dependency list can be trusted,
+    // read before dead-code elimination (genes-f8vc.14.26).
+    if (DceStdUses.stdProfile()
+      && (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true))
+      HaxeDependencies.noteModules(grouped, moduleFiles,
+        descriptor.kind.match(Full));
     // The declaration facts of every module (`targetFactsOf`): after every
     // after-typing macro, before dead-code elimination and before the roots.
     if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true) {
@@ -3323,6 +3337,7 @@ class ModuleRequest {
     // (`deriveIndexes`): the `-dce std` facts and the class facts. An
     // accepted preview replaces those of its module and makes the indexes
     // again with the same code (genes-f8vc.14.8).
+    addHaxeDependencies(null);
     profileCache = requestProfiles.copy();
     storedClassFacts = classFactsOf(types);
     storedInitMacros = initMacros();
@@ -4229,6 +4244,7 @@ class ModuleRequest {
     // only removes an unused import can drop a module's file
     // (genes-f8vc.14.7). This holds for a literal edit too.
     if (DceStdUses.stdProfile()) {
+      addHaxeDependencies(module);
       final profile = requestProfiles.get(module);
       if (profile == null || !storedDependencies.exists(module))
         return refuse('no-record',
@@ -4624,6 +4640,63 @@ class ModuleRequest {
   }
 
   /**
+   * Adds Haxe's own dependency list (`HaxeDependencies.edges`) to the
+   * dependencies of the `-dce std` facts of this request
+   * (`ModuleProfile.dependencies`): of every module in a full request
+   * (`programCommitted`), of the requested module in a module request
+   * (`decide`). Each added module is one that Haxe loads with its
+   * dependent, also when the typed bodies no longer name it.
+   *
+   * Example: `genes.ts.Json` calls the inline `JsonCodec.unsafeAssumeJson`,
+   * so its typed bodies name no declaration of `genes.ts.JsonCodec`; Haxe's
+   * list adds that module, and a full request's chain from the module that
+   * calls `Json.value` reaches it (`modulesThatMayLeave`).
+   *
+   * In a module request, a module that only Haxe's list names gets the
+   * `opaqueMacro` fact that `afterSave` gives the modules that the typed
+   * bodies name (`opaqueMacroModule`), so a new call of a project macro is
+   * refused also when no import line names its class (`opaque-macro`).
+   */
+  static function addHaxeDependencies(only: Null<String>): Void {
+    final edges = HaxeDependencies.edges();
+    final newcomers = [];
+    for (module => profile in requestProfiles) {
+      if (only != null && module != only)
+        continue;
+      final extra = edges.get(module);
+      if (extra == null || extra.length == 0)
+        continue;
+      final known = new Map<String, Bool>();
+      for (dependency in profile.dependencies)
+        known.set(dependency, true);
+      var added = false;
+      for (dependency in extra) {
+        if (known.exists(dependency))
+          continue;
+        profile.dependencies.push(dependency);
+        added = true;
+        if (only != null && !requestProfiles.exists(dependency))
+          newcomers.push(dependency);
+      }
+      if (added)
+        profile.dependencies.sort(compareStrings);
+    }
+    for (dependency in newcomers)
+      requestProfiles.set(dependency, {
+        epochs: '',
+        uses: null,
+        dependencies: [],
+        listeners: [],
+        opaqueMacro: HaxeDependencies.hasMacroFunction(dependency)
+        && !transparentFile(moduleFiles.get(dependency)),
+        externBases: [],
+        extensionCalls: [],
+        privateReach: null,
+        privateStructure: false
+      });
+  }
+
+  /**
    * Returns the stored modules with an output file that a full build after
    * the edit may no longer load, sorted: those that no chain of
    * `DceStdUses.dependenciesOf` reaches from a module that surely stays.
@@ -4638,8 +4711,11 @@ class ModuleRequest {
    *
    * Why it is safe: each dependency is a module that Haxe loads with its
    * dependent, so every module that a chain reaches is loaded. A module that
-   * Haxe loads only for a reason that the list does not hold (a macro that
-   * loads it by name) is not reached, and the edit is refused.
+   * Haxe loads only for a reason that the list does not hold (an init macro
+   * that loads it by name, which Haxe's own list gives no dependent) is not
+   * reached, and the edit is refused. A module that only an inline call, an
+   * inline constant or a macro call names is reached through Haxe's own list
+   * (`addHaxeDependencies`, genes-f8vc.14.26).
    *
    * Example: `mr.Card` drops `import mr.OnlyHere;` and nothing else loads
    * `mr.OnlyHere`: it is returned, because a full build drops

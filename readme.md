@@ -484,6 +484,16 @@ and `--macro include(...)` lines with literal arguments. Every other macro
 that adds modules to the program must stay in the module request. See
 `genes.incremental.ProgramRoots` and `tooling/README.md`.
 
+Under `-dce std` a preview is refused when a full build may drop a module's
+file (`module-may-leave`). To know which modules stay, Genes also reads
+Haxe's own list of the modules that each module loads, because the typed
+code no longer names the class of an inline function, an inline constant or
+a macro that it calls. For this, a session request sets `-D dump-dependencies`
+and `-D dump-path=<descriptor>.haxe-dependencies/<name>` (one name for each
+Haxe process). Genes deletes the files after it reads them. A session that
+sets `dump-path` or `dump-dependencies` itself keeps its own folder, and
+Genes does not delete its files. See `genes.incremental.HaxeDependencies`.
+
 Genes reads the Haxe arguments with the Haxe 4.3.7 option table
 (`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as
 `--macro x`. An init macro given before `--macro genes.Generator.use()` can

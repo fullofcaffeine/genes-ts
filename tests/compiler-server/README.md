@@ -1030,6 +1030,36 @@ first walk. The rows:
   `mr.inc.Zeta` before `mr.inc.Beta`). The gate checks this order after
   every full request.
 
+The `std-inline-reach` groups (genes-f8vc.14.26) hold modules that only an
+inline call or a macro call brings into the program. Haxe types such a call
+in the caller and leaves no reference to the callee's class in the typed
+body, but it still loads the callee's module, and a full build writes its
+file. Before the fix `DceStdUses.dependenciesOf` read only typed bodies and
+import lines, so no module that stays was known to load the callee, and
+every `-dce std` module request was refused (`module-may-leave`; measured on
+Caffeine, 0 of 18 edits previewed). Now Genes also reads Haxe's own list of
+the modules that each module loads (`HaxeDependencies`, written with
+`-D dump-dependencies` beside the descriptor):
+
+- `std-inline-reach`: `mr.reach.ViaInline` calls the inline
+  `Codec.assume`, `mr.reach.ViaFinal` reads the inline constant
+  `Names.CITATION`, and `mr.reach.ViaMacro` calls the project macro
+  `Twice.twice`. A literal edit of `mr.Button` and of each of the three
+  modules previews, byte-identical to cold (each was `module-may-leave` on
+  ad63a932, run with `--observe` and `GENES_TEST_SOURCE`). Removing the
+  only call is still refused (`module-may-leave`, the reason names the
+  callee): a full build then drops its file;
+- `std-inline-reach-caffeine-shaped`: Caffeine's three shapes.
+  `app.read.ReadModel` calls `genes.ts.Json.value`, whose
+  `Json.checkedValue` reaches `genes.ts.JsonCodec` only through the inline
+  `unsafeAssumeJson`, and reads `app.graph.ReferenceCard.CitationProperty`,
+  a `public static inline final` of another package. `app.read.Typed`, which
+  an `include` line adds, calls the Genes macro `genes.ts.TypeArguments.call`.
+  Literal edits of `mr.Button`, `app.read.ReadModel` and `app.read.Typed`
+  and a structural edit of `app.read.Typed` preview (each was
+  `module-may-leave` on ad63a932); removing the only read of the constant
+  is refused (`module-may-leave`, naming `app.graph.ReferenceCard`).
+
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
 literal arguments); every other macro that adds modules must stay in it.

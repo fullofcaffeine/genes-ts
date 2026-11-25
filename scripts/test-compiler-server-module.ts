@@ -3581,11 +3581,137 @@ function caffeineShapedGroup(): Group {
   };
 }
 
+/** A class `mr.reach.<name>` whose `text()` returns `'<word> ' + <use>`. */
+function reachUser(name: string, word: string, use: string): string {
+  return `package mr.reach;\n\nclass ${name} {\n  public static function text(): String {\n`
+    + `    return '${word} ' + ${use};\n  }\n}\n`;
+}
+
+/**
+ * Modules that only an inline call or a macro call brings into the program
+ * (genes-f8vc.14.26). Haxe types each of these calls in the caller and
+ * leaves no reference to the callee's class in the typed body: an inline
+ * function's body or an inline constant's value replaces the call, and a
+ * macro returns other code. Haxe still loads the callee's module, and a
+ * full build writes its file. Before the fix, `DceStdUses.dependenciesOf`
+ * read only typed bodies, so no module that stays was known to load the
+ * callee, and every `-dce std` module request was refused with
+ * `module-may-leave` (measured on Caffeine: 0 of 18 edits previewed). Now
+ * Genes also reads Haxe's own list of the modules that each module loads
+ * (`HaxeDependencies`). The last rows remove the only call: a full build
+ * then drops the callee's file, and the request must still be refused.
+ */
+function inlineReachGroups(): ReadonlyArray<Group> {
+  return [
+    {
+      name: "std-inline-reach",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith([
+          "trace(mr.reach.ViaInline.text());",
+          "trace(mr.reach.ViaFinal.text());",
+          "trace(mr.reach.ViaMacro.text());"
+        ]),
+        "mr/reach/Codec.hx": "package mr.reach;\n\nclass Codec {\n"
+          + "  public static inline function assume<T>(value: T): T {\n    return value;\n  }\n}\n",
+        "mr/reach/Names.hx": "package mr.reach;\n\nclass Names {\n"
+          + "  public static inline final CITATION = 'citation';\n}\n",
+        "mr/reach/Twice.hx": "package mr.reach;\n\nclass Twice {\n"
+          + "  public static macro function twice(value: haxe.macro.Expr): haxe.macro.Expr {\n"
+          + "    return macro $value * 2;\n  }\n}\n",
+        "mr/reach/ViaInline.hx": reachUser("ViaInline", "inline", "Codec.assume('value')"),
+        "mr/reach/ViaFinal.hx": reachUser("ViaFinal", "final", "Names.CITATION"),
+        "mr/reach/ViaMacro.hx": reachUser("ViaMacro", "macro", "Twice.twice(2)")
+      },
+      steps: [
+        { id: "reach: literal edit of a module beside the inline and macro calls",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "reach: literal edit of the module with the inline function call",
+          apply: () => editSource("mr/reach/ViaInline.hx", "'inline '", "'inline! '"),
+          module: "mr.reach.ViaInline", expect: "preview" },
+        { id: "reach: literal edit of the module with the inline constant",
+          apply: () => editSource("mr/reach/ViaFinal.hx", "'final '", "'final! '"),
+          module: "mr.reach.ViaFinal", expect: "preview" },
+        { id: "reach: literal edit of the module with the macro call",
+          apply: () => editSource("mr/reach/ViaMacro.hx", "'macro '", "'macro! '"),
+          module: "mr.reach.ViaMacro", expect: "preview" },
+        { id: "reach: the only inline function call is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaInline.hx", "Codec.assume('value')", "'value'"),
+          module: "mr.reach.ViaInline", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Codec") },
+        { id: "reach: the only inline constant is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaFinal.hx", "Names.CITATION", "'citation'"),
+          module: "mr.reach.ViaFinal", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Names") },
+        { id: "reach: the only macro call is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaMacro.hx", "Twice.twice(2)", "4"),
+          module: "mr.reach.ViaMacro", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Twice") }
+      ]
+    },
+    {
+      // Caffeine's shapes: `genes.ts.Json.value` returns a call of
+      // `Json.checkedValue`, which reaches `genes.ts.JsonCodec` only through
+      // the inline `unsafeAssumeJson`; a module of another package reads a
+      // `public static inline final` (as Caffeine's CmlGraphReadModel reads
+      // `GraphReferenceCard.CitationProperty`); and a Genes macro call
+      // (`genes.ts.TypeArguments.call`) loads its macro class, which
+      // nothing else names. Each one made every request `module-may-leave`.
+      name: "std-inline-reach-caffeine-shaped",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(app.read.ReadModel.text());"]),
+        "app/graph/ReferenceCard.hx": "package app.graph;\n\nclass ReferenceCard {\n"
+          + "  public static inline final CitationProperty = 'citation';\n}\n",
+        // No import line: Haxe loads an imported module with its importer,
+        // so the last row would then keep `app.graph.ReferenceCard`.
+        "app/read/ReadModel.hx": "package app.read;\n\n"
+          + "class ReadModel {\n  public static function text(): String {\n"
+          + "    final value = genes.ts.Json.value({kind: 'note'});\n"
+          + "    return 'read ' + app.graph.ReferenceCard.CitationProperty + ' ' + (value == null ? 'none' : 'json');\n"
+          + "  }\n}\n",
+        "app/read/Typed.hx": "package app.read;\n\nclass Typed {\n"
+          + "  @:ts.explicitTypeArguments\n"
+          + "  static function same<T>(value: T): T {\n    return value;\n  }\n\n"
+          + "  public static function text(): String {\n"
+          + "    return 'typed ' + genes.ts.TypeArguments.call(same('x'), 'w');\n  }\n}\n"
+      },
+      programRoots: ["--macro", "include('app.read', false)"],
+      steps: [
+        { id: "caffeine reach: literal edit of a module of --main",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "caffeine reach: literal edit of the module with Json.value and the inline constant",
+          apply: () => editSource("app/read/ReadModel.hx", "'read '", "'read! '"),
+          module: "app.read.ReadModel", expect: "preview" },
+        { id: "caffeine reach: literal edit of the module with the Genes macro call",
+          apply: () => editSource("app/read/Typed.hx", "'typed '", "'typed! '"),
+          module: "app.read.Typed", expect: "preview" },
+        { id: "caffeine reach: structural edit of the module with the Genes macro call",
+          apply: () => {
+            editSource("app/read/Typed.hx", "    return 'typed! ' +",
+              "    return extra() + 'typed! ' +");
+            editSource("app/read/Typed.hx", "  public static function text(): String {",
+              "  static function extra(): String {\n    return '+';\n  }\n\n"
+              + "  public static function text(): String {");
+          },
+          module: "app.read.Typed", expect: "preview" },
+        { id: "caffeine reach: the only read of the inline constant is removed (module-may-leave)",
+          apply: () => editSource("app/read/ReadModel.hx", "app.graph.ReferenceCard.CitationProperty", "'citation'"),
+          module: "app.read.ReadModel", expect: "module-may-leave",
+          check: reasonNames("app.graph.ReferenceCard") }
+      ]
+    }
+  ];
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
   ...stdGroups(),
   ...extraRootGroups(),
+  ...inlineReachGroups(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
