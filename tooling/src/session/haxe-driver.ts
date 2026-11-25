@@ -37,6 +37,29 @@ export interface PreparedCompilerRequest {
   readonly digest: string;
 }
 
+/**
+ * What one module request (`SessionCompiler.compileModule`) did.
+ *
+ * - `compiled`: Haxe answered without an error. Genes wrote its module
+ *   report beside the request descriptor; the session reads it to learn
+ *   whether Genes published a preview or refused one.
+ * - `failed`: Haxe answered with an error, for example a type error in the
+ *   edited module. `message` holds Haxe's output with the private candidate
+ *   folder replaced.
+ * - `unavailable`: no request ran on a warm server. `no-warm-server`: no
+ *   server with the cache of the program requests runs (none started yet, a
+ *   new server, or builds without a server); `transport`: the pipe to the
+ *   server broke; `invalidation`: a `server/invalidate` failed. The program
+ *   request that follows starts or replaces the server as usual.
+ */
+export type ModuleCompileOutcome =
+  | { readonly kind: "compiled" }
+  | { readonly kind: "failed"; readonly message: string }
+  | {
+      readonly kind: "unavailable";
+      readonly reason: "no-warm-server" | "transport" | "invalidation";
+    };
+
 export interface SessionCompiler {
   /**
    * Runs one Haxe request for a bound invocation.
@@ -54,6 +77,28 @@ export interface SessionCompiler {
     prepared?: PreparedCompilerRequest,
     invalidatedFiles?: readonly string[],
   ): Promise<CompilerResult>;
+
+  /**
+   * Runs one module request on the warm owned server, and only there.
+   *
+   * Why: a module request (`GenesDevelopmentOptions.modulePreview`) is
+   * useful only on the server that holds the records of the last program
+   * request. On a new server, or in a new Haxe process for each request,
+   * Genes has no records and must refuse, so the request would only cost
+   * time. Unlike `compile`, this method therefore never starts a server,
+   * never replaces one and never builds without a server; it reports
+   * `unavailable` instead.
+   *
+   * `invalidatedFiles` are sent as `server/invalidate` before the request,
+   * as in `compile`. Optional: an adapter without it gets no previews.
+   */
+  compileModule?(
+    invocation: BoundHaxeInvocation,
+    compatibilityDigest: string,
+    signal: AbortSignal,
+    prepared?: PreparedCompilerRequest,
+    invalidatedFiles?: readonly string[],
+  ): Promise<ModuleCompileOutcome>;
 
   /**
    * Runs one Haxe request in a new process that this call starts and stops,
@@ -112,6 +157,8 @@ interface ActiveRequest {
   readonly invalidatedFiles: readonly string[];
   /** False when the server was just started: its cache holds no old module. */
   invalidate: boolean;
+  /** The digest (`#serverDigest`) of the server that this request asks for. */
+  serverDigest: string;
 }
 
 /**
@@ -549,6 +596,11 @@ interface StdioServer {
   /** True after the server answered its first request. */
   answered: boolean;
   idleRequests: number;
+  /**
+   * The digest (`#serverDigest`) that this server was started for. A module
+   * request runs only on a server whose digest is the one it asks for.
+   */
+  readonly digest: string;
 }
 
 /**
@@ -578,6 +630,11 @@ interface StdioServer {
  * `MAX_TRANSPORT_FAILURES` failures in a row it builds in a new Haxe process
  * for each request instead.
  *
+ * A module request (`compileModule`) uses the same pipe, but only while a
+ * server that answered before runs with the requested digest: it never
+ * starts or replaces a server, so a failure leaves the next program request
+ * to do that as above.
+ *
  * Cold builds of the output check (`compileCold`) and the fallback without a
  * server (`direct` mode) still start one Haxe process for each request.
  */
@@ -589,6 +646,8 @@ export class HaxeSessionCompiler implements SessionCompiler {
   readonly #frameStallMs: number | undefined;
   readonly #onEvent: (event: HaxeWaitServerEvent) => void;
   #request: ActiveRequest | null = null;
+  /** True while `compileModule` runs; the idle requests then wait. */
+  #moduleRequestActive = false;
   #freshServers = 0;
   #transportFailures = 0;
   #stdio: StdioServer | null = null;
@@ -665,10 +724,11 @@ export class HaxeSessionCompiler implements SessionCompiler {
       prepared,
       invalidatedFiles: Object.freeze([...invalidatedFiles]),
       invalidate: true,
+      serverDigest: this.#serverDigest(compatibilityDigest),
     };
     this.#request = request;
     try {
-      let digest = this.#serverDigest(compatibilityDigest);
+      let digest = request.serverDigest;
       request.invalidate = !(await this.#server.ensure(digest)).newlyStarted;
       for (let attempt = 0; ; attempt += 1) {
         try {
@@ -689,6 +749,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
           // so it needs no invalidation and gives the cold result.
           this.#freshServers += 1;
           digest = this.#serverDigest(compatibilityDigest);
+          request.serverDigest = digest;
           request.invalidate = false;
           await this.#server.ensure(digest);
         }
@@ -709,6 +770,89 @@ export class HaxeSessionCompiler implements SessionCompiler {
     return this.#freshServers === 0
       ? compatibilityDigest
       : `${compatibilityDigest}:fresh-${this.#freshServers}`;
+  }
+
+  /**
+   * See `SessionCompiler.compileModule`: one module request on the running
+   * stdio server, only when that server answered before and was started
+   * for `compatibilityDigest`; otherwise `unavailable`, with no request.
+   */
+  async compileModule(
+    invocation: BoundHaxeInvocation,
+    compatibilityDigest: string,
+    signal: AbortSignal,
+    prepared?: PreparedCompilerRequest,
+    invalidatedFiles: readonly string[] = [],
+  ): Promise<ModuleCompileOutcome> {
+    this.#cancelIdleCollection();
+    const server = this.#stdio;
+    if (
+      this.#closed ||
+      this.#request !== null ||
+      server === null ||
+      !server.answered ||
+      server.digest !== this.#serverDigest(compatibilityDigest) ||
+      server.channel.broken !== null ||
+      server.child.exitCode !== null ||
+      server.child.signalCode !== null
+    ) {
+      this.#scheduleIdleCollection();
+      return Object.freeze({ kind: "unavailable", reason: "no-warm-server" });
+    }
+    this.#moduleRequestActive = true;
+    try {
+      for (const file of invalidatedFiles) {
+        if (signal.aborted) throw new Error("Haxe compilation was cancelled");
+        try {
+          const body = await server.channel.request(
+            displayRequestLines(server.cwd, "server/invalidate", { file }),
+            AbortSignal.any([
+              signal,
+              AbortSignal.timeout(HAXE_SERVER_INVALIDATE_TIMEOUT_MS),
+            ]),
+          );
+          checkDisplayAnswer("server/invalidate", body.toString("utf8"));
+        } catch (error) {
+          if (signal.aborted) throw new Error("Haxe compilation was cancelled");
+          return Object.freeze({
+            kind: "unavailable",
+            reason: error instanceof HaxeStdioTransportError ? "transport" : "invalidation",
+          });
+        }
+      }
+      let body: Buffer;
+      try {
+        body = await server.channel.request(
+          [`--cwd ${server.cwd}`, ...commandArgs(invocation, prepared)],
+          signal,
+        );
+      } catch (error) {
+        if (signal.aborted) throw new Error("Haxe compilation was cancelled");
+        if (error instanceof HaxeStdioTransportError) {
+          return Object.freeze({ kind: "unavailable", reason: "transport" });
+        }
+        throw error;
+      }
+      const answer = decodeHaxeServerAnswer(body.toString("utf8"));
+      if (answer.failed) {
+        return Object.freeze({
+          kind: "failed",
+          message: new HaxeCommandError(
+            {
+              code: 1,
+              signal: null,
+              stdout: answer.stdout.slice(-LOG_LIMIT),
+              stderr: answer.stderr.slice(-LOG_LIMIT),
+            },
+            invocation.candidateRoot,
+          ).message,
+        });
+      }
+      return Object.freeze({ kind: "compiled" });
+    } finally {
+      this.#moduleRequestActive = false;
+      this.#scheduleIdleCollection();
+    }
   }
 
   async compileCold(
@@ -743,7 +887,9 @@ export class HaxeSessionCompiler implements SessionCompiler {
       );
       return checkDisplayAnswer(method, body.toString("utf8"));
     } finally {
-      if (this.#request === null) this.#scheduleIdleCollection();
+      if (this.#request === null && !this.#moduleRequestActive) {
+        this.#scheduleIdleCollection();
+      }
     }
   }
 
@@ -841,6 +987,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
       cwd,
       answered: false,
       idleRequests: 0,
+      digest: request.serverDigest,
     };
     return new ChildWaitProcess(child, () => {
       stopRequested = true;
@@ -995,6 +1142,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
     while (
       !this.#closed &&
       this.#request === null &&
+      !this.#moduleRequestActive &&
       this.#stdio === server &&
       server.channel.broken === null &&
       !server.channel.busy &&

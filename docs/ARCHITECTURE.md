@@ -884,6 +884,28 @@ while the warm build passed, starts a new server, rebuilds, and checks that
 generation at once; a difference that survives stops further cold repairs.
 The cold build never publishes anything itself.
 
+With `modulePreview` (G3, genes-f8vc.14.3), each build of an input change
+starts with a module request when its only changes are content edits of one
+`.hx` module (`#previewFirst` in `tooling/src/session/runtime.ts`). The
+request uses the program's effective arguments without their roots
+(`moduleRequestArguments`: `--main`, class names, `--macro include(...)`),
+the module as its only root, an output folder beside a candidate folder at
+the same depth, and the same fixed descriptor paths with `"kind":
+"module"`; the build queue runs one build at a time, so no request is in
+flight while those files are rewritten. `SessionCompiler.compileModule`
+sends it only to the warm server that holds the records of the last program
+request (`"moduleRecords": true`). Admitted files stay in the session's
+memory (`preview-generated`, `readPreviewFile`); after a quiet time the
+program request runs and stays the only writer of the public tree. At
+`candidate-generated` the session compares each preview file with the
+candidate's bytes and settles it after acceptance (`preview-confirmed` or
+`preview-corrected`); a difference of a preview whose sources did not move
+since (every later change proven by an admitted preview of another module),
+or a change of a Genes file that no settled preview named, stops previews of
+that module and keeps the evidence. The session also skips a build when
+every changed `.hx` file has the bytes that the last accepted program
+request read.
+
 The root-scoped design has an explicit upgrade path from the earlier
 entry-scoped session. While holding both lock identities, tooling recovers the
 old journal. It then publishes four small, durable steps:

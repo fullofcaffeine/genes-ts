@@ -25,16 +25,27 @@ export type {
   GenesDevelopmentOptions,
   HaxeInvocation,
   JsonValue,
+  ModulePreviewOptions,
+  ModulePreviewSnapshot,
   ObservedExtraInput,
   OutputCheck,
   PreparedRevision,
   PreparedRevisionFile,
   PreparationResult,
+  PreviewFile,
+  PreviewFileContent,
   PublishedReadLease,
   ReplayAuditCheck,
   SessionFailure,
+  SessionPreviewRefusalCode,
   ValidationTree,
 } from "./types.js";
+export type {
+  PreviewTimingRow,
+  PreviewTimingSummary,
+  TimingStatistics,
+} from "./preview-timing.js";
+export { summarizePreviewTimings } from "./preview-timing.js";
 export {
   createGenesDevelopmentSession,
 } from "./runtime.js";
