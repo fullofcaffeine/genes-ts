@@ -2837,10 +2837,71 @@ function sweepEdits(spec: SweepModule): ReadonlyArray<{ readonly id: string, rea
  *   refused edit of it, a preview of it that is checked against the records
  *   of the first preview, and a preview of `mr.CardUser`, which imports
  *   `mr.Card`.
+ * - the rows of the review of genes-ts #268: `chain-type-only-target`,
+ *   `chain-global-build-refused` and `chain-new-process-module-first` (see
+ *   each group).
  */
 function chainGroups(): ReadonlyArray<Group> {
   const card = (from: string, to: string) => () => edit("Card.hx", from, to);
+  // `mr.Ext` names `haxe.ds.List`, which dead-code elimination removes, only
+  // inside a structure type (review of genes-ts #268).
+  const extTypeOnly = `package mr;\n\nimport haxe.ds.List;\n\nclass Ext {\n  public static function value(): Int {\n`
+    + `    return 1;\n  }\n\n  public static function size(options: {final list: Null<List<Int>>;}): Int {\n`
+    + `    return 2;\n  }\n}\n\nprivate extern class ExtNative {\n  static function a(): Int;\n}\n`;
   return [
+    {
+      // Must-fix 1 of the review of genes-ts #268: the walk of a full
+      // request stores the second name of the step to `haxe.ds.List` or not
+      // by the order of its walk, so the records text leaves it out (before:
+      // `advancedCheck: differs` and GENES-MODULE-REQUEST-005).
+      name: "chain-type-only-target",
+      dce: "std",
+      files: { ...stdFiles, "mr/Ext.hx": extTypeOnly },
+      steps: [
+        { id: "chain: literal edit of a module that names a removed class only in a structure type",
+          apply: () => edit("Ext.hx", "return 1;", "return 3;"), module: "mr.Ext", expect: "preview" }
+      ]
+    },
+    {
+      // Must-fix 2 of the review of genes-ts #268, case A: with a global build
+      // macro that types `mr.Fresh`, Haxe loads `mr.Fresh` with the standard
+      // types before any init macro. A refused module request must fire the
+      // mark of every module that it typed at once, so the full request
+      // after it is not refused (before: GENES-MODULE-REQUEST-003 in every
+      // cycle).
+      name: "chain-global-build-refused",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/EarlyBuild.hx": earlyBuildMacro
+      },
+      extraArgs: ["--macro", "addGlobalMetadata('', '@:build(mr.EarlyBuild.build())')"],
+      steps: [
+        { id: "chain: Fresh literal edit, a refused module request, then the full request",
+          apply: () => edit("Fresh.hx", "return 'one';", "return 'two';"),
+          module: "mr.Fresh", expect: "other-modules-typed" },
+        // On c1befe06 too, this program's second module request finds no
+        // records (`no-records`); the claim of the row is that no full
+        // request is refused.
+        { id: "chain: a second cycle of the same",
+          apply: () => edit("Fresh.hx", "return 'two';", "return 'three';"),
+          module: "mr.Fresh", expect: ["other-modules-typed", "no-records"] }
+      ]
+    },
+    {
+      // Must-fix 2, case B: the first request of a new server process is a
+      // module request. It types every module and is refused; the full
+      // request after it is not refused (before: GENES-MODULE-REQUEST-003).
+      // A client sends a full request first in a new process.
+      name: "chain-new-process-module-first",
+      steps: [
+        { id: "chain: preview of mr.Theme", apply: () => edit("Theme.hx", "return 'blue';", "return 'navy';"),
+          module: "mr.Theme", expect: "preview", skipProgram: true },
+        { id: "chain: a new server whose first request is a module request, then the full request",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+          restartServer: true, module: "mr.Button", expect: "no-records" }
+      ]
+    },
     {
       name: "chain-unrelated-and-transitive",
       steps: [
@@ -4482,6 +4543,11 @@ async function runGroup(group: Group,
               sameRecords(after, records, label, "preview that keeps the records", "request before it");
           } else if (report.result === "preview") {
             advancedRecords = after;
+          } else if (report.refusal === "no-records") {
+            // This macro state holds no records (a new server, or Haxe typed
+            // the macro classes of Genes again): nothing to keep.
+            ok(after === null || after.startsWith("records none"),
+              `${label}: a request refused with no-records wrote records`);
           } else if (records !== null) {
             // A refused preview leaves no advanced record.
             strictEqual(report.records, "kept",
@@ -4594,8 +4660,8 @@ function seededRandom(seed: number): () => number {
  */
 type ChainPlan = {
   readonly chains: ReadonlyArray<ReadonlyArray<SweepModule>>,
-  readonly kinds: Readonly<Record<"same" | "importer" | "other", number>>,
-  readonly blocked: number
+  /** The counts of each chain, in the order of `chains`. */
+  readonly counts: ReadonlyArray<Readonly<Record<"same" | "importer" | "other" | "blocked", number>>>
 };
 
 /** The sweep modules that `spec` imports after `applied` of its edits (the third edit adds `next`). */
@@ -4641,19 +4707,18 @@ function planChainRound(round: number): ChainPlan {
   if (round === 0)
     return {
       chains: sweepModules.map((spec) => Array.from({ length: CHAIN_LENGTH }, () => spec)),
-      kinds: { same: CHAINS_PER_ROUND * (CHAIN_LENGTH - 1), importer: 0, other: CHAINS_PER_ROUND },
-      blocked: 0
+      counts: sweepModules.map(() => ({ same: CHAIN_LENGTH - 1, importer: 0, other: 1, blocked: 0 }))
     };
   for (let attempt = 0; attempt < 5_000; attempt++) {
     const random = seededRandom(round * 100_003 + attempt);
     const applied = new Map<string, number>();
     const chains: SweepModule[][] = [];
-    const kinds = { same: 0, importer: 0, other: 0 };
-    let blocked = 0;
+    const counts: Array<Record<"same" | "importer" | "other" | "blocked", number>> = [];
     let complete = true;
     for (let index = 0; index < CHAINS_PER_ROUND && complete; index++) {
       const typedAt = new Map<string, number>();
       const chain: SweepModule[] = [];
+      const kinds = { same: 0, importer: 0, other: 0, blocked: 0 };
       for (let step = 0; step < CHAIN_LENGTH; step++) {
         const left = (spec: SweepModule) => sweepEdits(spec).length - (applied.get(sweepModulePath(spec)) ?? 0);
         const order = sweepModules.filter((spec) => left(spec) > 0)
@@ -4661,7 +4726,7 @@ function planChainRound(round: number): ChainPlan {
           .sort((a, b) => left(b.spec) - left(a.spec) || a.key - b.key)
           .map((item) => item.spec);
         const picked = order.find((spec) => chainPreviews(spec, applied, typedAt));
-        blocked += picked === undefined ? order.length : order.indexOf(picked);
+        kinds.blocked += picked === undefined ? order.length : order.indexOf(picked);
         if (picked === undefined) {
           complete = false;
           break;
@@ -4679,9 +4744,10 @@ function planChainRound(round: number): ChainPlan {
         typedAt.set(name, step);
       }
       chains.push(chain);
+      counts.push(kinds);
     }
     if (complete)
-      return { chains, kinds, blocked };
+      return { chains, counts };
   }
   throw new Error(`--chain: no plan for round ${round}`);
 }
@@ -4749,10 +4815,13 @@ async function runChains(compiler: ReturnType<typeof selectedHaxeCompiler>): Pro
   const observed = new Map<string, number>();
   for (let round = 0; round < rounds; round++) {
     const plan = planChainRound(round);
-    totals.same += plan.kinds.same;
-    totals.importer += plan.kinds.importer;
-    totals.other += plan.kinds.other;
-    blocked += plan.blocked;
+    // Only the chains that run count (`--chain-limit`).
+    for (const counts of plan.counts.slice(0, limit)) {
+      totals.same += counts.same;
+      totals.importer += counts.importer;
+      totals.other += counts.other;
+      blocked += counts.blocked;
+    }
     prepare({ name: `chain-${round}`, dce: "std", main: "ui.Main", files: sweepFiles(), steps: [] });
     const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
     const reference = await OwnedHaxeCompilerServer.start(repoRoot, compiler);

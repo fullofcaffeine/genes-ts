@@ -1095,14 +1095,22 @@ class Generator {
           final key = DependencyPlan.moduleTypeKeyOf(referencedType, base);
           requestSteps.set('$moduleName|$key', true);
           var targetModule = modules.get(moduleName);
+          // A full request has a `Module` for each module of the generator's
+          // list before the walk; another module exists only after a step
+          // made it, which depends on the order of the walk.
+          final existed = targetModule != null
+            || typesOf(moduleName).length > 0;
           if (targetModule == null) {
             targetModule = new Module(context, moduleName, typesOf(moduleName));
             modules.set(moduleName, targetModule);
           }
-          // The walk of a full request reads the second name of a step only
-          // when the target has no member with the plain name, before or
-          // after the step (`takeStep`), and records it only then.
-          var named = targetModule.getMember(inputs.name) == null;
+          // The walk of a full request reads the second name of a step, and
+          // records it, when the target existed before the step without a
+          // member of the plain name, or has none after it (`takeStep`).
+          // When the target did not exist, a full request records it or not
+          // by the order of its walk, so the records text leaves it out
+          // (`GenerationCache.entryText`, review of genes-ts #268).
+          var named = existed && targetModule.getMember(inputs.name) == null;
           final changed = targetModule.addTypes([DependencyPlan.moduleTypeToType(referencedType)]);
           if (targetModule.getMember(inputs.name) == null)
             named = true;
