@@ -293,6 +293,15 @@ class DceStdUses {
    * label`; a new private `label()` in `app.Gadget` then takes the call. A
    * plain static call with an argument gives a line too, which can only
    * refuse a preview.
+   *
+   * Limits: an inline extension leaves no static call in the typed body,
+   * and a first argument whose type is a type parameter or an abstract
+   * gives no line. Such a call is changed by a new private field only where
+   * some module of the program may see private fields, and `ModuleRequest`
+   * then keeps every private field in the visible shape (`privateReachOf`,
+   * `@:allow`, `@:access`). Elsewhere the new field makes the program fail
+   * to compile ("Cannot access private field"), which a module request does
+   * not see.
    */
   public static function extensionCallsOf(types: Array<Type>): Array<String> {
     final found = new Map<String, Bool>();
@@ -397,11 +406,264 @@ class DceStdUses {
   }
 
   /**
+   * Returns the text of a module's source file, or `null` when there is no
+   * file or it cannot be read. `dependenciesOf` and `privateReachOf` read
+   * the same text, so a module request reads each file once.
+   */
+  public static function sourceText(file: Null<String>): Null<String> {
+    if (file == null || !FileSystem.exists(file))
+      return null;
+    return try sys.io.File.getContent(file) catch (_:haxe.Exception) null;
+  }
+
+  /**
+   * Returns why the code of a module (its declarations `types` and its
+   * source `text`) may see a private field of another module without naming
+   * it in metadata, or `null`. `ModuleRequest` then keeps every private
+   * field of the requested module in its visible shape
+   * (`ModuleRequest.privateAccessors`), because a new private field can
+   * change how such code types. The reasons, each from Haxe 4.3.7:
+   *
+   * - `has @:privateAccess code`: the text holds `privateAccess`. Inside
+   *   `@:privateAccess`, Haxe skips the access check (`can_access` in
+   *   `typecore.ml`), and it looks for a field of the class before it tries
+   *   a static extension (`type_field` in `fields.ml`). Example: `using
+   *   app.Tools; return @:privateAccess gizmo.label();` calls the inline
+   *   extension `Tools.label(gizmo)`; after a private `label()` is added to
+   *   `app.Gizmo`, a full build calls `gizmo.label()`. Haxe keeps no trace of
+   *   the metadata in the typed body, so only the text shows it. A match in
+   *   a comment or a string only refuses more previews.
+   * - `has untyped code`: a field has `:has_untyped`, which Haxe adds to each
+   *   field whose body has `untyped` code (`typer.ml`), also code that a
+   *   macro returned. `untyped` skips the access check too
+   *   (`check_field_access`). The text is not read for it, so a comment does
+   *   not count.
+   * - `has an __init__ function with @:access or untyped code`: a class has
+   *   `__init__`, and the text holds `:access` or the word `untyped`. Haxe
+   *   moves the body of `__init__` to the class and drops the field with its
+   *   metadata, so neither `@:access` nor `:has_untyped` can be read.
+   * - `imports the static fields of a type`: an import line ends with
+   *   `<Type>.*`. Haxe then imports the private static fields too
+   *   (`importHandling.ml`), and it types a pattern with the access check
+   *   off (`matcher.ml`). Example: with `import app.Dial.*;`, the capture
+   *   `case label:` becomes a comparison with a new private
+   *   `static final label`. Lines inside `#if` count too.
+   * - `has no readable source`: `text` is `null`, so nothing above can be
+   *   read (for example a module that a macro defines without a file).
+   *
+   * A structure type with a private field is a reason too, but it counts
+   * also for the requested module itself, so `ModuleRequest` reads it on its
+   * own (`privateStructureOf`).
+   */
+  public static function privateReachOf(types: Array<Type>,
+      text: Null<String>): Null<String> {
+    if (text == null)
+      return 'has no readable source';
+    if (text.indexOf('privateAccess') >= 0)
+      return 'has @:privateAccess code';
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final fields = cls.statics.get().concat(cls.fields.get());
+          final constructor = cls.constructor;
+          if (constructor != null)
+            fields.push(constructor.get());
+          for (field in fields)
+            if (field.meta.has(':has_untyped'))
+              return 'has untyped code';
+          if (cls.init != null
+            && (text.indexOf(':access') >= 0 || UNTYPED_WORD.match(text)))
+            return 'has an __init__ function with @:access or untyped code';
+        default:
+      }
+    if (importsTypeStatics(text))
+      return 'imports the static fields of a type (`import <Type>.*`)';
+    return null;
+  }
+
+  /** The word `untyped`, not a part of a longer name. */
+  static final UNTYPED_WORD = ~/(^|[^A-Za-z0-9_])untyped($|[^A-Za-z0-9_])/;
+
+  /**
+   * Returns true when an import line of a Haxe source text imports the
+   * static fields of a type: `import <path>.<Type>.*`, where `<Type>`
+   * starts with a capital letter. Lines inside `#if` count too, because
+   * their condition is not read. A whole-package import (`import app.*;`)
+   * imports no field.
+   *
+   * Example: `import app.Dial.*;` and `import app.Dial.Knob.*;` give true;
+   * `import app.ui.*;` and `using app.Tools;` give false.
+   */
+  public static function importsTypeStatics(text: String): Bool {
+    for (statement in importStatements(text))
+      if (statement.keyword == 'import') {
+        final target = StringTools.trim(statement.path.split(' as ')[0].split(' in ')[0]);
+        final parts = [for (part in target.split('.')) StringTools.trim(part)];
+        if (parts.length >= 2 && parts[parts.length - 1] == '*') {
+          final owner = parts[parts.length - 2];
+          final first = owner.length > 0 ? StringTools.fastCodeAt(owner, 0) : 0;
+          if (first >= 'A'.code && first <= 'Z'.code)
+            return true;
+        }
+      }
+    return false;
+  }
+
+  /**
+   * Returns true when a declaration, a field type or a typed body of
+   * `types` holds a structure type with a private field, such as `typedef
+   * Peek = { private function label(): String; }`. The structures that
+   * stand for the static fields of a class, an enum or an abstract (`Std`
+   * used as a value) are left out: they list private statics, which no
+   * unification reads. A type nested deeper than 256 levels counts (the
+   * deepest type of Caffeine's program, 1,277 modules, nests 71 levels).
+   *
+   * Why: Haxe lets a private class field meet a private structure field
+   * (`tUnification.ml`), so a new private `label()` of `app.Lamp` makes it
+   * unify with `Peek`. A static extension `describe(item: Peek)` can then
+   * take `lamp.describe()` from `describe(item: Lamp)`, without any private
+   * access in the caller. This holds also when `Peek` is declared in the
+   * module of `app.Lamp` itself, so the requested module counts too.
+   *
+   * A typedef that a type names is followed once (also one of the standard
+   * library), so `typedef Pair = { final peek: Peek; }` counts where `Pair`
+   * is used.
+   */
+  public static function privateStructureOf(types: Array<Type>): Bool {
+    var found = false;
+    final seenParams = new Map<String, Bool>();
+    final seenTypedefs = new Map<String, Bool>();
+    function inType(value: Null<Type>, depth: Int): Void {
+      if (found || value == null)
+        return;
+      if (depth > 256) {
+        found = true;
+        return;
+      }
+      switch value {
+        case TAnonymous(reference):
+          final anon = reference.get();
+          switch anon.status {
+            case AClassStatics(_) | AEnumStatics(_) | AAbstractStatics(_):
+              return;
+            default:
+          }
+          for (field in anon.fields) {
+            if (!field.isPublic) {
+              found = true;
+              return;
+            }
+            inType(field.type, depth + 1);
+          }
+        case TInst(owner, params):
+          final cls = owner.get();
+          switch cls.kind {
+            case KTypeParameter(constraints):
+              final key = '${cls.module} ${cls.pack.join('.')} ${cls.name} ${Context.getPosInfos(cls.pos).min}';
+              if (!seenParams.exists(key)) {
+                seenParams.set(key, true);
+                for (constraint in constraints)
+                  inType(constraint, depth + 1);
+              }
+            default:
+          }
+          for (param in params)
+            inType(param, depth + 1);
+        case TType(owner, params):
+          final def = owner.get();
+          final key = TypeUtil.baseTypeFullName(def);
+          if (!seenTypedefs.exists(key)) {
+            seenTypedefs.set(key, true);
+            inType(def.type, depth + 1);
+          }
+          for (param in params)
+            inType(param, depth + 1);
+        case TEnum(_, params) | TAbstract(_, params):
+          for (param in params)
+            inType(param, depth + 1);
+        case TFun(args, result):
+          for (arg in args)
+            inType(arg.t, depth + 1);
+          inType(result, depth + 1);
+        case TMono(reference):
+          inType(reference.get(), depth + 1);
+        case TDynamic(inner):
+          inType(inner, depth + 1);
+        case TLazy(force):
+          inType(force(), depth + 1);
+      }
+    }
+    function inBody(expression: TypedExpr): Void {
+      if (found)
+        return;
+      inType(expression.t, 0);
+      switch expression.expr {
+        case TVar(variable, _):
+          inType(variable.t, 0);
+        case TFunction(fn):
+          for (arg in fn.args)
+            inType(arg.v.t, 0);
+        case TTry(_, catches):
+          for (item in catches)
+            inType(item.v.t, 0);
+        default:
+      }
+      TypedExprTools.iter(expression, inBody);
+    }
+    function inField(field: ClassField): Void {
+      inType(field.type, 0);
+      for (param in field.params)
+        inType(param.t, 0);
+      final body = field.expr();
+      if (body != null)
+        inBody(body);
+      for (signature in field.overloads.get())
+        inType(signature.type, 0);
+    }
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          for (param in cls.params)
+            inType(param.t, 0);
+          for (field in cls.statics.get())
+            inField(field);
+          for (field in cls.fields.get())
+            inField(field);
+          final constructor = cls.constructor;
+          if (constructor != null)
+            inField(constructor.get());
+          final init = cls.init;
+          if (init != null)
+            inBody(init);
+        case TEnum(reference, _):
+          final enm = reference.get();
+          for (name in enm.names) {
+            final construct = enm.constructs.get(name);
+            if (construct != null)
+              inType(construct.type, 0);
+          }
+        case TType(reference, _):
+          inType(reference.get().type, 0);
+        case TAbstract(reference, _):
+          final abs = reference.get();
+          inType(abs.type, 0);
+          for (item in abs.from)
+            inType(item.t, 0);
+          for (item in abs.to)
+            inType(item.t, 0);
+        default:
+      }
+    return found;
+  }
+
+  /**
    * Returns the modules other than `module` that its declarations `types`
    * make Haxe load, sorted: the module of every declaration that a field
    * type, a parent class, an interface, an enum constructor, a typedef, an
    * abstract or a typed body names, and the modules of its import and using
-   * lines (`file` is its source file, or `null`).
+   * lines (`text` is its source text, see `sourceText`, or `null`).
    *
    * Example: `class Card { static function render() return Badge.render(); }`
    * with `import app.ui.Badge;` gives `app.ui.Badge` (once).
@@ -411,7 +673,7 @@ class DceStdUses {
    * refuse.
    */
   public static function dependenciesOf(module: String, types: Array<Type>,
-      file: Null<String>): Array<String> {
+      text: Null<String>): Array<String> {
     final found = new Map<String, Bool>();
     function add(name: Null<String>): Void {
       if (name != null && name.length > 0 && name != module)
@@ -551,13 +813,9 @@ class DceStdUses {
             addType(item.t, 0);
         default:
       }
-    if (file != null && FileSystem.exists(file)) {
-      final text = try sys.io.File.getContent(file) catch (_:haxe.Exception)
-        null;
-      if (text != null)
-        for (imported in importsOf(text))
-          add(imported);
-    }
+    if (text != null)
+      for (imported in importsOf(text))
+        add(imported);
     final result = [for (name in found.keys()) name];
     result.sort(compareStrings);
     return result;
@@ -583,6 +841,42 @@ class DceStdUses {
   public static function importsOf(text: String): Array<String> {
     final result: Array<String> = [];
     final seen = new Map<String, Bool>();
+    for (statement in importStatements(text)) {
+      if (statement.conditional)
+        continue;
+      // `import a.b.C as D` and the older `import a.b.C in D`.
+      final target = statement.path.split(' as ')[0].split(' in ')[0];
+      final parts = StringTools.trim(target).split('.');
+      final named = [];
+      for (part in parts) {
+        named.push(part);
+        final first = part.length > 0 ? StringTools.fastCodeAt(part, 0) : 0;
+        if (first >= 'A'.code && first <= 'Z'.code) {
+          final name = named.join('.');
+          if (!seen.exists(name)) {
+            seen.set(name, true);
+            result.push(name);
+          }
+          break;
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Returns the import and using lines of one Haxe source text before its
+   * first declaration, in order: the keyword, the path (comments left out,
+   * each run of spaces kept as one space, so that `a.b.C as D` stays
+   * readable), and whether the line is inside an `#if` block. `importsOf`
+   * and `importsTypeStatics` read them.
+   */
+  static function importStatements(text: String): Array<{
+    keyword: String,
+    path: String,
+    conditional: Bool
+  }> {
+    final result = [];
     var index = 0;
     var depth = 0;
     final length = text.length;
@@ -619,8 +913,7 @@ class DceStdUses {
         index++;
       return text.substring(start, index);
     }
-    // The text up to the next `;`, comments left out and each run of
-    // spaces kept as one space, so that `a.b.C as D` stays readable.
+    // The text up to the next `;`.
     function statement(): String {
       final buffer = new StringBuf();
       var space = false;
@@ -670,25 +963,11 @@ class DceStdUses {
         case 'package':
           statement();
         case 'import' | 'using':
-          final path = statement();
-          if (depth > 0)
-            continue;
-          // `import a.b.C as D` and the older `import a.b.C in D`.
-          final target = path.split(' as ')[0].split(' in ')[0];
-          final parts = StringTools.trim(target).split('.');
-          final named = [];
-          for (part in parts) {
-            named.push(part);
-            final first = part.length > 0 ? StringTools.fastCodeAt(part, 0) : 0;
-            if (first >= 'A'.code && first <= 'Z'.code) {
-              final name = named.join('.');
-              if (!seen.exists(name)) {
-                seen.set(name, true);
-                result.push(name);
-              }
-              break;
-            }
-          }
+          result.push({
+            keyword: keyword,
+            path: statement(),
+            conditional: depth > 0
+          });
         case '':
           // Not a name: metadata or another token starts a declaration.
           break;
