@@ -1006,6 +1006,20 @@ first walk. The rows:
   `#if macro` into `#if !acro`. On 339b4855 the full request kept the old
   parse and differed from cold (`mr/Button.ts`, `mr/inc/Late.ts`); now it is
   refused once and then equals cold;
+- `roots-early-macro-module-restore` (`noInvalidate`, review of #270 on
+  4c78e5d2): an init macro before `genes.Generator.use()` loads
+  `mr.inc.Late` in every request, and only a full request with records
+  notes what Haxe parsed. In step 3 a save removes the `@:keep` class, the
+  module request parses the file (`source-changed`), and a second save in
+  the same whole second puts the class back. On 4c78e5d2 the full request
+  was refused once and then differed from cold (`mr/Button.ts`,
+  `mr/inc/Late.ts`): the digest was the noted one and only the file status
+  differed, so nothing made Haxe parse the file again. Now a full request
+  also parses again a file whose status differs from the noted one;
+- `roots-early-macro-display-restore`: the same with an editor request with
+  the session's defines (`json-session`) in place of the module request.
+  It was equal to cold on 4c78e5d2 too (Genes also runs in that request);
+  the row guards that route. Its full request is refused once;
 - `roots-empty-order` (`-dce std`): seven files that are all `#if macro`.
   The `root empty` lines of the records text are sorted by module; on
   339b4855 they followed the order of the folder listing (APFS:

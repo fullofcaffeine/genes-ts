@@ -941,8 +941,9 @@ class ModuleRequest {
    * may hold content that Haxe's own check missed: Haxe keeps file times in
    * whole seconds, so a second save in the same second looks unchanged.
    * `beginRequest` makes Haxe parse such a file again. A full request reads
-   * every file here before typing and keeps the newer status when the digest
-   * is the same; a deleted file keeps the digest `missing`. A file that
+   * every file here before typing and makes Haxe parse again each file whose
+   * digest or status differs; it keeps the newer status when the digest is
+   * the same, and a deleted file keeps the digest `missing`. A file that
    * `beginRequest` makes Haxe parse again is `unknown` until `afterSave`
    * proves it (`unproveParsed`), so a request that fails with a type error
    * leaves it `unknown`. A cache fact:
@@ -1350,10 +1351,11 @@ class ModuleRequest {
   /**
    * Runs before Haxe types the program (`Generator.use()` is an init
    * macro): makes Haxe parse again each file whose content is not the
-   * content that Haxe last typed (`typedDigests`), each file of a module that
-   * an earlier module request typed alone (`typedAlone`), and, in a request
-   * that is not a module request, each file of a module that a published
-   * preview typed alone (`deferredFiles`, genes-f8vc.14.8).
+   * content that Haxe last typed (`typedDigests`; in a full request, also a
+   * file with the same digest and another file status), each file of a
+   * module that an earlier module request typed alone (`typedAlone`), and,
+   * in a request that is not a module request, each file of a module that
+   * a published preview typed alone (`deferredFiles`, genes-f8vc.14.8).
    *
    * Why: Haxe's compilation server compares file times in whole seconds.
    * Two saves of one file in the same second look like one, and the second
@@ -1375,6 +1377,18 @@ class ModuleRequest {
    * not change, and the digest `missing` for a deleted file, so that the
    * next full request does not make Haxe parse it (or the folder of a
    * deleted `import.hx`) again.
+   *
+   * A full request also makes Haxe parse again a file whose digest is the
+   * noted one but whose status is not (genes-f8vc.14.24, review of #270).
+   * Why: Genes notes content only in a full request with module records,
+   * but a module request or an editor request can make Haxe parse a file
+   * too. Example: with an init macro before Genes that loads
+   * `mr.inc.Late`, a save removes the class of `mr/inc/Late.hx`, a module
+   * request parses the file, and a second save in the same whole second
+   * puts the class back. The digest is the noted one, but Haxe holds the
+   * parse without the class; only the status shows the change. Cost: a
+   * save that keeps the content (or a `touch`) makes Haxe parse that file
+   * again once.
    *
    * The init macro rule (genes-v54c): this step runs inside
    * `Generator.use()`, so an init macro given before it has already run. If
@@ -1504,14 +1518,16 @@ class ModuleRequest {
           for (file => typed in typedDigests) {
             final now = readSource(file);
             preDigests.set(file, now);
-            if (!sameSinceRead(typed, now))
+            final same = sameSinceRead(typed, now);
+            if (!same)
               changed.push({file: file, content: now});
-            if (now.digest == typed.digest) {
+            if (now.digest == typed.digest || now.digest == MISSING_DIGEST)
               newer.push({file: file, content: now});
+            // The same digest with another status is a change too: the file
+            // changed and came back, and a request between may have made
+            // Haxe parse the other content (genes-f8vc.14.24).
+            if (same)
               continue;
-            }
-            if (now.digest == MISSING_DIGEST)
-              newer.push({file: file, content: now});
             stale.push(file);
             // A changed `import.hx` changes how every module of its folder
             // and the folders below is typed.
@@ -1551,8 +1567,12 @@ class ModuleRequest {
    * lines listed and whose module has no declaration in the program
    * (`ProgramRoots.declarationless`): the content read when
    * `genes.Generator.use()` ran when it is proven (`provenSource`: the file
-   * did not change since), and `unknown` otherwise. A full request with
-   * module records calls it after typing, before the kept-module stop.
+   * did not change since), and `unknown` otherwise. Only a full request
+   * with module records calls it, after typing and before the kept-module
+   * stop: a module request, an editor request and a full request without
+   * module records note nothing. When one of them makes Haxe parse such a
+   * file, the next full request sees the file status change and makes Haxe
+   * parse the file again (`beginRequest`).
    *
    * Why (genes-f8vc.14.24, review round 3 of #269): no module file names
    * such a file, so nothing else notes it. Example: `mr/inc/Late.hx` holds a

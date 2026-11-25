@@ -3268,6 +3268,8 @@ function extraRootGroups(): ReadonlyArray<Group> {
           module: "mr.Button", expect: "preview" }
       ]
     },
+    earlyMacroRestoreGroup("roots-early-macro-module-restore", "module"),
+    earlyMacroRestoreGroup("roots-early-macro-display-restore", "display"),
     {
       // genes-f8vc.14.24: the `root empty` lines of the records text follow
       // the module names, not the order in which the file system lists the
@@ -3418,6 +3420,52 @@ function declarationlessRaceGroup(name: string, folder: string, pack: string): G
       { id: `${name}: literal edit after the full request parsed the class again`,
         apply: () => edit("Button.hx", "return 'Save!';", "return 'Save';"),
         module: "mr.Button", expect: "preview" }
+    ]
+  };
+}
+
+/**
+ * Another request makes Haxe parse an included file without its class, and
+ * a save puts the class back in the same whole second (genes-f8vc.14.24,
+ * review of #270 on 4c78e5d2). `mr.EarlyInclude`, an init macro given
+ * before `genes.Generator.use()`, loads `mr.inc.Late` in every request, also
+ * in a module request (`via: "module"`) and in an editor request with the
+ * session's defines (`via: "display"`), where Genes notes no content of the
+ * file. In step 3 a save removes the `@:keep` class of `mr/inc/Late.hx`, that
+ * request parses the file, and a second save in the same whole second puts
+ * the class back; no server/invalidate is sent. On 4c78e5d2 the next full
+ * request was refused once (`GENES-MODULE-REQUEST-003`): the digest was the
+ * proven one, only the file status differed, so Genes did not make Haxe
+ * parse the file again, and the request sent again differed from cold
+ * (`mr/Button.ts`, `mr/inc/Late.ts`); the previews after it were stale. Now
+ * a file whose status differs from the noted one is parsed again too.
+ */
+function earlyMacroRestoreGroup(name: string, via: "module" | "display"): Group {
+  const restore = () => editSameSecond("inc/Late.hx", "#if macro", "#if !acro");
+  return {
+    name,
+    noInvalidate: true,
+    files: {
+      "mr/EarlyInclude.hx": `package mr;\n\n#if macro\nclass EarlyInclude {\n`
+        + `  public static function install(): Void {\n`
+        + `    haxe.macro.Context.getModule('mr.inc.Late');\n  }\n}\n#end\n`,
+      "mr/inc/Late.hx": `package mr.inc;\n\n#if !acro\n@:keep\nclass Late {\n`
+        + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+    },
+    argsBeforeGenes: ["--macro", "mr.EarlyInclude.install()"],
+    programRoots: ["--macro", "include('mr.inc', false)"],
+    steps: [
+      { id: `${name}: module request without an edit`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      { id: `${name}: second module request without an edit`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      via === "module"
+        ? { id: `${name}: a module request parses the file without its class, which comes back in the same second`,
+            apply: () => editSource("mr/inc/Late.hx", "#if !acro", "#if macro"),
+            module: "mr.Button", expect: "source-changed", afterModule: restore, initRefusal: "full" }
+        : { id: `${name}: an editor request parses the file without its class, which comes back in the same second`,
+            apply: () => editSource("mr/inc/Late.hx", "#if !acro", "#if macro"),
+            display: { when: "after-save", form: "json-session" }, afterModule: restore, initRefusal: "full" },
+      { id: `${name}: module request after the full request`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      { id: `${name}: another module request`, apply: () => {}, module: "mr.Button", expect: "preview" }
     ]
   };
 }

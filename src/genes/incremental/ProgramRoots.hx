@@ -161,7 +161,9 @@ private typedef IncludeCall = {
  * A listed file without a declaration (genes-f8vc.14.24): after typing,
  * `ModuleRequest.noteDeclarationless` notes what Haxe parsed for each one
  * (`declarationless`) in `typedDigests`: the content of the first walk when
- * the file did not change since, else `unknown`. Example: `mr/inc/Late.hx`
+ * the file did not change since, else `unknown`. Only a full request with
+ * module records notes it; a module request, an editor request or a full
+ * request without records notes nothing. Example: `mr/inc/Late.hx`
  * holds a `@:keep` class; a save removes the class after the first walk and
  * before Haxe's walk, and a second save puts it back inside the same whole
  * second, without `server/invalidate`. Haxe keeps the parse without the
