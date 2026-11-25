@@ -860,6 +860,56 @@ which keeps the strict rule (`signature-changed`). On Genes before the rule
 `signature-changed` or `uses-changed`, and so does every row with a new
 code except `public-shape-changed` and the two `other-modules-typed` rows.
 
+The `roots-` groups (genes-f8vc.14.12) give the full requests roots beside
+`--main`; the module requests leave them out, as the development session
+does. Before the fix Genes knew only the `--main` root, so a module that
+only such a root brought into the program was never counted as staying,
+and every `-dce std` module request was refused with `module-may-leave`
+(each preview row below got that code on 1704dcac, with `--observe` and
+`GENES_TEST_SOURCE`, except the edits of a module that the request itself
+types). Now the full request stores the class-name arguments and the
+modules that each `include` line adds (`ProgramRoots`), and those modules
+and every module that they load count as staying:
+
+- `roots-class-name`: the class-name root `mr.extra.Format`, which imports
+  `mr.extra.FormatHelp`. Literal edits of `mr.Button`, of the root and of
+  the module that only the root imports, and a structural edit of the root,
+  preview. When the root drops its only use of `mr.extra.FormatHelp`, the
+  request is still refused (`module-may-leave`);
+- `roots-include-recursive`: `include('mr.inc')`, with modules in a
+  subfolder. Edits beside the include, of a module in the subfolder and of a
+  module that only an included module imports preview. A new file in the
+  subfolder is refused (`include-changed`, the rule below); the module
+  request after the full request that built it is refused once
+  (`source-changed`: a file first seen in a full request is unknown once),
+  and the next one previews. The removal of that file is refused as a
+  changed source of the stored program (`source-changed`). A changed
+  include argument changes `programDigest` (`session-changed`);
+- `roots-include-flat`: `include('mr.inc', false)`. A new file in a
+  subfolder, which the include leaves out, still previews; a new file in
+  the included folder is refused (`include-changed`);
+- `roots-include-before-genes`: the same include given before
+  `--macro genes.Generator.use()`. Haxe runs the file walk of `include`
+  after every init macro, so the order changes nothing;
+- `roots-include-dce-full`: an include under `-dce full`. A new `@:keep`
+  class in the included folder calls the private `mr.Button.unused()`, so
+  cold keeps that function. On 1704dcac the module request did not see the
+  new file and published a `mr/Button.ts` without it (`STALE`); now it is
+  refused (`include-changed`);
+- `roots-caffeine-shaped`: a program shaped like Caffeine's development
+  build: `--main mr.Main`, four non-recursive includes (`app.domain`,
+  `app.domain.viewport`, `app.ui.viewport`, and `canvas` on the relative
+  second class path `lib`) and `-dce std`. Literal edits of a module of
+  `--main`, of a module that included modules import, of included modules
+  on both class paths, and a structural edit of an included module, all
+  preview.
+
+The include rule (`include-changed`): a module request lists each included
+folder again with the stored arguments of its `include` line and refuses
+when the modules differ from the stored ones. It also refuses when Genes
+could not read an `include` line (an argument that is not a literal) or
+when a listed module was not in the stored program.
+
 `--sweep` runs only the scripted sweep (group `sweep-ui`, `-dce std`): 20
 generated UI modules (controls, layout, views and two shells, 40 to 150
 lines) and five structural edits of each, in order: a new private function

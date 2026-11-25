@@ -753,7 +753,11 @@ is emitted. A host must ignore an event kind that it does not know.
   or new code (for example `module-may-leave`, `position-changed`,
   `dce-use-added` or `dce-uses-unknown`), publishes nothing; `-dce std` is
   Haxe's default when a build names no `-dce`, and the client then runs the
-  program request, which stays the authority. A preview can still be
+  program request, which stays the authority. A program with class-name
+  roots or `--macro include(...)` lines beside `--main` gets previews too
+  (genes-f8vc.14.12): the program request records those roots, and a
+  client that sends module requests leaves them out of each module request;
+  a new file in an included folder refuses it (`include-changed`). A preview can still be
   published when the edit makes another module fail to compile (a new
   private method that takes a `using` call of a module without private
   access, genes-zbva); no stale file results, and the next program request
