@@ -933,8 +933,13 @@ class Generator {
    * walk follows the edges of `target` one step, so that the modules that
    * it imports exist with the declarations that it names, and does not plan
    * them. The output root gets no export list, and no TypeScript support
-   * file is printed. The checks then compare the result with the records of
-   * the last full request; see `ModuleRequest` for the rules and limits.
+   * file is printed. The checks then compare the result with the stored
+   * records: those of the last full request, advanced by the previews
+   * published since (genes-f8vc.14.8); see `ModuleRequest` for the rules and
+   * limits. After a published preview, the records of `target` advance to
+   * what a full request stores for these sources
+   * (`ModuleRequest.previewCommitted`, with the entry of
+   * `IncrementalShadow.previewEntry`).
    */
   static function generateModuleRequest(haxeApi: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction,
@@ -1044,6 +1049,16 @@ class Generator {
       var again = true;
       while (again) {
         again = false;
+        // Each pass is one visit of the module, recorded as the walk of a
+        // full request records it (`IncrementalShadow.recordVisit`, keyed by
+        // the member list when the visit starts), so that an accepted preview
+        // can store the visits of a full request (genes-f8vc.14.8). As in
+        // that walk, a step that adds a declaration to the module itself
+        // does not end the visit: the visit takes the rest of its edges, and
+        // the module is visited again with the new member list.
+        final state = IncrementalShadow.memberState(module.members);
+        final visitSteps: Array<WalkStep> = [];
+        final visitTargets: Array<String> = [];
         for (edge in module.dependencyPlan.edges) {
           if (!DependencyPlan.containsKind(kinds, edge.kind))
             continue;
@@ -1077,26 +1092,42 @@ class Generator {
             case name: name;
           }
           final base = DependencyPlan.moduleTypeBase(referencedType);
-          requestSteps.set('$moduleName|${DependencyPlan.moduleTypeKeyOf(referencedType, base)}',
-            true);
+          final key = DependencyPlan.moduleTypeKeyOf(referencedType, base);
+          requestSteps.set('$moduleName|$key', true);
           var targetModule = modules.get(moduleName);
           if (targetModule == null) {
             targetModule = new Module(context, moduleName, typesOf(moduleName));
             modules.set(moduleName, targetModule);
           }
+          // The walk of a full request reads the second name of a step only
+          // when the target has no member with the plain name, before or
+          // after the step (`takeStep`), and records it only then.
+          var named = targetModule.getMember(inputs.name) == null;
           final changed = targetModule.addTypes([DependencyPlan.moduleTypeToType(referencedType)]);
+          if (targetModule.getMember(inputs.name) == null)
+            named = true;
           if (targetModule.getMember(base.name) == null
             && targetModule.getMember(TypeUtil.baseTypeName(base)) == null)
             CompilerDiagnostic.fail('Genes DependencyPlan (module request) retained '
               + '${TypeUtil.baseTypeFullName(base)} but could not materialize '
               + 'its emitted declaration [${edge.provenance.rule}]',
               edge.provenance.sourcePosition);
-          if (changed && targetModule == module) {
-            // The plan of the module itself changed: read its edges again.
-            again = true;
-            break;
+          if (state != null) {
+            visitSteps.push({
+              key: key,
+              module: moduleName,
+              name: inputs.name,
+              typeName: named ? TypeUtil.baseTypeName(base) : ''
+            });
+            visitTargets.push(WalkTarget.inputsText(inputs));
           }
+          // The plan of the module itself changed: visit it again.
+          if (changed && targetModule == module)
+            again = true;
         }
+        if (state != null)
+          IncrementalShadow.recordVisit(target, state, visitSteps,
+            visitTargets, [], []);
       }
       IncrementalShadow.enter(null, Reachability);
       endReachabilityTimer();
@@ -1118,13 +1149,18 @@ class Generator {
         final endImplementationTimer = timer('genes.emit.implementation');
         IncrementalShadow.enter(target, Emit);
         generateImplementation(api, module, outputDir, outputTransaction);
+        // As in a full request: the runtime requests of the printed module,
+        // for the cache entry that an accepted preview stores.
+        if (IncrementalShadow.recording())
+          IncrementalShadow.recordRuntimeRequests(target,
+            module.internalRuntimeRequests());
         IncrementalShadow.enter(null, Emit);
         endImplementationTimer();
       }
     }
 
     final checkStart = haxe.Timer.stamp();
-    final refusal = ModuleRequest.decide({
+    final facts: genes.incremental.ModuleRequest.ModuleRequestFacts = {
       module: target,
       rootModule: output,
       types: module == null ? [] : declarations,
@@ -1145,7 +1181,8 @@ class Generator {
         list;
       },
       runtimeRequests: module == null ? [] : module.internalRuntimeRequests()
-    });
+    };
+    final refusal = ModuleRequest.decide(facts);
     final checkSeconds = haxe.Timer.stamp() - checkStart;
     final files = IncrementalShadow.recordedModule(target).files;
     final kept = ModuleRequest.keptLines(declarations).length;
@@ -1167,7 +1204,13 @@ class Generator {
     outputTransaction.commit();
     endPublicationTimer();
     ModuleRequest.markPreviewFolder(ModuleRequest.absoluteFolder(outputFile));
+    // genes-f8vc.14.8: the preview is published, so its module's records
+    // advance to what a full request stores for these sources. The entry is
+    // made while the shadow still holds what this request recorded.
+    final entry = IncrementalShadow.previewEntry(target, api.types,
+      facts.members, facts.rootFlags);
     IncrementalShadow.committed();
+    ModuleRequest.previewCommitted(facts, entry);
     ModuleRequest.writeReport(target, 'preview', null, files, kept,
       haxe.Timer.stamp() - started, checkSeconds);
   }

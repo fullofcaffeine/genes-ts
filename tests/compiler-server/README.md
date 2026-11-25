@@ -662,7 +662,27 @@ root (no `--main`) and writes into its own sibling folder. The gate requires:
   the same file of a cold build of the edited program; for a refusal, no
   module file in the folder (an earlier preview there is retired);
 - after each module request, a full request whose tree equals the cold tree, so
-  a module request leaves nothing behind in Haxe's cache.
+  a module request leaves nothing behind in Haxe's cache;
+- records that match the sources (genes-f8vc.14.8). Every descriptor asks
+  for the records text (`"recordsText": true`), so each full request and each
+  module request writes the stored records as plain text beside the
+  descriptor (`<descriptor>.records.txt`, `ModuleRequest.recordsText`). After
+  an accepted preview the report says `records: "advanced"`, and the text
+  must equal the text that the full request after it writes for the same
+  sources; that full request must also find the advanced records equal to
+  its own (`advancedCheck: "equal"` in its records report). After a refusal
+  the report says `records: "kept"`, and the text must equal the text of the
+  request before it: a refused preview leaves no advanced record. A full
+  request never finds advanced records that differ from its own
+  (`advancedCheck` never starts with `differs`). A preview of the module of
+  the `--main` class keeps the records (`records: "kept: ..."`): a full
+  request marks its `main` function `@:keep`, which a module request cannot
+  see.
+
+The tree check of a preview compares cold with the tree that a session
+shows before the edit: the last full tree and every preview accepted since,
+that is the cold tree of the last accepted preview. A refused step shows
+nothing and leaves that tree as it is.
 
 After the base list, each review scenario of PR #250 runs as its own group
 (its own server and copy, with extra source files): types and `Std.string`
@@ -672,7 +692,29 @@ types that another module's use decides (s09), a request that fails after
 Genes added its roots (s18), descriptors written for another request (S2,
 s14), a stale preview folder (s19), a use that is alive only through the
 edited module (r01), a field type that makes another module's class used
-(r02), an `@:ifFeature` field (r03) and a deleted `.module-dep` file (r05).
+(r02), an `@:ifFeature` field (r03) and the deleted files of the mark for a
+new typing (r05).
+
+The `chain-` groups make previews in a row without a full request between
+them (genes-f8vc.14.8). Before, the second preview of such a row was
+compared with the records of the last full request and refused. The base
+list has one such row: a preview of `mr.Theme`, then a preview of
+`mr.Button`, which imports it (before: `other-modules-typed`).
+
+- `chain-importer` makes the same two previews from a new server.
+- `chain-unrelated-and-transitive`: a preview of `mr.Leaf` after a preview
+  of `mr.Theme` (before: `source-changed`), then a module request of
+  `mr.Panel`, whose program holds the `mr.Button` of the full request. That
+  `mr.Button` depends on the `mr.Theme` that the first preview replaced, so
+  Haxe types it again and the request is refused (`other-modules-typed`):
+  the limit of the rule.
+- `chain-refused` (`-dce std`): a structural preview of `mr.Card`, a refused
+  edit of it (`dce-use-added`), which must leave the records of the first
+  preview, a preview of `mr.Card` checked against them, and a preview of
+  `mr.CardUser`, which imports `mr.Card`.
+
+On Genes before the change, the importer rows give `other-modules-typed` and
+the unrelated row `source-changed`, and no request writes a records text.
 
 The `std-` groups check the structural rule under `-dce std`
 (genes-f8vc.14.7). Under `-dce std`, Haxe keeps every class of the project
@@ -828,6 +870,36 @@ of the first call. Each preview must be byte-identical to cold and pass the
 tree check, and each full request after it must equal cold. The last lines
 count the results by code and give the median times of the previews with
 the load (diagnostic).
+
+`--chain` runs only the chains (genes-f8vc.14.8): 100 chains of five of the
+sweep's edits, with no full request inside a chain, in five rounds of 20
+chains, each round from a new copy of the sweep program. Round 0 edits one
+module five times in each chain. The other rounds mix modules: a planner
+takes, in a seeded random order (modules with the most edits left first),
+the first module whose request can preview, as Haxe 4.3.7's module cache
+decides it (`chainPreviews`: Haxe keeps a cached module only when every
+module that it depends on is the one it was typed against and is clean, and
+the module that an accepted preview typed stays clean until the next request
+that is not a module request). So the plan holds steps on the same module,
+steps on a module that imports a module edited before in the chain, and
+other steps, and it skips a module whose program holds a module that Haxe
+must type again (the limit of the rule); the last lines count both.
+
+Each round uses two warm servers: the chain server, and a reference server
+with its own descriptor and its own output folder at the same depth. After
+each edit the chain server runs the module request, while a cold build and a
+full request of the reference server run at the same time. Every step must
+preview with `records: "advanced"`; its files must be byte-identical to
+cold; cold must change no file other than the module's own since the step
+before; the reference tree must equal cold; and the records text of the
+module request must equal the records text of the reference full request.
+After each chain the chain server runs a full request: its tree must equal
+cold, it must find the advanced records equal to its own (`advancedCheck:
+"equal"`, `advanced` equal to the number of modules that the chain edited),
+and its records text must equal the reference's. `--chain-rounds=<n>` and
+`--chain-limit=<n>` run only the first rounds and chains (diagnostic);
+with `--observe` the steps are printed with their results instead of
+checked.
 
 The last groups run a macro (`mr.CopyMacro`) that reads a string literal of
 `mr.Probe` and changes another module that Haxe does not type again:

@@ -520,8 +520,10 @@ class IncrementalShadow {
 
   /**
    * True in a module request (G3, `ModuleRequest`): the shadow only records
-   * the answers, files and warnings of the printed module. It applies no
-   * clean rule, stores no cache and writes no report of its own.
+   * the answers, files, warnings, visits and runtime requests of the printed
+   * module. It applies no clean rule, stores no cache and writes no report
+   * of its own; after a published preview, `ModuleRequest` advances the
+   * module's entry with `previewEntry` (genes-f8vc.14.8).
    */
   final preview: Bool;
 
@@ -2570,57 +2572,11 @@ class IncrementalShadow {
    */
   function storeCache(): Bool {
     final modules = new Map<String, CachedModule>();
-    for (module => list in files) {
-      final sortedFiles = list.copy();
-      sortedFiles.sort((left, right) -> compareStrings(left.path, right.path));
-      final fingerprint = fingerprints.exists(module) ? fingerprints.get(module) : fingerprintOf(module,
-        [], new Map());
-      final earlier = replayed.exists(module) ? GenerationCache.entry(module) : null;
-      final witnesses = witnessesOf(module);
-      if (earlier != null) {
-        final known = new Map<String, Bool>();
-        for (witness in witnesses)
-          known.set(witness.module, true);
-        for (witness in earlier.witnesses)
-          if (!known.exists(witness.module))
-            witnesses.push({
-              module: witness.module,
-              epochs: GenerationChangeSet.epochs(witness.module)
-            });
-      }
-      modules.set(module, {
-        epochs: GenerationChangeSet.epochs(module),
-        fingerprint: fingerprint,
-        witnesses: witnesses,
-        usedHaxePrinter: HaxePrinterUse.used(module),
-        files: sortedFiles,
-        warnings: earlier != null ? earlier.warnings : {
-          final list = warnings.get(module);
-          list == null ? [] : list;
-        },
-        proofs: GenerationChangeSet.declarationProofs(module),
-        members: {
-          final known = memberLists.get(module);
-          known == null ? '' : known;
-        },
-        rootFlags: {
-          final known = rootFlagTexts.get(module);
-          known == null ? '' : known;
-        },
-        answers: earlier != null ? earlier.answers : sortedLines(answers.get(module)),
-        additions: earlier != null ? earlier.additions : sortedLines(additions.get(module)),
-        publicEntries: earlier != null ? earlier.publicEntries : {
-          final list = publicEntries.get(module);
-          list == null ? [] : list;
-        },
-        mapSources: earlier != null ? earlier.mapSources : sortedLines(mapSources.get(module)),
-        visits: earlier != null ? earlier.visits : {
-          final list = visits.get(module);
-          list == null ? [] : list;
-        },
-        runtimeRequests: earlier != null ? earlier.runtimeRequests : runtimeRequestLists.get(module)
-      });
-    }
+    for (module => list in files)
+      modules.set(module,
+        entryOf(module, list,
+          fingerprints.exists(module) ? fingerprints.get(module) : fingerprintOf(module,
+            [], new Map())));
     final others = new Map<String, CachedInventoryModule>();
     for (module => fingerprint in fingerprints)
       if (!files.exists(module))
@@ -2631,6 +2587,111 @@ class IncrementalShadow {
     return GenerationCache.commit(sessionKey,
       GenerationChangeSet.reservedNameDigest(), witnessesOf(''), modules,
       others, outputFolder, underReuse, sortedLines(answers.get('')));
+  }
+
+  /**
+   * Returns the cache entry of one printed module from what this request
+   * recorded for it: its staged files `list` (sorted here), its
+   * `fingerprint`, and the answers, visits, warnings and other facts of the
+   * maps above. A replayed module keeps the stored parts of its earlier
+   * entry (see `storeCache`). `storeCache` makes every entry of a full
+   * request with it, and `previewEntry` the entry of a module request's
+   * module, so both requests make an entry the same way (genes-f8vc.14.8).
+   */
+  function entryOf(module: String, list: Array<CachedFile>,
+      fingerprint: String): CachedModule {
+    final sortedFiles = list.copy();
+    sortedFiles.sort((left, right) -> compareStrings(left.path, right.path));
+    final earlier = replayed.exists(module) ? GenerationCache.entry(module) : null;
+    final witnesses = witnessesOf(module);
+    if (earlier != null) {
+      final known = new Map<String, Bool>();
+      for (witness in witnesses)
+        known.set(witness.module, true);
+      for (witness in earlier.witnesses)
+        if (!known.exists(witness.module))
+          witnesses.push({
+            module: witness.module,
+            epochs: GenerationChangeSet.epochs(witness.module)
+          });
+    }
+    return {
+      epochs: GenerationChangeSet.epochs(module),
+      fingerprint: fingerprint,
+      witnesses: witnesses,
+      usedHaxePrinter: HaxePrinterUse.used(module),
+      files: sortedFiles,
+      warnings: earlier != null ? earlier.warnings : {
+        final list = warnings.get(module);
+        list == null ? [] : list;
+      },
+      proofs: GenerationChangeSet.declarationProofs(module),
+      members: {
+        final known = memberLists.get(module);
+        known == null ? '' : known;
+      },
+      rootFlags: {
+        final known = rootFlagTexts.get(module);
+        known == null ? '' : known;
+      },
+      answers: earlier != null ? earlier.answers : sortedLines(answers.get(module)),
+      additions: earlier != null ? earlier.additions : sortedLines(additions.get(module)),
+      publicEntries: earlier != null ? earlier.publicEntries : {
+        final list = publicEntries.get(module);
+        list == null ? [] : list;
+      },
+      mapSources: earlier != null ? earlier.mapSources : sortedLines(mapSources.get(module)),
+      visits: earlier != null ? earlier.visits : {
+        final list = visits.get(module);
+        list == null ? [] : list;
+      },
+      runtimeRequests: earlier != null ? earlier.runtimeRequests : runtimeRequestLists.get(module)
+    };
+  }
+
+  /**
+   * Returns the cache entry that a full request would store for `module`,
+   * the module that this module request printed, or `null` when this request
+   * has no active preview shadow or printed no file of the module
+   * (genes-f8vc.14.8). `types` is the generator's declaration list of the
+   * request, `members` and `rootFlags` the final member list and root flags
+   * of the module (`ModuleFingerprint.members`, `rootFlags`), as the full
+   * request gives them to `planReplay`.
+   *
+   * Why: an accepted preview advances the stored entry of its module
+   * (`GenerationCache.advance`), so that the next module request compares
+   * with facts that match the sources. The entry is made by `entryOf`, as
+   * in `storeCache`, with the fingerprint that `inventory` makes: the text
+   * of the module's listed declarations and the `ModuleFingerprint.unlisted`
+   * part of its other typed declarations. `ModuleRequest` admits a preview
+   * only for a module that is not exposed, so its exposed names are none.
+   * The walk of the module request records its visits with `recordVisit`,
+   * as the walk of a full request does.
+   */
+  public static function previewEntry(module: String, types: Array<Type>,
+      members: String, rootFlags: String): Null<CachedModule> {
+    final shadow = current;
+    if (shadow == null || !shadow.active || !shadow.preview)
+      return null;
+    final list = shadow.files.get(module);
+    if (list == null)
+      return null;
+    shadow.memberLists.set(module, members);
+    shadow.rootFlagTexts.set(module, rootFlags);
+    final own: Array<Type> = [];
+    for (type in types) {
+      final base = declarationOf(type);
+      if (base != null && base.module == module)
+        own.push(type);
+    }
+    final externs = externClasses(own);
+    var fingerprint = externs != null ? ModuleFingerprint.ofExtern(externs) : fingerprintOf(module,
+      own, new Map());
+    final all = TypedModuleInventory.allModules();
+    final typed = all == null ? null : all.get(module);
+    if (typed != null)
+      fingerprint += ModuleFingerprint.unlisted(typed, listed);
+    return shadow.entryOf(module, list, fingerprint);
   }
 
   static function witnessesOf(module: String): Array<CachedWitness> {

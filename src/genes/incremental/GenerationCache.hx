@@ -647,44 +647,9 @@ class GenerationCache {
     for (name => module in others)
       size += name.length + module.epochs.length + module.fingerprint.length;
     for (name => module in modules) {
-      size += name.length + module.epochs.length + module.fingerprint.length;
-      size += module.members.length + module.rootFlags.length;
-      size += module.proofs == null ? 0 : module.proofs.length;
-      for (witness in module.witnesses)
-        size += witness.module.length + witness.epochs.length;
-      for (file in module.files)
-        size += file.path.length + file.text.length;
-      for (warning in module.warnings)
-        size += warning.message.length
-          + warning.file.length
-          + Std.string(warning.min).length
-          + Std.string(warning.max).length;
-      for (answer in module.answers)
-        answerSize += answer.length;
-      for (feature in module.additions)
-        size += feature.length;
-      for (entry in module.publicEntries)
-        size += entry.name.length
-          + entry.file.length
-          + Std.string(entry.min).length
-          + Std.string(entry.max).length;
-      for (source in module.mapSources)
-        size += source.length;
-      for (visit in module.visits) {
-        size += visit.members.length;
-        for (step in visit.steps)
-          size += step.key.length
-            + step.module.length
-            + step.name.length
-            + step.typeName.length;
-        for (stamp in visit.stamps)
-          size += stamp.length;
-        for (target in visit.targets)
-          size += target.length;
-      }
-      if (module.runtimeRequests != null)
-        for (request in module.runtimeRequests)
-          size += request.length;
+      final counted = sizeOf(name, module);
+      size += counted.size;
+      answerSize += counted.answers;
     }
     size += answerSize;
     if (size > BYTE_BUDGET) {
@@ -702,6 +667,217 @@ class GenerationCache {
     storedBytes = size;
     storedAnswerBytes = answerSize;
     return true;
+  }
+
+  /**
+   * Returns the size of one entry in string characters for `BYTE_BUDGET`:
+   * `answers` counts the answer lines (`answerBytes`), `size` every other
+   * part.
+   */
+  static function sizeOf(name: String,
+      module: CachedModule): {size: Int, answers: Int} {
+    var size = name.length + module.epochs.length + module.fingerprint.length;
+    var answers = 0;
+    size += module.members.length + module.rootFlags.length;
+    size += module.proofs == null ? 0 : module.proofs.length;
+    for (witness in module.witnesses)
+      size += witness.module.length + witness.epochs.length;
+    for (file in module.files)
+      size += file.path.length + file.text.length;
+    for (warning in module.warnings)
+      size += warning.message.length
+        + warning.file.length
+        + Std.string(warning.min).length
+        + Std.string(warning.max).length;
+    for (answer in module.answers)
+      answers += answer.length;
+    for (feature in module.additions)
+      size += feature.length;
+    for (entry in module.publicEntries)
+      size += entry.name.length
+        + entry.file.length
+        + Std.string(entry.min).length
+        + Std.string(entry.max).length;
+    for (source in module.mapSources)
+      size += source.length;
+    for (visit in module.visits) {
+      size += visit.members.length;
+      for (step in visit.steps)
+        size += step.key.length
+          + step.module.length
+          + step.name.length
+          + step.typeName.length;
+      for (stamp in visit.stamps)
+        size += stamp.length;
+      for (target in visit.targets)
+        size += target.length;
+    }
+    if (module.runtimeRequests != null)
+      for (request in module.runtimeRequests)
+        size += request.length;
+    return {size: size, answers: answers};
+  }
+
+  /**
+   * Replaces the stored entry of `module` with `entry`, the entry that an
+   * accepted module request made for the module that it printed
+   * (genes-f8vc.14.8, `ModuleRequest.previewCommitted`). The rest of the
+   * cache stays as the last full request stored it. Returns false and
+   * changes nothing when no cache is stored, the module has no entry, or the
+   * cache would grow above `BYTE_BUDGET`; the caller then forgets its module
+   * records, so that no module request reads the old entry as current.
+   *
+   * Why: a later module request reads the entry of a module (its answers,
+   * visits, member list and runtime requests) as the facts of the program
+   * now. After a preview of `app.Card` the stored entry describes the old
+   * text of `app.Card`; with it, the next module request would compare with
+   * records that no longer match the sources.
+   *
+   * The next full request stays the authority: Haxe types the module again
+   * there (its epochs then differ from `entry.epochs`, so the module is
+   * dirty and printed again), and `commit` replaces the whole cache.
+   */
+  public static function advance(module: String, entry: CachedModule): Bool {
+    final stored = entries.get(module);
+    if (storedKey == null || stored == null)
+      return false;
+    final before = sizeOf(module, stored);
+    final after = sizeOf(module, entry);
+    final size = storedBytes
+      - before.size
+      - before.answers
+      + after.size
+      + after.answers;
+    if (size > BYTE_BUDGET)
+      return false;
+    entries.set(module, entry);
+    storedBytes = size;
+    storedAnswerBytes = storedAnswerBytes - before.answers + after.answers;
+    return true;
+  }
+
+  /**
+   * Returns the stored entry of `module` as plain text for
+   * `ModuleRequest.recordsText` (genes-f8vc.14.8), or an empty text when it
+   * has none. Facts that name one typing of a module, not its sources, are
+   * left out, so that a preview and a full request of the same sources give
+   * the same text: the stamps of the epochs, of the proofs and of the
+   * visits, and the `bodyParams` and `bodyType` answers, which are keyed by
+   * variable ids (`answerLinesText`). The file texts appear as SHA-1
+   * digests.
+   *
+   * The witnesses are left out too: a module records a module that it reads
+   * by name only when it reads that name first in the request
+   * (`TypedModuleInventory`), so they follow the order of the modules that
+   * the request printed, not the sources. Example: a full request records
+   * no witness for `mr.Card` when another module read `mr.Theme` before it;
+   * a preview of `mr.Card` records `mr.Theme`. Only the clean rules of a
+   * full request read them (rule 7), and a module that a preview advanced is
+   * typed again in the next full request, so it is never clean there.
+   */
+  public static function entryText(module: String): String {
+    final stored = entry(module);
+    if (stored == null)
+      return '';
+    final buffer = new StringBuf();
+    buffer.add('  epochs ${stampFree(stored.epochs)}\n');
+    buffer.add('  fingerprint ${haxe.crypto.Sha1.encode(stored.fingerprint)}\n');
+    buffer.add('  printer ${flag(stored.usedHaxePrinter)}\n');
+    for (file in stored.files)
+      buffer.add('  file ${file.path} ${haxe.crypto.Sha1.encode(file.text)}\n');
+    for (warning in stored.warnings)
+      buffer.add('  warning ${warning.file}:${warning.min}-${warning.max} ${warning.message}\n');
+    final proofs = stored.proofs;
+    buffer.add('  proofs ${proofs == null ? '-' : stampFree(proofs)}\n');
+    buffer.add('  members ${stored.members.split('\n').join(' | ')}\n');
+    buffer.add('  root-flags ${stored.rootFlags}\n');
+    for (line in answerLinesText(stored.answers))
+      buffer.add('  answer $line\n');
+    for (feature in stored.additions)
+      buffer.add('  addition $feature\n');
+    for (item in stored.publicEntries)
+      buffer.add('  public-entry ${item.name} ${item.file}:${item.min}-${item.max}\n');
+    for (source in stored.mapSources)
+      buffer.add('  map-source $source\n');
+    for (visit in stored.visits) {
+      buffer.add('  visit ${visit.members.split('\n').join(' | ')}\n');
+      for (index => step in visit.steps)
+        buffer.add('    step ${step.key} ${step.module} ${step.name} ${step.typeName} '
+          + '${visit.targets == null ? '' : visit.targets[index]}\n');
+    }
+    final requests = stored.runtimeRequests;
+    buffer.add('  runtime-requests ${requests == null ? '-' : requests.join(' ')}\n');
+    return buffer.toString();
+  }
+
+  /**
+   * Returns the parts of the stored cache that belong to no module entry as
+   * plain text for `ModuleRequest.recordsText`: whether it was written under
+   * `afterTyping: "reuse"`, the global answers and witnesses, and each
+   * module without an output file (`CachedInventoryModule`). As
+   * `entryText`, it leaves out the stamps; the output folder and the
+   * session key are left out too, because they name the request, not the
+   * sources.
+   */
+  public static function cacheText(): String {
+    if (storedKey == null)
+      return 'cache none\n';
+    final buffer = new StringBuf();
+    buffer.add('cache reuse=${flag(storedUnderReuse)}\n');
+    for (line in answerLinesText(storedGlobalAnswers))
+      buffer.add('global-answer $line\n');
+    buffer.add('global-witnesses ${[for (witness in storedGlobalWitnesses) witness.module].join(' ')}\n');
+    final names = [for (name in inventory.keys()) name];
+    names.sort(compareStrings);
+    for (name in names) {
+      final other = inventory.get(name);
+      if (other != null)
+        buffer.add('inventory $name ${stampFree(other.epochs)} '
+          + '${haxe.crypto.Sha1.encode(other.fingerprint)}\n');
+    }
+    return buffer.toString();
+  }
+
+  /**
+   * Returns the lines of an epoch list or a proof text without the part
+   * after the last `@` of each line (the stamp, or the request that proved
+   * the object), joined with spaces. Example: `class:app.Leaf@ab12:3`
+   * gives `class:app.Leaf`.
+   */
+  public static function stampFree(text: String): String {
+    if (text.length == 0)
+      return '';
+    return [
+      for (line in text.split('\n'))
+        line.lastIndexOf('@') < 0 ? line : line.substr(0, line.lastIndexOf('@'))
+    ].join(' ');
+  }
+
+  /**
+   * Returns answer lines as `answerText`, sorted, without the `bodyParams`
+   * and `bodyType` answers. Their key is `<owner>#<variable id>`, and Haxe
+   * gives each local variable a new id each time it types a module, from a
+   * counter of that compilation; so the key names one typing, and so does
+   * the presence of an answer. Example: a preview of `mr.Panel` recorded a
+   * `bodyType` answer of a `genes.Register` holder, because a local of the
+   * new typing of `mr.Panel` got the id of a local that `genes.Register` got
+   * in an earlier compilation; the full request after it did not.
+   * `SignatureCache.localDeclaredType` prints the variable's own type, so
+   * such an answer changes no output. A module request does not compare
+   * these answers (`ModuleRequest.wrongAnswer`), and only a replay of a
+   * module that Haxe did not type again reads them.
+   */
+  static function answerLinesText(lines: Array<String>): Array<String> {
+    final texts = [];
+    for (line in lines) {
+      final answer = parseAnswer(line);
+      if (answer.kind == genes.ts.SignatureCache.BODY_PARAMS
+        || answer.kind == genes.ts.SignatureCache.BODY_TYPE)
+        continue;
+      texts.push('${answer.kind} ${answer.name} = ${answer.answer}');
+    }
+    texts.sort(compareStrings);
+    return texts;
   }
 
   /** Forgets the stored cache. */
