@@ -1,9 +1,23 @@
 package genes.incremental;
 
 #if macro
+import genes.incremental.HaxeArguments.HaxeArgument;
+import genes.incremental.ModuleRequest.SourceStat;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import sys.FileSystem;
+
+/**
+ * A module that an `include` line adds but that has no declaration in the
+ * program, with the content digest of its file. Example: a file that is
+ * all `#if macro ... #end`. Haxe parses it and adds nothing, so no other
+ * fact of the stored program names its file.
+ */
+typedef EmptyIncludedModule = {
+  final module: String;
+  final file: String;
+  final digest: String;
+}
 
 /**
  * One `--macro include(...)` line of a full request, with the arguments
@@ -34,6 +48,9 @@ typedef IncludeRoot = {
 
   /** The modules that `include` adds (`Context.getModule`), sorted. */
   final modules: Array<String>;
+
+  /** The modules of `modules` without a declaration in the program. */
+  final empty: Array<EmptyIncludedModule>;
 }
 
 /**
@@ -48,11 +65,23 @@ typedef ProgramRootsFacts = {
   final includes: Array<IncludeRoot>;
 
   /**
-   * Why Genes cannot know every module that an `include` line adds, one
-   * text per line; empty when it knows them. Example: an argument that is
-   * not a literal, such as `include(Packages.ui)`.
+   * Why Genes cannot know every root, one text per reason; empty when it
+   * knows them. Example: an argument out of its place
+   * (`include('app', ['x'])`, where Haxe skips the optional `Bool`), or an
+   * option that Genes does not know.
    */
   final unknown: Array<String>;
+}
+
+/** The literal arguments of one `include` call. */
+private typedef IncludeCall = {
+  final pack: String;
+  final recursive: Bool;
+  final ignore: Null<Array<String>>;
+  final classPaths: Array<String>;
+
+  /** False when `include` adds nothing (a display request other than `usage`). */
+  final active: Bool;
 }
 
 /**
@@ -76,74 +105,89 @@ typedef ProgramRootsFacts = {
  * modules in every full build with the same arguments and the same files,
  * so a module request counts them, and every module that they load, as
  * staying. An edit can change which modules an `include` line adds only by
- * changing the files in the included folders (a new or removed file), so a
- * module request lists the folders again and refuses when the list differs
- * (`include-changed`, `includeFailure`). A changed argument of the program
- * changes `programDigest`, which the session key holds, so such a request
- * is refused with `session-changed`.
+ * changing the files in the included folders (a new or removed file, or a
+ * file without a declaration that gets one), so a module request lists the
+ * folders again and refuses when the list differs (`include-changed`,
+ * `includeFailure`). A changed argument of the program changes
+ * `programDigest`, which the session key holds, so such a request is
+ * refused with `session-changed`.
+ *
+ * The contract with the client: a module request may leave out only the
+ * roots that this class reads: `--main`, class-name arguments and
+ * `--macro include(...)` lines with literal arguments. Every other macro
+ * that adds modules must stay in the module request.
  *
  * How it reads the arguments: `Compiler.getConfiguration().args`, with HXML
- * files and `-lib` arguments already expanded. A plain argument is a class
- * name when it is a dotted path and not the value of an option. Every
- * option outside `ZERO_VALUE_OPTIONS` counts as one that takes a value, so
- * a mistake can only miss a root: a missed root makes Genes refuse
- * (`module-may-leave`), never publish a wrong file.
+ * files and `-lib` arguments already expanded, through `HaxeArguments.read`,
+ * which knows every Haxe 4.3.7 option and both forms of a value
+ * (`--macro include('app')` and `--macro=include('app')`). The roots are
+ * unknown, so every module request is refused (`include-changed`), when an
+ * argument is not readable (an option outside the table), when the list has
+ * `--next`, `--each` or `--run`, or when an `include` line has an argument
+ * that Genes cannot read in its place (Haxe 4.3.7 takes only constant
+ * arguments in an init macro, but it skips an optional argument whose type
+ * does not fit: `include('app', ['x'])` takes `['x']` as `ignore`). Under `-dce full` a missed `include` line would
+ * not be refused by another rule: a new `@:keep` class in its folder can
+ * keep a field of the requested module.
  *
- * How it finds the modules of an `include` line: `includedModules` is a port
- * of the file listing of `haxe.macro.Compiler.include` in Haxe 4.3.7. Haxe
- * runs that listing after every init macro (`Context.onAfterInitMacros`),
- * so the place of the line before or after `genes.Generator.use()` does not
- * change it; Genes lists the folders again after the commit. A module of
- * that list that is not in the program (a file added between the two
- * listings) makes the facts unknown, and every module request is refused
- * until the next full request.
+ * How it finds the modules of an `include` line: `includedFiles` is a port
+ * of the file walk of `haxe.macro.Compiler.include` in Haxe 4.3.7. Haxe
+ * runs that walk after every init macro (`Context.onAfterInitMacros`), so
+ * the place of the line before or after `genes.Generator.use()` does not
+ * change it. Genes walks the folders when `genes.Generator.use()` runs
+ * (`beginRequest`, before Haxe's walk) and again after the commit (`read`).
+ * A listed module with declarations in the program was added. A listed
+ * module without one must have a file whose status did not change between
+ * the two walks; Genes keeps its digest, and a module request refuses when
+ * the file changes. Any other listed module (a file added while the request
+ * ran) makes the roots unknown until the next full request.
  *
  * What it does not claim: an init macro other than `include` that loads a
  * module by name is not read; such a module is not counted as staying, so
- * the request is refused under `-dce std` (`module-may-leave`). Arguments
- * after `--next` or `--each` are not read.
+ * the request is refused under `-dce std` (`module-may-leave`).
  */
 class ProgramRoots {
-  /**
-   * The Haxe 4.3.7 options that take no value. Any other option counts as
-   * one that takes a value, so the argument after it is never read as a
-   * class name. `--run` and `--next`, `--each` stop the reading.
-   */
-  static final ZERO_VALUE_OPTIONS = [
-    '--interp',
-    '-v',
-    '--verbose',
-    '--debug',
-    '-debug',
-    '--version',
-    '-version',
-    '-h',
-    '--help',
-    '-help',
-    '--help-defines',
-    '--help-user-defines',
-    '--help-metas',
-    '--help-user-metas',
-    '--flash-strict',
-    '--prompt',
-    '-prompt',
-    '--no-traces',
-    '--no-output',
-    '--times',
-    '--no-inline',
-    '--no-opt',
-    '--haxelib-global'
-  ];
-
   static final STOP_OPTIONS = ['--run', '--next', '--each'];
 
   static final INCLUDE_CALL = 'haxe.macro.Compiler.include';
 
   /**
+   * The status of each file that the `include` lines of this request
+   * listed when `genes.Generator.use()` ran (`beginRequest`). Request-local.
+   */
+  static var beginStatus: Map<String, SourceStat> = new Map();
+
+  /**
+   * Walks the folders of the `include` lines of this request and keeps the
+   * status of each listed file (`beginStatus`). `ModuleRequest.beginRequest`
+   * calls it for a full request with module records, while
+   * `genes.Generator.use()` runs: before Haxe's own walk, which runs after
+   * every init macro.
+   */
+  public static function beginRequest(): Void {
+    beginStatus = new Map();
+    final configuration = haxe.macro.Compiler.getConfiguration();
+    if (configuration == null)
+      return;
+    for (argument in HaxeArguments.read(configuration.args))
+      switch argument {
+        case Option('--macro', text)
+          if (text != null && ModuleRequest.initMacroCall(text) == INCLUDE_CALL):
+          final call = includeCallOf(text);
+          if (call != null && call.active)
+            for (found in includedFiles(call)) {
+              final stat = ModuleRequest.statusOf(found.file, 0);
+              if (stat != null)
+                beginStatus.set(found.file, stat);
+            }
+        default:
+      }
+  }
+
+  /**
    * Reads the class-name arguments and the `include` lines of this request,
    * and lists the modules that each `include` line adds. `observed` names
-   * every module of the program (`GenerationChangeSet.observedModules`):
-   * a listed module outside it makes the facts unknown.
+   * every module of the program (`GenerationChangeSet.observedModules`).
    *
    * Example: `--main app.Main app.Tool --macro include('app.views')` gives
    * the class name `app.Tool` and one include with the modules of
@@ -160,46 +204,36 @@ class ProgramRoots {
     final inProgram = new Map<String, Bool>();
     for (name in observed)
       inProgram.set(name, true);
-    final args = configuration.args;
     final classNames = [];
     final includes = [];
     final unknown = [];
-    var index = 0;
-    while (index < args.length) {
-      final arg = args[index];
-      if (STOP_OPTIONS.indexOf(arg) >= 0) {
-        unknown.push('the arguments after $arg are not read');
-        break;
-      }
-      if (StringTools.startsWith(arg, '-')) {
-        if (ZERO_VALUE_OPTIONS.indexOf(arg) >= 0) {
-          index++;
-          continue;
-        }
-        final value = index + 1 < args.length ? args[index + 1] : null;
-        index += 2;
-        if (arg == '--macro' && value != null) {
-          final call = ModuleRequest.initMacroCall(value);
+    for (argument in HaxeArguments.read(configuration.args)) {
+      switch argument {
+        case Unreadable(text, reason):
+          unknown.push('Genes cannot read the argument `$text`: $reason');
+        case Option(name, _) if (STOP_OPTIONS.indexOf(name) >= 0):
+          unknown.push('Genes does not read the arguments after $name');
+        case Option('--macro', text) if (text != null):
+          final call = ModuleRequest.initMacroCall(text);
           if (call == INCLUDE_CALL) {
-            final include = includeOf(value);
-            if (include == null)
-              unknown.push('Genes cannot read the arguments of `$value`');
-            else {
-              final missing = include.modules.filter(name ->
-                !inProgram.exists(name));
-              if (missing.length > 0)
-                unknown.push('`$value` lists ${missing[0]}, which is not in the program');
-              includes.push(include);
+            final include = includeOf(text, inProgram);
+            switch include {
+              case Left(reason):
+                unknown.push(reason);
+              case Right(root):
+                includes.push(root);
             }
-          } else if (call == null && value.indexOf('include') >= 0)
-            unknown.push('Genes cannot read the call of `$value`');
-        }
-        continue;
+          } else if (call == null && text.indexOf('include') >= 0)
+            unknown.push('Genes cannot read the call of `$text`');
+        case Option(_, _):
+        case Plain(text):
+          if (StringTools.endsWith(text, '.hxml'))
+            unknown.push('Genes cannot read the HXML file $text');
+          else if (isDottedPath(text))
+            classNames.push(text);
       }
-      index++;
-      if (isDottedPath(arg))
-        classNames.push(arg);
     }
+    beginStatus = new Map();
     return {classNames: classNames, includes: includes, unknown: unknown};
   }
 
@@ -220,7 +254,8 @@ class ProgramRoots {
    * Returns why the `include` lines of the stored full request may add
    * other modules now, or `null` (`include-changed`). It lists each
    * included folder again with the stored arguments and compares the
-   * modules. Example: a new file `app/domain/Tag.hx` under
+   * modules, and the content of each listed module without a declaration.
+   * Example: a new file `app/domain/Tag.hx` under
    * `include('app.domain', false)` gives
    * "`include('app.domain', false)` now adds app.domain.Tag".
    */
@@ -228,8 +263,16 @@ class ProgramRoots {
     if (facts.unknown.length > 0)
       return facts.unknown[0];
     for (include in facts.includes) {
-      final now = includedModules(include.pack, include.recursive,
-        include.ignore, include.classPaths);
+      final now = [
+        for (found in includedFiles({
+          pack: include.pack,
+          recursive: include.recursive,
+          ignore: include.ignore,
+          classPaths: include.classPaths,
+          active: true
+        }))
+          found.module
+      ];
       final before = new Map<String, Bool>();
       for (name in include.modules)
         before.set(name, true);
@@ -242,6 +285,10 @@ class ProgramRoots {
       for (name in include.modules)
         if (!after.exists(name))
           return '`${include.text}` no longer adds $name';
+      for (empty in include.empty)
+        if (ModuleRequest.readSource(empty.file).digest != empty.digest)
+          return '`${include.text}` adds ${empty.module}, which had no '
+            + 'declaration, and its file changed';
     }
     return null;
   }
@@ -251,19 +298,65 @@ class ProgramRoots {
     final buffer = new StringBuf();
     for (name in facts.classNames)
       buffer.add('root class $name\n');
-    for (include in facts.includes)
+    for (include in facts.includes) {
       buffer.add('root include ${include.text} ${include.modules.join(' ')}\n');
+      for (empty in include.empty)
+        buffer.add('root empty ${empty.module} ${empty.digest}\n');
+    }
     for (reason in facts.unknown)
       buffer.add('root unknown $reason\n');
     return buffer.toString();
   }
 
   /**
-   * Reads the arguments of the `include` call in `text` and lists its
-   * modules, or returns `null` when an argument is not a literal that Genes
-   * can read: a string, `true`, `false`, `null`, or an array of strings.
+   * Reads the `include` line `text` and lists its modules (`Right`), or
+   * returns why Genes cannot know them (`Left`). A listed module must have
+   * a declaration in the program (`inProgram`), or a file that did not
+   * change since `beginRequest` (its digest is kept).
    */
-  static function includeOf(text: String): Null<IncludeRoot> {
+  static function includeOf(text: String,
+      inProgram: Map<String, Bool>): haxe.ds.Either<String, IncludeRoot> {
+    final call = includeCallOf(text);
+    if (call == null)
+      return Left('Genes cannot read the arguments of `$text`');
+    final files = call.active ? includedFiles(call) : [];
+    final modules = [];
+    final empty = [];
+    for (found in files) {
+      modules.push(found.module);
+      if (inProgram.exists(found.module))
+        continue;
+      final before = beginStatus.get(found.file);
+      final content = ModuleRequest.readSource(found.file);
+      final stat = content.stat;
+      if (before == null || stat == null
+        || !ModuleRequest.sameStatus(before, stat))
+        return
+          Left('`$text` lists ${found.module}, which is not in the program, '
+          + 'and its file changed while the request ran');
+      empty.push({module: found.module, file: found.file,
+        digest: content.digest});
+    }
+    modules.sort(compareStrings);
+    return Right({
+      text: text,
+      pack: call.pack,
+      recursive: call.recursive,
+      ignore: call.ignore,
+      classPaths: call.classPaths,
+      modules: modules,
+      empty: empty
+    });
+  }
+
+  /**
+   * Reads the literal arguments of the `include` call in `text`, or returns
+   * `null` when an argument is not a literal that Genes can read: a string,
+   * `true`, `false`, `null`, or an array of strings, each in its place.
+   * Example: `include('p', ['x'])` gives `null`, because the second
+   * argument must be a `Bool`.
+   */
+  static function includeCallOf(text: String): Null<IncludeCall> {
     final parsed = try Context.parse(text,
       Context.currentPos()) catch (_:haxe.Exception) null;
     final params = parsed == null ? null : switch parsed.expr {
@@ -282,37 +375,36 @@ class ProgramRoots {
     final recursiveValue = switch recursive {
       case Absent | IsNull: true;
       case Given(value): value;
-      case Unreadable: return null;
+      case NotLiteral: return null;
     };
     final ignoreValue = switch ignore {
       case Absent | IsNull: null;
       case Given(value): value;
-      case Unreadable: return null;
+      case NotLiteral: return null;
     };
     final classPaths = switch paths {
       case Absent | IsNull: normalizedClassPaths();
       case Given(value): value;
-      case Unreadable: return null;
+      case NotLiteral: return null;
     };
     switch strict {
-      case Unreadable:
+      case NotLiteral:
         return null;
       default:
     }
-    // `include` adds nothing in a display request other than `usage`.
+    // Without `classPaths`, `include` adds nothing in a display request
+    // other than `usage`.
     final display = Context.definedValue('display');
-    final modules = switch paths {
-      case Absent | IsNull if (display != null && display != 'usage'): [];
-      default: includedModules(pack, recursiveValue, ignoreValue, classPaths);
+    final active = switch paths {
+      case Absent | IsNull if (display != null && display != 'usage'): false;
+      default: true;
     };
-    modules.sort(compareStrings);
     return {
-      text: text,
       pack: pack,
       recursive: recursiveValue,
       ignore: ignoreValue,
       classPaths: classPaths,
-      modules: modules
+      active: active
     };
   }
 
@@ -331,16 +423,20 @@ class ProgramRoots {
   }
 
   /**
-   * Returns the modules that `haxe.macro.Compiler.include(pack, recursive,
-   * ignore, classPaths)` loads with `Context.getModule`, in the order of
-   * the listing: a port of its file walk in Haxe 4.3.7. Each `.hx` file
-   * whose name has no other dot, other than `import.hx`, is a module; with
-   * `recursive`, each subfolder is included too. An `ignore` entry that
-   * ends with `*` skips every module and folder whose path starts with the
-   * rest; another entry skips that exact path.
+   * Returns the modules that `haxe.macro.Compiler.include` loads with
+   * `Context.getModule` for `call`, each with its file, in the order of the
+   * walk: a port of its file walk in Haxe 4.3.7. Each `.hx` file whose name
+   * has no other dot, other than `import.hx`, is a module; with `recursive`,
+   * each subfolder is included too. An `ignore` entry that ends with `*`
+   * skips every module and folder whose path starts with the rest; another
+   * entry skips that exact path. Example: `include('app', true, ['app.old*'])`
+   * leaves out `app.old.Tool` and `app.oldest.Tool`.
    */
-  public static function includedModules(pack: String, recursive: Bool,
-      ignore: Null<Array<String>>, classPaths: Array<String>): Array<String> {
+  static function includedFiles(call: IncludeCall): Array<{
+    module: String,
+    file: String
+  }> {
+    final ignore = call.ignore;
     final ignoreWildcard = [];
     final ignoreString = [];
     if (ignore != null)
@@ -362,7 +458,7 @@ class ProgramRoots {
     final found = [];
     function walk(pack: String): Void {
       final prefix = pack == '' ? '' : pack + '.';
-      for (cp in classPaths) {
+      for (cp in call.classPaths) {
         final path = pack == '' ? cp : cp + '/' + pack.split('.').join('/');
         if (!FileSystem.exists(path) || !FileSystem.isDirectory(path))
           continue;
@@ -374,14 +470,16 @@ class ProgramRoots {
             final name = prefix + file.substr(0, file.length - 3);
             if (skip(name))
               continue;
-            found.push(name);
-          } else if (recursive && FileSystem.isDirectory(path + '/' + file)
-            && !skip(prefix + file))
+            found.push({module: name, file: path + '/' + file});
+          } else if (call.recursive
+            && FileSystem.isDirectory(path
+              + '/'
+              + file) && !skip(prefix + file))
             walk(prefix + file);
         }
       }
     }
-    walk(pack);
+    walk(call.pack);
     return found;
   }
 
@@ -398,7 +496,7 @@ class ProgramRoots {
       case EConst(CIdent('true')): Given(true);
       case EConst(CIdent('false')): Given(false);
       case EConst(CIdent('null')): IsNull;
-      default: Unreadable;
+      default: NotLiteral;
     }
   }
 
@@ -410,11 +508,11 @@ class ProgramRoots {
         for (value in values) {
           final text = stringOf(value);
           if (text == null)
-            return Unreadable;
+            return NotLiteral;
           strings.push(text);
         }
         Given(strings);
-      default: Unreadable;
+      default: NotLiteral;
     }
   }
 
@@ -439,6 +537,6 @@ private enum Literal<T> {
   Given(value: T);
 
   /** The argument is not a literal that Genes can read. */
-  Unreadable;
+  NotLiteral;
 }
 #end

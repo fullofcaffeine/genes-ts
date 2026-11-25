@@ -474,6 +474,16 @@ a split module must import it from `X.fields` (after `import "./X.js"`). See
 `tests/react-refresh-modules/README.md` for the rules, the evidence and the
 limits.
 
+### Module previews in a development session
+
+A development session can ask Genes to print only the edited module (a
+module request) and publish it only when it equals a full build. The module
+request leaves out the roots of the program, so it may leave out only the
+roots that Genes reads from the full request: `--main`, class-name arguments
+and `--macro include(...)` lines with literal arguments. Every other macro
+that adds modules to the program must stay in the module request. See
+`genes.incremental.ProgramRoots` and `tooling/README.md`.
+
 ## Async/await sugar (optional)
 
 genes-ts includes an `@:async` + `await(...)` macro that emits native

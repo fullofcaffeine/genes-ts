@@ -757,7 +757,12 @@ is emitted. A host must ignore an event kind that it does not know.
   roots or `--macro include(...)` lines beside `--main` gets previews too
   (genes-f8vc.14.12): the program request records those roots, and a
   client that sends module requests leaves them out of each module request;
-  a new file in an included folder refuses it (`include-changed`). A preview can still be
+  a new file in an included folder refuses it (`include-changed`). The
+  contract: a module request may leave out only what Genes reads from the
+  program request (`--main`, class-name arguments and
+  `--macro include(...)` lines with literal arguments, in either form
+  `--macro include(...)` or `--macro=include(...)`); every other macro that
+  adds modules must stay in the module request. A preview can still be
   published when the edit makes another module fail to compile (a new
   private method that takes a `using` call of a module without private
   access, genes-zbva); no stale file results, and the next program request

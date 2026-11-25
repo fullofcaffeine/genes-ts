@@ -3045,30 +3045,146 @@ function extraRootGroups(): ReadonlyArray<Group> {
           }, module: "mr.Button", expect: "include-changed" }
       ]
     },
+    // Under `-dce full` an included module that dead-code elimination
+    // keeps can keep a field of the edited module. Before genes-f8vc.14.12
+    // the module request did not see the new file and published
+    // `mr/Button.ts` without `unused`, which cold keeps.
+    dceFullIncludeGroup("roots-include-dce-full", [], ["--macro", "include('mr.inc', false)"]),
+    // Review of #269: Haxe also takes an option and its value as one
+    // argument with `=`. On 0723e4e8 `-D=probe_inline` took the next
+    // argument as its value, and `--macro=include(...)` was not read, so
+    // the include line was missed and both previews were stale.
+    dceFullIncludeGroup("roots-inline-define-dce-full", ["-D=probe_inline"],
+      ["--macro", "include('mr.inc', false)"]),
+    dceFullIncludeGroup("roots-inline-macro-dce-full", [], ["--macro=include('mr.inc',false)"]),
     {
-      // Under `-dce full` an included module that dead-code elimination
-      // keeps can keep a field of the edited module. Before
-      // genes-f8vc.14.12 the module request did not see the new file and
-      // published `mr/Button.ts` without `unused`, which cold keeps.
-      name: "roots-include-dce-full",
+      // On 0723e4e8 `-D=probe_inline` took the class name as its value
+      // (`module-may-leave`, safe but no preview).
+      name: "roots-inline-define-class-name",
+      dce: "std",
+      extraArgs: ["-D=probe_inline"],
       files: {
-        "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
-          + `    return 'card ' + mr.Theme.color();\n  }\n}\n`
+        "mr/extra/Format.hx": rootClass("mr.extra", "Format", "format", ["mr.Theme.color()"])
+      },
+      programRoots: ["mr.extra.Format"],
+      steps: [
+        { id: "inline define: literal edit beside a class-name root", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      // A file of the included folder with no declaration outside macro
+      // code: Haxe parses it and adds nothing. On 0723e4e8 it made the roots
+      // unknown, so every module request was refused (`include-changed`).
+      name: "probe-macro-only-module",
+      dce: "std",
+      files: {
+        ...includeFiles,
+        "mr/inc/MacroOnly.hx": "package mr.inc;\n\n#if macro\nclass MacroOnly {\n  public static function make() {}\n}\n#end\n"
       },
       programRoots: ["--macro", "include('mr.inc', false)"],
       steps: [
-        { id: "include dce full: literal edit beside an include", apply: button("return 'Save';", "return 'Save!';"),
+        { id: "macro-only module: literal edit beside it", apply: button("return 'Save';", "return 'Save!';"),
           module: "mr.Button", expect: "preview" },
-        { id: "include dce full: a new kept file of the include uses a field of the edited module (include-changed)",
+        { id: "macro-only module: it gets a declaration (include-changed)",
           apply: () => {
-            addSource("mr/inc/Caller.hx", `package mr.inc;\n\n@:keep\nclass Caller {\n`
-              + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n`);
+            editSource("mr/inc/MacroOnly.hx", "#end\n", "#end\n\nclass MacroOnlyRuntime {\n  public static function text(): String {\n    return 'runtime';\n  }\n}\n");
             edit("Button.hx", "return 'Save!';", "return 'Save';");
           }, module: "mr.Button", expect: "include-changed" }
       ]
     },
+    {
+      name: "roots-include-ignore-wildcard",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc', true, ['mr.inc.sub*'])"],
+      steps: [
+        { id: "ignore wildcard: literal edit", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "ignore wildcard: a new file in an ignored folder",
+          apply: () => {
+            addSource("mr/inc/sub/Fresh.hx", rootClass("mr.inc.sub", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "preview" },
+        { id: "ignore wildcard: a new file in the included folder (include-changed)",
+          apply: () => {
+            addSource("mr/inc/Fresh.hx", rootClass("mr.inc", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save';", "return 'Save!';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      // `classPaths` given: only the folder `lib` (relative to the request).
+      name: "roots-include-class-paths",
+      dce: "std",
+      extraArgs: ["-cp", "lib"],
+      files: {
+        "../lib/canvas/Surface.hx": rootClass("canvas", "Surface", "surface", ["canvas.Paint.text()"]),
+        "../lib/canvas/Paint.hx": rootClass("canvas", "Paint", "paint")
+      },
+      programRoots: ["--macro", "include('canvas', false, null, ['lib'])"],
+      steps: [
+        { id: "class paths: literal edit", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "class paths: literal edit of an included module",
+          apply: () => editSource("../lib/canvas/Paint.hx", "'paint'", "'paint!'"),
+          module: "canvas.Paint", expect: "preview" },
+        { id: "class paths: a new file in the included folder (include-changed)",
+          apply: () => {
+            addSource("../lib/canvas/Fresh.hx", rootClass("canvas", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      // Haxe skips the optional `Bool` and takes `['x']` as `ignore`; Genes
+      // reads each argument in its place only, so the roots are unknown.
+      // (Haxe 4.3.7 takes only constant arguments in an init macro and
+      // rejects `#if` around it, so this is the include line that Genes
+      // cannot read and Haxe accepts.)
+      name: "roots-include-wrong-argument",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc', ['x'])"],
+      steps: [
+        { id: "wrong argument: an array where include takes a Bool (include-changed)",
+          apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "include-changed" }
+      ]
+    },
     caffeineShapedGroup()
   ];
+}
+
+/**
+ * An include under `-dce full` (genes-f8vc.14.12): `mr.inc.Card` is
+ * `@:keep`, a literal edit of `mr.Button` previews, and a new `@:keep` class
+ * in the included folder that calls the private `mr.Button.unused()` is
+ * refused (`include-changed`), because cold then keeps `unused`.
+ * `extraArgs` go to every request, `programRoots` to the full requests.
+ */
+function dceFullIncludeGroup(name: string, extraArgs: ReadonlyArray<string>,
+    programRoots: ReadonlyArray<string>): Group {
+  const button = (from: string, to: string) => () => edit("Button.hx", from, to);
+  return {
+    name,
+    extraArgs,
+    files: {
+      "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+        + `    return 'card ' + mr.Theme.color();\n  }\n}\n`
+    },
+    programRoots,
+    steps: [
+      { id: `${name}: literal edit beside an include`, apply: button("return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview" },
+      { id: `${name}: a new kept file of the include uses a field of the edited module (include-changed)`,
+        apply: () => {
+          addSource("mr/inc/Caller.hx", `package mr.inc;\n\n@:keep\nclass Caller {\n`
+            + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n`);
+          edit("Button.hx", "return 'Save!';", "return 'Save';");
+        }, module: "mr.Button", expect: "include-changed" }
+    ]
+  };
 }
 
 /**

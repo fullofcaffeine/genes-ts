@@ -1365,6 +1365,10 @@ class ModuleRequest {
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
       return;
+    // The files of the `include` lines before Haxe walks them (`ProgramRoots`,
+    // genes-f8vc.14.12): only a full request with module records stores roots.
+    if (descriptor.moduleRecords == true && descriptor.kind.match(Full))
+      ProgramRoots.beginRequest();
     // Only module records and module requests use the cache facts.
     if (descriptor.moduleRecords == true || descriptor.kind.match(Module(_))) {
       cacheFactsFile = descriptor.path + CACHE_FACTS_SUFFIX;
@@ -2143,6 +2147,7 @@ class ModuleRequest {
    * two different reads, give no status, so the file is never trusted by
    * its status (`holdsContent`) or proven by it (`provenSource`).
    */
+  @:allow(genes.incremental.ProgramRoots)
   static function readSource(file: String): SourceContent {
     final started = haxe.Timer.stamp();
     final readAt = Sys.time() * 1000;
@@ -2160,6 +2165,7 @@ class ModuleRequest {
   }
 
   /** Returns the status of `file` with the moment `readAt`, or `null` when it cannot be read. */
+  @:allow(genes.incremental.ProgramRoots)
   static function statusOf(file: String, readAt: Float): Null<SourceStat> {
     return try {
       final stat = FileSystem.stat(file);
@@ -2180,6 +2186,7 @@ class ModuleRequest {
    * size, modification time, change time and inode. `readAt` is not
    * compared.
    */
+  @:allow(genes.incremental.ProgramRoots)
   static function sameStatus(left: SourceStat, right: SourceStat): Bool {
     return left.size == right.size
       && left.mtime == right.mtime
@@ -3663,6 +3670,7 @@ class ModuleRequest {
     storedClassFacts = new Map();
     advancedModules = new Map();
     advancedSnapshot = null;
+    storedRoots = {classNames: [], includes: [], unknown: []};
   }
 
   /**
