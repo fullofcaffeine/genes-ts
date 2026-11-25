@@ -972,6 +972,17 @@ read the roots: an option that it does not know, `--next`, `--each` or
 that was not in the stored program and whose file changed while the full
 request ran.
 
+Known gap (review round 3 of #269, tracked as genes-f8vc.14.24): a listed
+file that had a class can lose its declarations between the first walk of
+the include folders and Haxe's own walk, and then be saved back inside the
+same whole second, without `server/invalidate` for the second save. That
+needs two saves inside one whole second around the start of a full request.
+Haxe then keeps a parse that Genes never noted, and the old digest stays
+proven, so a later full request differs from cold and a preview after it is
+stale. No row covers it yet. The development session sends
+`server/invalidate` for each changed file that it sees, which makes Haxe
+parse the file again.
+
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
 literal arguments); every other macro that adds modules must stay in it.

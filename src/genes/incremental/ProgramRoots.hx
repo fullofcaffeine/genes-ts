@@ -155,6 +155,16 @@ private typedef IncludeCall = {
  * that Haxe types). A module request reads every included folder and each
  * file without a declaration again.
  *
+ * Known gap (review round 3 of #269, tracked as genes-f8vc.14.24): a listed
+ * file that had a class can lose its declarations between the first walk
+ * and Haxe's own walk, and then be saved back inside the same whole second,
+ * without `server/invalidate` for the second save. That needs two saves
+ * inside one whole second around the start of a full request. Haxe then
+ * keeps a parse that Genes never noted, and the old digest stays proven, so
+ * a later full request differs from cold and a preview after it is stale.
+ * The development session sends `server/invalidate` for each changed file
+ * that it sees, which makes Haxe parse the file again.
+ *
  * What it does not claim: an init macro other than `include` that loads a
  * module by name is not read; such a module is not counted as staying, so
  * the request is refused under `-dce std` (`module-may-leave`).
