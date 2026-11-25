@@ -44,13 +44,30 @@ private typedef JsxContextFunction = {
 class JsxContext {
   static final DEFAULT_INTRINSIC_PROVIDER = 'genes.react.IntrinsicElements';
 
+  /**
+   * The property contract of each intrinsic tag that this compilation has
+   * looked up, by tag name; `null` when the tag has none.
+   *
+   * Why: every intrinsic element of every markup literal asked for its
+   * contract again. Each lookup copied all static fields of the provider
+   * class and the metadata of each one, and then the fields of the props
+   * type with its parent interfaces. On a warm Caffeine edit the two typed
+   * modules have 373 intrinsic elements, and these lookups took about 0.4 s
+   * (genes-gz0l).
+   *
+   * Why it is safe: the answer depends only on the tag name, the
+   * `genes.react.jsx_intrinsic_providers` define and the extern provider
+   * classes, and none of them changes during one compilation. Callers only
+   * read the map. It is an ordinary static, so Haxe makes it empty again at
+   * the start of each compilation, also on a compilation server.
+   */
+  static var intrinsicContracts: Map<String, Null<Map<String,
+    Type>>> = new Map();
+
   public static function contextualize(tagName: String, tag: Expr,
       intrinsic: Bool, props: Array<JsxContextProp>): Map<Int, Expr> {
-    final propsType = intrinsic ? intrinsicPropsType(tagName) : componentPropsType(Context.typeExpr(tag)
-      .t);
-    if (propsType == null)
-      return [];
-    final fields = propertyFields(propsType);
+    final fields = intrinsic ? intrinsicContract(tagName) : contractOf(componentPropsType(Context.typeExpr(tag)
+      .t));
     if (fields == null)
       return [];
 
@@ -236,6 +253,23 @@ class JsxContext {
         Context.getType(path);
       default: null;
     }
+  }
+
+  /** Returns the property fields of a props type, or `null` when it has none. */
+  static function contractOf(propsType: Null<Type>): Null<Map<String, Type>> {
+    return propsType == null ? null : propertyFields(propsType);
+  }
+
+  /**
+   * Returns the property contract of the intrinsic tag `name`, from
+   * `intrinsicContracts` after the first lookup in this compilation.
+   */
+  static function intrinsicContract(name: String): Null<Map<String, Type>> {
+    if (intrinsicContracts.exists(name))
+      return intrinsicContracts.get(name);
+    final fields = contractOf(intrinsicPropsType(name));
+    intrinsicContracts.set(name, fields);
+    return fields;
   }
 
   static function intrinsicPropsType(name: String): Null<Type> {

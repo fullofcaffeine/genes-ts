@@ -183,6 +183,22 @@ typedef AfterTypingReport = {
   final walkMs: Float;
 
   /**
+   * Typed field bodies that the class walk copied from classes that arrived
+   * `Kept` (format 3, genes-gz0l). A pass that finds its record or bucket
+   * of such a class kept reads none of its bodies, and `PublicSurface`
+   * reads a body only when a printer asks (`PublicMember.expr`). So in a
+   * `reuse` request where every record is kept, the count is 0. A pass
+   * that rejects a record (for example `SignatureCache` after a changed
+   * member list) reads the bodies of that class and counts them.
+   *
+   * Why a count: a body copy is the most costly read of the walk (about 2 s
+   * for the 1,300 classes of a Caffeine request before genes-gz0l), and a
+   * count does not depend on the speed of the host, so a gate can require
+   * it.
+   */
+  final keptBodyReads: Int;
+
+  /**
    * The part of `walkMs` that each pass used, in the order of the passes.
    * Empty in a report that was written before the passes ended.
    */
@@ -313,8 +329,11 @@ class GenerationChangeSet {
   /** The metadata name that the same-object test adds and removes again. */
   public static inline final SAME_OBJECT_META = ':genes.sameObject';
 
-  /** The format of the kept records, of the kept buckets and of the report. */
-  public static inline final FORMAT = 2;
+  /**
+   * The format of the kept records, of the kept buckets and of the report.
+   * Format 3 adds `keptBodyReads` to the report (genes-gz0l).
+   */
+  public static inline final FORMAT = 3;
 
   static inline final MODULE_LIMIT = 100;
 
@@ -367,6 +386,7 @@ class GenerationChangeSet {
   static var sessionKeySeconds = 0.0;
   static var memberSeconds = 0.0;
   static var walkSeconds = 0.0;
+  static var keptBodyReads = 0;
   static var complete = false;
   static var reportWarned = false;
   static var sameObjectTokens = 0;
@@ -858,6 +878,15 @@ class GenerationChangeSet {
   }
 
   /**
+   * Counts one typed field body that the class walk copied from a class that
+   * arrived `Kept` (`AfterTypingClass.body`), for `keptBodyReads` in the
+   * report.
+   */
+  public static function recordKeptBodyRead(): Void {
+    keptBodyReads++;
+  }
+
+  /**
    * Adds the time that one pass used in the walk of one declaration list.
    * `AfterTypingPasses.run` calls it after the walk, once for the class
    * function and once for the declaration function of each pass.
@@ -934,6 +963,7 @@ class GenerationChangeSet {
       sessionKeyMs: milliseconds(sessionKeySeconds),
       memberListMs: milliseconds(memberSeconds),
       walkMs: milliseconds(walkSeconds),
+      keptBodyReads: keptBodyReads,
       passTimes: [
         for (pass in passOrder) {
           final classSeconds = passClassSeconds.get(pass);

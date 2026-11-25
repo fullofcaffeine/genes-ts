@@ -83,6 +83,20 @@ the kept records and the kept buckets must be above 0; in `reuse` the skipped
 audits and captures too; for the buckets also the same-object tests, and in
 `compare` the compared answers. The compare failures must be 0.
 
+Body reads of kept classes (genes-gz0l, report format 3): `keptBodyReads`
+counts the typed field bodies that the walk copied from classes that Haxe
+kept. In each `reuse` request with no edit in which `SignatureCache` did no
+work, it must be 0: every record and bucket is kept, so no pass reads such
+a body, and `PublicSurface` reads a body only when a printer asks for it
+(`PublicMember.expr`). Row "no edit with the deep type" is left out:
+`Lone` gets no bucket, so `SignatureCache` captures it in each request and
+reads its bodies (3). At least one request of the full gate must apply the
+rule. In `measure` and
+`compare` it must be above 0, so the rule cannot pass because nothing is
+counted. Red before the change: `--lanes=project-a --modes=reuse,measure`
+failed with `project-a reuse "no edit": the walk copied 480 typed bodies of
+classes that Haxe kept`.
+
 Rows of the `kept-types` list that only a complete keep rule passes, each
 for the `SignatureCache` bucket:
 
@@ -295,11 +309,12 @@ when the reuse pass replayed none.
 A replayed module is not printed, so its own stages read none of its typed
 bodies (genes-wcd0). The report counts the bodies that Genes read for the
 replayed modules outside the replay audit (`replayedBodyReads`, report
-format 6). The count does not depend on host speed. Two reads stay eager and
-are not counted: the constructor body in `Module.fieldsOf` (it gives the
-field its type and position), and the overload signatures that
-`PublicMember.capture` reads (the review of genes-ts #263 measured 21 such
-reads in the `no edit` row).
+format 6). The count does not depend on host speed. One read stays eager and
+is not counted: the constructor body in `Module.fieldsOf` (it gives the
+field its type and position). The bodies of overload signatures were also
+eager until genes-gz0l; `PublicMember.expr` now reads them on first use, and
+such a read is not counted either (the review of genes-ts #263 measured 21
+eager reads of both kinds in the `no edit` row).
 
 The gate requires 0 on every request. That holds only because no fixture
 has a dirty module that calls `resolveModuleFunction` on a clean module.

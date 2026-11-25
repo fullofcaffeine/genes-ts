@@ -464,33 +464,55 @@ class OutputTransaction {
       throw new haxe.Exception('Genes output path traverses a symbolic link: $link');
   }
 
+  /**
+   * Returns the first existing path from `path` up to the output root whose
+   * resolved form differs from its lexical form, or `null` when there is
+   * none. See `assertNoSymlinkTraversal`.
+   *
+   * Each path of the walk is made absolute and normal once
+   * (`absolutePath`), and its comparable form is made from that text
+   * (`comparableNormal`). Before genes-gz0l the loop normalized the same
+   * texts again for each comparison: about 30 normalizations for each
+   * staged file, and about 0.3 s of a warm Caffeine request that stages 760
+   * files. The checks and their order are the same.
+   */
   function firstSymlinkTraversal(path: String): Null<String> {
     var current = absolutePath(path);
     final comparableRoot = comparablePath(outputRoot);
     final comparablePrefix = comparableRoot.endsWith('/') ? comparableRoot : comparableRoot
       + '/';
-    final comparableCandidate = comparablePath(current);
-    if (comparableCandidate != comparableRoot
-      && !comparableCandidate.startsWith(comparablePrefix))
+    var comparableCurrent = comparableNormal(current);
+    if (comparableCurrent != comparableRoot
+      && !comparableCurrent.startsWith(comparablePrefix))
       throw new haxe.Exception('Genes output path escapes $outputRoot: $current');
 
     while (true) {
       if (FileSystem.exists(current)) {
         final resolved = absolutePath(FileSystem.fullPath(current));
-        if (comparablePath(resolved) != comparablePath(current))
+        if (comparableNormal(resolved) != comparableCurrent)
           return current;
       }
-      if (comparablePath(current) == comparableRoot)
+      if (comparableCurrent == comparableRoot)
         return null;
       final parent = absolutePath(Path.directory(current));
-      if (comparablePath(parent) == comparablePath(current))
+      final comparableParent = comparableNormal(parent);
+      if (comparableParent == comparableCurrent)
         throw new haxe.Exception('Genes output path escapes $outputRoot: $path');
       current = parent;
+      comparableCurrent = comparableParent;
     }
   }
 
   static function comparablePath(path: String): String {
-    final normalized = absolutePath(path);
+    return comparableNormal(absolutePath(path));
+  }
+
+  /**
+   * Returns the comparable form of a path that `absolutePath` already
+   * returned. `absolutePath` gives the same text again for such a path (it
+   * is absolute, normal and uses `/`), so this skips that second pass.
+   */
+  static function comparableNormal(normalized: String): String {
     #if windows
     return normalized.toLowerCase();
     #else

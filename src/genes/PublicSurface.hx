@@ -111,7 +111,30 @@ class PublicMember {
   public final type: Type;
   public final kind: FieldKind;
   public final meta: MetaAccess;
-  public final expr: Null<TypedExpr>;
+
+  /**
+   * The typed body of the member, or `null` when it has none.
+   *
+   * Genes reads it from Haxe the first time a caller asks, not when the
+   * surface is captured, and then keeps it. Example: a warm Caffeine request
+   * captures the surfaces of about 1,300 classes and reads none of their
+   * bodies; before genes-gz0l these copies took about 2 s of every request.
+   *
+   * Consumers: classic declarations (`DefinitionEmitter`) read it for the
+   * `@:ts.type` of a method argument, which is metadata on the argument
+   * variable of the body. The TypeScript profile reads no body of a
+   * captured surface: its consumers (`DependencyPlanBuilder`,
+   * `TsModuleEmitter.emitTsInterface`, `LibraryProfile`) read only types,
+   * metadata and names.
+   *
+   * Why the late read keeps warm output equal to cold output: the body is
+   * the one that Haxe holds when the caller asks, in a cold and in a warm
+   * request alike. The earlier eager read was not: it saw the body before
+   * Haxe's filters in a cold build, and the already filtered body of a class
+   * that a warm server kept.
+   */
+  public var expr(get, never): Null<TypedExpr>;
+
   public final pos: Position;
   public final doc: Null<String>;
   public final isStatic: Bool;
@@ -126,6 +149,12 @@ class PublicMember {
   final parameterValues: Array<TypeParameter>;
   final overloadValues: Array<PublicMember>;
 
+  /** The body, once it is read. */
+  var exprValue: Null<TypedExpr> = null;
+
+  /** Reads the body from Haxe; `null` after the first read. */
+  var readExpr: Null<Void->Null<TypedExpr>>;
+
   public var parameters(get, never): ReadOnlyArray<TypeParameter>;
   public var overloads(get, never): ReadOnlyArray<PublicMember>;
 
@@ -137,8 +166,21 @@ class PublicMember {
     return overloadValues;
   }
 
+  function get_expr(): Null<TypedExpr> {
+    final read = readExpr;
+    if (read != null) {
+      readExpr = null;
+      exprValue = read();
+    }
+    return exprValue;
+  }
+
+  /**
+   * Makes one member. `readExpr` returns the typed body; it runs at most
+   * once, on the first access of `expr`.
+   */
   public function new(name: String, type: Type, kind: FieldKind,
-      meta: MetaAccess, expr: Null<TypedExpr>, pos: Position,
+      meta: MetaAccess, readExpr: Void->Null<TypedExpr>, pos: Position,
       doc: Null<String>, isStatic: Bool, isConstructor: Bool, isFinal: Bool,
       isCompilerGenerated: Bool, ownership: PublicMemberOwnership,
       #if (haxe_ver >= 4.2) isAbstract: Bool, #end
@@ -147,7 +189,7 @@ class PublicMember {
     this.type = type;
     this.kind = kind;
     this.meta = meta;
-    this.expr = expr;
+    this.readExpr = readExpr;
     this.pos = pos;
     this.doc = doc;
     this.isStatic = isStatic;
@@ -165,37 +207,34 @@ class PublicMember {
   /**
    * Copies the declared facts of one field.
    *
-   * `afterTyping` is set only by the `onAfterTyping` capture. It is the
-   * shared view of the declaring class, and it makes this capture read the
-   * field body that the other after-typing passes read, instead of a new copy
-   * of the typed expression tree. A later capture omits it and reads the body
-   * that the field has at that time. Overload signatures share the name of
-   * their field, so they always read their own body.
+   * The typed body is not copied here: `expr` reads it from `field` on first
+   * use (see `expr`). Overload signatures share the name of their field, so
+   * each one reads its own body in the same way.
    */
   public static function capture(field: ClassField, isStatic: Bool,
       isConstructor = false, captureOverloads = true,
-      ?ownership: PublicMemberOwnership,
-      ?afterTyping: AfterTypingClass): PublicMember {
+      ?ownership: PublicMemberOwnership): PublicMember {
     final resolvedOwnership = ownership == null ? (isStatic ? Static : Instance) : ownership;
     final capturedOverloads = captureOverloads ? [
       for (signature in field.overloads.get())
         capture(signature, isStatic, isConstructor, false, resolvedOwnership)
     ] : [];
-    final body = afterTyping == null ? field.expr() : afterTyping.body(field,
-      isStatic);
     return new PublicMember(field.name, field.type, field.kind, field.meta,
-      body, field.pos, field.doc, isStatic, isConstructor, field.isFinal,
-      field.meta.has(':compilerGenerated'), resolvedOwnership,
+      field.expr, field.pos, field.doc, isStatic, isConstructor,
+      field.isFinal, field.meta.has(':compilerGenerated'), resolvedOwnership,
       #if (haxe_ver >= 4.2) field.isAbstract, #end field.params,
       capturedOverloads);
   }
 
   public function substitute(ownerParameters: Array<TypeParameter>,
       concreteTypes: Array<Type>): PublicMember {
+    // The copy shares this member's body: it reads it through `expr`, so
+    // the body is read at most once for all copies.
     return new PublicMember(name,
       type.applyTypeParameters(ownerParameters, concreteTypes), kind, meta,
-      expr, pos, doc, isStatic, isConstructor, isFinal, isCompilerGenerated,
-      ownership, #if (haxe_ver >= 4.2) isAbstract, #end parameterValues, [
+      () -> expr, pos, doc, isStatic, isConstructor, isFinal,
+      isCompilerGenerated, ownership, #if (haxe_ver >= 4.2) isAbstract, #end
+      parameterValues, [
         for (signature in overloadValues)
           signature.substitute(ownerParameters, concreteTypes)
       ]);
@@ -330,20 +369,19 @@ class PublicSurface {
     };
     final constructor = constructorField != null
       && constructorField.isPublic ? PublicMember.capture(constructorField,
-        false, true, true, Instance, afterTyping) : null;
+        false, true, true, Instance) : null;
     final fields = afterTyping != null ? afterTyping.fields() : cl.fields.get();
     final statics = afterTyping != null ? afterTyping.statics() : cl.statics.get();
     return new PublicSurface(cl.isInterface ? Interface : Class, cl, [
       for (field in fields)
         if (field.isPublic && !CompilerInternal.isField(field.meta))
           PublicMember.capture(field, false, false, true, ownershipFor(cl,
-            field, false),
-          afterTyping)
+            field, false))
     ], [
       for (field in statics)
         if (field.isPublic && !CompilerInternal.isField(field.meta))
           PublicMember.capture(field, true, false, true, ownershipFor(cl,
-            field, true), afterTyping)
+            field, true))
     ], constructor, switch cl.superClass {
       case null: null;
       case parent: new PublicTypeUse(parent.t, parent.params);
