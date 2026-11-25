@@ -176,6 +176,38 @@ A host must ignore an event whose `kind` it does not know. Version 1 can
 gain a kind that a host did not opt into; the session emits such a kind only
 when the host asks for the feature that produces it.
 
+A `compiler-lifecycle` event with `kind: "started"` reports a new owned Haxe
+server. The development session's server takes requests on its standard
+streams (`haxe --wait stdio`), so its endpoint is
+`{"transport":"stdio","argument":"stdio"}`. A server with the loopback
+transport of `OwnedHaxeWaitServer` reports `{"host","port","argument"}`. The
+schema accepts both shapes. This widens version 1 without a new version: the
+event kind and its meaning did not change. A host must not assume a port.
+
+A `compiler-lifecycle` event with `kind: "transport-failed"` reports that the
+pipe to the session's server broke without a stop request (`reason`), with
+the first 64 bytes that broke the frame (`firstBytes`; for example a macro's
+direct `Sys.stderr()` write). The session replaces the private paths that it
+knows (project, state, candidates, declared external roots) before it cuts
+the text to 64 bytes. `firstBytes` is no secret filter: other text that a
+macro prints stays, the same exposure as compiler error text. A planned stop
+(a new compatibility digest, a fresh cache, `close()`) is not reported.
+
+When the pipe breaks during a build, the session builds the same revision on
+a new server. After a second failure in a row it builds in a new Haxe process
+for each request (`compilerMode: "direct"`). A break while the server is
+idle starts no build; the next build replaces the server. A host that does
+not know this kind ignores it.
+
+A host that subscribes after `start()` (for example a browser server that
+opens after `firstAccepted`) has not seen the first `generation-accepted`
+event. It reads `inspect().accepted` after it subscribes, as for any late
+subscriber. A host that shows candidate files before the strict check needs
+this: without the accepted tree, it cannot tell which files of the first edit
+changed, so it does not show that edit first. Every startup tree reaches the
+host validator first, so the host can look up the accepted tree by its
+`manifestDigest`.
+
 A session with `generationReuse` (Genes replays the output of unchanged
 modules) emits `output-check` events. `check: "replay-audit"` reports a
 candidate whose Genes rolling replay audit found stale modules (`modules`

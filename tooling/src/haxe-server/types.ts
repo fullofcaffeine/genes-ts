@@ -1,8 +1,32 @@
-export interface HaxeWaitEndpoint {
+/**
+ * The loopback address of an owned `haxe --server-listen 127.0.0.1:PORT`
+ * server. A client opens one TCP connection for each request.
+ */
+export interface HaxeWaitLoopbackEndpoint {
   readonly host: "127.0.0.1";
   readonly port: number;
   readonly argument: string;
 }
+
+/**
+ * The standard streams of an owned `haxe --wait stdio` server. The owner
+ * writes each request to the server's standard input and reads each answer
+ * from its standard error, as one length-prefixed frame. Only the process
+ * that started the server can reach it; no other client can connect.
+ */
+export interface HaxeWaitStdioEndpoint {
+  readonly transport: "stdio";
+  readonly argument: "stdio";
+}
+
+/** Where an owned server takes requests. */
+export type HaxeWaitEndpoint = HaxeWaitLoopbackEndpoint | HaxeWaitStdioEndpoint;
+
+/**
+ * How an owned server takes requests: `loopback` (one TCP connection for each
+ * request, the default) or `stdio` (one pipe that stays open).
+ */
+export type HaxeWaitTransport = "loopback" | "stdio";
 
 export interface HaxeWaitProcessExit {
   readonly code: number | null;
@@ -43,6 +67,23 @@ export type HaxeWaitServerEvent =
   | {
       readonly kind: "shutdown-timeout";
       readonly pid: number;
+    }
+  | {
+      /**
+       * The pipe to a `stdio` server broke without a stop request.
+       * `OwnedHaxeWaitServer` never emits it; the development session's
+       * compiler does, before it replaces the server. `reason` says what
+       * broke. `firstBytes` holds the bytes that broke the frame as UTF-8,
+       * for example `"noise from a macro\n"` when a macro wrote to
+       * `Sys.stderr()`: the compiler passes up to 1 KiB raw, and the
+       * session removes the paths that it knows as private (project,
+       * state, candidates, declared external roots) and then keeps the
+       * first 64 bytes. It is no secret filter: other text that a macro
+       * prints stays, the same exposure as compiler error text.
+       */
+      readonly kind: "transport-failed";
+      readonly reason: string;
+      readonly firstBytes: string;
     };
 
 export interface HaxeWaitEnsureResult {
@@ -64,7 +105,13 @@ export interface OwnedHaxeWaitServerOptions<Result> {
     endpoint: HaxeWaitEndpoint,
   ) => Promise<Result>;
   readonly compileDirect: () => Promise<Result>;
-  readonly reserveEndpoint?: () => Promise<HaxeWaitEndpoint>;
+  /**
+   * `stdio` starts the server on its standard streams: no port is reserved,
+   * `start`, `probe` and `compileConnected` receive the fixed stdio endpoint,
+   * and the lease records no address. Default `loopback`.
+   */
+  readonly transport?: HaxeWaitTransport;
+  readonly reserveEndpoint?: () => Promise<HaxeWaitLoopbackEndpoint>;
   readonly onEvent?: (event: HaxeWaitServerEvent) => void;
   readonly readinessTimeoutMs?: number;
   readonly probeIntervalMs?: number;

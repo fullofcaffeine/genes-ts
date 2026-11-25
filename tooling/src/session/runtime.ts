@@ -33,8 +33,10 @@ import {
 } from "../watch/index.js";
 import { assertRealInputTrees } from "../watch/reconciled-watch.js";
 import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
+import { FIRST_BYTES_RAW_LIMIT } from "./haxe-stdio-channel.js";
 import {
   HaxeSessionCompiler,
+  type HaxeSessionCompilerOptions,
   snapshotHaxeInvocation,
   type CompilerResult,
   type SessionCompiler,
@@ -121,12 +123,20 @@ import {
   type HaxeInvocation,
   type JsonValue,
   type ColdBuildCheck,
+  type CompilerServerQueryMethod,
   type OutputCheck,
   type SessionFailure,
   type ValidationTree,
 } from "./types.js";
 
 const DEFAULT_DEBOUNCE_MS = 100;
+/**
+ * `GenesDevelopmentOptions.startDelayMs` when the host gives none: a save
+ * after an idle period starts its build 10 ms after the file event.
+ */
+const DEFAULT_START_DELAY_MS = 10;
+/** The most bytes of `firstBytes` that a `transport-failed` event reports. */
+const REPORTED_FIRST_BYTES = 64;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 /** `GenerationReuseOptions.auditModules` when the host gives none. */
 const DEFAULT_AUDIT_MODULES = 2;
@@ -420,6 +430,7 @@ interface SessionDependencies<Diagnostic extends JsonValue> {
     layout: SessionLayout,
     onEvent: (event: HaxeWaitServerEvent) => void,
     shutdownTimeoutMs: number,
+    compilerOptions: HaxeSessionCompilerOptions,
   ) => SessionCompiler;
   readonly publish: (options: Parameters<typeof publishArtifacts>[0]) => Promise<PublicationOutcome>;
   readonly recover: (options: Parameters<typeof recoverArtifacts>[0]) => Promise<RecoveryOutcome>;
@@ -434,8 +445,8 @@ const REAL_DEPENDENCIES: SessionDependencies<JsonValue> = {
   now: () => Date.now(),
   inventory: inventoryHxmlForDevelopmentSession,
   watch: watchReconciledInputs,
-  createCompiler: (layout, onEvent, shutdownTimeoutMs) =>
-    new HaxeSessionCompiler(layout, onEvent, shutdownTimeoutMs),
+  createCompiler: (layout, onEvent, shutdownTimeoutMs, compilerOptions) =>
+    new HaxeSessionCompiler(layout, onEvent, shutdownTimeoutMs, compilerOptions),
   publish: publishArtifacts,
   recover: recoverArtifacts,
   acquireLock: acquireSessionLock,
@@ -732,13 +743,43 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (!Number.isInteger(shutdownTimeoutMs) || shutdownTimeoutMs <= 0) {
       throw new Error("shutdownTimeoutMs must be a positive integer");
     }
+    const idleCollection = options.compilerServerIdleCollection;
+    const idleDelay =
+      typeof idleCollection === "object" && idleCollection !== null
+        ? idleCollection.delayMs
+        : undefined;
+    if (
+      idleCollection !== undefined &&
+      idleCollection !== false &&
+      (typeof idleCollection !== "object" ||
+        idleCollection === null ||
+        (idleDelay !== undefined &&
+          (!Number.isInteger(idleDelay) || idleDelay < 0 || idleDelay > 600_000)))
+    ) {
+      throw new Error(
+        "compilerServerIdleCollection must be false or { delayMs } with a whole number from 0 to 600000",
+      );
+    }
     this.#compiler = dependencies.createCompiler(
       this.#layout,
       (event) => {
-        this.#lastCompilerEvent = event;
-        this.#emit({ kind: "compiler-lifecycle", event });
+        // Bytes that broke the pipe can name private folders.
+        const reported: HaxeWaitServerEvent =
+          event.kind === "transport-failed"
+            ? Object.freeze({
+                kind: "transport-failed",
+                reason: this.#sanitizeCoreMessage(event.reason),
+                firstBytes: this.#reportedFirstBytes(event.firstBytes),
+              })
+            : event;
+        this.#lastCompilerEvent = reported;
+        this.#emit({ kind: "compiler-lifecycle", event: reported });
       },
       shutdownTimeoutMs,
+      Object.freeze({
+        idleCollection: idleCollection !== false,
+        ...(idleDelay === undefined ? {} : { idleCollectionDelayMs: idleDelay }),
+      }),
     );
     this.#firstAcceptedPromise = new Promise((resolve, reject) => {
       this.#resolveFirstAccepted = resolve;
@@ -747,8 +788,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     // A host may attach after start. Keep Node from classifying the deliberate
     // fatal/close rejection as unhandled before that attachment.
     void this.#firstAcceptedPromise.catch(() => undefined);
+    const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.#loop = new SerializedDirtyLoop<BuildCause>({
-      debounceMs: options.debounceMs ?? DEFAULT_DEBOUNCE_MS,
+      debounceMs,
+      startDelayMs: Math.min(
+        options.startDelayMs ?? DEFAULT_START_DELAY_MS,
+        debounceMs,
+      ),
       merge: mergeCause,
       run: (cause) => this.#build(cause),
       onError: (error) => {
@@ -1202,6 +1248,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       });
     }
     return this.#watch.reconcile();
+  }
+
+  async queryCompilerServer(
+    method: CompilerServerQueryMethod,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (this.#closing !== null || this.#compiler.query === undefined) {
+      return null;
+    }
+    return await this.#compiler.query(method, signal);
   }
 
   async waitForIdle(): Promise<void> {
@@ -2753,6 +2809,63 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       ...this.#layout.candidatesRelative.split("/"),
     );
     rmSync(absolute, { recursive: true, force: true });
+  }
+
+  /**
+   * Returns the `firstBytes` of a `transport-failed` event as the session
+   * reports it: private paths removed, then at most
+   * `REPORTED_FIRST_BYTES` bytes, cut at a character boundary.
+   *
+   * The compiler passes up to `FIRST_BYTES_RAW_LIMIT` raw bytes. Cutting
+   * before the paths are removed could leave the start of a private path
+   * that no longer matches, for example `/Users/me/work/proj` cut to
+   * `/Users/me/wo`. So the raw text is cut only after the replacement. When
+   * the raw text itself was cut at its limit, a tail that is the start of a
+   * private root is dropped first.
+   */
+  #reportedFirstBytes(raw: string): string {
+    let text = raw;
+    if (Buffer.byteLength(text, "utf8") >= FIRST_BYTES_RAW_LIMIT) {
+      for (const root of this.#privateRoots()) {
+        for (let length = Math.min(root.length, text.length); length > 0; length -= 1) {
+          if (text.endsWith(root.slice(0, length))) {
+            text = text.slice(0, text.length - length);
+            break;
+          }
+        }
+      }
+    }
+    let kept = "";
+    let bytes = 0;
+    for (const character of this.#sanitizeCoreMessage(text)) {
+      const size = Buffer.byteLength(character, "utf8");
+      if (bytes + size > REPORTED_FIRST_BYTES) break;
+      kept += character;
+      bytes += size;
+    }
+    return kept;
+  }
+
+  /** The folders that `#sanitizeCoreMessage` replaces, in its spellings. */
+  #privateRoots(): readonly string[] {
+    const roots = [
+      path.join(
+        this.#layout.projectRoot,
+        ...this.#layout.candidatesRelative.split("/"),
+      ),
+      this.#layout.stateRoot,
+      this.#layout.projectRoot,
+      ...(this.#inventory?.allowedRoots ?? this.#options.hxml.allowedRoots),
+    ];
+    return roots.flatMap((root) => {
+      const absolute = path.resolve(root);
+      try {
+        const real = realpathSync.native(absolute);
+        return real === absolute ? [absolute] : [absolute, real];
+      } catch {
+        return [absolute];
+      }
+    });
   }
 
   #sanitizeCoreMessage(

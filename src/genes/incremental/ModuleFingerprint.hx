@@ -28,7 +28,8 @@ typedef ClassParts = {
  * sees such a change.
  *
  * What, for each declaration of the module in the generator's list (after
- * dead-code elimination), in that order:
+ * dead-code elimination), in list order, except that the declarations that
+ * are never printed come sorted at the end (see "Order" below):
  *
  * - the declaration key;
  * - a class: parent class and interface names, `extern`, `interface`, whether
@@ -107,6 +108,39 @@ typedef ClassParts = {
  * variable or argument. Two body holders stay out: the metadata of a local
  * variable itself, and a structure that only the type of an expression
  * names (see "Body metadata" in `docs/INCREMENTAL_AFTER_TYPING.md`).
+ *
+ * Order (genes-zt9w): `of` keeps the list order of each declaration that
+ * can be a member of the module's output (a class, an enum or a typedef
+ * that is not extern). It sorts the declarations that can never be members
+ * by their own text (`sortedText`) and puts them after the others: an
+ * abstract, an extern class or an extern enum. `Generator.typesPerModule`
+ * drops these, and the walk of reachability never adds one, so Genes never
+ * prints them; their place in the list cannot change output.
+ *
+ * Why: Haxe 4.3.7 builds the generator's list with
+ * `Finalization.sort_types`. It visits the modules by path, and before a
+ * class it adds the parent class, the interfaces and the types that its
+ * static initializers reach. So a declaration can move within its module's
+ * part of the list when another module changes. Example from Caffeine: on
+ * the first warm request after a cold build, the interface
+ * `haxe.Constraints.IMap` came before the abstracts of its module instead
+ * of after them. With every declaration in list order, `of` changed and
+ * every module fell back to a full generation once, although no output
+ * changed. Now the abstracts are sorted, and `IMap` is the only declaration
+ * in list order, so the text is the same.
+ *
+ * The order of the other declarations can reach output in two ways:
+ *
+ * - `Module.addTypes` adds members in list order, and the emitters print
+ *   them in that order. `members` holds that list in order too.
+ * - `Module.addTypes` keeps only the first of two declarations with the
+ *   same emitted name, for example two classes of one module with
+ *   `@:native("X")`. Their lines in `members` are equal, so only this
+ *   text shows which one is printed (review of genes-ts #262). After
+ *   `@:native`, both texts start with the same name; they still differ
+ *   because Haxe adds `@:realPath("<old name>")` when it applies
+ *   `@:native`, and `metaText` holds it. So `:realPath` must never be in
+ *   `EXCLUDED_META`.
  */
 class ModuleFingerprint {
   /**
@@ -163,28 +197,69 @@ class ModuleFingerprint {
   /** True while `addDeclaration` reads a declaration (see `BEFORE_DCE_EXCLUDED_META`). */
   static var readingBeforeDce = false;
 
-  /** Returns the fingerprint text of one module's declarations. */
+  /**
+   * Returns the fingerprint text of one module's declarations: the text of
+   * each declaration that can be a member, in list order, then the text of
+   * each declaration that can never be one, in `sortedText` order, then the
+   * module directives and the exposed names as the caller gives them.
+   *
+   * Example: `[IMap, Function]` and `[Function, IMap]` of
+   * `haxe.Constraints` give one text, because the abstract `Function` is
+   * never printed. `[OrderPairA, OrderPairB]` and `[OrderPairB, OrderPairA]`
+   * give two texts, because the printed order differs (see "Order" in the
+   * class comment).
+   */
   public static function of(types: Array<Type>, directives: Array<String>,
       exposed: Array<String>): String {
     final buffer = new StringBuf();
+    final neverPrinted = [];
     for (type in types) {
+      final text = new StringBuf();
+      var printable = true;
       switch type {
         case TInst(ref, _):
-          addClass(buffer, ref.get());
+          final cls = ref.get();
+          printable = !cls.isExtern;
+          addClass(text, cls);
         case TEnum(ref, _):
-          addEnum(buffer, ref.get());
+          final enm = ref.get();
+          printable = !enm.isExtern;
+          addEnum(text, enm);
         case TType(ref, _):
-          addTypedef(buffer, ref.get());
+          addTypedef(text, ref.get());
         case TAbstract(ref, _):
-          addAbstract(buffer, ref.get());
+          printable = false;
+          addAbstract(text, ref.get());
         default:
-          buffer.add('other');
+          text.add('other');
       }
-      buffer.add('\n');
+      text.add('\n');
+      if (printable)
+        buffer.add(text.toString());
+      else
+        neverPrinted.push(text.toString());
     }
+    buffer.add(sortedText(neverPrinted));
     buffer.add('directives ${directives.join('\x01')}\n');
     buffer.add('expose ${exposed.join(',')}\n');
     return buffer.toString();
+  }
+
+  /**
+   * Returns declaration texts joined in a canonical order: sorted as
+   * strings. Each text names its declaration first and ends with a line
+   * end, so the result does not depend on the order of Haxe's list.
+   *
+   * Use it only for declarations whose order cannot reach output: those
+   * that are never printed (`of`), those in no generator list (`unlisted`),
+   * and the classes of an extern-only module (`ofExtern`). Two equal texts
+   * are the same declaration fact, so their order among themselves does
+   * not matter.
+   */
+  static function sortedText(texts: Array<String>): String {
+    final sorted = texts.copy();
+    sorted.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    return sorted.join('');
   }
 
   /** Adds the text of one class, as `of` describes it. */
@@ -262,7 +337,10 @@ class ModuleFingerprint {
    * Returns the fingerprint part for the declarations of one module that
    * are in no generator list, or an empty text when there is none: one line,
    * `unlisted <digest>`, where the digest is `Context.signature` of the
-   * text that `of` gives each of these declarations, in Haxe's order.
+   * text that `of` gives each of these declarations, in `sortedText` order.
+   * Their order reaches no output: none of them is a member, and the walk
+   * adds a late member by the reference of another module, not by this
+   * order.
    *
    * Why (genes-f8vc.9.27): a printer can read the metadata of a declaration
    * that dead-code elimination removed, without adding it as a member.
@@ -289,8 +367,9 @@ class ModuleFingerprint {
    */
   public static function unlisted(types: Array<Type>,
       listed: BaseType->Bool): String {
-    final buffer = new StringBuf();
+    final texts = [];
     for (type in types) {
+      final buffer = new StringBuf();
       switch type {
         case TInst(ref, _):
           final cls = ref.get();
@@ -316,8 +395,9 @@ class ModuleFingerprint {
           continue;
       }
       buffer.add('\n');
+      texts.push(buffer.toString());
     }
-    final text = buffer.toString();
+    final text = sortedText(texts);
     return text.length == 0 ? '' : 'unlisted ${Context.signature(text)}\n';
   }
 
@@ -365,7 +445,10 @@ class ModuleFingerprint {
 
   /**
    * Returns the final member list of one module after the walk of
-   * reachability, as one text: one line for each member, in order.
+   * reachability, as one text: one line for each member, in order. The
+   * emitters print the members in this order. Two declarations with the
+   * same emitted name give equal lines here; `of` keeps their list order
+   * (see "Order" in the class comment).
    *
    * Why: the walk can add a declaration to a module because another module
    * refers to it (`Module.addTypes`), and the order of such additions is part
@@ -655,7 +738,9 @@ class ModuleFingerprint {
    * `extern inc.ExtApi @:native("globalThis") fields 0f3c...`.
    *
    * The caller passes the classes that it read to find that the module holds
-   * extern classes only, so each class is read once.
+   * extern classes only, so each class is read once. The lines are in
+   * `sortedText` order, so the order of the classes does not change the
+   * text (genes-zt9w): an extern class is never printed.
    *
    * Cost: Haxe copies every field of every extern class into the macro
    * interpreter to give this text. On the shadow fixture (318 extern-only
@@ -667,8 +752,9 @@ class ModuleFingerprint {
    * stale replay, so every extern-only module is read.
    */
   public static function ofExtern(classes: Array<ClassType>): String {
-    final buffer = new StringBuf();
+    final texts = [];
     for (cls in classes) {
+      final buffer = new StringBuf();
       buffer.add('extern ${TypeUtil.baseTypeFullName(cls)}');
       addMeta(buffer, cls.meta);
       final fields = new StringBuf();
@@ -683,8 +769,9 @@ class ModuleFingerprint {
       if (text.length > 0)
         buffer.add(' fields ' + Context.signature(text));
       buffer.add('\n');
+      texts.push(buffer.toString());
     }
-    return buffer.toString();
+    return sortedText(texts);
   }
 
   /**

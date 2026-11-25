@@ -288,6 +288,33 @@ for (const [outputCheck, valid] of [
     `output-check ${JSON.stringify(outputCheck)} must be ${valid ? "valid" : "rejected"}`,
   );
 }
+// Parity stage 0 (genes-19wt): the `started` endpoint is either a loopback
+// address or the fixed stdio endpoint, never a mix; `transport-failed`
+// reports why the stdio pipe broke.
+for (const [event, valid] of [
+  [{ kind: "started", endpoint: { host: "127.0.0.1", port: 6000, argument: "127.0.0.1:6000" } }, true],
+  [{ kind: "started", endpoint: { transport: "stdio", argument: "stdio" } }, true],
+  [{ kind: "started", endpoint: { transport: "stdio", argument: "stdio", port: 6000 } }, false],
+  [{ kind: "started", endpoint: { host: "127.0.0.1", port: 6000, argument: "stdio", transport: "stdio" } }, false],
+  [{ kind: "started", endpoint: { transport: "stdio", argument: "127.0.0.1:6000" } }, false],
+  [{ kind: "started", endpoint: { transport: "tcp", argument: "stdio" } }, false],
+  [{ kind: "transport-failed", reason: "bytes arrived outside a frame while no request waited", firstBytes: "noise\n" }, true],
+  [{ kind: "transport-failed", reason: "the server closed its standard error", firstBytes: "" }, true],
+  [{ kind: "transport-failed", reason: "", firstBytes: "" }, false],
+  [{ kind: "transport-failed", reason: "x" }, false],
+] as const) {
+  assert.equal(
+    validateProtocolEvent!({
+      protocol: DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+      version: DEVELOPMENT_SESSION_EVENT_VERSION,
+      sequence: 1,
+      at: 1,
+      event: { kind: "compiler-lifecycle", event },
+    }),
+    valid,
+    `compiler-lifecycle ${JSON.stringify(event)} must be ${valid ? "valid" : "rejected"}`,
+  );
+}
 const invalidSequenceCorpus = structuredClone(corpus) as unknown as {
   vectors: Array<{
     expected: { eventChecks: Array<{ sequence: number }> };
