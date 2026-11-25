@@ -1365,10 +1365,6 @@ class ModuleRequest {
     final descriptor = IncrementalRequest.descriptor();
     if (descriptor == null)
       return;
-    // The files of the `include` lines before Haxe walks them (`ProgramRoots`,
-    // genes-f8vc.14.12): only a full request with module records stores roots.
-    if (descriptor.moduleRecords == true && descriptor.kind.match(Full))
-      ProgramRoots.beginRequest();
     // Only module records and module requests use the cache facts.
     if (descriptor.moduleRecords == true || descriptor.kind.match(Module(_))) {
       cacheFactsFile = descriptor.path + CACHE_FACTS_SUFFIX;
@@ -1398,6 +1394,21 @@ class ModuleRequest {
       cacheFactsChanged = true;
     }
     final stale = alone.copy();
+    // The files of the `include` lines before Haxe walks them (`ProgramRoots`,
+    // genes-f8vc.14.12; only a full request with module records stores
+    // roots): Haxe parses again each one whose typed content Genes has not
+    // proven, such as a file without a declaration. The content read now is
+    // what Haxe parses, so `provenSource` can prove it after typing (the
+    // key in both spellings that Haxe can give the file: `./mr/A.hx` and
+    // `mr/A.hx`).
+    if (descriptor.moduleRecords == true && descriptor.kind.match(Full))
+      for (item in ProgramRoots.beginRequest(provenTypedFiles())) {
+        for (key in [item.file, Path.normalize(item.file)])
+          if (!preDigests.exists(key))
+            preDigests.set(key, item.content);
+        if (item.again && stale.indexOf(item.file) < 0)
+          stale.push(item.file);
+      }
     if (cacheFactsLost) {
       // This process typed modules with these defines before, and Genes
       // lost what it knew about them: make Haxe parse every source file of
@@ -2147,6 +2158,21 @@ class ModuleRequest {
    * two different reads, give no status, so the file is never trusted by
    * its status (`holdsContent`) or proven by it (`provenSource`).
    */
+  /**
+   * Returns the files (as `Path.normalize` writes them, so that `mr/A.hx`
+   * and `./mr/A.hx` are one file) for which Genes holds a proven digest of
+   * the content that Haxe last typed (`typedDigests`), neither `unknown`
+   * nor `missing`. `beginRequest` compares each such file and makes Haxe
+   * parse it again when it changed.
+   */
+  static function provenTypedFiles(): Map<String, Bool> {
+    final proven = new Map<String, Bool>();
+    for (file => typed in typedDigests)
+      if (typed.digest != UNKNOWN_DIGEST && typed.digest != MISSING_DIGEST)
+        proven.set(Path.normalize(file), true);
+    return proven;
+  }
+
   @:allow(genes.incremental.ProgramRoots)
   static function readSource(file: String): SourceContent {
     final started = haxe.Timer.stamp();

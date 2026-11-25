@@ -151,6 +151,22 @@ class HaxeArguments {
   ];
 
   /**
+   * Returns the number of values (0 or 1) that the Haxe 4.3.7 option `name`
+   * takes, or `null` when the table does not hold it. Example: `-D` gives
+   * 1, `--no-output` gives 0.
+   */
+  public static function arity(name: String): Null<Int> {
+    return ARITY.get(name);
+  }
+
+  /** Returns every option of the table, sorted (for the probe that compares it with the tooling table). */
+  public static function optionNames(): Array<String> {
+    final names = [for (name in ARITY.keys()) name];
+    names.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    return names;
+  }
+
+  /**
    * Returns the arguments of `args` in order, each option with its value.
    * Example: `["-cp=src", "--macro", "include('app')", "app.Tool"]` gives
    * `Option("-cp", "src")`, `Option("--macro", "include('app')")` and

@@ -2,7 +2,7 @@ package genes.incremental;
 
 #if macro
 import genes.incremental.HaxeArguments.HaxeArgument;
-import genes.incremental.ModuleRequest.SourceStat;
+import genes.incremental.ModuleRequest.SourceContent;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import sys.FileSystem;
@@ -135,12 +135,25 @@ private typedef IncludeCall = {
  * runs that walk after every init macro (`Context.onAfterInitMacros`), so
  * the place of the line before or after `genes.Generator.use()` does not
  * change it. Genes walks the folders when `genes.Generator.use()` runs
- * (`beginRequest`, before Haxe's walk) and again after the commit (`read`).
- * A listed module with declarations in the program was added. A listed
- * module without one must have a file whose status did not change between
- * the two walks; Genes keeps its digest, and a module request refuses when
- * the file changes. Any other listed module (a file added while the request
- * ran) makes the roots unknown until the next full request.
+ * (`beginRequest`, before Haxe's walk): it reads each listed file, and it
+ * makes Haxe parse again each one whose typed content it has not proven
+ * (`typedDigests`), such as a file without a declaration, which no other
+ * record names. It walks them again after the commit (`read`). A listed
+ * module with declarations in the program was added, and its file is a
+ * source of the stored program. A listed module without one must have the
+ * same digest and status as in the first walk, so Haxe parsed what Genes
+ * read; Genes keeps its digest, and a module request refuses when the file
+ * changes. Any other listed module (a file added while the request ran)
+ * makes the roots unknown until the next full request.
+ *
+ * Limits: the status check between the two walks is the status rule of
+ * `ModuleRequest` (size, modification time, change time and inode), so it
+ * trusts that the file system moves the change time at every change (FAT
+ * and exFAT may not) and that nobody restores a file below the file
+ * system. A file without a declaration is parsed again in every full
+ * request with module records (one parse each; such a file holds no code
+ * that Haxe types). A module request reads every included folder and each
+ * file without a declaration again.
  *
  * What it does not claim: an init macro other than `include` that loads a
  * module by name is not read; such a module is not counted as staying, so
@@ -152,23 +165,42 @@ class ProgramRoots {
   static final INCLUDE_CALL = 'haxe.macro.Compiler.include';
 
   /**
-   * The status of each file that the `include` lines of this request
-   * listed when `genes.Generator.use()` ran (`beginRequest`). Request-local.
+   * The content (digest and status) of each file that the `include` lines
+   * of this request listed when `genes.Generator.use()` ran
+   * (`beginRequest`). Request-local.
    */
-  static var beginStatus: Map<String, SourceStat> = new Map();
+  static var beginContent: Map<String, SourceContent> = new Map();
 
   /**
-   * Walks the folders of the `include` lines of this request and keeps the
-   * status of each listed file (`beginStatus`). `ModuleRequest.beginRequest`
-   * calls it for a full request with module records, while
-   * `genes.Generator.use()` runs: before Haxe's own walk, which runs after
-   * every init macro.
+   * Walks the folders of the `include` lines of this request, reads each
+   * listed file (`beginContent`), and returns each listed file with the
+   * content read and whether Haxe must parse it again (`again`): when
+   * `proven` does not name it (by `Path.normalize`), that is, when Genes
+   * holds no proven digest of what Haxe typed (`typedDigests`).
+   * `ModuleRequest.beginRequest` calls it for a full request with module
+   * records while `genes.Generator.use()` runs, before Haxe's own walk,
+   * which runs after every init macro, and makes Haxe parse those files
+   * again.
+   *
+   * Why (review of #269): Genes proves the content of a module's file only
+   * when the module has a declaration. A file with none (for example one
+   * that is all `#if macro`) is in no other record, so without this Haxe
+   * could keep an old parse of it. Example: a client that sends no
+   * `server/invalidate` saves `#if !acro` over `#if macro` in the same
+   * second; Haxe's file-time check misses it, and a full build would keep
+   * the file without its class. A listed file that Genes proved is already
+   * compared, and parsed again when it changed, by `beginRequest`.
    */
-  public static function beginRequest(): Void {
-    beginStatus = new Map();
+  public static function beginRequest(proven: Map<String, Bool>): Array<{
+    file: String,
+    content: SourceContent,
+    again: Bool
+  }> {
+    beginContent = new Map();
     final configuration = haxe.macro.Compiler.getConfiguration();
     if (configuration == null)
-      return;
+      return [];
+    final listed = [];
     for (argument in HaxeArguments.read(configuration.args))
       switch argument {
         case Option('--macro', text)
@@ -176,12 +208,19 @@ class ProgramRoots {
           final call = includeCallOf(text);
           if (call != null && call.active)
             for (found in includedFiles(call)) {
-              final stat = ModuleRequest.statusOf(found.file, 0);
-              if (stat != null)
-                beginStatus.set(found.file, stat);
+              if (beginContent.exists(found.file))
+                continue;
+              final content = ModuleRequest.readSource(found.file);
+              beginContent.set(found.file, content);
+              listed.push({
+                file: found.file,
+                content: content,
+                again: !proven.exists(haxe.io.Path.normalize(found.file))
+              });
             }
         default:
       }
+    return listed;
   }
 
   /**
@@ -233,7 +272,7 @@ class ProgramRoots {
             classNames.push(text);
       }
     }
-    beginStatus = new Map();
+    beginContent = new Map();
     return {classNames: classNames, includes: includes, unknown: unknown};
   }
 
@@ -326,16 +365,26 @@ class ProgramRoots {
       modules.push(found.module);
       if (inProgram.exists(found.module))
         continue;
-      final before = beginStatus.get(found.file);
+      // Haxe parsed the file after `beginRequest` read it (it made Haxe
+      // parse it again, or Haxe's parse is the proven one), so the content
+      // that it parsed is the one read then, when the file is the same now.
+      final before = beginContent.get(found.file);
       final content = ModuleRequest.readSource(found.file);
+      final beforeStat = before == null ? null : before.stat;
       final stat = content.stat;
-      if (before == null || stat == null
-        || !ModuleRequest.sameStatus(before, stat))
+      if (before == null
+        || beforeStat == null
+        || stat == null
+        || before.digest != content.digest
+        || !ModuleRequest.sameStatus(beforeStat, stat))
         return
           Left('`$text` lists ${found.module}, which is not in the program, '
           + 'and its file changed while the request ran');
-      empty.push({module: found.module, file: found.file,
-        digest: content.digest});
+      empty.push({
+        module: found.module,
+        file: found.file,
+        digest: content.digest
+      });
     }
     modules.sort(compareStrings);
     return Right({

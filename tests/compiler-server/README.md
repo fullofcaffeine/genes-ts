@@ -880,9 +880,9 @@ and every module that they load count as staying:
   subfolder. Edits beside the include, of a module in the subfolder and of a
   module that only an included module imports preview. A new file in the
   subfolder is refused (`include-changed`, the rule below); the module
-  request after the full request that built it is refused once
-  (`source-changed`: a file first seen in a full request is unknown once),
-  and the next one previews. The removal of that file is refused as a
+  request after the full request that built it previews. (A file that Genes
+  first sees in a full request is unknown once, but the full request reads
+  every included file before typing, so it proves what Haxe parsed.) The removal of that file is refused as a
   changed source of the stored program (`source-changed`). A changed
   include argument changes `programDigest` (`session-changed`);
 - `roots-include-flat`: `include('mr.inc', false)`. A new file in a
@@ -919,6 +919,15 @@ The review of #269 added these groups:
   no declaration in the program. On 0723e4e8 it made the roots unknown
   (`include-changed`); now the literal edit previews, and the request is
   refused when the file gets a declaration;
+- `probe-late-macro-only-module` (review round 2, `noInvalidate`,
+  `-dce full`): `mr/inc/Late.hx` is all inside `#if macro`, with a `@:keep`
+  class that calls `mr.Button.unused()`. A save in the same second turns
+  `#if macro` into `#if !acro`. The module request is refused
+  (`include-changed`); on d8b4b5ad the full request after it kept Haxe's old
+  parse of the file and differed from cold (`mr/Button.ts`,
+  `mr/inc/Late.ts`), and the next preview was stale. Now the full request
+  makes Haxe parse every included file that Genes has not proven again, so
+  it equals cold and the next edit previews;
 - `roots-include-ignore-wildcard` (`['mr.inc.sub*']`: a new file in the
   ignored folder previews, one in the included folder is refused) and
   `roots-include-class-paths` (`classPaths` given);

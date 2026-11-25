@@ -24,5 +24,6 @@
 --macro tests.signaturecache.EnumAbstractAnswersProbe.install()
 --macro tests.replayaudit.ReplayAuditProbe.validate()
 --macro tests.dcestduses.DceStdUsesProbe.validate()
+--macro tests.haxearguments.HaxeArgumentsProbe.validate()
 tests.signaturecache.EnumAbstractAnswers
 tests.generationcaches.NativeTwins

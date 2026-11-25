@@ -2983,11 +2983,13 @@ function extraRootGroups(): ReadonlyArray<Group> {
             addSource("mr/inc/sub/Fresh.hx", rootClass("mr.inc.sub", "Fresh", "fresh"));
             edit("Button.hx", "return 'Save!';", "return 'Save';");
           }, module: "mr.Button", expect: "include-changed" },
-        // A file that Genes first saw in a full request is unknown once
-        // (genes-f8vc.14.11), as for any new module.
-        { id: "include: first module request after the new file was built (source-changed)",
+        // A file that Genes first sees in a full request is unknown once
+        // (genes-f8vc.14.11). An included file is not: the full request
+        // read it before typing, when it walked the included folders
+        // (`ProgramRoots.beginRequest`), so it proves what Haxe parsed.
+        { id: "include: first module request after the new file was built",
           apply: button("return 'Save';", "return 'Save!';"),
-          module: "mr.Button", expect: "source-changed" },
+          module: "mr.Button", expect: "preview" },
         { id: "include: literal edit after the new file was built", apply: button("return 'Save!';", "return 'Save';"),
           module: "mr.Button", expect: "preview" },
         // A removed file of the stored program is a changed source before
@@ -3091,6 +3093,35 @@ function extraRootGroups(): ReadonlyArray<Group> {
             editSource("mr/inc/MacroOnly.hx", "#end\n", "#end\n\nclass MacroOnlyRuntime {\n  public static function text(): String {\n    return 'runtime';\n  }\n}\n");
             edit("Button.hx", "return 'Save!';", "return 'Save';");
           }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      // Review round 2 of #269: a client that sends no `server/invalidate`
+      // saves a declaration-less included file in the same second. Haxe's
+      // file-time check misses it, and Genes proved no content of it, so
+      // on d8b4b5ad the full request kept the old parse (differs from cold:
+      // `mr/Button.ts`, `mr/inc/Late.ts`) and the next preview was stale.
+      // Now the full request makes Haxe parse such a file again.
+      name: "probe-late-macro-only-module",
+      noInvalidate: true,
+      files: {
+        "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+          + `    return 'card ' + mr.Theme.color();\n  }\n}\n`,
+        "mr/inc/Late.hx": `package mr.inc;\n\n#if macro\n@:keep\nclass Late {\n`
+          + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+      },
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        { id: "late macro-only: literal edit beside it", apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "late macro-only: the file gets a class in the same second (include-changed)",
+          apply: () => {
+            editSameSecond("inc/Late.hx", "#if macro", "#if !acro");
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" },
+        { id: "late macro-only: literal edit after the full request built the class",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" }
       ]
     },
     {
