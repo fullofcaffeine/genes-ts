@@ -109,6 +109,12 @@
       "covers": ["connected-compile", "failed-probe", "direct-fallback"],
       "description": "A connected compile failure followed by a failed probe stops the owned process and retries through direct compilation.",
       "expected": "direct"
+    },
+    {
+      "id": "stdio-transport-addressless-lease",
+      "covers": ["stdio-transport", "addressless-lease", "stale-lease", "foreign-lease"],
+      "description": "With the stdio transport the runtime reserves no port, passes the fixed stdio endpoint to start and probe, writes a lease without host or port, claims a stale lease of either schema, respects a live one, and rejects a stdio lease that carries an address.",
+      "expected": "connected"
     }
   ]
 }

@@ -849,6 +849,22 @@ complete bytes are durable. An uncommitted private owner can be removed after
 a stopped write, while a damaged final owner fails closed. Public output and
 `.genes/tooling` cannot contain one another.
 
+The owned Haxe server is a `haxe --wait stdio` process that the session
+reaches through one open pipe (`HaxeSessionCompiler` and `HaxeStdioChannel`
+in `tooling/src/session/`). Each request is one length-prefixed frame with
+the same `--cwd` and arguments that a `haxe --connect` client would send, so
+the transport does not change what Haxe compiles. It removes a process
+launch and Haxe 4.3.7's 50 ms TCP wait from each request (parity stage 0,
+genes-19wt). The session sends one request at a time and counts them. Haxe
+runs a full collection after every tenth request. When the server is idle
+and fewer than four requests remain before that tenth request, the session
+sends requests that compile nothing up to it, so the collection runs then
+and never between the requests of a build (genes-0emi). Haxe then collects
+after every 7th build at one request per build (without idle requests:
+every 10th), and after every 4th at two (without: every 5th). A byte outside a frame breaks the pipe; the session
+then builds on a new server, which gives the cold result, and after a second
+failure in a row it builds without a server.
+
 With `generationReuse` (genes-f8vc.9.23), the session asks Genes to replay
 unchanged modules (`afterTyping` and `generation` `"reuse"` in the fixed
 incremental descriptor) and owns the two output checks that make a reuse

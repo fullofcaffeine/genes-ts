@@ -874,6 +874,66 @@ is emitted. A host must ignore an event kind that it does not know.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
+- The session starts its owned Haxe server with `haxe --wait stdio` and keeps
+  one pipe to it open (`HaxeSessionCompiler`, `HaxeStdioChannel`). Each
+  request is one frame on the server's standard input: a 4-byte
+  little-endian length, then one argument per line, with the same `--cwd`
+  and arguments that a `haxe --connect` client sends. Each answer is one
+  frame on the server's standard error. A request that compiles nothing
+  takes well under 1 ms. Before this, each build started a Node helper and a
+  `haxe --connect` client process, and Haxe 4.3.7's TCP server sleeps 50 ms
+  when request bytes are late, so each build and each `server/invalidate`
+  waited 0.05 to 0.2 s more. The output is unchanged: Haxe gets the same
+  arguments, defines and files, and a stdio server runs its tasks as the
+  TCP server did, right after each answer.
+  - One request runs at a time. When a byte arrives outside a frame (for
+    example, a macro writes to `Sys.stderr()` directly), when a frame stays
+    incomplete, or when the server closes the pipe, the session stops that
+    server and builds again on a new one, which gives the cold result. After
+    two such failures in a row it builds in a new Haxe process for each
+    request (`compilerMode: "direct"`). The session reports each such
+    failure as a `compiler-lifecycle` event of kind `transport-failed`, with
+    the reason and the first 64 bytes that broke the frame (`firstBytes`).
+    The compiler passes up to 1 KiB raw; the session first replaces the
+    paths that it knows as private (project, state, candidates, declared
+    external roots, as in its diagnostics) and cuts to 64 bytes only then,
+    so a private path is never left half-replaced. `firstBytes` is no
+    secret filter: other text that a macro prints stays, the same exposure
+    as compiler error text. A planned stop (a new compatibility digest, a
+    fresh cache, `close()`) is never reported. A break while the server is
+    idle starts no build; the next build replaces the server.
+  - Which output is safe: `trace`, `Sys.print`, `Sys.println` and the output
+    of `Sys.command` reach the answer frame, as with `haxe --connect`. Only a
+    direct write to `Sys.stderr()` from a macro, or one of Haxe's rare
+    direct prints, lands outside a frame; each costs one cold rebuild.
+  - Haxe 4.3.7 runs a full collection or compaction after every tenth
+    request of any kind; on a large cache it takes seconds. When the server
+    has been idle for 250 ms and fewer than four requests remain before the
+    next tenth request, the session sends `-version` requests, which compile
+    nothing, up to it, so that collection runs while nobody waits and never
+    between the requests of the next build. Further from the boundary it
+    sends nothing. So Haxe collects a little more often than without idle
+    requests: after every 7th build when each build sends one request
+    (without: every 10th), and after every 4th when each sends two
+    (without: every 5th). An edit that arrives during the collection still
+    waits for it. `compilerServerIdleCollection: { delayMs }` changes the idle time;
+    `false` turns this off.
+  - The server's lease (`<stateDirectory>/haxe-server.json`) has the schema
+    `genes.tooling.haxe-wait-server-lease.stdio.v1` and no address, and the
+    `started` compiler event has the endpoint
+    `{"transport":"stdio","argument":"stdio"}`. No other process can send the
+    server a request. A test or a host check asks the session instead:
+    `session.queryCompilerServer("server/contexts")` returns the server's
+    JSON-RPC answer.
+  - A save after an idle period starts its build 10 ms after the file event
+    (`startDelayMs`). Saves that arrive while a build runs start one
+    follow-up build after the quiet time (`debounceMs`, 100 ms). An editor
+    or a tool that saves several files more than 10 ms apart (for example a
+    rename that touches many modules) can start the first build on a
+    partial tree. That build may fail or show mixed code for a moment; the
+    events of the later files start the follow-up build, which sees the
+    whole tree. A host that saves many files in a row can set a larger
+    `startDelayMs`.
 - `resolveInvocation` is called when the session starts and again only when a
   plan input changes (an HXML or library provenance file, the process
   environment, or an extra input with `reinventory` or `restartCompiler`); an
@@ -930,7 +990,9 @@ is emitted. A host must ignore an event kind that it does not know.
   }]
   ```
 - `resolveInvocation().executable` is an absolute native Haxe compiler binary
-  that supports `--server-listen` and `--connect`, not a shell command string.
+  that supports `--wait stdio` (the session's owned server) and ordinary
+  direct runs (cold builds and the `direct` fallback), not a shell command
+  string.
   On POSIX, tooling starts a trusted Node handoff with no inherited environment,
   transfers the bounded Haxe environment over a private input pipe, and
   replaces that same child with Haxe through raw `execve`. A private control
@@ -1518,7 +1580,12 @@ are host policy.
 
 `OwnedHaxeWaitServer` manages one project-local Haxe `--wait` process through
 caller-provided start, probe, connected-compile, and direct-compile operations.
-It reserves isolated loopback capacity, authenticates an exact project and
+With the default `transport: "loopback"` it reserves isolated loopback
+capacity for `haxe --wait 127.0.0.1:PORT`. With `transport: "stdio"` it
+reserves no port, passes the fixed `HAXE_WAIT_STDIO_ENDPOINT` to the
+callbacks, and writes a lease without an address, for a server that the
+host reaches through its standard streams (as the development session
+does). In both cases it authenticates an exact project and
 compatibility lease, reuses only its compatible owned process, falls back to
 direct compilation when the cache is unavailable, and bounds shutdown through
 `SIGTERM` followed by `SIGKILL`.

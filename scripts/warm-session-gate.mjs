@@ -25,6 +25,17 @@
  * 5. At the end, two saves with the same whole-second file time must both be
  *    built, and the median server size of the last third of the warm builds
  *    must stay within 5% of the median of the first third.
+ * 6. It prints the median and the slowest time from save to `build-started`
+ *    and from save to acceptance over the warm edits. With
+ *    `--max-over-median-ms`, an edit whose time to acceptance is more than
+ *    that above the median fails the gate: for example a build that waited
+ *    for Haxe's periodic collection (parity stage 0, genes-0emi).
+ *
+ * Parity measurement (stage 0): `--interval-ms 3000 --edits 50
+ * --debounce-ms 100 --start-delay-ms 10 --max-over-median-ms 1000` makes 50
+ * edits 3 s apart with the session's default delays. Not measured here: the
+ * native TypeScript twin and the time to the browser; Caffeine's
+ * `measure-feedback.mjs` owns those.
  *
  * It writes one JSON line per build to stdout and a summary at the end, and
  * exits with 1 when a check fails. Timings are evidence only on a quiet host.
@@ -60,7 +71,6 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const tooling = (relative) =>
   import(pathToFileURL(path.join(repositoryRoot, "tooling/dist", relative)).href);
 const { createGenesDevelopmentSession } = await tooling("session/index.js");
-const { sendHaxeServerRequest } = await tooling("session/haxe-driver.js");
 const { resolveLixLibraryGroup } = await tooling("lix/index.js");
 
 const { values } = parseArgs({
@@ -77,15 +87,21 @@ const { values } = parseArgs({
     edits: { type: "string", default: "20" },
     "cold-at": { type: "string", default: "1,10,20" },
     timeout: { type: "string", default: "900000" },
+    "interval-ms": { type: "string", default: "0" },
+    "debounce-ms": { type: "string", default: "0" },
+    "start-delay-ms": { type: "string" },
+    "max-over-median-ms": { type: "string" },
   },
 });
 assert.ok(values.project && values.edit && values.marker,
-  "Usage: warm-session-gate.mjs --project COPY --edit FILE.hx --marker TEXT [--hxml F] [--haxe BIN] [--lix] [--edits N] [--cold-at 1,10,20]");
+  "Usage: warm-session-gate.mjs --project COPY --edit FILE.hx --marker TEXT [--hxml F] [--haxe BIN] [--lix] [--edits N] [--cold-at 1,10,20] [--interval-ms MS] [--debounce-ms MS] [--start-delay-ms MS] [--max-over-median-ms MS]");
 const projectRoot = realpathSync(values.project);
 const haxe = realpathSync(values.haxe);
 const edits = Number(values.edits);
 const coldAt = new Set(values["cold-at"].split(",").map(Number));
 const timeoutMs = Number(values.timeout);
+const intervalMs = Number(values["interval-ms"]);
+const maxOverMedianMs = values["max-over-median-ms"] === undefined ? null : Number(values["max-over-median-ms"]);
 const editFile = path.join(projectRoot, values.edit);
 assert.ok(readFileSync(editFile, "utf8").includes(values.marker),
   `${values.edit} does not contain the marker ${values.marker}`);
@@ -135,11 +151,10 @@ function coldTree() {
 }
 
 const lease = () => JSON.parse(readFileSync(path.join(projectRoot, values.state, "haxe-server.json"), "utf8"));
+// The session's server takes requests only on the session's pipe.
 const serverCaches = async () => {
-  const { port } = lease();
-  const answer = await sendHaxeServerRequest(
-    { host: "127.0.0.1", port, argument: `127.0.0.1:${port}` },
-    projectRoot, "server/contexts", {}, { timeoutMs: 60_000 });
+  const answer = await session.queryCompilerServer("server/contexts", AbortSignal.timeout(60_000));
+  assert.ok(answer !== null, "the session has no compiler server");
   return JSON.parse(answer.slice(answer.indexOf("{"))).result.result
     .map((context) => `${context.platform} ${context.desc} ${context.signature}`).sort();
 };
@@ -184,7 +199,8 @@ const session = createGenesDevelopmentSession({
   }),
   validate: async () => ({ ok: true }),
   validatorPolicyFacts: { gate: "accept-every-candidate" },
-  debounceMs: 0,
+  debounceMs: Number(values["debounce-ms"]),
+  ...(values["start-delay-ms"] === undefined ? {} : { startDelayMs: Number(values["start-delay-ms"]) }),
 });
 session.subscribe((event) => events.push({ at: Date.now(), event: event.event }));
 
@@ -201,6 +217,7 @@ const waitForGeneration = async (generation) => {
 
 let firstCaches = null;
 const memory = [];
+const timings = [];
 const record = async (label, generation, savedAt) => {
   const caches = await serverCaches();
   firstCaches ??= caches;
@@ -210,11 +227,15 @@ const record = async (label, generation, savedAt) => {
   if (generation > 1) check(kept.kept > 0, `${label}: Genes kept no record`);
   memory.push(residentKilobytes(lease().serverPid));
   const started = events.find((item) => item.event.kind === "build-started" && item.at >= savedAt);
+  const acceptedAt = events.findLast((item) => item.event.kind === "generation-accepted")?.at ?? Date.now();
+  if (savedAt !== null && started !== undefined && label.startsWith("edit ")) {
+    timings.push({ label, saveToRequestMs: started.at - savedAt, saveToAcceptedMs: acceptedAt - savedAt });
+  }
   console.log(JSON.stringify({
     label, generation, caches: caches.length, kept: kept.kept, typedAgain: kept.typedAgain,
     serverRssKiB: memory.at(-1), load: loadavg()[0],
     saveToRequestMs: savedAt === null || started === undefined ? null : started.at - savedAt,
-    saveToAcceptedMs: savedAt === null ? null : Date.now() - savedAt,
+    saveToAcceptedMs: savedAt === null ? null : acceptedAt - savedAt,
   }));
 };
 
@@ -239,6 +260,21 @@ try {
     if (coldAt.has(index)) {
       check(JSON.stringify(treeDigest(publicRoot)) === JSON.stringify(coldTree()), `edit ${index}: tree differs from cold`);
     }
+    if (intervalMs > 0) await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  const middle = (list) => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)];
+  const toRequest = timings.map((item) => item.saveToRequestMs);
+  const toAccepted = timings.map((item) => item.saveToAcceptedMs);
+  const slowest = timings.reduce((worst, item) => (worst === null || item.saveToAcceptedMs > worst.saveToAcceptedMs ? item : worst), null);
+  console.log(JSON.stringify({
+    timing: "warm edits", edits: timings.length, intervalMs, load: loadavg()[0],
+    saveToRequestMedianMs: middle(toRequest), saveToRequestMaxMs: Math.max(...toRequest),
+    saveToAcceptedMedianMs: middle(toAccepted), saveToAcceptedMaxMs: Math.max(...toAccepted),
+    slowest: slowest?.label ?? null, slowestOverMedianMs: slowest === null ? null : slowest.saveToAcceptedMs - middle(toAccepted),
+  }));
+  if (maxOverMedianMs !== null && slowest !== null) {
+    check(slowest.saveToAcceptedMs - middle(toAccepted) <= maxOverMedianMs,
+      `${slowest.label} took ${slowest.saveToAcceptedMs - middle(toAccepted)} ms more than the median (limit ${maxOverMedianMs} ms)`);
   }
   const second = Math.floor(statSync(editFile).mtimeMs / 1000) + 2;
   let savedAt = save(`${values.marker}-same-second-a`, second);

@@ -130,6 +130,59 @@ async function main(): Promise<void> {
   assert.deepEqual(nullableRuns, [null]);
   await nullableLoop.close();
 
+  // The first run after an idle period waits only startDelayMs; a request
+  // during a run waits the quiet time (debounceMs) before its follow-up.
+  assert.throws(
+    () =>
+      new SerializedDirtyLoop<string>({
+        debounceMs: 0,
+        startDelayMs: -1,
+        merge: (_left, right) => right,
+        run: async () => {},
+        onError: () => {},
+      }),
+    /startDelayMs must be a non-negative integer/u,
+  );
+  const startTimes: number[] = [];
+  let releaseFirst!: () => void;
+  const firstRunning = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  let firstStarted!: () => void;
+  const firstStartedPromise = new Promise<void>((resolve) => {
+    firstStarted = resolve;
+  });
+  const delayLoop = new SerializedDirtyLoop<string>({
+    debounceMs: 600,
+    startDelayMs: 5,
+    merge: (_left, right) => right,
+    run: async (cause) => {
+      startTimes.push(performance.now());
+      if (cause === "first") {
+        firstStarted();
+        await firstRunning;
+      }
+    },
+    onError: () => {},
+  });
+  const requestedAt = performance.now();
+  delayLoop.request("first");
+  await firstStartedPromise;
+  assert.ok(
+    startTimes[0]! - requestedAt < 300,
+    `the first run must start after the start delay, not the quiet time (${startTimes[0]! - requestedAt} ms)`,
+  );
+  delayLoop.request("follow-up");
+  const followUpRequestedAt = performance.now();
+  releaseFirst();
+  await delayLoop.waitForIdle();
+  assert.equal(startTimes.length, 2);
+  assert.ok(
+    startTimes[1]! - followUpRequestedAt >= 550,
+    `a follow-up run must wait the quiet time (${startTimes[1]! - followUpRequestedAt} ms)`,
+  );
+  await delayLoop.close();
+
   await loop.close();
   console.log("genes tooling serialized dirty loop: ok");
 }

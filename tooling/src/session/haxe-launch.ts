@@ -24,6 +24,13 @@ import {
 } from "./haxe-exec-contract.js";
 
 const RUNNER = fileURLToPath(new URL("./haxe-exec-runner.js", import.meta.url));
+/**
+ * Node flags of the trusted helper. Node 26 prints an ExperimentalWarning to
+ * standard error when the helper uses `process.execve`; standard error then
+ * becomes Haxe's, and for `haxe --wait stdio` it carries the answer frames,
+ * so the helper must not write there.
+ */
+const RUNNER_NODE_FLAGS = Object.freeze(["--disable-warning=ExperimentalWarning"]);
 const HANDOFF_LIMIT = 4_096;
 const MAX_FAT_MACH_O_SLICES = 64;
 const CONTROL_DIRECTORY_PREFIX = "genes-haxe-exec-";
@@ -39,6 +46,14 @@ export interface HaxeLaunchOptions {
   readonly environment: Readonly<Record<string, string>>;
   readonly stdout: OutputMode;
   readonly stderr: OutputMode;
+  /**
+   * `pipe` keeps the child's standard input open for the caller after the
+   * handoff, for example for `haxe --wait stdio`, which reads its requests
+   * there. Write to it only after `handoff` resolves: until then the trusted
+   * helper reads its exact environment bytes from the same pipe. Default
+   * `ignore`: Haxe sees the end of its input.
+   */
+  readonly stdin?: "ignore" | "pipe";
 }
 
 export interface HaxeSyncOptions {
@@ -537,7 +552,7 @@ export function launchHaxe(
       env: options.environment,
       shell: false,
       windowsHide: true,
-      stdio: ["ignore", options.stdout, options.stderr],
+      stdio: [options.stdin ?? "ignore", options.stdout, options.stderr],
     });
     return Object.freeze({ child, handoff: directHandoff(child) });
   }
@@ -549,6 +564,7 @@ export function launchHaxe(
     child = spawn(
       process.execPath,
       [
+        ...RUNNER_NODE_FLAGS,
         RUNNER,
         control.path,
         String(Buffer.byteLength(environment)),
@@ -572,7 +588,13 @@ export function launchHaxe(
     throw new HaxeLaunchError(message);
   }
   const handoff = control.handoff(child);
-  child.stdin!.end(environment, "utf8");
+  if (options.stdin === "pipe") {
+    // The helper reads exactly the declared byte count, so later bytes on the
+    // same pipe reach Haxe after the replacement.
+    child.stdin!.write(environment, "utf8");
+  } else {
+    child.stdin!.end(environment, "utf8");
+  }
   return Object.freeze({ child, handoff });
 }
 
@@ -603,6 +625,7 @@ export function runHaxeSync(
   return spawnSync(
     process.execPath,
     [
+      ...RUNNER_NODE_FLAGS,
       RUNNER,
       "-",
       String(Buffer.byteLength(environment)),
