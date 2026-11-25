@@ -6,7 +6,8 @@ and 11 say what is implemented, all off by default: the keep rule, the plain
 record of the React audit, and the kept buckets of `SignatureCache`. Those
 buckets are the only typed values that `src/genes` keeps between requests,
 in one owner, `genes.incremental.KeptBuckets`. `PublicSurface` still reads
-every declaration on every request.
+every declaration on every request, but since genes-gz0l it copies no typed
+body there: `PublicMember.expr` reads a body only when a printer asks.
 
 ## 1. Practical result
 
@@ -689,7 +690,11 @@ generate in full.
 - The session, not Genes, must restart the compiler after a changed argument
   list or class path. Genes drops the buckets.
 - `PublicSurface` has no buckets yet. It still reads the public members of
-  every class, including their typed bodies, on every request.
+  every class on every request. Since genes-gz0l it reads no typed body
+  then (`PublicMember.expr` reads on first use; only classic declarations
+  ask), which removed most of its cost: on a warm Caffeine edit the pass
+  went from about 2.3 s to about 0.1 s. `keptBodyReads` in the report
+  counts the bodies that the walk still copies from kept classes.
 - Case F1, open types: a kept class has a declaration without a written
   type (`static var items = [];`, `function keep(value)`), and an edit of
   another module fixes that type later (to `Phase` in lane `late-facts`).

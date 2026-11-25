@@ -144,19 +144,74 @@ interface CompileStep {
   readonly expectPrivateHxml?: boolean;
   /** Modules that the fake Genes rolling replay audit reports as stale. */
   readonly replayAudit?: readonly string[];
+  /** The bytes of the module file `Main.ts` beside the entry (module-preview vectors). */
+  readonly moduleFile?: string;
+}
+
+/** The vectors of the module-first path (`modulePreview`). */
+const PREVIEW_VECTORS: ReadonlySet<string> = new Set([
+  "module-preview-confirmed-at-acceptance",
+  "module-preview-difference-stops-previews",
+  "equal-content-starts-no-build",
+]);
+
+/**
+ * The bytes that the fake Genes prints for `Main.ts` in the program request
+ * with this 0-based index (module-preview vectors). Only `Main.ts` changes
+ * from one build to the next, as an edit of the module `Main` changes only
+ * its own file; the entry keeps its bytes.
+ */
+function mainModuleFile(index: number): string {
+  return `export class Main { static v = ${index + 1}; }\n`;
 }
 
 class VectorCompiler implements SessionCompiler {
   readonly #steps: CompileStep[];
+  /** The `Main.ts` bytes that each planned module request previews. */
+  readonly #moduleSteps: string[];
   readonly #onEvent: (event: HaxeWaitServerEvent) => void;
   readonly privateHxmlInputs: string[] = [];
 
   constructor(
     steps: CompileStep[],
+    moduleSteps: string[],
     onEvent: (event: HaxeWaitServerEvent) => void,
   ) {
     this.#steps = steps;
+    this.#moduleSteps = moduleSteps;
     this.#onEvent = onEvent;
+  }
+
+  /**
+   * A module request of the fake Genes: checks the module descriptor and
+   * the roots, then previews `Main.ts` with the planned bytes.
+   */
+  async compileModule(
+    invocation: Parameters<SessionCompiler["compile"]>[0],
+  ): Promise<{ readonly kind: "compiled" }> {
+    const content = this.#moduleSteps.shift();
+    assert.notEqual(content, undefined, "vector requested an unplanned module request");
+    const define = invocation.arguments.find((argument) =>
+      argument.startsWith("genes.dev_incremental="),
+    );
+    assert.notEqual(define, undefined, "a module request needs the incremental descriptor");
+    const descriptorPath = define!.slice("genes.dev_incremental=".length);
+    const descriptor = JSON.parse(readFileSync(descriptorPath, "utf8")) as {
+      readonly kind: string;
+      readonly module: string;
+    };
+    assert.equal(descriptor.kind, "module");
+    assert.equal(descriptor.module, "Main");
+    assert.equal(invocation.arguments.includes("-main"), false, "a module request has no --main");
+    const root = path.dirname(invocation.candidateOutputFile);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(path.join(root, "Main.ts"), content!, "utf8");
+    writeFileSync(
+      `${descriptorPath}.report.json`,
+      JSON.stringify({ format: 2, kind: "module", module: "Main", result: "preview", refusal: null, files: ["Main.ts"] }),
+      "utf8",
+    );
+    return { kind: "compiled" };
   }
 
   async compile(
@@ -219,9 +274,14 @@ class VectorCompiler implements SessionCompiler {
     mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
     writeFileSync(candidateOutputFile, step!.content, "utf8");
     const owner = path.basename(candidateOutputFile);
+    const entries = [owner];
+    if (step!.moduleFile !== undefined) {
+      writeFileSync(path.join(path.dirname(candidateOutputFile), "Main.ts"), step!.moduleFile, "utf8");
+      entries.unshift("Main.ts");
+    }
     writeFileSync(
       path.join(path.dirname(candidateOutputFile), manifestName(owner)),
-      `genes-output-manifest-v2\nowner-base64:${Buffer.from(owner).toString("base64")}\n${owner}\n`,
+      `genes-output-manifest-v2\nowner-base64:${Buffer.from(owner).toString("base64")}\n${entries.join("\n")}\n`,
       "utf8",
     );
     return { mode: step!.mode };
@@ -379,16 +439,18 @@ function compileSteps(
       (vector.id === "burst-supersedes-active-candidate" ||
         vector.id === "close-before-first-accepted-is-idempotent");
     held ||= shouldHold;
+    const preview = PREVIEW_VECTORS.has(vector.id);
     return [
       {
         fail: step === "compile-failed",
         mode: step === "compile-direct" ? "direct" : "connected",
-        content: `export const value = ${unchanged ? 1 : current + 1};\n`,
+        content: `export const value = ${unchanged || preview ? 1 : current + 1};\n`,
         expectPrivateHxml: step === "compile-connected-private-hxml",
         ...(step === "compile-connected-replay-audit-differs"
           ? { replayAudit: ["inc.Stale"] }
           : {}),
         ...(shouldHold ? { hold } : {}),
+        ...(preview ? { moduleFile: mainModuleFile(current) } : {}),
         emitFallback:
           vector.id === "late-attach-observes-compiler-fallback" && current === 0,
       },
@@ -573,6 +635,18 @@ async function execute(vector: Vector): Promise<void> {
       ? deferred<void>()
       : null;
   const steps = compileSteps(vector, hold);
+  // A module request previews the `Main.ts` of the program request that
+  // follows it, or other bytes for the `-differs` step.
+  let programSteps = 0;
+  const moduleSteps = vector.script.flatMap((step) => {
+    if (step.startsWith("compile-connected") || step === "compile-direct" || step === "compile-failed") {
+      programSteps += 1;
+      return [];
+    }
+    if (step === "compile-module-preview") return [mainModuleFile(programSteps)];
+    if (step === "compile-module-preview-differs") return ["export class Main { stale: true }\n"];
+    return [];
+  });
   const watches: VectorWatch<unknown>[] = [];
   const events: DevelopmentEvent<JsonValue>[] = [];
   const validations = validationSteps(vector);
@@ -600,7 +674,7 @@ async function execute(vector: Vector): Promise<void> {
       _layout: SessionLayout,
       onEvent: (event: HaxeWaitServerEvent) => void,
     ) => {
-      compiler = new VectorCompiler(steps, onEvent);
+      compiler = new VectorCompiler(steps, moduleSteps, onEvent);
       return compiler;
     },
     publish: async (options) => {
@@ -742,6 +816,9 @@ async function execute(vector: Vector): Promise<void> {
       ...(vector.id === "replay-audit-difference-is-never-published"
         ? { generationReuse: { coldCheckEvery: 0 } }
         : {}),
+      ...(PREVIEW_VECTORS.has(vector.id)
+        ? { generationReuse: { coldCheckEvery: 0 }, modulePreview: { quietMs: 0 } }
+        : {}),
       ...(existingImport === undefined
         ? {}
         : { existingGeneration: usesReplacement
@@ -780,6 +857,25 @@ async function execute(vector: Vector): Promise<void> {
       case "replay-audit-difference-is-never-published":
         await session.waitForIdle();
         watch().change(treeExtraInput ?? source);
+        await session.waitForIdle();
+        break;
+      case "module-preview-confirmed-at-acceptance":
+        await session.waitForIdle();
+        writeFileSync(source, "class Main { static var v = 1; }\n", "utf8");
+        watch().change(source);
+        await session.waitForIdle();
+        break;
+      case "module-preview-difference-stops-previews":
+      case "equal-content-starts-no-build":
+        await session.waitForIdle();
+        writeFileSync(source, "class Main { static var v = 1; }\n", "utf8");
+        watch().change(source);
+        await session.waitForIdle();
+        // The equal-content vector saves the same bytes again.
+        if (vector.id === "module-preview-difference-stops-previews") {
+          writeFileSync(source, "class Main { static var v = 2; }\n", "utf8");
+        }
+        watch().change(source);
         await session.waitForIdle();
         break;
       case "burst-supersedes-active-candidate":
@@ -853,6 +949,18 @@ async function execute(vector: Vector): Promise<void> {
     assert.equal(publicationAttempts, vector.expected.publicationAttempts, vector.id);
     assert.equal(publicWrites, vector.expected.publicWrites, vector.id);
     assert.deepEqual(
+      session.inspect().modulePreview,
+      vector.expected.snapshot.modulePreview,
+      `${vector.id}: module-preview snapshot differs`,
+    );
+    if (PREVIEW_VECTORS.has(vector.id)) {
+      assert.equal(
+        steps.length + moduleSteps.length,
+        0,
+        `${vector.id}: planned compiler requests were not used`,
+      );
+    }
+    assert.deepEqual(
       compress(events.map((event) => event.event.kind)),
       vector.expected.eventRuns,
       `${vector.id}: event run mismatch`,
@@ -876,6 +984,13 @@ async function execute(vector: Vector): Promise<void> {
         eventFileDeltas(expectedEvent),
         `${vector.id}: event ${expectedEvent.sequence} file changes differ`,
       );
+      if (expectedEvent.event.kind.startsWith("preview-")) {
+        assert.deepEqual(
+          actualEvent.event,
+          expectedEvent.event,
+          `${vector.id}: event ${expectedEvent.sequence} preview event differs`,
+        );
+      }
       if (expectedEvent.event.kind === "output-check") {
         assert.deepEqual(
           actualEvent.event,

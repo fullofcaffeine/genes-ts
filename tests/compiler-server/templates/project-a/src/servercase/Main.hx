@@ -316,6 +316,11 @@ class Main {
     // React runtime step on this compiler-server lifecycle fixture.
     profileElement();
     #end
+    #if server_intrinsic_provider
+    // Two modules that use one custom intrinsic tag (genes-gz0l).
+    IntrinsicCompA.render();
+    IntrinsicCompB.render();
+    #end
     #if server_indexed_plan
     transcript += ":" + indexedDecision([1], 2);
     #end

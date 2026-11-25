@@ -16,6 +16,18 @@ typedef JsxContextProp = {
   var value: Expr;
 }
 
+/**
+ * The shared answer for one intrinsic tag in one compilation
+ * (`JsxContext.intrinsicContracts`).
+ */
+private typedef IntrinsicContract = {
+  /** The property fields of the tag's props type, or `null` when it has none. */
+  final fields: Null<Map<String, Type>>;
+
+  /** The provider paths that the first lookup asked Haxe for, in order. */
+  final providers: Array<String>;
+}
+
 private typedef JsxContextFunction = {
   var type: Type;
   var argumentsOnly: Bool;
@@ -44,13 +56,42 @@ private typedef JsxContextFunction = {
 class JsxContext {
   static final DEFAULT_INTRINSIC_PROVIDER = 'genes.react.IntrinsicElements';
 
+  /**
+   * The property contract of each intrinsic tag that this compilation has
+   * looked up, by tag name, with the provider paths that the lookup read.
+   *
+   * Why: every intrinsic element of every markup literal asked for its
+   * contract again. Each lookup copied all static fields of the provider
+   * class and the metadata of each one, and then the fields of the props
+   * type with its parent interfaces. On a warm Caffeine edit the two typed
+   * modules have 373 intrinsic elements (genes-gz0l).
+   *
+   * Why the answer can be shared: it depends only on the tag name, the
+   * `genes.react.jsx_intrinsic_providers` define and the extern provider
+   * classes, and none of them changes during one compilation. Callers only
+   * read the map.
+   *
+   * The lookup also has an effect that cannot be shared: `Context.getType`
+   * of a provider path makes the module that Haxe is typing depend on the
+   * provider's module. A compilation server types that module again when
+   * the provider changes. So a module that finds the tag here still calls
+   * `Context.getType` for each path in `providers`, the paths that the
+   * first lookup read, in the same order. Without that call, a second
+   * module that uses the same tag kept its old typed callback after an
+   * edit of the provider (row "an edit of an intrinsic provider that two
+   * modules use" of `yarn test:compiler-server`).
+   *
+   * Lifetime: the map holds compiler-owned `Type` values, so it must not
+   * outlive one compilation. It is an ordinary static, not `@:persistent`:
+   * Haxe makes it empty again at the start of each compilation, also on a
+   * compilation server.
+   */
+  static var intrinsicContracts: Map<String, IntrinsicContract> = new Map();
+
   public static function contextualize(tagName: String, tag: Expr,
       intrinsic: Bool, props: Array<JsxContextProp>): Map<Int, Expr> {
-    final propsType = intrinsic ? intrinsicPropsType(tagName) : componentPropsType(Context.typeExpr(tag)
-      .t);
-    if (propsType == null)
-      return [];
-    final fields = propertyFields(propsType);
+    final fields = intrinsic ? intrinsicContract(tagName) : contractOf(componentPropsType(Context.typeExpr(tag)
+      .t));
     if (fields == null)
       return [];
 
@@ -238,12 +279,44 @@ class JsxContext {
     }
   }
 
-  static function intrinsicPropsType(name: String): Null<Type> {
+  /** Returns the property fields of a props type, or `null` when it has none. */
+  static function contractOf(propsType: Null<Type>): Null<Map<String, Type>> {
+    return propsType == null ? null : propertyFields(propsType);
+  }
+
+  /**
+   * Returns the property contract of the intrinsic tag `name`, from
+   * `intrinsicContracts` after the first lookup in this compilation. A
+   * shared answer still asks Haxe for each provider that the first lookup
+   * read, so that the current module depends on it (see
+   * `intrinsicContracts`).
+   */
+  static function intrinsicContract(name: String): Null<Map<String, Type>> {
+    final known = intrinsicContracts.get(name);
+    if (known != null) {
+      for (path in known.providers)
+        Context.getType(path);
+      return known.fields;
+    }
+    final providers: Array<String> = [];
+    final fields = contractOf(intrinsicPropsType(name, providers));
+    intrinsicContracts.set(name, {fields: fields, providers: providers});
+    return fields;
+  }
+
+  /**
+   * Returns the props type that a provider declares for the intrinsic tag
+   * `name`, or `null`. Adds each provider path that it asks Haxe for to
+   * `consulted`, in order.
+   */
+  static function intrinsicPropsType(name: String,
+      consulted: Array<String>): Null<Type> {
     final configured = Context.definedValue('genes.react.jsx_intrinsic_providers');
     final paths = configured == null
       || StringTools.trim(configured)
         .length == 0 ? [DEFAULT_INTRINSIC_PROVIDER] : [for (path in configured.split(',')) StringTools.trim(path)];
     for (path in paths) {
+      consulted.push(path);
       final provider = resolveAliases(Context.getType(path));
       final classType = switch provider {
         case TInst(classRef, _): classRef.get();
