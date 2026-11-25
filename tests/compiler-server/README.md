@@ -950,8 +950,8 @@ The review of #269 added these groups:
   (`include-changed`); on d8b4b5ad the full request after it kept Haxe's old
   parse of the file and differed from cold (`mr/Button.ts`,
   `mr/inc/Late.ts`), and the next preview was stale. Now the full request
-  makes Haxe parse every included file that Genes has not proven again, so
-  it equals cold and the next edit previews;
+  makes Haxe parse again every included file whose content Genes has not
+  proven, so it equals cold and the next edit previews;
 - `roots-include-ignore-wildcard` (`['mr.inc.sub*']`: a new file in the
   ignored folder previews, one in the included folder is refused) and
   `roots-include-class-paths` (`classPaths` given);
@@ -972,16 +972,45 @@ read the roots: an option that it does not know, `--next`, `--each` or
 that was not in the stored program and whose file changed while the full
 request ran.
 
-Known gap (review round 3 of #269, tracked as genes-f8vc.14.24): a listed
-file that had a class can lose its declarations between the first walk of
-the include folders and Haxe's own walk, and then be saved back inside the
-same whole second, without `server/invalidate` for the second save. That
-needs two saves inside one whole second around the start of a full request.
-Haxe then keeps a parse that Genes never noted, and the old digest stays
-proven, so a later full request differs from cold and a preview after it is
-stale. No row covers it yet. The development session sends
-`server/invalidate` for each changed file that it sees, which makes Haxe
-parse the file again.
+A listed file without a declaration (genes-f8vc.14.24, review round 3 of
+#269): after typing, the full request notes what Haxe parsed for each listed
+file whose module has no declaration in the program: the content of the
+first walk when the file did not change since, else `unknown`, which makes
+the next full request parse the file again. With an init macro before
+`genes.Generator.use()` that can type a module, such a file is `unknown`,
+and the roots are unknown, when Genes had not proven its content at the
+first walk. The rows:
+
+- `roots-declarationless-race` (`-dce full`): `mr/inc/Late.hx` holds a
+  `@:keep` class that calls `mr.Button.unused()`. In step 2 `mr.Strip`, an
+  init macro given after `genes.Generator.use()`, removes the class after
+  Genes walked the folder and before Haxe's walk, and puts it back after
+  typing with the same modification time (`touch -r`); the session
+  invalidates only `mr/Button.hx`. The cold build of the step sees the same
+  save, so both are equal. Step 3: the module request is refused
+  (`include-changed`, the file changed while the request ran); on 339b4855
+  its full request kept Haxe's parse without the class and differed from
+  cold (`mr/Button.ts`, `mr/inc/Late.ts`). Now it equals cold, and step 4
+  previews;
+- `roots-declarationless-race-root-class-path`: the same race in the folder
+  of the request (the class path that Haxe has without `-cp`), where the
+  walk spells the file `./rootinc/Late.hx` and Haxe's positions spell it
+  `rootinc/Late.hx`. A fix that looks up only the walk's spelling still
+  differed from cold in step 3;
+- `roots-declarationless-early-macro` (`noInvalidate`): an init macro before
+  `genes.Generator.use()` loads `mr.inc.Late`, which is all inside
+  `#if macro`. The first module request is refused (`include-changed`: Genes
+  has not proven the file) and the full request is refused once
+  (`GENES-MODULE-REQUEST-003`); then a module request previews. In step 3 a
+  module request parses the file, and a save in the same second turns
+  `#if macro` into `#if !acro`. On 339b4855 the full request kept the old
+  parse and differed from cold (`mr/Button.ts`, `mr/inc/Late.ts`); now it is
+  refused once and then equals cold;
+- `roots-empty-order` (`-dce std`): seven files that are all `#if macro`.
+  The `root empty` lines of the records text are sorted by module; on
+  339b4855 they followed the order of the folder listing (APFS:
+  `mr.inc.Zeta` before `mr.inc.Beta`). The gate checks this order after
+  every full request.
 
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with

@@ -73,6 +73,18 @@ typedef ProgramRootsFacts = {
   final unknown: Array<String>;
 }
 
+/**
+ * One file that the `include` lines of a full request listed when
+ * `genes.Generator.use()` ran (`ProgramRoots.beginRequest`): its module, the
+ * content read then, and whether Genes made Haxe parse it again because it
+ * held no proven digest of it (`again`).
+ */
+private typedef ListedFile = {
+  final module: String;
+  final content: SourceContent;
+  final again: Bool;
+}
+
 /** The literal arguments of one `include` call. */
 private typedef IncludeCall = {
   final pack: String;
@@ -137,8 +149,8 @@ private typedef IncludeCall = {
  * change it. Genes walks the folders when `genes.Generator.use()` runs
  * (`beginRequest`, before Haxe's walk): it reads each listed file, and it
  * makes Haxe parse again each one whose typed content it has not proven
- * (`typedDigests`), such as a file without a declaration, which no other
- * record names. It walks them again after the commit (`read`). A listed
+ * (`typedDigests`), such as a file without a declaration that it sees for
+ * the first time. It walks them again after the commit (`read`). A listed
  * module with declarations in the program was added, and its file is a
  * source of the stored program. A listed module without one must have the
  * same digest and status as in the first walk, so Haxe parsed what Genes
@@ -146,24 +158,32 @@ private typedef IncludeCall = {
  * changes. Any other listed module (a file added while the request ran)
  * makes the roots unknown until the next full request.
  *
+ * A listed file without a declaration (genes-f8vc.14.24): after typing,
+ * `ModuleRequest.noteDeclarationless` notes what Haxe parsed for each one
+ * (`declarationless`) in `typedDigests`: the content of the first walk when
+ * the file did not change since, else `unknown`. Example: `mr/inc/Late.hx`
+ * holds a `@:keep` class; a save removes the class after the first walk and
+ * before Haxe's walk, and a second save puts it back inside the same whole
+ * second, without `server/invalidate`. Haxe keeps the parse without the
+ * class; the change time of the second save makes the file `unknown`, so
+ * the next full request makes Haxe parse it again (before, the digest with
+ * the class stayed proven, and every later full request differed from
+ * cold). With an init macro before `genes.Generator.use()` that can type a
+ * module (`ModuleRequest.typingMacrosBeforeGenes`), such a macro can load a
+ * listed module from an old parse before the first walk: a listed module
+ * without a declaration whose file Genes had not proven then makes the
+ * roots unknown, and its file is `unknown`.
+ *
  * Limits: the status check between the two walks is the status rule of
  * `ModuleRequest` (size, modification time, change time and inode), so it
  * trusts that the file system moves the change time at every change (FAT
  * and exFAT may not) and that nobody restores a file below the file
- * system. A file without a declaration is parsed again in every full
- * request with module records (one parse each; such a file holds no code
- * that Haxe types). A module request reads every included folder and each
- * file without a declaration again.
- *
- * Known gap (review round 3 of #269, tracked as genes-f8vc.14.24): a listed
- * file that had a class can lose its declarations between the first walk
- * and Haxe's own walk, and then be saved back inside the same whole second,
- * without `server/invalidate` for the second save. That needs two saves
- * inside one whole second around the start of a full request. Haxe then
- * keeps a parse that Genes never noted, and the old digest stays proven, so
- * a later full request differs from cold and a preview after it is stale.
- * The development session sends `server/invalidate` for each changed file
- * that it sees, which makes Haxe parse the file again.
+ * system. A file without a declaration is parsed again in a full request
+ * only when Genes has not proven its content (the first time, or after it
+ * changed). A module request reads every included folder and each file
+ * without a declaration again. A full request that fails before typing
+ * ends (a type error) notes nothing, as for every other file that changes
+ * while Haxe reads it.
  *
  * What it does not claim: an init macro other than `include` that loads a
  * module by name is not read; such a module is not counted as staying, so
@@ -175,15 +195,16 @@ class ProgramRoots {
   static final INCLUDE_CALL = 'haxe.macro.Compiler.include';
 
   /**
-   * The content (digest and status) of each file that the `include` lines
-   * of this request listed when `genes.Generator.use()` ran
-   * (`beginRequest`). Request-local.
+   * Each file that the `include` lines of this request listed when
+   * `genes.Generator.use()` ran (`beginRequest`), with its module, the
+   * content read then, and whether Genes made Haxe parse it again.
+   * Request-local: `beginRequest` replaces it.
    */
-  static var beginContent: Map<String, SourceContent> = new Map();
+  static var beginListed: Map<String, ListedFile> = new Map();
 
   /**
    * Walks the folders of the `include` lines of this request, reads each
-   * listed file (`beginContent`), and returns each listed file with the
+   * listed file (`beginListed`), and returns each listed file with the
    * content read and whether Haxe must parse it again (`again`): when
    * `proven` does not name it (by `Path.normalize`), that is, when Genes
    * holds no proven digest of what Haxe typed (`typedDigests`).
@@ -192,21 +213,22 @@ class ProgramRoots {
    * which runs after every init macro, and makes Haxe parse those files
    * again.
    *
-   * Why (review of #269): Genes proves the content of a module's file only
-   * when the module has a declaration. A file with none (for example one
-   * that is all `#if macro`) is in no other record, so without this Haxe
-   * could keep an old parse of it. Example: a client that sends no
-   * `server/invalidate` saves `#if !acro` over `#if macro` in the same
-   * second; Haxe's file-time check misses it, and a full build would keep
-   * the file without its class. A listed file that Genes proved is already
-   * compared, and parsed again when it changed, by `beginRequest`.
+   * Why (review of #269): a file with no declaration (for example one that
+   * is all `#if macro`) gets a proven digest only after a full request
+   * noted it (`ModuleRequest.noteDeclarationless`), so without this Haxe
+   * could keep an old parse of a file that Genes has not proven. Example:
+   * a client that sends no `server/invalidate` saves `#if !acro` over
+   * `#if macro` in the same second; Haxe's file-time check misses it, and a
+   * full build would keep the file without its class. A listed file that
+   * Genes proved is already compared, and parsed again when it changed, by
+   * `beginRequest`.
    */
   public static function beginRequest(proven: Map<String, Bool>): Array<{
     file: String,
     content: SourceContent,
     again: Bool
   }> {
-    beginContent = new Map();
+    beginListed = new Map();
     final configuration = haxe.macro.Compiler.getConfiguration();
     if (configuration == null)
       return [];
@@ -218,15 +240,16 @@ class ProgramRoots {
           final call = includeCallOf(text);
           if (call != null && call.active)
             for (found in includedFiles(call)) {
-              if (beginContent.exists(found.file))
+              if (beginListed.exists(found.file))
                 continue;
               final content = ModuleRequest.readSource(found.file);
-              beginContent.set(found.file, content);
-              listed.push({
-                file: found.file,
+              final again = !proven.exists(haxe.io.Path.normalize(found.file));
+              beginListed.set(found.file, {
+                module: found.module,
                 content: content,
-                again: !proven.exists(haxe.io.Path.normalize(found.file))
+                again: again
               });
+              listed.push({file: found.file, content: content, again: again});
             }
         default:
       }
@@ -253,6 +276,7 @@ class ProgramRoots {
     final inProgram = new Map<String, Bool>();
     for (name in observed)
       inProgram.set(name, true);
+    final earlyMacros = ModuleRequest.typingMacrosBeforeGenes().length > 0;
     final classNames = [];
     final includes = [];
     final unknown = [];
@@ -265,7 +289,7 @@ class ProgramRoots {
         case Option('--macro', text) if (text != null):
           final call = ModuleRequest.initMacroCall(text);
           if (call == INCLUDE_CALL) {
-            final include = includeOf(text, inProgram);
+            final include = includeOf(text, inProgram, earlyMacros);
             switch include {
               case Left(reason):
                 unknown.push(reason);
@@ -282,8 +306,46 @@ class ProgramRoots {
             classNames.push(text);
       }
     }
-    beginContent = new Map();
+    beginListed = new Map();
     return {classNames: classNames, includes: includes, unknown: unknown};
+  }
+
+  /**
+   * Returns each file that the `include` lines listed when
+   * `genes.Generator.use()` ran (`beginRequest`) and whose module has no
+   * declaration in the program (`observed`, as in `read`), with its module
+   * and whether Genes made Haxe parse it again (`again`). `ModuleRequest`
+   * notes what Haxe parsed for each one (`noteDeclarationless`) after
+   * typing, in a full request with module records.
+   *
+   * Why (genes-f8vc.14.24): no other record names such a file. Example:
+   * `mr/inc/Late.hx` holds a `@:keep` class, and a save removes the class
+   * after Genes read the file and before Haxe's own walk parses it; a
+   * second save puts the class back in the same whole second, without
+   * `server/invalidate`. Haxe keeps the parse without the class. Genes must
+   * then stop treating the digest with the class as proven, or every later
+   * full request keeps that parse and differs from cold.
+   */
+  public static function declarationless(observed: Array<String>): Array<{
+    file: String,
+    module: String,
+    again: Bool
+  }> {
+    final inProgram = new Map<String, Bool>();
+    for (name in observed)
+      inProgram.set(name, true);
+    final files = [for (file in beginListed.keys()) file];
+    files.sort(compareStrings);
+    return [
+      for (file in files) {
+        final listed = beginListed.get(file);
+        if (listed != null && !inProgram.exists(listed.module)) {
+          file: file,
+          module: listed.module,
+          again: listed.again
+        };
+      }
+    ];
   }
 
   /**
@@ -361,10 +423,15 @@ class ProgramRoots {
    * Reads the `include` line `text` and lists its modules (`Right`), or
    * returns why Genes cannot know them (`Left`). A listed module must have
    * a declaration in the program (`inProgram`), or a file that did not
-   * change since `beginRequest` (its digest is kept).
+   * change since `beginRequest` (its digest is kept). With `earlyMacros`
+   * (an init macro before `genes.Generator.use()` that can type a module,
+   * `ModuleRequest.typingMacrosBeforeGenes`), a listed module without a
+   * declaration must also have a file whose content Genes had proven when
+   * `beginRequest` ran: such a macro can make Haxe load the module from an
+   * old parse before Genes makes Haxe parse the file again.
    */
-  static function includeOf(text: String,
-      inProgram: Map<String, Bool>): haxe.ds.Either<String, IncludeRoot> {
+  static function includeOf(text: String, inProgram: Map<String, Bool>,
+      earlyMacros: Bool): haxe.ds.Either<String, IncludeRoot> {
     final call = includeCallOf(text);
     if (call == null)
       return Left('Genes cannot read the arguments of `$text`');
@@ -378,7 +445,13 @@ class ProgramRoots {
       // Haxe parsed the file after `beginRequest` read it (it made Haxe
       // parse it again, or Haxe's parse is the proven one), so the content
       // that it parsed is the one read then, when the file is the same now.
-      final before = beginContent.get(found.file);
+      final listed = beginListed.get(found.file);
+      if (earlyMacros && (listed == null || listed.again))
+        return Left('`$text` lists ${found.module}, which is not in the '
+          + 'program, and an init macro given before '
+          + '`--macro genes.Generator.use()` can have loaded it from a parse '
+          + 'that Genes has not proven');
+      final before = listed == null ? null : listed.content;
       final content = ModuleRequest.readSource(found.file);
       final beforeStat = before == null ? null : before.stat;
       final stat = content.stat;
@@ -397,6 +470,9 @@ class ProgramRoots {
       });
     }
     modules.sort(compareStrings);
+    // By module, so that the records text does not depend on the order in
+    // which the file system lists a folder.
+    empty.sort((left, right) -> compareStrings(left.module, right.module));
     return Right({
       text: text,
       pack: call.pack,
