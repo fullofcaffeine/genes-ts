@@ -774,6 +774,16 @@ class GenerationCache {
    * a preview of `mr.Card` records `mr.Theme`. Only the clean rules of a
    * full request read them (rule 7), and a module that a preview advanced is
    * typed again in the next full request, so it is never clean there.
+   *
+   * The second name of each visit step (`WalkStep.typeName`) is left out
+   * for the same reason (review of genes-ts #268). The walk stores it only
+   * when it read it, and it reads it only when the step's target module
+   * already exists without a member of the plain name; whether that module
+   * exists then depends on which module's step made it first. Example: a
+   * module that names `haxe.ds.List`, which dead-code elimination removes,
+   * stores `List` when another module's step made `haxe.ds.List` before,
+   * and an empty text otherwise. An empty text only makes a walk with
+   * stored edges read the name from the declaration.
    */
   public static function entryText(module: String): String {
     final stored = entry(module);
@@ -802,7 +812,7 @@ class GenerationCache {
     for (visit in stored.visits) {
       buffer.add('  visit ${visit.members.split('\n').join(' | ')}\n');
       for (index => step in visit.steps)
-        buffer.add('    step ${step.key} ${step.module} ${step.name} ${step.typeName} '
+        buffer.add('    step ${step.key} ${step.module} ${step.name} '
           + '${visit.targets == null ? '' : visit.targets[index]}\n');
     }
     final requests = stored.runtimeRequests;

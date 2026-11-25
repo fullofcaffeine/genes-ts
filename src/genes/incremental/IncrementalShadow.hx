@@ -2120,8 +2120,10 @@ class IncrementalShadow {
   function finish(success: Bool, failure: Null<String>): Void {
     stopClock();
     owner = null;
-    // A module request keeps the cache of the last full request as it is;
-    // `ModuleRequest` writes its report.
+    // A module request stores no cache and writes no report of its own:
+    // `ModuleRequest` writes its report, and after a published preview it
+    // replaces only that module's entry (`previewEntry`,
+    // `GenerationCache.advance`, genes-f8vc.14.8).
     if (preview)
       return;
     final generationSeconds = haxe.Timer.stamp() - started;

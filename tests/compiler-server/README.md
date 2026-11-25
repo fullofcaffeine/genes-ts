@@ -672,8 +672,10 @@ root (no `--main`) and writes into its own sibling folder. The gate requires:
   sources; that full request must also find the advanced records equal to
   its own (`advancedCheck: "equal"` in its records report). After a refusal
   the report says `records: "kept"`, and the text must equal the text of the
-  request before it: a refused preview leaves no advanced record. A full
-  request never finds advanced records that differ from its own
+  request before it: a refused preview leaves no advanced record. A request
+  refused with `no-records` runs in a macro state that holds no records (a
+  new server, or Haxe typed the macro classes of Genes again), so its text
+  must show none. A full request never finds advanced records that differ from its own
   (`advancedCheck` never starts with `differs`). A preview of the module of
   the `--main` class keeps the records (`records: "kept: ..."`): a full
   request marks its `main` function `@:keep`, which a module request cannot
@@ -715,6 +717,28 @@ list has one such row: a preview of `mr.Theme`, then a preview of
 
 On Genes before the change, the importer rows give `other-modules-typed` and
 the unrelated row `source-changed`, and no request writes a records text.
+
+Three more `chain-` groups come from the review of genes-ts #268; each
+failed on its commit 1704dcac:
+
+- `chain-type-only-target` (`-dce std`): a literal edit of `mr.Ext`, which
+  names `haxe.ds.List` (removed by dead-code elimination) only inside a
+  structure type. The full walk stores the second name of that step or not
+  by the order of its walk, so the records text leaves it out (before: the
+  texts differed and the full request reported `advancedCheck: differs`).
+- `chain-global-build-refused`: the program of
+  `kept-stale-global-build-after-genes` (a global build macro that types
+  `mr.Fresh`, so Haxe loads it with the standard types before any init
+  macro), with `server/invalidate`. A literal edit of `mr.Fresh`, a refused
+  module request, then the full request, twice. The full request must not
+  be refused (before: `GENES-MODULE-REQUEST-003` in each cycle): the mark of
+  every module that a refused request typed fires at once. The second
+  module request gives `no-records` on c1befe06 too, because Genes starts
+  with a new macro state there.
+- `chain-new-process-module-first`: a new server whose first request is a
+  module request (refused, `no-records`), then the full request, which must
+  not be refused (before: `GENES-MODULE-REQUEST-003`). A client sends a full
+  request first in a new process.
 
 The `std-` groups check the structural rule under `-dce std`
 (genes-f8vc.14.7). Under `-dce std`, Haxe keeps every class of the project

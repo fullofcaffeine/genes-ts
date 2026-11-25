@@ -377,9 +377,12 @@ typedef ModuleRecordsReport = {
    * The check of those advanced records against the records of this
    * request (format 3, `ModuleRequest.programCommitted`): `none` (nothing
    * was advanced), `equal`, `sources-changed` (a source file differs from
-   * the one that the last preview knew, so the records may differ), or
+   * the one that the last preview knew, so the records may differ),
+   * `key-changed` (the session key changed since the previews), or
    * `differs: <module>: <first difference>`, a defect that the request
-   * also reports as the warning `GENES-MODULE-REQUEST-005`.
+   * also reports as the warning `GENES-MODULE-REQUEST-005`. It compares the
+   * text of each advanced module (`moduleText`) and the indexes
+   * (`indexesText`), not the records of the other modules.
    */
   final advancedCheck: String;
 }
@@ -511,7 +514,11 @@ typedef ModuleRecordsReport = {
  * leaves the incremental path, so this check does not apply there.
  *
  * What a client must do (no shipping client asks for module records yet;
- * the Genes development session in `tooling/` does not): after
+ * the Genes development session in `tooling/` does not): send a full
+ * request with module records first in each new server process, before any
+ * module request (a module request without records is refused with
+ * `no-records`, and the files that it typed stay unknown until a later full
+ * request); after
  * `GENES-MODULE-REQUEST-003` or `init-macro-before-genes`, send the same
  * request again once, and if it is refused again, report the refusal
  * instead of looping. A second refusal means that a file changed again in
@@ -560,8 +567,10 @@ typedef ModuleRecordsReport = {
  * - the module is not the output root, is not exposed, has no public root
  *   entries, and gets an implementation file;
  * - Haxe typed no module other than the requested one, and every other
- *   module of the request has the epochs of the stored full request (so a
- *   module that an earlier module request typed again is a refusal too);
+ *   module of the request has the stored epochs: those of the stored full
+ *   request, or of the published preview that advanced its records
+ *   (genes-f8vc.14.8). A module that an earlier module request typed again
+ *   without publishing a preview of it is a refusal too;
  * - the defines are the ones that the session key holds: a define that a
  *   macro sets after the first after-typing callback of Genes changes what
  *   printing reads (`GenerationChangeSet.definesChangedAfterTyping`,
@@ -593,7 +602,8 @@ typedef ModuleRecordsReport = {
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
  * - no source file of the stored program other than the module's own
- *   changed since the full request (content digest, or the status rule
+ *   changed since the stored records (the full request, or the published
+ *   preview that advanced the file's module; content digest, or the status rule
  *   above; also `import.hx` files, and also files of modules that this
  *   request loads, because Haxe compares file times only in whole seconds),
  *   so an edit outside the module's imports is a refusal too
@@ -794,10 +804,12 @@ typedef ModuleRecordsReport = {
  * (`retypeLater`), so that the next full request types
  * it again with the whole program: a type that another module's use decides,
  * such as `static final items = []`, would otherwise stay as typed alone.
- * After a refused or failed request the next request of any kind makes
- * Haxe parse the module's file again (`typedAlone`); after a published
- * preview only the next request that is not a module request does
- * (`deferredFiles`), see below.
+ * The mark fires at once for every module that the request typed, as
+ * before, except for the requested module of a published preview: its mark
+ * waits for the next request that is not a module request, which also makes
+ * Haxe parse its file again (`deferredFiles`), see below. A request that
+ * fails after this step leaves the requested module's file to the next
+ * request (`typedAlone`).
  *
  * Previews in a row (genes-f8vc.14.8). A development session sends a module
  * request for each save, and the full request only after a quiet time. A
@@ -848,7 +860,8 @@ typedef ModuleRecordsReport = {
  * The program request stays the authority: it types those modules again
  * and its records replace every advanced record. When no source file
  * changed since the last preview, it also compares its records of each
- * advanced module, and every index, with the advanced ones; a difference is
+ * advanced module, and every index, with the advanced ones (only those:
+ * the records of the other modules are the stored ones); a difference is
  * a defect, reported as the warning `GENES-MODULE-REQUEST-005` and in the
  * records report (`advancedCheck`).
  *
@@ -930,11 +943,14 @@ class ModuleRequest {
 
   /**
    * Files of modules that a module request typed alone and that the next
-   * request of any kind must make Haxe parse again before typing: every
-   * module that `retypeLater` saw, until the request publishes a preview of
-   * it (then its file moves to `deferredFiles`). So after a refused or a
-   * failed module request, and when `retypeLater` could not mark a module,
-   * no later request reuses the module that Haxe typed alone. A cache fact.
+   * request of any kind must make Haxe parse again before typing: the
+   * modules that `retypeLater` could not mark, and the requested module
+   * while its own mark waits for the end of the request
+   * (`settleRetypeMark`: a published preview moves its file to
+   * `deferredFiles`, any other result fires the mark and takes the file
+   * out). So a request that fails after `retypeLater` leaves the file here,
+   * and no later request reuses the module that Haxe typed alone. A cache
+   * fact.
    */
   @:persistent static var typedAlone: Array<String> = [];
 
@@ -1128,6 +1144,15 @@ class ModuleRequest {
     ModuleClassFacts> = new Map();
 
   /**
+   * The init macros (the text after each `--macro`) of the stored full
+   * request, which `commitProfiles` reads for `storedPrivateAccess`. Kept
+   * with the records, so that an accepted preview, whose request can have
+   * other `--macro` lines (a session removes `include(...)`), makes the
+   * indexes from the full request's macros (review of genes-ts #268).
+   */
+  @:persistent static var storedInitMacros: Array<String> = [];
+
+  /**
    * The modules whose records an accepted preview advanced since the stored
    * full request (genes-f8vc.14.8). The next full request compares its own
    * records of them with the advanced ones (`advancedSnapshot`) and then
@@ -1153,6 +1178,13 @@ class ModuleRequest {
    * advanced or dropped them.
    */
   static var recordsResult = 'kept';
+
+  /**
+   * The mark of the requested module that `retypeLater` started in this
+   * module request, with the module's file, until `settleRetypeMark` fires
+   * or keeps it; `null` when Haxe did not type the requested module.
+   */
+  static var pendingRetype: Null<{token: String, file: Null<String>}> = null;
 
   /** The `-dce std` facts of each module of this request (see `storedUses`). */
   static var requestProfiles: Map<String, ModuleProfile> = new Map();
@@ -1248,6 +1280,7 @@ class ModuleRequest {
     cacheFactsLost = false;
     advancedSnapshot = null;
     recordsResult = 'kept';
+    pendingRetype = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
     // Every request with the define that is not a module request fires the
@@ -2634,52 +2667,94 @@ class ModuleRequest {
 
   /**
    * Marks each of `modules`, which this module request typed alone, for a
-   * new typing: each gets a dependency on two files of the waiting mark,
+   * new typing: each gets a dependency on the two files of a mark,
    * `<descriptor>.module-retype-<token>`, which does not exist when Haxe
    * notes its time, and `<descriptor>.module-retype-gone-<token>`, which
    * exists then. The mark fires when the first file appears and the second
-   * goes (`fireRetypeMark`), at the start of the next request that is not a
-   * module request. The server then finds the dependency changed and types
-   * the modules again, with the whole program in a full request. Deleting
-   * or writing one of the files by hand still leaves the other one changed.
-   * The dependency lives only on these typed module objects; the next typing
-   * drops it.
+   * goes (`fireRetypeToken`). The server then finds the dependency changed
+   * and types the modules again, with the whole program in a full request.
+   * Deleting or writing one of the files by hand still leaves the other one
+   * changed. The dependency lives only on these typed module objects; the
+   * next typing drops it.
    *
-   * It also notes the modules' files in `typedAlone`, so that the next
-   * request of any kind makes Haxe parse them again. `previewCommitted`
-   * moves the file of a published preview's module to `deferredFiles`
-   * instead (genes-f8vc.14.8): later module requests reuse that module, and
-   * its mark keeps waiting for the next request that is not a module
-   * request. A mark that an earlier module request armed stays armed, so
-   * that the modules it marked stay unchanged for later module requests.
+   * When the mark fires (genes-f8vc.14.8):
    *
-   * Why a new pair of files (a new token) for each mark that starts to wait:
-   * Haxe 4.3.7 keeps one fake module for each dependency file for the life
-   * of the server (`Typecore.create_fake_module`), with the file time of its
-   * first use, and forgets it only when a check finds it changed. A module
-   * that Haxe marks as changed for another reason is not checked, so a fake
-   * module can outlive the file state that it noted; a new mark on the same
-   * file would then fire at once. Example: the files of a mark that a
-   * refused request fired keep their fake modules when the next full request
-   * makes Haxe parse the marked modules again (`typedAlone`).
+   * - for every module other than the requested one: at once, so that the
+   *   next request of any kind types it again, as before;
+   * - for the requested module: its own mark waits until the end of the
+   *   request (`settleRetypeMark`). When the request publishes a preview
+   *   and advances the module's records, it keeps waiting until the start of
+   *   the next request that is not a module request (`fireRetypeMark`), so
+   *   that later module requests reuse the module of the preview; that
+   *   request also makes Haxe parse the module's file again
+   *   (`deferredFiles`). Otherwise it fires at once. Until then the file is
+   *   in `typedAlone`, so a request that fails after this step leaves it to
+   *   the next request;
+   * - with an init macro that can type a module before
+   *   `genes.Generator.use()`: at once for every module, because such a macro
+   *   could load the module before `begin` fires a waiting mark.
+   *
+   * Why the requested module only: a module request types other modules
+   * only when its preview is refused (`other-modules-typed`), and a module
+   * that Haxe loads before any init macro (with the standard types) must be
+   * changed at the start of the next request; making Haxe parse its file
+   * again in `beginRequest` is then too late, and the full request would
+   * stop with `GENES-MODULE-REQUEST-003` (review of genes-ts #268).
+   *
+   * Why a new pair of files (a new token) for each mark: Haxe 4.3.7 keeps
+   * one fake module for each dependency file for the life of the server
+   * (`Typecore.create_fake_module`), with the file time of its first use,
+   * and forgets it only when a check finds it changed. A module that Haxe
+   * marks as changed for another reason is not checked, so a fake module can
+   * outlive the file state that it noted; a new mark on the same file would
+   * then fire at once.
    *
    * Why not `CompilationServer.invalidateFiles` only: during a request it
    * marks only the cached copy from before; the module typed in this request
-   * enters the cache when the request ends. The next request makes Haxe
-   * parse the noted files again before typing (`beginRequest`), but only a
-   * request in which Genes reads its records does that; the mark also works
-   * in a request that left the incremental path.
+   * enters the cache when the request ends. A mark also works in a request
+   * in which Genes reads no records.
+   *
+   * Limit: a waiting mark fires in `begin` of a request with the define. A
+   * request without the define has other defines, so it uses another cache
+   * of Haxe and never sees the module; a request that deletes the mark's
+   * files, or `<descriptor>.module-retype`, by hand stops a waiting mark, and
+   * then only `deferredFiles` makes the next full request type the module
+   * again.
    */
   static function retypeLater(modules: Array<String>,
       descriptorPath: String): Void {
     if (modules.length == 0)
       return;
-    // An init macro given before Genes can load a module before `begin`
-    // fires the mark, and Haxe would then reuse the module typed alone. With
-    // such a macro the mark fires at once, as before genes-f8vc.14.8, and no
-    // preview keeps its module for later module requests (`deferredFiles`).
-    final waits = typingMacrosBeforeGenes().length == 0;
-    if (waits)
+    final requested = target();
+    final waits = typingMacrosBeforeGenes().length == 0
+      && requested != null && modules.indexOf(requested) >= 0;
+    final others = [for (module in modules) if (!waits || module != requested) module];
+    try {
+      // Two files, so that deleting or writing either one by hand cannot
+      // hide the change: Haxe notes `appears` while it is missing and
+      // `vanishes` while it exists, then `fireRetypeToken` writes the first
+      // and deletes the second.
+      if (others.length > 0) {
+        final token = armRetypeToken(descriptorPath);
+        registerRetype(others, descriptorPath, token);
+        fireRetypeToken(descriptorPath, token);
+      }
+      if (waits && requested != null) {
+        final token = armRetypeToken(descriptorPath);
+        registerRetype([requested], descriptorPath, token);
+        final file = moduleFiles.get(requested);
+        pendingRetype = {token: token, file: file};
+        if (file != null && typedAlone.indexOf(file) < 0) {
+          typedAlone = typedAlone.concat([file]);
+          cacheFactsChanged = true;
+        }
+      }
+    } catch (error:haxe.Exception) {
+      // The request publishes nothing (`decide` refuses), and the next
+      // request makes Haxe parse these files again before it types them.
+      retypeFailure = '[GENES-MODULE-REQUEST-002] Genes cannot mark '
+        + '${modules.join(', ')} for a new typing in the next full request '
+        + '(${error.message})';
       for (module in modules) {
         final file = moduleFiles.get(module);
         if (file != null && typedAlone.indexOf(file) < 0) {
@@ -2687,40 +2762,54 @@ class ModuleRequest {
           cacheFactsChanged = true;
         }
       }
-    try {
-      // Two files, so that deleting or writing either one by hand cannot
-      // hide the change: Haxe notes `appears` while it is missing and
-      // `vanishes` while it exists, then `fireRetypeMark` writes the first
-      // and deletes the second.
-      final waiting = waits ? waitingRetypeToken(descriptorPath) : null;
-      final token = waiting ?? armRetypeMark(descriptorPath);
-      final appears = retypeFile(descriptorPath, RETYPE_APPEARS, token);
-      final vanishes = retypeFile(descriptorPath, RETYPE_VANISHES, token);
-      for (module in modules) {
-        Context.registerModuleDependency(module, appears);
-        Context.registerModuleDependency(module, vanishes);
-      }
-      if (!waits)
-        fireRetypeFiles(descriptorPath, token);
-    } catch (error:haxe.Exception) {
-      // The request publishes nothing (`decide` refuses), and the next
-      // request makes Haxe parse these files again before it types them.
-      retypeFailure = '[GENES-MODULE-REQUEST-002] Genes cannot mark '
-        + '${modules.join(', ')} for a new typing in the next full request '
-        + '(${error.message})';
-      if (!waits)
-        for (module in modules) {
-          final file = moduleFiles.get(module);
-          if (file != null && typedAlone.indexOf(file) < 0) {
-            typedAlone = typedAlone.concat([file]);
-            cacheFactsChanged = true;
-          }
-        }
       Context.warning(retypeFailure, Context.currentPos());
     }
   }
 
-  /** The suffix of the file that names the token of the waiting mark of `retypeLater`. */
+  /** Gives each of `modules` a dependency on both files of the mark `token`. */
+  static function registerRetype(modules: Array<String>,
+      descriptorPath: String, token: String): Void {
+    final appears = retypeFile(descriptorPath, RETYPE_APPEARS, token);
+    final vanishes = retypeFile(descriptorPath, RETYPE_VANISHES, token);
+    for (module in modules) {
+      Context.registerModuleDependency(module, appears);
+      Context.registerModuleDependency(module, vanishes);
+    }
+  }
+
+  /**
+   * Fires or keeps the mark of the requested module at the end of a module
+   * request (`retypeLater`, genes-f8vc.14.8): a preview that advanced the
+   * module's records keeps it waiting (its file is in `deferredFiles`); any
+   * other result fires it now and takes the file out of `typedAlone`, as
+   * before. `writeReport` calls it as the last step of every module request
+   * that reaches the generator.
+   */
+  static function settleRetypeMark(descriptorPath: String): Void {
+    final pending = pendingRetype;
+    pendingRetype = null;
+    if (pending == null || recordsResult == 'advanced')
+      return;
+    try {
+      fireRetypeToken(descriptorPath, pending.token);
+    } catch (error:haxe.Exception) {
+      // The file stays in `typedAlone`: the next request makes Haxe parse it.
+      Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot fire the mark '
+        + 'for a new typing of ${target() ?? 'the requested module'} '
+        +
+        '(${error.message}); the next request makes Haxe parse its file again.',
+        Context.currentPos());
+      return;
+    }
+    final file = pending.file;
+    if (file != null && typedAlone.indexOf(file) >= 0) {
+      typedAlone = [for (item in typedAlone) if (item != file) item];
+      cacheFactsChanged = true;
+      storeCacheFacts();
+    }
+  }
+
+  /** The suffix of the file that lists the marks of `retypeLater` (`retypeMarks`). */
   static inline final RETYPE_STATE = '.module-retype';
 
   /** The suffix of the file of a mark that must be missing while the mark waits. */
@@ -2736,83 +2825,105 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the token of the mark that waits (`<descriptor>.module-retype`
-   * names it, its first file is missing and its second file exists, as
-   * `armRetypeMark` left them), or `null`. A token that is not lowercase
-   * hexadecimal text counts as none.
+   * Returns the marks that `<descriptor>.module-retype` lists, one line each:
+   * `wait <token>` for a mark that waits, `fired <token>` for a mark whose
+   * first file still exists. A line in another form is skipped.
    */
-  static function waitingRetypeToken(descriptorPath: String): Null<String> {
+  static function retypeMarks(descriptorPath: String): Array<{
+    waits: Bool,
+    token: String
+  }> {
     final text = try File.getContent(descriptorPath
-      + RETYPE_STATE) catch (_:haxe.Exception) null;
-    final token = text == null ? '' : StringTools.trim(text);
-    if (token.length == 0 || !~/^[0-9a-f]+$/.match(token))
-      return null;
-    return !FileSystem.exists(retypeFile(descriptorPath, RETYPE_APPEARS, token))
-      && FileSystem.exists(retypeFile(descriptorPath, RETYPE_VANISHES,
-        token)) ? token : null;
+      + RETYPE_STATE) catch (_:haxe.Exception) '';
+    final marks = [];
+    for (line in text.split('\n')) {
+      final parts = StringTools.trim(line).split(' ');
+      if (parts.length == 2 && (parts[0] == 'wait' || parts[0] == 'fired')
+        && ~/^[0-9a-f]+$/.match(parts[1]))
+        marks.push({waits: parts[0] == 'wait', token: parts[1]});
+    }
+    return marks;
+  }
+
+  /** Writes `marks` to `<descriptor>.module-retype` (`retypeMarks`). Throws when it cannot. */
+  static function saveRetypeMarks(descriptorPath: String, marks: Array<{
+    waits: Bool,
+    token: String
+  }>): Void {
+    File.saveContent(descriptorPath + RETYPE_STATE, [
+      for (mark in marks)
+        '${mark.waits ? 'wait' : 'fired'} ${mark.token}\n'
+    ].join(''));
   }
 
   /**
-   * Starts a new waiting mark and returns its token: deletes the first file
-   * of the mark before it (it fired, and its second file stays missing, so
-   * its modules still find a changed dependency), writes the second file of
-   * the new mark and names the new token in `<descriptor>.module-retype`.
-   * Throws when a file cannot be written.
+   * Starts a new mark and returns its token: deletes the first file of each
+   * fired mark (its second file stays missing, so its modules still find a
+   * changed dependency), writes the second file of the new mark and lists
+   * it as waiting. Throws when a file cannot be written.
    */
-  static function armRetypeMark(descriptorPath: String): String {
-    final state = descriptorPath + RETYPE_STATE;
-    final before = try StringTools.trim(File.getContent(state))
-    catch (_:haxe.Exception) '';
-    if (before.length > 0 && ~/^[0-9a-f]+$/.match(before)) {
-      final old = retypeFile(descriptorPath, RETYPE_APPEARS, before);
-      if (FileSystem.exists(old))
-        FileSystem.deleteFile(old);
-    }
+  static function armRetypeToken(descriptorPath: String): String {
+    final marks = [];
+    for (mark in retypeMarks(descriptorPath))
+      if (mark.waits)
+        marks.push(mark);
+      else {
+        final old = retypeFile(descriptorPath, RETYPE_APPEARS, mark.token);
+        if (FileSystem.exists(old))
+          FileSystem.deleteFile(old);
+      }
     final token = haxe.crypto.Sha1.encode(Std.string(Sys.time())
       + ':'
       + Std.string(Std.random(0x3FFFFFFF))
       + ':'
-      + before)
+      + Std.string(marks.length))
       .substr(0, 16);
     File.saveContent(retypeFile(descriptorPath, RETYPE_VANISHES, token),
       'genes module request\n');
-    File.saveContent(state, token + '\n');
+    marks.push({waits: true, token: token});
+    saveRetypeMarks(descriptorPath, marks);
     return token;
   }
 
   /**
-   * Fires the mark of `retypeLater` that waits: writes its first file and
-   * deletes its second, so that Haxe finds a changed dependency on each
-   * marked module and types it again in this request. `begin` calls it at
-   * the start of every request with the define that is not a module request
-   * (genes-f8vc.14.8). Without a waiting mark it does nothing.
-   *
-   * If a file cannot be written, Genes warns: the request still makes Haxe
-   * parse the noted files again (`beginRequest`, `deferredFiles`).
+   * Fires the mark `token`: writes its first file, deletes its second file
+   * and lists it as fired. Throws when a file cannot be written:
+   * `retypeLater` then refuses the request (`retype-mark-failed`).
    */
-  static function fireRetypeMark(descriptorPath: String): Void {
-    final token = waitingRetypeToken(descriptorPath);
-    if (token == null)
-      return;
-    try {
-      fireRetypeFiles(descriptorPath, token);
-    } catch (error:haxe.Exception) {
-      Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot fire the mark '
-        + 'for a new typing of the modules that module requests typed alone '
-        + '(${error.message}); it makes Haxe parse their files again instead.',
-        Context.currentPos());
-    }
+  static function fireRetypeToken(descriptorPath: String, token: String): Void {
+    File.saveContent(retypeFile(descriptorPath, RETYPE_APPEARS, token),
+      'genes module request\n');
+    final vanishes = retypeFile(descriptorPath, RETYPE_VANISHES, token);
+    if (FileSystem.exists(vanishes))
+      FileSystem.deleteFile(vanishes);
+    saveRetypeMarks(descriptorPath, [
+      for (mark in retypeMarks(descriptorPath))
+        mark.token == token ? {waits: false, token: token} : mark
+    ]);
   }
 
   /**
-   * Writes the first file of the mark `token` and deletes its second file.
-   * Throws when a file cannot be written: `retypeLater` then refuses the
-   * request (`retype-mark-failed`), and `fireRetypeMark` warns.
+   * Fires every mark of `retypeLater` that waits (the marks of published
+   * previews), so that Haxe finds a changed dependency on each marked module
+   * and types it again in this request. `begin` calls it at the start of
+   * every request with the define that is not a module request
+   * (genes-f8vc.14.8).
+   *
+   * If a file cannot be written, Genes warns: a full request still makes
+   * Haxe parse the files of those modules again (`deferredFiles`).
    */
-  static function fireRetypeFiles(descriptorPath: String, token: String): Void {
-    File.saveContent(retypeFile(descriptorPath, RETYPE_APPEARS, token),
-      'genes module request\n');
-    FileSystem.deleteFile(retypeFile(descriptorPath, RETYPE_VANISHES, token));
+  static function fireRetypeMark(descriptorPath: String): Void {
+    for (mark in retypeMarks(descriptorPath))
+      if (mark.waits)
+        try {
+          fireRetypeToken(descriptorPath, mark.token);
+        } catch (error:haxe.Exception) {
+          Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot fire the mark '
+            + 'for a new typing of the modules that previews typed alone '
+            + '(${error.message}); a full request makes Haxe parse their files '
+            + 'again instead.',
+            Context.currentPos());
+        }
   }
 
   /** The argument of the roots that Genes adds, so that it removes only its own. */
@@ -2950,6 +3061,13 @@ class ModuleRequest {
    * Haxe typed the module in this request, else from the earlier record with
    * the same epochs, else it is unknown and a module request for that module
    * is refused.
+   *
+   * An earlier record can be one that a preview advanced (genes-f8vc.14.8).
+   * Its references and positions are reused only when Haxe did not type the
+   * module again since that preview (equal epochs and kept lines): the
+   * record then describes the same typed module object. Haxe normally types
+   * such a module again here (`retypeLater`), and its records are then read
+   * again from its bodies.
    */
   public static function programCommitted(types: Array<Type>,
       main: Null<TypedExpr>, outputFile: String): Void {
@@ -3042,6 +3160,7 @@ class ModuleRequest {
     // again with the same code (genes-f8vc.14.8).
     profileCache = requestProfiles.copy();
     storedClassFacts = classFactsOf(types);
+    storedInitMacros = initMacros();
     records = made;
     deriveIndexes();
     storedMain = '';
@@ -3493,7 +3612,7 @@ class ModuleRequest {
       // An init macro other than Genes' own and the calls that only record a
       // define, metadata or a class path (`INIT_ONLY_CALLS`) can change the
       // code of a module without leaving metadata on it.
-      for (text in initMacros()) {
+      for (text in storedInitMacros) {
         final call = initMacroCall(text);
         if (call == null
           || (INIT_ONLY_CALLS.indexOf(call) < 0 && !genesFile(macroFile(call))))
@@ -3636,6 +3755,7 @@ class ModuleRequest {
     storedPrivateAccess = new Map();
     storedPrivateStructures = new Map();
     storedClassFacts = new Map();
+    storedInitMacros = [];
     advancedModules = new Map();
     advancedSnapshot = null;
   }
@@ -3850,9 +3970,10 @@ class ModuleRequest {
     if (others.length > 0)
       return refuse('other-modules-typed',
         'Haxe typed other modules again: ' + others.slice(0, 5).join(', '));
-    // Every other module of this request must be the one of the stored full
-    // request: not typed in this request, and not in an earlier module
-    // request either (its stamp would then be newer).
+    // Every other module of this request must be the one of the stored
+    // records: not typed in this request, and not in an earlier module
+    // request either (its stamp would then be newer), unless a published
+    // preview of that request advanced its records (genes-f8vc.14.8).
     for (name in GenerationChangeSet.observedModules()) {
       if (name == module || redefined.exists(name))
         continue;
@@ -3860,7 +3981,7 @@ class ModuleRequest {
       if (stored == null || stored != GenerationChangeSet.epochs(name))
         return refuse('other-modules-changed',
           '$name is not the module of ' +
-          'the last full request (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
+          'the stored records (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
     }
     // An after-typing macro can change the declarations of a module that
     // Haxe did not type again: their metadata, or their extern flag
@@ -3898,7 +4019,8 @@ class ModuleRequest {
     // file whose settled status did not change is not read (`holdsContent`).
     for (file => stored in storedFiles)
       if (file != ownFile && file != targetFile && !holdsContent(file, stored))
-        return refuse('source-changed', '$file changed since the full request');
+        return refuse('source-changed',
+          '$file changed since the stored records');
     final failures = GenerationChangeSet.sameObjectFailures();
     if (failures.length > 0)
       return refuse('same-object-failure',
@@ -4703,7 +4825,7 @@ class ModuleRequest {
     if (stored != null && stored == requestDeclarationFacts.get(module))
       return null;
     return 'an after-typing macro changed the metadata or the extern flag of '
-      + 'a declaration of $module since the full request';
+      + 'a declaration of $module since the stored records';
   }
 
   /**
@@ -4894,6 +5016,7 @@ class ModuleRequest {
       trustedSources: trustedSources,
       records: recordsResult
     };
+    settleRetypeMark(descriptor.path);
     save(IncrementalRequest.generationReportPath(descriptor.path),
       Json.stringify(report, null, '  ') + '\n');
     writeRecordsText(descriptor);
@@ -4957,6 +5080,8 @@ class ModuleRequest {
     final buffer = new StringBuf();
     buffer.add('records ${storedKey == null ? 'none' : 'stored'}\n');
     buffer.add('main $storedMain\n');
+    for (text in storedInitMacros)
+      buffer.add('init-macro $text\n');
     buffer.add(GenerationCache.cacheText());
     for (file in sortedKeys([for (name in storedFiles.keys()) name => true])) {
       final content = storedFiles.get(file);
@@ -5646,7 +5771,7 @@ class ModuleRequest {
     if (stored != null && stored == requestFacts.get(module))
       return null;
     return 'an after-typing macro changed the metadata or the extern flag of '
-      + 'a declaration of $module since the full request';
+      + 'a declaration of $module since the stored records';
   }
 
   /**
