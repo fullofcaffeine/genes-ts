@@ -3728,6 +3728,780 @@
           "lastCompilerEvent": null
         }
       }
+    },
+    {
+      "id": "module-preview-confirmed-at-acceptance",
+      "family": "scheduling",
+      "covers": [
+        "module-preview",
+        "single-active-build",
+        "structured-event"
+      ],
+      "description": "With modulePreview, an edit of one module first gets a module request whose files are shown as a preview; the program request then publishes the generation, and the preview is confirmed because the accepted files have the previewed bytes.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-module-preview",
+        "preview-generated",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "preview-confirmed"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 2,
+        "acceptedRevision": 2,
+        "retainedGeneration": 2,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 2,
+        "publicWrites": 2,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "preview-generated",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "preview-confirmed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "ready"
+        ],
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/Main.ts",
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "preview-generated",
+              "revision": 2,
+              "module": "Main",
+              "files": [
+                {
+                  "path": "src-gen/Main.ts",
+                  "sha256": "d69a22949405f42b32ec3f7e795557c897a4f5ec855b05db3ea530e476ce7036",
+                  "sizeBytes": 21
+                }
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 12,
+            "at": 1000012,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 2,
+                "revision": 2,
+                "acceptedAt": 1000011,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [
+                    "src-gen/index.ts"
+                  ],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 13,
+            "at": 1000013,
+            "event": {
+              "kind": "preview-confirmed",
+              "revision": 2,
+              "module": "Main",
+              "generation": 2,
+              "paths": [
+                "src-gen/Main.ts"
+              ]
+            }
+          }
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 2,
+              "revision": 2,
+              "acceptedAt": 1000011,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [],
+                "updated": [
+                  "src-gen/index.ts"
+                ],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 13,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 2,
+            "revision": 2,
+            "acceptedAt": 1000011,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [],
+              "updated": [
+                "src-gen/index.ts"
+              ],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null,
+          "modulePreview": {
+            "differences": 0,
+            "stoppedModules": []
+          }
+        }
+      }
+    },
+    {
+      "id": "module-preview-difference-stops-previews",
+      "family": "admission",
+      "covers": [
+        "module-preview",
+        "preview-correction",
+        "last-good"
+      ],
+      "description": "A preview whose bytes differ from the accepted program result of the same revision is reported as corrected, counted, and kept as evidence; the next edit of that module gets no module request (previews-stopped) and the program request publishes it.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-module-preview-differs",
+        "preview-generated",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "preview-corrected-differs",
+        "input-change",
+        "build-started",
+        "preview-refused-previews-stopped",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 3,
+        "acceptedGenerations": 3,
+        "acceptedRevision": 3,
+        "retainedGeneration": 3,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 3,
+        "publicWrites": 3,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "preview-generated",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "preview-corrected",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "preview-refused",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "ready",
+          "building",
+          "ready"
+        ],
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/Main.ts",
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "preview-generated",
+              "revision": 2,
+              "module": "Main",
+              "files": [
+                {
+                  "path": "src-gen/Main.ts",
+                  "sha256": "cdb78e0c369f46ec9155bbf02deb4fe9edd8a0c1e99dc4bedd2d1007229896ca",
+                  "sizeBytes": 34
+                }
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 12,
+            "at": 1000012,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 2,
+                "revision": 2,
+                "acceptedAt": 1000011,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [
+                    "src-gen/index.ts"
+                  ],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 13,
+            "at": 1000013,
+            "event": {
+              "kind": "preview-corrected",
+              "revision": 2,
+              "module": "Main",
+              "generation": 2,
+              "paths": [
+                "src-gen/Main.ts"
+              ],
+              "cause": "differs"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 17,
+            "at": 1000017,
+            "event": {
+              "kind": "preview-refused",
+              "revision": 3,
+              "module": "Main",
+              "source": "session",
+              "code": "previews-stopped"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 20,
+            "at": 1000020,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 3,
+                "revision": 3,
+                "acceptedAt": 1000019,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [
+                    "src-gen/index.ts"
+                  ],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 3,
+              "revision": 3,
+              "acceptedAt": 1000019,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [],
+                "updated": [
+                  "src-gen/index.ts"
+                ],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 20,
+          "newestRevision": 3,
+          "accepted": {
+            "generation": 3,
+            "revision": 3,
+            "acceptedAt": 1000019,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [],
+              "updated": [
+                "src-gen/index.ts"
+              ],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null,
+          "modulePreview": {
+            "differences": 1,
+            "stoppedModules": [
+              "Main"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "equal-content-starts-no-build",
+      "family": "scheduling",
+      "covers": [
+        "equal-content-no-build",
+        "module-preview"
+      ],
+      "description": "With modulePreview, a save that leaves the module with the bytes that the last accepted program request read is reported as an input change and advances the revision, but starts no module request and no program request.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-module-preview",
+        "preview-generated",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "preview-confirmed",
+        "input-change-equal-content"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 3,
+        "acceptedGenerations": 2,
+        "acceptedRevision": 2,
+        "retainedGeneration": 2,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 2,
+        "publicWrites": 2,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "preview-generated",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "preview-confirmed",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "ready"
+        ],
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/Main.ts",
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 12,
+            "at": 1000012,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 2,
+                "revision": 2,
+                "acceptedAt": 1000011,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [
+                    "src-gen/index.ts"
+                  ],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 13,
+            "at": 1000013,
+            "event": {
+              "kind": "preview-confirmed",
+              "revision": 2,
+              "module": "Main",
+              "generation": 2,
+              "paths": [
+                "src-gen/Main.ts"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 14,
+            "at": 1000014,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 3,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          }
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 2,
+              "revision": 2,
+              "acceptedAt": 1000011,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [],
+                "updated": [
+                  "src-gen/index.ts"
+                ],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 14,
+          "newestRevision": 3,
+          "accepted": {
+            "generation": 2,
+            "revision": 2,
+            "acceptedAt": 1000011,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [],
+              "updated": [
+                "src-gen/index.ts"
+              ],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null,
+          "modulePreview": {
+            "differences": 0,
+            "stoppedModules": []
+          }
+        }
+      }
     }
   ]
 }

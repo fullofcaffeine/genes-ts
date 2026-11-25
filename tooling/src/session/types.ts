@@ -191,6 +191,82 @@ export interface ColdBuildCheck {
  */
 export type OutputCheck = ReplayAuditCheck | ColdBuildCheck;
 
+/**
+ * One file of a module preview (`preview-generated`): its project-relative
+ * public path (the path that the program request publishes it at, for
+ * example `src-gen/ui/Button.ts`), the SHA-256 digest of its bytes, and its
+ * size. The bytes stay in the memory of the session; a host reads them with
+ * `DevelopmentSession.readPreviewFile`.
+ */
+export interface PreviewFile {
+  readonly path: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+}
+
+/**
+ * The bytes of one file of a pending preview, as
+ * `DevelopmentSession.readPreviewFile` returns them. `bytes` is a new copy.
+ */
+export interface PreviewFileContent {
+  /** The input revision of the preview. */
+  readonly revision: number;
+  /** The Haxe module of the preview, for example `ui.Button`. */
+  readonly module: string;
+  readonly path: string;
+  readonly sha256: string;
+  readonly bytes: Uint8Array;
+}
+
+/**
+ * Why the session itself sent no module request, or published no preview,
+ * for a build (`preview-refused` with `source: "session"`). Genes' own
+ * refusal codes (`source: "genes"`, for example `public-shape-changed`) are
+ * the codes of `genes.incremental.ModuleRequest`.
+ *
+ * - `not-module-edit`: a change of this build is not a content edit of a
+ *   `.hx` module on a declared class path (a created or removed file, an
+ *   HXML file, an extra input, a host invalidation).
+ * - `several-modules`: more than one module changed in this build; a module
+ *   request has one root.
+ * - `module-path-unknown`: the edited file names no Haxe module (for
+ *   example `import.hx`, or a file below two nested class paths).
+ * - `previews-stopped`: an earlier preview of this module differed from the
+ *   program result (`preview-corrected` with `cause: "differs"`).
+ * - `reuse-off`: generation reuse is off for the rest of the session
+ *   (`AUDIT_REPEATED`); a module request needs it.
+ * - `server-unavailable`: no warm compiler server holds the records of the
+ *   last program request (no program request on it yet, a new server, a
+ *   broken pipe, builds without a server).
+ * - `compile-failed`: Haxe reported an error for the module request, or
+ *   the host's `prepareRevision` rejected its revision; the program request
+ *   that follows reports the error of the program.
+ * - `no-report`: Genes wrote no readable module report.
+ */
+export type SessionPreviewRefusalCode =
+  | "not-module-edit"
+  | "several-modules"
+  | "module-path-unknown"
+  | "previews-stopped"
+  | "reuse-off"
+  | "server-unavailable"
+  | "compile-failed"
+  | "no-report";
+
+/**
+ * The module-preview facts of `DevelopmentSnapshot`, present only with
+ * `GenesDevelopmentOptions.modulePreview`.
+ */
+export interface ModulePreviewSnapshot {
+  /**
+   * Previews whose bytes differed from the accepted program result for the
+   * same input revision (each one a Genes defect).
+   */
+  readonly differences: number;
+  /** The modules that get no preview any more in this session, sorted. */
+  readonly stoppedModules: readonly string[];
+}
+
 /** Framework-neutral facts emitted by one development session. */
 export type DevelopmentEventBody<Diagnostic extends JsonValue> =
   | { readonly kind: "state"; readonly state: DevelopmentState<Diagnostic> }
@@ -236,6 +312,63 @@ export type DevelopmentEventBody<Diagnostic extends JsonValue> =
       readonly kind: "output-check";
       readonly outputCheck: OutputCheck;
     }
+  | {
+      /**
+       * Emitted only with `GenesDevelopmentOptions.modulePreview`: a module
+       * request published `files` for `module`, and Genes proved that the
+       * program request prints the same bytes. The public tree has not
+       * changed; the program request of this revision follows after the
+       * quiet time and confirms or corrects the preview.
+       */
+      readonly kind: "preview-generated";
+      readonly revision: number;
+      readonly module: string;
+      readonly files: readonly PreviewFile[];
+    }
+  | {
+      /**
+       * Emitted only with `modulePreview`: this build shows no preview, so
+       * the edit is pending until the program request publishes it (a
+       * `generation-accepted` event with a revision of at least `revision`,
+       * or a `failed` event). `module` is null when the session found no
+       * single edited module. See `SessionPreviewRefusalCode` for the
+       * session's codes.
+       */
+      readonly kind: "preview-refused";
+      readonly revision: number;
+      readonly module: string | null;
+      readonly source: "genes" | "session";
+      readonly code: string;
+    }
+  | {
+      /**
+       * Emitted only with `modulePreview`, after `generation-accepted`:
+       * the accepted generation holds every file of the preview of
+       * `revision` with the previewed bytes. `paths` lists them.
+       */
+      readonly kind: "preview-confirmed";
+      readonly revision: number;
+      readonly module: string;
+      readonly generation: number;
+      readonly paths: readonly string[];
+    }
+  | {
+      /**
+       * Emitted only with `modulePreview`, after `generation-accepted`:
+       * the accepted generation has other bytes, or no file, at `paths`, so
+       * a host that showed the preview must show the accepted files there.
+       * `cause: "differs"`: the generation is of the same input revision,
+       * so Genes previewed wrong bytes; the session counts it, keeps the
+       * evidence and shows no further preview of `module`.
+       * `cause: "newer-revision"`: a later edit changed the files.
+       */
+      readonly kind: "preview-corrected";
+      readonly revision: number;
+      readonly module: string;
+      readonly generation: number;
+      readonly paths: readonly string[];
+      readonly cause: "differs" | "newer-revision";
+    }
   | { readonly kind: "closed" };
 
 /** One event in a session-local, strictly increasing sequence. */
@@ -273,6 +406,9 @@ export interface DevelopmentSnapshot<Diagnostic extends JsonValue> {
    */
   readonly accepted: AcceptedGeneration | null;
   readonly lastCompilerEvent: HaxeWaitServerEvent | null;
+
+  /** Present only with `GenesDevelopmentOptions.modulePreview`. */
+  readonly modulePreview?: ModulePreviewSnapshot;
 }
 
 /**
@@ -349,6 +485,19 @@ export interface DevelopmentSession<Diagnostic extends JsonValue> {
     method: CompilerServerQueryMethod,
     signal?: AbortSignal,
   ): Promise<string | null>;
+
+  /**
+   * Returns a copy of the bytes of one file of a pending module preview,
+   * by its project-relative public path (as `preview-generated` lists it),
+   * or null when no pending preview has that file.
+   *
+   * A preview stays pending from its `preview-generated` event until the
+   * `preview-confirmed` or `preview-corrected` event of an accepted
+   * generation, or until a newer preview of the same module replaces it.
+   * Example: a browser host calls it in its `preview-generated` listener
+   * and serves the bytes from memory; the public tree does not change.
+   */
+  readPreviewFile(path: string): PreviewFileContent | null;
 
   /** Subscribes to future events; the returned unsubscribe is idempotent. */
   subscribe(
@@ -675,6 +824,58 @@ export interface GenerationReuseOptions {
   readonly coldCheckIdleMs?: number;
 }
 
+/**
+ * Turns on the module-first path (G3): for each save of one Haxe module,
+ * the session first sends a module request and shows its files as a
+ * preview, then sends the program request, which stays the only writer of
+ * the public tree.
+ *
+ * What happens for one save of `ui/Button.hx`:
+ *
+ * 1. After the start delay (`startDelayMs`), the session sends a module
+ *    request to the warm compiler server: the program's arguments with the
+ *    module as the only root (`--main`, class names and each
+ *    `--macro include(...)` are removed), its own output folder, and a
+ *    request descriptor with `"kind": "module"`. Genes prints only that
+ *    module and publishes its files only when it can prove that a program
+ *    request prints the same bytes.
+ * 2. When Genes publishes them, the session reads them into memory, emits
+ *    `preview-generated` and keeps them for `readPreviewFile`. Otherwise it
+ *    emits `preview-refused` and sends the program request at once.
+ * 3. After a preview, it waits until no save came for `quietMs`, then
+ *    sends the program request. A save in that time cancels it: the next
+ *    module request starts after the start delay instead.
+ * 4. When the program request's candidate exists, the session compares
+ *    each preview file with the candidate's file. After the candidate is
+ *    accepted it emits `preview-confirmed` or `preview-corrected`. A
+ *    difference for the same input revision is a Genes defect: the session
+ *    counts it (`DevelopmentSnapshot.modulePreview`), keeps both files in
+ *    `<stateDirectory>/preview-evidence/`, and shows no further preview of
+ *    that module.
+ *
+ * Why the output stays correct: the public tree is written only by program
+ * requests, with all their checks. A preview lives in memory and can be
+ * wrong for a few seconds at most.
+ *
+ * Needs `generationReuse`: a module request compares the edit with the
+ * records that the program request keeps with generation reuse
+ * (`"moduleRecords": true`). Without it the session constructor throws.
+ *
+ * Limits: one module per build (`several-modules`); no preview on a new
+ * server or without a server; with `prepareRevision`, the session prepares
+ * the revision once more for the module request, and Genes refuses when the
+ * prepared files load as other modules (`other-modules-typed`). A
+ * shape-changing edit is refused (`public-shape-changed`) and stays pending
+ * until the program request.
+ */
+export interface ModulePreviewOptions {
+  /**
+   * Milliseconds without a save before the program request that follows a
+   * preview. A whole number from 0 to 600,000. Default: `debounceMs`.
+   */
+  readonly quietMs?: number;
+}
+
 /** Host policy and project identity supplied to a DevelopmentSession. */
 export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   readonly projectRoot: string;
@@ -717,6 +918,13 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * `GenerationReuseOptions`.
    */
   readonly generationReuse?: GenerationReuseOptions;
+
+  /**
+   * Turns on the module-first path: a module request and a preview before
+   * each program request. Needs `generationReuse`. See
+   * `ModulePreviewOptions`.
+   */
+  readonly modulePreview?: ModulePreviewOptions;
 
   /**
    * Creates exact private inputs before Haxe types this revision.

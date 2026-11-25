@@ -666,6 +666,101 @@ build) is cold already and starts the count again. Without
 `generationReuse`, nothing on this page changes and no `output-check` event
 is emitted. A host must ignore an event kind that it does not know.
 
+### Module-first previews
+
+A program request types and prints the whole program, so on a large app a
+save reaches the browser only after many seconds. `modulePreview` (G3,
+genes-f8vc.14.3) shows the edited module first:
+
+```ts
+createGenesDevelopmentSession({
+  // ...the options of the first session above...
+  generationReuse: {},       // required: module requests compare with its records
+  modulePreview: {},         // quiet time before the program request: debounceMs
+  // modulePreview: { quietMs: 500 },
+});
+```
+
+For one save of `src/ui/Button.hx` the session does this:
+
+1. After the start delay (`startDelayMs`, 10 ms), it sends a **module
+   request** to the warm server. That request has the program's arguments
+   without its roots (`--main`, each class name, each
+   `--macro include(...)`), the module `ui.Button` as the only root, an
+   output folder of its own at the depth of a candidate folder, and the
+   fixed request descriptor with `"kind": "module"`. Haxe types only the
+   edited module and loads the rest from its cache. Genes prints only that
+   module, and publishes its files only when it can prove that the program
+   request prints the same bytes.
+2. If Genes publishes them, the session reads them into memory and emits
+   `preview-generated` (`revision`, `module`, `files` with path, SHA-256 and
+   size). A host reads the bytes with `session.readPreviewFile(path)` and
+   shows them. The public tree does not change. If Genes or the session
+   refuses, the event is `preview-refused` (`source` `genes` or `session`,
+   and a `code`), and the program request starts at once.
+3. After a preview, the session waits until no save came for `quietMs`
+   (default `debounceMs`), then sends the **program request**. A save in
+   that time cancels it, and the next build starts with its own module
+   request after the start delay.
+4. When the program candidate exists, the session compares each preview
+   file with the candidate's file. After the candidate is accepted it emits
+   `preview-confirmed` (same bytes) or `preview-corrected` (`paths` whose
+   accepted bytes differ; the host shows the accepted files there).
+   `cause: "differs"` means Genes previewed wrong bytes for the same
+   revision: the session counts it (`inspect().modulePreview`), keeps both
+   files in `<stateDirectory>/preview-evidence/`, and shows no more
+   previews of that module. `cause: "newer-revision"` means a later edit
+   changed the files.
+
+The program request stays the only writer of the public tree, with every
+check it has. A wrong preview can show wrong code for a few seconds; it
+cannot reach the published tree.
+
+The session refuses a preview itself (`source: "session"`) for a build with
+a change that is not a content edit of one `.hx` module (`not-module-edit`:
+a created or removed file, HXML, an extra input), with two edited modules
+(`several-modules`), for a file that names no module (`module-path-unknown`),
+after a difference (`previews-stopped`), when reuse is off
+(`reuse-off`), without a warm server that holds the records of the last
+program request (`server-unavailable`; for example after a broken pipe, or
+in builds without a server), when
+Haxe reports an error for the module request (`compile-failed`; the program
+request then reports the program's error), and without a readable Genes
+report (`no-report`). Every other code comes from Genes
+(`genes.incremental.ModuleRequest`), for example `public-shape-changed`. An
+edit after a refusal is pending: the session stays `building` until the
+program request publishes it.
+
+With `modulePreview`, a save that leaves every changed `.hx` file with the
+bytes that the last accepted program request read starts **no build**. Like
+a `rebuild: false` change, it advances `newestRevision` only. The watcher
+compares sizes and times, so an editor save without a change, a formatter
+that writes the same text, or a `touch` would otherwise cost two requests.
+
+`summarizePreviewTimings(events)` measures the path from recorded events:
+for each build, the time from the `inputs-changed` event to the preview and
+to the accepted generation, the share of previews, and the number of
+differences. `src/session-module-preview-warm-test.ts` runs it on a fixture
+of UI-like modules with the real Haxe server.
+
+Limits:
+
+- Genes refuses an edit that changes the module's public shape
+  (`public-shape-changed`). Showing it at once with its importers marked
+  as pending needs a Genes change.
+- Under `-dce std`, Genes refuses every edit (`module-may-leave`) when a
+  module with an output file is in the program only because of a class-name
+  root or an `include(...)`: Genes knows only the `--main` root of the
+  stored program request. This needs a Genes change too.
+- One module per build, and only on the warm server: a new server has no
+  records, and a build without a server gets no preview.
+- With `prepareRevision`, the module request prepares the revision once
+  more, in its own folder. Genes then refuses when the prepared files load
+  as other modules (`other-modules-typed`).
+- Two edits in a row before the program request ends give a refusal for the
+  second edit until an accepted preview advances Genes' own records
+  (genes-f8vc.14.8).
+
 ### Rules a host should not have to rediscover
 
 - `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
@@ -1575,6 +1670,11 @@ const loop = new SerializedDirtyLoop({
   onError: report,
 });
 ```
+
+`startDelayMs` sets the delay of the first run after an idle period (default
+`debounceMs`). `followUpDelayMs(cause)` can choose the quiet time of a
+follow-up run by its pending cause; the development session uses it so that
+a follow-up that starts with a module request waits only the start delay.
 
 The loop does not define source-versus-identity changes, changed-path sets,
 compiler commands, last-good output, services, or diagnostic wording. Those

@@ -227,6 +227,68 @@ the replay-audit case.
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":12,"at":1785520900000,"event":{"kind":"output-check","outputCheck":{"check":"cold-build","revision":5,"generation":5,"result":"differs","paths":["src-gen/inc/ArgMeta.tsx"]}}}
 ```
 
+### Module previews (`modulePreview`)
+
+A session with `modulePreview` (G3, genes-f8vc.14.3; it needs
+`generationReuse`) shows the edited module before the program request ends.
+It emits four event kinds that a session without the option never emits:
+
+- `preview-generated` (`revision`, `module`, `files`): a module request
+  published the files of one module, and Genes proved that the program
+  request prints the same bytes. Each file has its project-relative public
+  `path`, its `sha256` and its `sizeBytes`. The bytes stay in the session's
+  memory; an in-process host reads them with `readPreviewFile(path)`. The
+  public tree does not change.
+- `preview-refused` (`revision`, `module` or null, `source`, `code`): this
+  build shows no preview. `source: "genes"` gives a refusal code of
+  `genes.incremental.ModuleRequest` (for example `public-shape-changed`);
+  `source: "session"` gives one of `not-module-edit`, `several-modules`,
+  `module-path-unknown`, `previews-stopped`, `reuse-off`,
+  `server-unavailable`, `compile-failed` and `no-report` (see
+  `SessionPreviewRefusalCode`). The edit is pending, and the state stays
+  `building`, until the program request publishes it.
+- `preview-confirmed` (`revision`, `module`, `generation`, `paths`), after
+  the `generation-accepted` event of that generation: the accepted files
+  have the previewed bytes.
+- `preview-corrected` (`revision`, `module`, `generation`, `paths`,
+  `cause`), after the `generation-accepted` event: the accepted generation
+  has other bytes, or no file, at `paths`, so a host that showed the preview
+  must show the accepted files there. `cause: "differs"`: the generation is
+  of the preview's own revision, so the preview was a Genes defect; the
+  session counts it, keeps the evidence in its private state folder, and
+  sends no further module request for that module. `cause:
+  "newer-revision"`: a later edit changed the files.
+
+Each build caused by an input change gets exactly one `preview-generated` or
+`preview-refused` event, after its `build-started` event. The first build
+and a repair build (an output check) get neither. A preview that a newer
+preview of the same module replaced gets no confirmation.
+
+The snapshot of such a session has `modulePreview`: `differences` (previews
+that differed from the accepted result of their own revision) and
+`stoppedModules` (sorted). A session without the option has no such field.
+
+The session also starts no build for a save that leaves each changed `.hx`
+file with the bytes that the last accepted program request read. Like a
+`rebuild: false` change, that save emits `inputs-changed` and advances
+`newestRevision` only.
+
+Why this is version 1 and not version 2: every addition is opt-in and
+additive. A host that does not set `modulePreview` sees exactly the events
+and snapshots of before. The rule above already lets version 1 gain a kind
+that only a requested feature produces, as `output-check` did. No existing
+field changes its meaning. A host that sets `modulePreview` asks for the new
+kinds, so it knows them. The JSON schema gains the four kinds and the
+optional snapshot field.
+
+The vectors `module-preview-confirmed-at-acceptance`,
+`module-preview-difference-stops-previews` and
+`equal-content-starts-no-build` are the executable contract.
+
+```json
+{"protocol":"genes.tooling.development-session-event","version":1,"sequence":9,"at":1785520900000,"event":{"kind":"preview-generated","revision":2,"module":"ui.Button","files":[{"path":"src-gen/ui/Button.ts","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sizeBytes":412}]}}
+```
+
 The diagnostic inside a validation failure is host-owned JSON. Before it enters
 an event, tooling removes private candidate, state, and project paths from
 every string and object key. It otherwise preserves the host's values. The
@@ -718,7 +780,8 @@ framework names and does not assume a browser.
 - [`vectors.schema.json`](vectors.schema.json) defines the portable scenario
   corpus.
 - [`vectors.json`](vectors.json) records startup, admission, scheduling,
-  compiler, publication, read-barrier, and shutdown expectations.
+  compiler, publication, read-barrier, shutdown, and module-preview
+  expectations.
 
 The `inline-hxml-option-stays-private` scenario checks the complete special
 case: the compiler sees one checked private HXML input and its matching private
