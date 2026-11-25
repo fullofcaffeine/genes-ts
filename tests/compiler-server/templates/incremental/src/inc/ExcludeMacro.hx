@@ -15,21 +15,27 @@ import haxe.macro.Type;
  * runs before the after-typing passes of Genes. `installAfter` is given
  * before it, and its callback runs after those passes. With the static
  * `excludeEarly`, `installBefore` excludes `ExclEarly`; with
- * `excludeLate`, `installAfter` excludes `ExclLate`.
+ * `excludeLate`, `installAfter` excludes `ExclLate`. With the static
+ * `excludeTail`, `installBefore` also excludes `inc.ExclTail.ExclTailEnum`,
+ * the last declaration of its module (genes-zt9w).
  */
 class ExcludeMacro {
   /** Excludes `ExclEarly` before the after-typing passes of Genes. */
   public static function installBefore(): Void {
-    Context.onAfterTyping(types -> apply(types, 'excludeEarly', 'ExclEarly'));
+    Context.onAfterTyping(types -> {
+      apply(types, 'excludeEarly', 'inc.ExclOwner', 'ExclEarly');
+      apply(types, 'excludeTail', 'inc.ExclTail', 'ExclTailEnum');
+    });
   }
 
   /** Excludes `ExclLate` after the after-typing passes of Genes. */
   public static function installAfter(): Void {
-    Context.onAfterTyping(types -> apply(types, 'excludeLate', 'ExclLate'));
+    Context.onAfterTyping(types -> apply(types, 'excludeLate',
+      'inc.ExclOwner', 'ExclLate'));
   }
 
   static function apply(types: Array<ModuleType>, flag: String,
-      name: String): Void {
+      module: String, name: String): Void {
     var asked = false;
     var target: Null<EnumType> = null;
     for (type in types)
@@ -42,7 +48,7 @@ class ExcludeMacro {
                 asked = true;
         case TEnumDecl(ref):
           final enm = ref.get();
-          if (enm.module == 'inc.ExclOwner' && enm.name == name)
+          if (enm.module == module && enm.name == name)
             target = enm;
         default:
       }

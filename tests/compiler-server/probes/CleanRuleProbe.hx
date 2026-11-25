@@ -61,6 +61,7 @@ class CleanRuleProbe {
     checkMetadataHolders();
     checkBodyHolderReads();
     checkMetadataFingerprint();
+    checkDeclarationOrder();
     checkStepInputs();
     Sys.println('clean-rule-probe:ok ($cases cases)');
   }
@@ -343,25 +344,79 @@ class CleanRuleProbe {
   }
 
   /**
-   * Metadata with its arguments is part of the fingerprint
-   * (`ModuleFingerprint.metaText`), as a set: each change of a name or an
-   * argument on a field, a class, an enum constructor, an abstract or a
-   * typedef changes the text; an entry added twice, in another order, or a
-   * left-out name does not. The same holds for the fields of an extern-only
-   * module (`ModuleFingerprint.ofExtern`, L1 of genes-f8vc.9.24) and for the
-   * fields of anonymous structures in a typedef body and in class field
-   * types (`ModuleFingerprint.anonymousText`, L2), for the fields of
-   * anonymous structures in type-parameter constraints
-   * and for the metadata of a type parameter itself, also one that a
-   * structure field declares (M3 of the cross-model review of #246)
-   * (`ModuleFingerprint.constraintText`, L5 of genes-f8vc.9.26 and M1 of
-   * the review of #246), and for a
-   * member that the walk adds late, in the final member list
-   * (`ModuleFingerprint.members`, L6). The cases change the
-   * metadata of fixture types
-   * in this compiler process only (the probe runs with `--no-output`) and
-   * remove it again.
+   * genes-zt9w: the fingerprint of a module does not depend on where Haxe
+   * lists a declaration that can never be a member, but keeps the list
+   * order of every declaration that can be one.
+   *
+   * Why: Haxe 4.3.7 can list the declarations of a module that it did not
+   * type again in another order. In Caffeine, the first warm request after
+   * a cold build moved `haxe.Constraints.IMap` from last to first, and the
+   * whole program fell back to a full generation. An abstract, an extern
+   * class or an extern enum is never printed, so its place does not count.
+   * The order of the other declarations can reach output: the member list
+   * follows it, and `Module.addTypes` prints only the first of two classes
+   * with one emitted name (review of genes-ts #262).
+   *
+   * Cases: `of` with the declarations of `haxe.Constraints` in the cold and
+   * the warm order of that request, and with the declarations of
+   * `inc.OrderM` (the shadow rows `ORDER`), gives one text; `of` with the
+   * two classes of `inc.OrderPair` or of `inc.OrderTwin` in both orders
+   * gives two texts; `unlisted` and `ofExtern` with two declarations in
+   * both orders give one text; `of` still sees a missing declaration;
+   * `members` with two members in both orders gives two texts.
    */
+  static function checkDeclarationOrder(): Void {
+    final imap = Context.getType('haxe.Constraints.IMap');
+    final callable = Context.getType('haxe.Constraints.Function');
+    final flat = Context.getType('haxe.Constraints.FlatEnum');
+    final notVoid = Context.getType('haxe.Constraints.NotVoid');
+    final constructible = Context.getType('haxe.Constraints.Constructible');
+    final cold = [callable, flat, notVoid, constructible, imap];
+    final warm = [imap, callable, flat, notVoid, constructible];
+    final of = (types: Array<haxe.macro.Type>) ->
+      genes.incremental.ModuleFingerprint.of(types, [], []);
+    expectText('declaration order: haxe.Constraints, cold and warm order',
+      of(cold), of(warm));
+    expectDifferent('declaration order: a missing declaration still counts',
+      of(cold), of([callable, flat, notVoid, constructible]));
+    final orderM = Context.getType('inc.OrderM');
+    final native = Context.getType('inc.OrderM.OrderMNative');
+    expectText('declaration order: inc.OrderM, source and moved order',
+      of([native, orderM]), of([orderM, native]));
+    final pairA = Context.getType('inc.OrderPair.OrderPairA');
+    final pairB = Context.getType('inc.OrderPair.OrderPairB');
+    expectDifferent('declaration order: two members swap', of([pairA, pairB]),
+      of([pairB, pairA]));
+    // This case runs in an init macro, before Haxe applies `@:native`, so
+    // the two classes still have their own names here: it checks list
+    // order, not the twin itself. The shadow rows `ORDER` for
+    // `inc.OrderTwin` test the twin, where both classes are `OrderTwinX`
+    // and only `@:realPath` tells them apart.
+    final twinA = Context.getType('inc.OrderTwin.OrderTwinA');
+    final twinB = Context.getType('inc.OrderTwin.OrderTwinB');
+    expectDifferent('declaration order: two classes with one emitted name swap',
+      of([twinA, twinB]), of([twinB, twinA]));
+    final unlisted = (types: Array<haxe.macro.Type>) ->
+      genes.incremental.ModuleFingerprint.unlisted(types, _ -> false);
+    expectText('declaration order: unlisted declarations',
+      unlisted([callable, imap]), unlisted([imap, callable]));
+    function classOf(type: haxe.macro.Type): haxe.macro.Type.ClassType {
+      return switch type {
+        case TInst(ref, _): ref.get();
+        default: throw 'not a class: $type';
+      }
+    }
+    final orderZ = Context.getType('inc.OrderZ');
+    expectText('declaration order: an extern-only module',
+      genes.incremental.ModuleFingerprint.ofExtern([classOf(native), classOf(imap)]),
+      genes.incremental.ModuleFingerprint.ofExtern([classOf(imap), classOf(native)]));
+    final first: genes.Module.Member = MClass(classOf(orderM), [], []);
+    final second: genes.Module.Member = MClass(classOf(orderZ), [], []);
+    expectDifferent('declaration order: the member list keeps its order',
+      genes.incremental.ModuleFingerprint.members([first, second], _ -> true),
+      genes.incremental.ModuleFingerprint.members([second, first], _ -> true));
+  }
+
   /**
    * Stage 3, slice S2 (must fix of the review of genes-ts #247): the text of
    * `WalkTarget.inputsOf`, which each stored walk step records and
@@ -398,6 +453,26 @@ class CleanRuleProbe {
       genes.WalkTarget.takesStep(genes.WalkTarget.inputsOf(declaration)));
   }
 
+  /**
+   * Metadata with its arguments is part of the fingerprint
+   * (`ModuleFingerprint.metaText`), as a set: each change of a name or an
+   * argument on a field, a class, an enum constructor, an abstract or a
+   * typedef changes the text; an entry added twice, in another order, or a
+   * left-out name does not. The same holds for the fields of an extern-only
+   * module (`ModuleFingerprint.ofExtern`, L1 of genes-f8vc.9.24) and for the
+   * fields of anonymous structures in a typedef body and in class field
+   * types (`ModuleFingerprint.anonymousText`, L2), for the fields of
+   * anonymous structures in type-parameter constraints
+   * and for the metadata of a type parameter itself, also one that a
+   * structure field declares (M3 of the cross-model review of #246)
+   * (`ModuleFingerprint.constraintText`, L5 of genes-f8vc.9.26 and M1 of
+   * the review of #246), and for a
+   * member that the walk adds late, in the final member list
+   * (`ModuleFingerprint.members`, L6). The cases change the
+   * metadata of fixture types
+   * in this compiler process only (the probe runs with `--no-output`) and
+   * remove it again.
+   */
   static function checkMetadataFingerprint(): Void {
     final pos = Context.currentPos();
     final arg = (text: String) -> [
