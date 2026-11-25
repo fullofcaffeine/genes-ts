@@ -898,7 +898,9 @@ memory (`preview-generated`, `readPreviewFile`); after a quiet time the
 program request runs and stays the only writer of the public tree. At
 `candidate-generated` the session compares each preview file with the
 candidate's bytes and settles it after acceptance (`preview-confirmed` or
-`preview-corrected`); a difference for the same revision stops previews of
+`preview-corrected`); a difference of a preview whose sources did not move
+since (every later change proven by an admitted preview of another module),
+or a change of a Genes file that no settled preview named, stops previews of
 that module and keeps the evidence. The session also skips a build when
 every changed `.hx` file has the bytes that the last accepted program
 request read.

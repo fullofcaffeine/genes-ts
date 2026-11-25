@@ -18,11 +18,15 @@ it.
   refusal (`preview-refused`, with a Genes or session code) starts it at
   once. At acceptance the session compares each preview file with the
   candidate and emits `preview-confirmed` or `preview-corrected`; a
-  difference for the same revision is counted
+  difference of a preview whose sources did not move since (each later
+  change proven by an admitted preview), or an accepted generation of such
+  sources that changes another Genes file, is counted
   (`inspect().modulePreview`), its files are kept in
   `<stateDirectory>/preview-evidence/`, and that module gets no more
-  previews. With the option, a save that leaves every changed `.hx` file
-  with the bytes of the last accepted build starts no build. Protocol:
+  previews. A save while the module request runs shows no late preview.
+  With the option, while generation reuse is active and the newest revision
+  is accepted, a save that leaves every changed `.hx` file with the bytes of
+  the last accepted build starts no build. Protocol:
   version 1 gains the four opt-in event kinds and the optional snapshot
   field `modulePreview` (schema and three vectors); a host without the
   option sees no change. New API: `ModulePreviewOptions`,

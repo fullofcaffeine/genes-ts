@@ -259,8 +259,9 @@ export type SessionPreviewRefusalCode =
  */
 export interface ModulePreviewSnapshot {
   /**
-   * Previews whose bytes differed from the accepted program result for the
-   * same input revision (each one a Genes defect).
+   * Previews whose bytes differed from the accepted program result although
+   * their sources did not move since (`preview-corrected` with
+   * `cause: "differs"`; each one a Genes defect).
    */
   readonly differences: number;
   /** The modules that get no preview any more in this session, sorted. */
@@ -357,10 +358,16 @@ export type DevelopmentEventBody<Diagnostic extends JsonValue> =
        * Emitted only with `modulePreview`, after `generation-accepted`:
        * the accepted generation has other bytes, or no file, at `paths`, so
        * a host that showed the preview must show the accepted files there.
-       * `cause: "differs"`: the generation is of the same input revision,
-       * so Genes previewed wrong bytes; the session counts it, keeps the
+       * `cause: "differs"`: the preview's sources did not move after
+       * `revision` (each later change was proven by an admitted preview of
+       * another module), so Genes previewed wrong bytes, or the accepted
+       * generation also changed a Genes file that no settled preview named
+       * (then `paths` lists that file too); the session counts it, keeps the
        * evidence and shows no further preview of `module`.
-       * `cause: "newer-revision"`: a later edit changed the files.
+       * `cause: "newer-revision"`: a later edit changed the files: a change
+       * of the module's own file, or a change that reached a build without a
+       * preview (a refusal, a change that is no module edit, or a build that
+       * a newer change cancelled).
        */
       readonly kind: "preview-corrected";
       readonly revision: number;
@@ -845,21 +852,33 @@ export interface GenerationReuseOptions {
  * 3. After a preview, it waits until no save came for `quietMs`, then
  *    sends the program request. A save in that time cancels it: the next
  *    module request starts after the start delay instead.
+ *    A save while the module request runs makes its result late: the session
+ *    shows no preview for it and starts the build of the newer save.
  * 4. When the program request's candidate exists, the session compares
  *    each preview file with the candidate's file. After the candidate is
  *    accepted it emits `preview-confirmed` or `preview-corrected`. A
- *    difference for the same input revision is a Genes defect: the session
- *    counts it (`DevelopmentSnapshot.modulePreview`), keeps both files in
- *    `<stateDirectory>/preview-evidence/`, and shows no further preview of
- *    that module.
+ *    difference of a preview whose sources did not move since is a Genes
+ *    defect: the session counts it (`DevelopmentSnapshot.modulePreview`),
+ *    keeps both files in `<stateDirectory>/preview-evidence/`, and shows no
+ *    further preview of that module.
  *
  * Why the output stays correct: the public tree is written only by program
- * requests, with all their checks. A preview lives in memory and can be
- * wrong for a few seconds at most.
+ * requests, with all their checks. A preview lives only in memory, and only
+ * until an accepted generation settles it. When the program request after
+ * a preview fails (for example a type error in an importer, which the
+ * module request did not type), the session emits `failed` as for any
+ * build, and the preview stays pending until the next accepted generation
+ * confirms or corrects it. Until then a host that showed it runs code that
+ * is not published; it shows the failure, and keeps or hides the preview
+ * by its own rule.
  *
  * Needs `generationReuse`: a module request compares the edit with the
  * records that the program request keeps with generation reuse
  * (`"moduleRecords": true`). Without it the session constructor throws.
+ *
+ * With the option, while generation reuse is active and the newest revision
+ * that needs a build is accepted, a save that leaves each changed `.hx`
+ * file with the bytes of the last accepted build starts no build.
  *
  * Limits: one module per build (`several-modules`); no preview on a new
  * server or without a server; with `prepareRevision`, the session prepares

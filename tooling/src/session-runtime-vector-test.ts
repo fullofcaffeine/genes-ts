@@ -155,8 +155,15 @@ const PREVIEW_VECTORS: ReadonlySet<string> = new Set([
   "equal-content-starts-no-build",
 ]);
 
-/** The bytes that the fake Genes prints for `Main.ts` in a program request. */
-const MAIN_MODULE_FILE = "export class Main {}\n";
+/**
+ * The bytes that the fake Genes prints for `Main.ts` in the program request
+ * with this 0-based index (module-preview vectors). Only `Main.ts` changes
+ * from one build to the next, as an edit of the module `Main` changes only
+ * its own file; the entry keeps its bytes.
+ */
+function mainModuleFile(index: number): string {
+  return `export class Main { static v = ${index + 1}; }\n`;
+}
 
 class VectorCompiler implements SessionCompiler {
   readonly #steps: CompileStep[];
@@ -432,17 +439,18 @@ function compileSteps(
       (vector.id === "burst-supersedes-active-candidate" ||
         vector.id === "close-before-first-accepted-is-idempotent");
     held ||= shouldHold;
+    const preview = PREVIEW_VECTORS.has(vector.id);
     return [
       {
         fail: step === "compile-failed",
         mode: step === "compile-direct" ? "direct" : "connected",
-        content: `export const value = ${unchanged ? 1 : current + 1};\n`,
+        content: `export const value = ${unchanged || preview ? 1 : current + 1};\n`,
         expectPrivateHxml: step === "compile-connected-private-hxml",
         ...(step === "compile-connected-replay-audit-differs"
           ? { replayAudit: ["inc.Stale"] }
           : {}),
         ...(shouldHold ? { hold } : {}),
-        ...(PREVIEW_VECTORS.has(vector.id) ? { moduleFile: MAIN_MODULE_FILE } : {}),
+        ...(preview ? { moduleFile: mainModuleFile(current) } : {}),
         emitFallback:
           vector.id === "late-attach-observes-compiler-fallback" && current === 0,
       },
@@ -627,13 +635,18 @@ async function execute(vector: Vector): Promise<void> {
       ? deferred<void>()
       : null;
   const steps = compileSteps(vector, hold);
-  const moduleSteps = vector.script.flatMap((step) =>
-    step === "compile-module-preview"
-      ? [MAIN_MODULE_FILE]
-      : step === "compile-module-preview-differs"
-        ? ["export class Main { stale: true }\n"]
-        : [],
-  );
+  // A module request previews the `Main.ts` of the program request that
+  // follows it, or other bytes for the `-differs` step.
+  let programSteps = 0;
+  const moduleSteps = vector.script.flatMap((step) => {
+    if (step.startsWith("compile-connected") || step === "compile-direct" || step === "compile-failed") {
+      programSteps += 1;
+      return [];
+    }
+    if (step === "compile-module-preview") return [mainModuleFile(programSteps)];
+    if (step === "compile-module-preview-differs") return ["export class Main { stale: true }\n"];
+    return [];
+  });
   const watches: VectorWatch<unknown>[] = [];
   const events: DevelopmentEvent<JsonValue>[] = [];
   const validations = validationSteps(vector);

@@ -368,6 +368,12 @@ interface PreviewComparison {
   readonly differing: readonly string[];
   /** The candidate bytes of each differing path (`null`: no such file). */
   readonly programBytes: ReadonlyMap<string, Buffer | null>;
+  /**
+   * The public paths of every Genes file that the candidate changes,
+   * creates or removes in the published Genes tree, or `null` when the
+   * session does not know the published digests.
+   */
+  readonly changed: ReadonlySet<string> | null;
 }
 
 /**
@@ -381,6 +387,24 @@ interface PendingPreview {
   readonly files: ReadonlyMap<string, PreviewEntry>;
   /** Set when a program candidate exists; cleared when that build is not accepted. */
   comparison: PreviewComparison | null;
+  /**
+   * True while every source change after this preview was proven by an
+   * admitted preview of another module. A build of a later change that
+   * shows no preview (a refusal, a change that is no module edit, or a
+   * build that a newer change cancelled before it decided) sets it false
+   * (`#markPreviewsUncovered`); so does a change of this module's own file,
+   * which always reaches such a build or a newer preview of the module. A
+   * difference of a clean preview is a Genes defect (`differs`); of another
+   * preview, the effect of a later edit (`newer-revision`).
+   */
+  clean: boolean;
+  /**
+   * True when the published tree was the result of the last program request
+   * when this preview was made. Genes proved the preview against the records
+   * of that request, so then the accepted generation of the same sources
+   * may change no other Genes file than the files of the settled previews.
+   */
+  extraCheck: boolean;
 }
 
 /**
@@ -892,7 +916,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   readonly #pendingPreviews = new Map<string, PendingPreview>();
   /** Modules whose preview differed from the program result: no more previews. */
   readonly #stoppedPreviewModules = new Set<string>();
-  /** Previews that differed from the program result of the same revision. */
+  /** Clean previews that differed from the accepted result (`#settlePreviews`). */
   #previewDifferences = 0;
   /** Differences whose files were kept (at most `PREVIEW_EVIDENCE_LIMIT`). */
   #previewEvidenceKept = 0;
@@ -900,6 +924,18 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #lastRebuildChangeAt = 0;
   /** Ends the quiet time before a program request; a new change aborts it. */
   #quietWake: AbortController | null = null;
+  /**
+   * The SHA-256 digest of each Genes file of the published tree, by
+   * output-relative path, as the last accepted candidate in this session
+   * wrote it; `null` before that.
+   */
+  #acceptedGenesDigests: ReadonlyMap<string, string> | null = null;
+  /**
+   * True while the published tree is the result of the last program request
+   * that ran and no source change since then lacks a preview. See
+   * `PendingPreview.extraCheck`.
+   */
+  #publishedIsLastProgram = false;
   /**
    * The content digest of each source file as the last accepted program
    * request read it, for the rule "no build when each changed file has equal
@@ -2002,11 +2038,23 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    * Records a change of a source file for the rule "no build when each
    * changed file has equal content", and returns true when this change
    * leaves the file with the bytes that the last accepted program request
-   * read (only with `modulePreview`, and only for a content edit).
+   * read.
    *
    * Why: the watcher compares sizes and times only. An editor that saves
    * without a change, a formatter that writes the same text, or a `touch`
    * would otherwise cost a module request and a program request.
+   *
+   * When the rule holds: only for a content edit, only with `modulePreview`
+   * while generation reuse is active (so every program request keeps module
+   * records), and only while the newest revision that needs a build is
+   * accepted, so a save after a failed or a running build still builds
+   * (a save is a common way to retry). The skip leaves the file with a new
+   * file time that no request has read. That is safe because of Genes'
+   * digest check: a later module request reads every stored source file
+   * whose status changed and compares its digest with the content that the
+   * program request typed (`ModuleRequest`, `source-changed`), so it never
+   * trusts the file time. Without module records the session keeps the
+   * ordinary rule: every save builds.
    *
    * Every other change forgets the recorded digest, so the file counts as
    * changed until an accepted program request reads it again
@@ -2020,7 +2068,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     );
     if (this.#modulePreview === null) return false;
     const built = this.#builtSources.get(absolutePath);
-    if (contentEdit && built !== undefined) {
+    const accepted = this.#accepted;
+    if (
+      contentEdit &&
+      built !== undefined &&
+      this.#generationReuse !== null &&
+      this.#reuseActive &&
+      accepted !== null &&
+      accepted.revision >= this.#newestRebuildRevision
+    ) {
       try {
         if (sha256Bytes(readFileSync(absolutePath)) === built) return true;
       } catch {
@@ -2125,6 +2181,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (this.#closing !== null || !cause.rebuild) return;
     const abort = new AbortController();
     this.#activeAbort = abort;
+    /** True once the module-first step decided this build's preview. */
+    let previewDecided = false;
     let candidateStageRelative: string | null = null;
     let stagedPrepared: StagedPreparedRevision | null = null;
     let failurePhase: FailurePhase = cause.reinventory
@@ -2207,6 +2265,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           compatibilityDigest,
           abort.signal,
         );
+        previewDecided = true;
         if (
           preview === "superseded" ||
           this.#closing !== null ||
@@ -2315,6 +2374,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       // of each changed source file that this request reads.
       const sourceReads = this.#readSources();
       let compiler: CompilerResult;
+      // Genes replaces the records of the last program request with the
+      // records of this one, whether or not its candidate is published.
+      this.#publishedIsLastProgram = false;
       try {
         compiler = await this.#compiler.compile(
           boundInvocation,
@@ -2511,6 +2573,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         published = prepared.accepted;
         this.#acceptedPreparedDigest = stagedPrepared?.digest ?? null;
         this.#publishedManifestDigest = candidate.manifestDigest;
+        this.#acceptedGenesDigests = new Map(
+          candidate.files.map((file) => [file.relativePath, file.digest]),
+        );
+        this.#publishedIsLastProgram = true;
         this.#publishedMarkerState = prepared.plan.commitMarker.next;
         this.#publishedSupplementalFiles = Object.freeze(
           supplementalFiles
@@ -2581,6 +2647,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       // A comparison counts only for an accepted candidate; the next
       // program candidate compares the previews that are still pending.
       for (const pending of this.#pendingPreviews.values()) pending.comparison = null;
+      // The changes of a build that ended before its module-first step (for
+      // example a failed inventory) were proven by no preview.
+      if (this.#modulePreview !== null && cause.paths.length > 0 && !previewDecided) {
+        this.#markPreviewsUncovered(cause.revision);
+      }
       if (candidateStageRelative !== null) {
         rmSync(
           path.join(
@@ -2669,8 +2740,22 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     source: "genes" | "session",
     code: string,
   ): "refused" {
+    this.#markPreviewsUncovered(revision);
     this.#emit({ kind: "preview-refused", revision, module, source, code });
     return "refused";
+  }
+
+  /**
+   * Records that the changes up to `revision` reached a build that shows no
+   * preview: each older pending preview is no longer known to match its
+   * sources (`PendingPreview.clean`), and the published tree is no longer
+   * the base that a later preview is proven against.
+   */
+  #markPreviewsUncovered(revision: number): void {
+    this.#publishedIsLastProgram = false;
+    for (const pending of this.#pendingPreviews.values()) {
+      if (pending.revision < revision) pending.clean = false;
+    }
   }
 
   /**
@@ -2787,6 +2872,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }
       if (outcome.kind !== "compiled") this.#restoreInvalidations(changedFiles);
       if (this.#closing !== null || signal.aborted) return "superseded";
+      // A late preview: a newer change arrived while the module request
+      // ran, so these files may show older text than the editor has. Show
+      // nothing; the next build starts with the module request of the newer
+      // change. This build's own change got no preview.
+      if (this.#newestRebuildRevision > revision) {
+        this.#markPreviewsUncovered(revision);
+        return "superseded";
+      }
       if (outcome.kind === "unavailable") return refuse("server-unavailable", module);
       if (outcome.kind === "failed") return refuse("compile-failed", module);
       const report = readModuleReport(reportPath, module);
@@ -2816,6 +2909,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         module,
         files,
         comparison: null,
+        clean: true,
+        extraCheck: this.#publishedIsLastProgram,
       });
       this.#emit({
         kind: "preview-generated",
@@ -2864,6 +2959,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #comparePreviews(revision: number, candidate: GenesOutputInventory): void {
     if (this.#pendingPreviews.size === 0) return;
     const owned = new Map(candidate.files.map((file) => [file.relativePath, file]));
+    // The Genes files that this candidate changes in the published tree.
+    const published = this.#acceptedGenesDigests;
+    let changed: ReadonlySet<string> | null = null;
+    if (published !== null) {
+      const paths = new Set<string>();
+      for (const file of candidate.files) {
+        if (published.get(file.relativePath) !== file.digest) {
+          paths.add(logicalOutputPath(this.#layout, file.relativePath));
+        }
+      }
+      for (const relative of published.keys()) {
+        if (!owned.has(relative)) paths.add(logicalOutputPath(this.#layout, relative));
+      }
+      changed = paths;
+    }
     for (const pending of this.#pendingPreviews.values()) {
       if (pending.revision > revision) {
         pending.comparison = null;
@@ -2887,6 +2997,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         candidateRevision: revision,
         differing: Object.freeze(differing),
         programBytes,
+        changed,
       });
     }
   }
@@ -2894,18 +3005,42 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   /**
    * Settles each pending preview that the accepted candidate was compared
    * with: `preview-confirmed` when every file has the previewed bytes,
-   * else `preview-corrected`. A difference for the same input revision is
-   * a Genes defect: it is counted, the files are kept as evidence, and the
-   * module gets no further preview in this session.
+   * else `preview-corrected`.
+   *
+   * A preview whose sources did not move after it (`PendingPreview.clean`:
+   * every later change was proven by an admitted preview of another
+   * module) must equal the accepted result; a difference is a Genes defect
+   * (`differs`): it is counted, the files are kept as evidence, and the
+   * module gets no further preview in this session. When the preview was
+   * proven against the published tree (`extraCheck`), the accepted
+   * generation may also change no other Genes file than the files of the
+   * previews that it settles: Genes proved that a program request changes
+   * exactly the previewed files. Any other difference is the effect of a
+   * later edit (`newer-revision`).
+   *
+   * Example: a preview of `ui.Button` at revision 2 with wrong bytes, then
+   * an admitted preview of `ui.Card` at revision 3, then the accepted
+   * generation of revision 3: Button's sources did not change after
+   * revision 2, so its difference is `differs`, not `newer-revision`.
    */
   #settlePreviews(accepted: AcceptedGeneration): void {
-    for (const [module, pending] of [...this.#pendingPreviews]) {
-      const comparison = pending.comparison;
-      if (comparison === null) continue;
+    const settled = [...this.#pendingPreviews].filter(
+      ([, pending]) => pending.comparison !== null,
+    );
+    const claimed = new Set(
+      settled.flatMap(([, pending]) =>
+        [...pending.files.values()].map((entry) => entry.logicalPath),
+      ),
+    );
+    for (const [module, pending] of settled) {
+      const comparison = pending.comparison!;
       this.#pendingPreviews.delete(module);
       const logical = (relative: string): string =>
         logicalOutputPath(this.#layout, relative);
-      if (comparison.differing.length === 0) {
+      const extra = pending.clean && pending.extraCheck && comparison.changed !== null
+        ? bytewise([...comparison.changed].filter((changedPath) => !claimed.has(changedPath)))
+        : [];
+      if (comparison.differing.length === 0 && extra.length === 0) {
         this.#emit({
           kind: "preview-confirmed",
           revision: pending.revision,
@@ -2915,18 +3050,20 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         });
         continue;
       }
-      const differs = pending.revision === accepted.revision;
+      const differs = pending.clean;
       if (differs) {
         this.#previewDifferences += 1;
         this.#stoppedPreviewModules.add(module);
-        this.#keepPreviewEvidence(pending, comparison, accepted);
+        this.#keepPreviewEvidence(pending, comparison, accepted, extra);
       }
       this.#emit({
         kind: "preview-corrected",
         revision: pending.revision,
         module,
         generation: accepted.generation,
-        paths: Object.freeze(comparison.differing.map(logical)),
+        paths: Object.freeze(
+          bytewise(new Set([...comparison.differing.map(logical), ...extra])),
+        ),
         cause: differs ? "differs" : "newer-revision",
       });
     }
@@ -2936,7 +3073,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    * Keeps the files of one preview difference in
    * `<stateDirectory>/preview-evidence/revision-<N>-<module>-<session>/`:
    * `preview/<path>` (the previewed bytes), `program/<path>` (the accepted
-   * bytes, absent when the program has no such file) and `evidence.json`.
+   * bytes, absent when the program has no such file) and `evidence.json`
+   * (with `otherChangedPaths`: other Genes files that the accepted
+   * generation changed although no settled preview named them).
    * At most `PREVIEW_EVIDENCE_LIMIT` differences per session; a failure to
    * write is ignored, because evidence must not fail the build.
    */
@@ -2944,6 +3083,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     pending: PendingPreview,
     comparison: PreviewComparison,
     accepted: AcceptedGeneration,
+    extra: readonly string[],
   ): void {
     if (this.#previewEvidenceKept >= PREVIEW_EVIDENCE_LIMIT) return;
     this.#previewEvidenceKept += 1;
@@ -2964,6 +3104,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         const program = comparison.programBytes.get(relative);
         if (program !== undefined && program !== null) write("program", relative, program);
       }
+      mkdirSync(folder, { recursive: true, mode: 0o700 });
       writeFileSync(
         path.join(folder, "evidence.json"),
         `${JSON.stringify({
@@ -2979,6 +3120,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
               return bytes === undefined || bytes === null ? null : sha256Bytes(bytes);
             })(),
           })),
+          // Genes files that the accepted generation also changed, which no
+          // settled preview named.
+          otherChangedPaths: extra,
         }, null, 2)}\n`,
         { mode: 0o600 },
       );

@@ -108,6 +108,10 @@ interface ProgramStep {
   /** Files beside `index.ts`; default: the compiler's current `tree`. */
   readonly files?: Readonly<Record<string, string>>;
   readonly fail?: string;
+  /** Resolved when the request has started. */
+  readonly started?: Deferred<void>;
+  /** The request waits for this, or for its abort signal. */
+  readonly hold?: Deferred<void>;
 }
 
 /** One module request of the controlled compiler. */
@@ -132,6 +136,8 @@ interface RequestRecord {
   readonly descriptor: Readonly<Record<string, JsonValue>>;
   readonly outputFile: string;
   readonly invalidated: readonly string[];
+  /** The prepared inputs of the request (`prepareRevision`). */
+  readonly prepared?: PreparedCompilerRequest;
 }
 
 /** A request that has started, with the descriptor texts that it read. */
@@ -171,7 +177,12 @@ class PreviewCompiler implements SessionCompiler {
   }
 
   /** Records one request and checks that no other request is in flight. */
-  #begin(kind: RequestRecord["kind"], invocation: BoundInvocation, invalidated: readonly string[]): StartedRequest {
+  #begin(
+    kind: RequestRecord["kind"],
+    invocation: BoundInvocation,
+    invalidated: readonly string[],
+    prepared?: PreparedCompilerRequest,
+  ): StartedRequest {
     assert.equal(this.#inFlight, false, "two requests overlapped on one server");
     this.#inFlight = true;
     const descriptorText = readFileSync(this.#descriptorPath(invocation), "utf8");
@@ -192,7 +203,11 @@ class PreviewCompiler implements SessionCompiler {
       descriptor: JSON.parse(descriptorText) as Record<string, JsonValue>,
       outputFile: invocation.candidateOutputFile,
       invalidated: [...invalidated],
+      ...(prepared === undefined ? {} : { prepared }),
     };
+    for (const classPath of prepared?.classPaths ?? []) {
+      assert.equal(existsSync(classPath), true, `${kind} request: a prepared class path is missing`);
+    }
     this.requests.push(record);
     return { record, descriptorText, outputDescriptorText };
   }
@@ -218,13 +233,22 @@ class PreviewCompiler implements SessionCompiler {
     _compatibilityDigest: string,
     _signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
-    _prepared?: PreparedCompilerRequest,
+    prepared?: PreparedCompilerRequest,
     invalidatedFiles: readonly string[] = [],
   ): Promise<{ readonly mode: "connected" | "direct" }> {
-    const started = this.#begin("program", invocation, invalidatedFiles);
+    const started = this.#begin("program", invocation, invalidatedFiles, prepared);
     try {
       await assertInvocationCurrent?.();
       const step = this.programSteps.shift() ?? {};
+      step.started?.resolve();
+      if (step.hold !== undefined) {
+        await Promise.race([
+          step.hold.promise,
+          new Promise<never>((_resolve, reject) =>
+            _signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true }),
+          ),
+        ]);
+      }
       if (step.fail !== undefined) throw new Error(step.fail);
       writeTree(invocation.candidateOutputFile, {
         [path.basename(invocation.candidateOutputFile)]: "export const entry = true;\n",
@@ -240,10 +264,10 @@ class PreviewCompiler implements SessionCompiler {
     invocation: BoundInvocation,
     _compatibilityDigest: string,
     signal: AbortSignal,
-    _prepared?: PreparedCompilerRequest,
+    prepared?: PreparedCompilerRequest,
     invalidatedFiles: readonly string[] = [],
   ): Promise<ModuleCompileOutcome> {
-    const started = this.#begin("module", invocation, invalidatedFiles);
+    const started = this.#begin("module", invocation, invalidatedFiles, prepared);
     try {
       const step = this.moduleSteps.shift() ?? { kind: "preview" };
       const module = String(started.record.descriptor.module);
@@ -785,6 +809,203 @@ await withHarness("delays", async (harness) => {
     "the replaced preview of revision 3 needs no confirmation",
   );
 }, (options) => ({ ...options, debounceMs: 400, modulePreview: { quietMs: 400 } }));
+
+/** Resolves at the next event of `kind`. */
+function nextEvent(harness: Harness, kind: DevelopmentEventBody<JsonValue>["kind"]): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const unsubscribe = harness.session.subscribe((event) => {
+      if (event.event.kind === kind) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
+// --- Same sources: a later admitted preview of another module -------------
+// Review of #267: the preview of Button at revision 2 has wrong bytes; Card
+// is saved in the quiet time and previewed at revision 3, which is accepted.
+// Button's sources did not change after revision 2, so the difference is a
+// Genes defect (`differs`), although the revisions differ.
+
+await withHarness("differs-after-admitted-preview", async (harness) => {
+  harness.compiler.tree = {
+    "ui/Button.ts": "export const button = 21;\n",
+    "ui/Card.ts": "export const card = 21;\n",
+  };
+  harness.compiler.moduleSteps.push(
+    { kind: "preview", files: { "ui/Button.ts": "export const button = 'wrong';\n" } },
+    { kind: "preview" },
+  );
+  const previewed = nextEvent(harness, "preview-generated");
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 21; }\n");
+  await previewed;
+  harness.save(CARD, "package ui;\nclass Card { static var v = 21; }\n");
+  await harness.session.waitForIdle();
+  assert.deepEqual(
+    bodies(harness, "preview-generated").map((preview) => [preview.revision, preview.module]),
+    [[2, "ui.Button"], [3, "ui.Card"]],
+  );
+  assert.equal(harness.session.inspect().accepted?.revision, 3);
+  assert.deepEqual(bodies(harness, "preview-corrected"), [{
+    kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 2,
+    paths: ["src-gen/ui/Button.ts"], cause: "differs",
+  }]);
+  assert.deepEqual(bodies(harness, "preview-confirmed").map((confirmed) => confirmed.module), ["ui.Card"]);
+  assert.deepEqual(harness.session.inspect().modulePreview, { differences: 1, stoppedModules: ["ui.Button"] });
+  assert.equal(readdirSync(path.join(harness.root, ".genes/dev/preview-evidence")).length, 1);
+}, (options) => ({ ...options, modulePreview: { quietMs: 300 } }));
+
+// The same, but Card's module request is refused: Card's change reached the
+// program request without a proof, so Button's difference is the effect of
+// a later edit (`newer-revision`), not counted.
+await withHarness("newer-revision-after-refusal", async (harness) => {
+  harness.compiler.tree = {
+    "ui/Button.ts": "export const button = 22;\n",
+    "ui/Card.ts": "export const card = 22;\n",
+  };
+  harness.compiler.moduleSteps.push(
+    { kind: "preview", files: { "ui/Button.ts": "export const button = 'older';\n" } },
+    { kind: "refused", refusal: "other-modules-changed" },
+  );
+  const previewed = nextEvent(harness, "preview-generated");
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 22; }\n");
+  await previewed;
+  harness.save(CARD, "package ui;\nclass Card { static var v = 22; }\n");
+  await harness.session.waitForIdle();
+  assert.deepEqual(bodies(harness, "preview-corrected"), [{
+    kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 2,
+    paths: ["src-gen/ui/Button.ts"], cause: "newer-revision",
+  }]);
+  assert.deepEqual(harness.session.inspect().modulePreview, { differences: 0, stoppedModules: [] });
+  assert.equal(existsSync(path.join(harness.root, ".genes/dev/preview-evidence")), false);
+}, (options) => ({ ...options, modulePreview: { quietMs: 300 } }));
+
+// --- A same-revision result that changes another file ----------------------
+// Genes proved that the program request changes only Button's files. An
+// accepted generation of the same sources that also changes Card's file is
+// no confirmation.
+await withHarness("other-file-changed", async (harness) => {
+  harness.compiler.tree = {
+    "ui/Button.ts": "export const button = 23;\n",
+    "ui/Card.ts": "export const card = 'also changed';\n",
+  };
+  harness.compiler.moduleSteps.push({ kind: "preview", files: { "ui/Button.ts": "export const button = 23;\n" } });
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 23; }\n");
+  await harness.session.waitForIdle();
+  assert.deepEqual(bodies(harness, "preview-confirmed"), []);
+  assert.deepEqual(bodies(harness, "preview-corrected"), [{
+    kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 2,
+    paths: ["src-gen/ui/Card.ts"], cause: "differs",
+  }]);
+  const evidence = path.join(harness.root, ".genes/dev/preview-evidence");
+  const record = JSON.parse(readFileSync(path.join(evidence, readdirSync(evidence)[0]!, "evidence.json"), "utf8")) as {
+    readonly otherChangedPaths: readonly string[];
+  };
+  assert.deepEqual(record.otherChangedPaths, ["src-gen/ui/Card.ts"]);
+});
+
+// --- A late preview: a save while the module request runs ------------------
+await withHarness("late-preview", async (harness) => {
+  const hold = deferred<void>();
+  harness.compiler.moduleSteps.push({ kind: "preview", hold }, { kind: "preview" });
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Button.ts": "export const button = 24;\n" };
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 24; }\n");
+  while (!harness.compiler.requests.some((request) => request.kind === "module")) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Button.ts": "export const button = 25;\n" };
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 25; }\n");
+  hold.resolve();
+  await harness.session.waitForIdle();
+  // The module request of revision 2 ended after revision 3 arrived: its
+  // files may show older text, so it shows no preview.
+  assert.deepEqual(bodies(harness, "preview-generated").map((preview) => preview.revision), [3]);
+  assert.deepEqual(bodies(harness, "preview-refused"), []);
+  assert.deepEqual(
+    harness.compiler.requests.slice(1).map((request) => request.kind),
+    ["module", "module", "program"],
+    "no program request for the older revision",
+  );
+  assert.deepEqual(bodies(harness, "preview-confirmed").map((confirmed) => confirmed.revision), [3]);
+  assert.equal(
+    readFileSync(path.join(harness.root, "src-gen/ui/Button.ts"), "utf8"),
+    "export const button = 25;\n",
+  );
+});
+
+// --- A save during the program request, with a pending preview -------------
+await withHarness("save-during-program", async (harness) => {
+  const started = deferred<void>();
+  const hold = deferred<void>();
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Button.ts": "export const button = 26;\n" };
+  harness.compiler.programSteps.push({ started, hold });
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 26; }\n");
+  await started.promise;
+  // The preview of revision 2 is pending; Card's save makes the running
+  // program request's candidate stale.
+  assert.notEqual(harness.session.readPreviewFile("src-gen/ui/Button.ts"), null);
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Card.ts": "export const card = 26;\n" };
+  harness.save(CARD, "package ui;\nclass Card { static var v = 26; }\n");
+  hold.resolve();
+  await harness.session.waitForIdle();
+  assert.equal(
+    bodies(harness, "candidate-superseded").some((event) => event.revision === 2),
+    true,
+    "the candidate of revision 2 is never published",
+  );
+  assert.equal(harness.session.inspect().accepted?.revision, 3);
+  assert.deepEqual(
+    bodies(harness, "preview-confirmed").map((confirmed) => [confirmed.revision, confirmed.module, confirmed.generation]),
+    [[2, "ui.Button", 2], [3, "ui.Card", 2]],
+    "the pending preview survives the stale candidate and is settled by the next accepted generation",
+  );
+  assert.deepEqual(harness.session.inspect().modulePreview, { differences: 0, stoppedModules: [] });
+  assert.equal(harness.session.readPreviewFile("src-gen/ui/Button.ts"), null);
+});
+
+// --- prepareRevision with modulePreview ------------------------------------
+await withHarness("prepared-inputs", async (harness) => {
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Button.ts": "export const button = 27;\n" };
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 27; }\n");
+  await harness.session.waitForIdle();
+  const [module, program] = harness.compiler.requests.slice(-2);
+  assert.equal(module!.kind, "module");
+  assert.equal(program!.kind, "program");
+  // The module request gets its own copy of the prepared inputs, with the
+  // digest of the program request, so both select the same Haxe cache.
+  assert.notEqual(module!.prepared, undefined);
+  assert.equal(module!.prepared!.digest, program!.prepared!.digest);
+  assert.notDeepEqual(module!.prepared!.classPaths, program!.prepared!.classPaths);
+  assert.deepEqual(bodies(harness, "preview-confirmed").map((confirmed) => confirmed.module), ["ui.Button"]);
+  assert.deepEqual(candidateFolders(harness), [], "the prepared copy of the module request is removed");
+}, (options) => ({
+  ...options,
+  prepareRevision: () => ({
+    ok: true as const,
+    prepared: {
+      classPaths: ["generated-haxe"],
+      files: [{ relativePath: "generated-haxe/Facts.hx", content: "class Facts {}\n" }],
+    },
+  }),
+}));
+
+// --- Equal content after a failed build still builds -----------------------
+await withHarness("equal-content-after-failure", async (harness) => {
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Button.ts": "export const button = 28;\n" };
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 28; }\n");
+  await harness.session.waitForIdle();
+  harness.compiler.programSteps.push({ fail: "Card.hx:1: broken" });
+  harness.save(CARD, "package ui;\nclass Card { static var v = broken; }\n");
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "degraded");
+  const requests = harness.compiler.requests.length;
+  // Button keeps the bytes of the last accepted build, but the newest
+  // revision failed: a save is a retry and builds.
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 28; }\n");
+  await harness.session.waitForIdle();
+  assert.equal(harness.compiler.requests.length > requests, true, "a save after a failed build must build");
+});
 
 // --- The measurement helper on known events -------------------------------
 

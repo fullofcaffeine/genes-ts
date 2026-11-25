@@ -3880,8 +3880,8 @@
               "files": [
                 {
                   "path": "src-gen/Main.ts",
-                  "sha256": "d69a22949405f42b32ec3f7e795557c897a4f5ec855b05db3ea530e476ce7036",
-                  "sizeBytes": 21
+                  "sha256": "646fd7846ec08d71ceaba53e055930874cfdbeb4ebea0eab6641ebf8bfbc5ade",
+                  "sizeBytes": 36
                 }
               ]
             }
@@ -3902,11 +3902,11 @@
                 "files": {
                   "created": [],
                   "updated": [
-                    "src-gen/index.ts"
+                    "src-gen/Main.ts"
                   ],
                   "deleted": []
                 },
-                "entryChanged": true
+                "entryChanged": false
               }
             }
           },
@@ -3938,11 +3938,11 @@
               "files": {
                 "created": [],
                 "updated": [
-                  "src-gen/index.ts"
+                  "src-gen/Main.ts"
                 ],
                 "deleted": []
               },
-              "entryChanged": true
+              "entryChanged": false
             }
           },
           "lastSequence": 13,
@@ -3956,11 +3956,11 @@
             "files": {
               "created": [],
               "updated": [
-                "src-gen/index.ts"
+                "src-gen/Main.ts"
               ],
               "deleted": []
             },
-            "entryChanged": true
+            "entryChanged": false
           },
           "lastCompilerEvent": null,
           "modulePreview": {
@@ -4168,11 +4168,11 @@
                 "files": {
                   "created": [],
                   "updated": [
-                    "src-gen/index.ts"
+                    "src-gen/Main.ts"
                   ],
                   "deleted": []
                 },
-                "entryChanged": true
+                "entryChanged": false
               }
             }
           },
@@ -4221,11 +4221,11 @@
                 "files": {
                   "created": [],
                   "updated": [
-                    "src-gen/index.ts"
+                    "src-gen/Main.ts"
                   ],
                   "deleted": []
                 },
-                "entryChanged": true
+                "entryChanged": false
               }
             }
           }
@@ -4242,11 +4242,11 @@
               "files": {
                 "created": [],
                 "updated": [
-                  "src-gen/index.ts"
+                  "src-gen/Main.ts"
                 ],
                 "deleted": []
               },
-              "entryChanged": true
+              "entryChanged": false
             }
           },
           "lastSequence": 20,
@@ -4260,11 +4260,11 @@
             "files": {
               "created": [],
               "updated": [
-                "src-gen/index.ts"
+                "src-gen/Main.ts"
               ],
               "deleted": []
             },
-            "entryChanged": true
+            "entryChanged": false
           },
           "lastCompilerEvent": null,
           "modulePreview": {
@@ -4422,11 +4422,11 @@
                 "files": {
                   "created": [],
                   "updated": [
-                    "src-gen/index.ts"
+                    "src-gen/Main.ts"
                   ],
                   "deleted": []
                 },
-                "entryChanged": true
+                "entryChanged": false
               }
             }
           },
@@ -4471,11 +4471,11 @@
               "files": {
                 "created": [],
                 "updated": [
-                  "src-gen/index.ts"
+                  "src-gen/Main.ts"
                 ],
                 "deleted": []
               },
-              "entryChanged": true
+              "entryChanged": false
             }
           },
           "lastSequence": 14,
@@ -4489,11 +4489,11 @@
             "files": {
               "created": [],
               "updated": [
-                "src-gen/index.ts"
+                "src-gen/Main.ts"
               ],
               "deleted": []
             },
-            "entryChanged": true
+            "entryChanged": false
           },
           "lastCompilerEvent": null,
           "modulePreview": {

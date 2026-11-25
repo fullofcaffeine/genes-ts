@@ -253,25 +253,41 @@ It emits four event kinds that a session without the option never emits:
 - `preview-corrected` (`revision`, `module`, `generation`, `paths`,
   `cause`), after the `generation-accepted` event: the accepted generation
   has other bytes, or no file, at `paths`, so a host that showed the preview
-  must show the accepted files there. `cause: "differs"`: the generation is
-  of the preview's own revision, so the preview was a Genes defect; the
-  session counts it, keeps the evidence in its private state folder, and
-  sends no further module request for that module. `cause:
-  "newer-revision"`: a later edit changed the files.
+  must show the accepted files there. `cause: "differs"`: no source change
+  after the preview's revision lacks a proof (each later change was an
+  admitted preview of another module), so the preview was a Genes defect;
+  this also holds when the accepted generation changes a Genes file that no
+  settled preview named (`paths` then lists it). The session counts it,
+  keeps the evidence in its private state folder, and sends no further
+  module request for that module. `cause: "newer-revision"`: a later edit
+  changed the files (a change of the module's own file, or a change that
+  reached a build without a preview).
 
-Each build caused by an input change gets exactly one `preview-generated` or
-`preview-refused` event, after its `build-started` event. The first build
-and a repair build (an output check) get neither. A preview that a newer
-preview of the same module replaced gets no confirmation.
+A build caused by an input change gets at most one `preview-generated` or
+`preview-refused` event, after its `build-started` event. It gets none when
+a newer change arrives while its module request runs (a late preview: the
+files may show older text). The first build and a repair build (an output
+check) get none either. A preview that a newer preview of the same module
+replaced gets no confirmation. A save in the quiet time after a preview
+cancels that build's program request; the build then ends with no closing
+event (no `candidate-generated`, no `candidate-superseded`), and the next
+`build-started` follows.
+
+When the program request after a preview fails, the session emits `failed`
+as for any build, and the preview stays pending until the next accepted
+generation confirms or corrects it. A host that showed it shows the failure
+and keeps or hides the preview by its own rule.
 
 The snapshot of such a session has `modulePreview`: `differences` (previews
 that differed from the accepted result of their own revision) and
 `stoppedModules` (sorted). A session without the option has no such field.
 
 The session also starts no build for a save that leaves each changed `.hx`
-file with the bytes that the last accepted program request read. Like a
-`rebuild: false` change, that save emits `inputs-changed` and advances
-`newestRevision` only.
+file with the bytes that the last accepted program request read, while
+generation reuse is active and the newest revision that needs a build is
+accepted. Like a `rebuild: false` change, that save emits `inputs-changed`
+and advances `newestRevision` only. After a failed build, such a save still
+builds.
 
 Why this is version 1 and not version 2: every addition is opt-in and
 additive. A host that does not set `modulePreview` sees exactly the events

@@ -713,8 +713,31 @@ For one save of `src/ui/Button.hx` the session does this:
    changed the files.
 
 The program request stays the only writer of the public tree, with every
-check it has. A wrong preview can show wrong code for a few seconds; it
-cannot reach the published tree.
+check it has. A preview never reaches the published tree; it stays in
+memory until an accepted generation confirms or corrects it.
+
+When the program request after a preview fails (for example a type error in
+a module that imports the edited one, which the module request did not
+type), the session emits `failed` as for any build. The preview stays
+pending: no confirmation and no correction come until the next accepted
+generation, and `readPreviewFile` keeps returning its bytes. A host that
+showed the preview shows the failure (the session is `degraded`) and keeps
+or hides the preview by its own rule; the next accepted generation settles
+it.
+
+`cause: "differs"` means: no source change after the preview lacks a proof.
+Each later change was an admitted preview of another module, so the
+accepted generation must hold the previewed bytes, and it may change no
+other Genes file than the files of the previews that it settles. A change
+of the module's own file, or a change that reached a build without a
+preview (a refusal, a change that is no module edit, a cancelled build),
+makes a later difference `newer-revision`.
+
+A save while the module request runs makes that request late: the session
+shows no preview for it and starts the build of the newer save. A save in
+the quiet time cancels the program request of the earlier build, which then
+ends with no closing event (no `candidate-generated`, no
+`candidate-superseded`); the next `build-started` follows.
 
 The session refuses a preview itself (`source: "session"`) for a build with
 a change that is not a content edit of one `.hx` module (`not-module-edit`:
@@ -736,6 +759,10 @@ bytes that the last accepted program request read starts **no build**. Like
 a `rebuild: false` change, it advances `newestRevision` only. The watcher
 compares sizes and times, so an editor save without a change, a formatter
 that writes the same text, or a `touch` would otherwise cost two requests.
+The rule holds only while generation reuse is active (every program request
+then keeps module records, and a later module request checks each changed
+file by its digest, not its time) and while the newest revision that needs
+a build is accepted: after a failed build, a save still builds, as a retry.
 
 `summarizePreviewTimings(events)` measures the path from recorded events:
 for each build, the time from the `inputs-changed` event to the preview and
@@ -760,6 +787,11 @@ Limits:
 - Two edits in a row before the program request ends give a refusal for the
   second edit until an accepted preview advances Genes' own records
   (genes-f8vc.14.8).
+- A save with the same bytes starts no build, but it still gives the file a
+  new time. Haxe 4.3.7 has no content check in its default module check
+  policy, so the next request that loads that module types it again, and a
+  module request of a module that imports it is refused
+  (`other-modules-typed`) until the next program request (genes-f8vc.14.13).
 
 ### Rules a host should not have to rediscover
 
