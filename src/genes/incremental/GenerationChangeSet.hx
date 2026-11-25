@@ -195,6 +195,13 @@ typedef AfterTypingReport = {
    * for the 1,300 classes of a Caffeine request before genes-gz0l), and a
    * count does not depend on the speed of the host, so a gate can require
    * it.
+   *
+   * Limit: only reads through `AfterTypingClass.body` are counted. A read of
+   * `PublicMember.expr` goes to the Haxe field directly and is not counted,
+   * also when it happens during the walk. Today no code reads it there (the
+   * declaration function of `PublicSurface` reads names, types and
+   * metadata), but a new reader during the walk would not show in this
+   * count.
    */
   final keptBodyReads: Int;
 

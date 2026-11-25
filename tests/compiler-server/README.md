@@ -93,7 +93,9 @@ a body, and `PublicSurface` reads a body only when a printer asks for it
 reads its bodies (3). At least one request of the full gate must apply the
 rule. In `measure` and
 `compare` it must be above 0, so the rule cannot pass because nothing is
-counted. Red before the change: `--lanes=project-a --modes=reuse,measure`
+counted. The count sees only reads through `AfterTypingClass.body`: a read
+of `PublicMember.expr` during the walk would not be counted. No code reads
+it there today. Red before the change: `--lanes=project-a --modes=reuse,measure`
 failed with `project-a reuse "no edit": the walk copied 480 typed bodies of
 classes that Haxe kept`.
 
@@ -222,6 +224,7 @@ The checkpoint classifications are:
 | `CompilerInternal.GENERATOR_ACTIVE_DEFINE` | Active Genes requests followed by `genes.disable`, then a successful request | **Request-scoped in the supported lane.** The disabled request fails at the authored carrier and publishes nothing. |
 | `PublicSurface` | Application/library DCE changes and two same-named projects with different public field types | **Explicit reset is effective.** Strict consumers observe only the current project's surface. |
 | `SignatureCache` | Same-named projects with String versus Int fields and generic arguments | **Explicit reset is effective.** Generated implementation and classic declarations equal isolated cold builds. |
+| `JsxContext.intrinsicContracts` (genes-gz0l) | `a-intrinsic-provider-edit`: `IntrinsicCompA` and `IntrinsicCompB` use one custom intrinsic tag; after one request, the provider changes the callback payload from `PingA` to `PingB` | **Defect reproduced and fixed.** On ca88a9cd only the first module that looked the tag up called `Context.getType` for the provider, so the server kept `IntrinsicCompB` and its callback kept `PingA` (warm differed from cold). A shared answer now asks Haxe for each recorded provider path again, so every module depends on the provider. Warm equals cold, and both modules name `PingB` only. |
 | `ModuleDirectivePlan` | Edited/restored directives and distinct same-named project prologues | **Explicit reset is effective.** Directive spelling/order follows the current request. |
 | `TypeUtil.registerType` / `bootType` | Intrinsic-first and direct-import-first field-level `@:jsRequire` edits in `yarn test:genes-ts:source-inline-server`, plus the complete server matrix | **Defect reproduced and fixed.** The first `Generator.use()` in every request refreshes that compilation's declarations; both edit orders restore byte-identical trees on Haxe 4.3.7. Haxe 5 preview still exposes the separate advisory DCE variance described below. |
 | Generator output path and sentinel fields | Changed roots, TS/classic extensions, staged failure/recovery, manifest and sentinel checks | **Current request wins.** Prior owners remain intact and private debris is removed. |
