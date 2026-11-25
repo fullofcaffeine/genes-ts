@@ -452,6 +452,32 @@ difference of their results is a mismatch. The edits whose ids start with
   names `InlinePt`, so no surviving declaration of `inc.AliasInline` shows
   the alias. While that use stays, every request leaves the recorded path
   (`walk: left`, nothing replayed, the tree equal to cold);
+- declarations of an unchanged module in another order (genes-zt9w, the
+  `ORDER` rows): Haxe 4.3.7 builds its generator list by module path, but
+  adds the parent class, the interfaces and the types that a static
+  initializer reaches before a class. A static initializer of `inc.OrderA`
+  moves a declaration of a module that Haxe does not type again:
+  - the interface `inc.OrderM` moves before the extern class
+    `inc.OrderM.OrderMNative`. An extern class is never printed, so the
+    output is the same and the request must replay. Before genes-zt9w the
+    fingerprint held every declaration in list order, and the request
+    generated in full. In Caffeine the same kind of move
+    (`haxe.Constraints.IMap` before its abstracts on the first warm request
+    after a cold build) made one full generation of 79 to 96 s;
+  - `inc.OrderPair.OrderPairB` moves before `OrderPairA`. The printed order
+    changes, so the request must generate in full;
+  - `inc.OrderTwin.OrderTwinB` moves before `OrderTwinA`. Both have the
+    emitted name `OrderTwinX`, and `Module.addTypes` prints only the first,
+    so the printed body changes although the member list does not. The
+    request must generate in full (review of genes-ts #262). While
+    `inc.OrderA` names `OrderTwinB`, a request with no edit leaves the
+    stored walk, because its stored step names `OrderTwinX`, which two
+    declarations share; nothing is replayed, and the tree equals cold.
+
+  So the fingerprint sorts only the declarations that can never be members
+  (abstracts, extern classes and extern enums) and keeps the list order of
+  the others. `CleanRuleProbe` checks the same rule with both orders of
+  `haxe.Constraints`, `inc.OrderPair` and `inc.OrderTwin`;
 - the rows of the review of slice S2 (ids start with `RV6`, modules
   `inc.Rv*`): one late member that two clean typedef modules name, two late
   members of one clean module whose order follows the visit order, a late
@@ -481,7 +507,15 @@ difference of their results is a mismatch. The edits whose ids start with
   the record. Only the extern flag in the target facts that
   `checkStoredTarget` compares leaves the recorded path; without it,
   compare reported drift and reuse published a stale tree (must fix of the
-  review of genes-ts #247);
+  review of genes-ts #247). Since genes-zt9w the fingerprint puts an extern
+  enum after the declarations that can be printed, so for `inc.ExclOwner`
+  the enum moves in the text and rule 6 falls back first. The row
+  "after-typing macro makes the last enum of a module extern" keeps the
+  extern-flag check the first catch: `inc.ExclTail.ExclTailEnum` is the
+  last declaration of its module, so the fingerprint text stays the same,
+  and `inc.ExclHintTail` sorts first, so its stored step is checked
+  before the visit of `inc.ExclTail`. With the extern flag out of the
+  target facts, compare reports drift on that row;
 - metadata that only a typed body holds (S3 of the review of #246;
   genes-f8vc.9.27): `inc.BodyMetaMacro` writes `@:ts.type("string")` on
   the field of the structure in the constraint of the type parameter of a
