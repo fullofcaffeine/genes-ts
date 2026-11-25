@@ -484,6 +484,14 @@ and `--macro include(...)` lines with literal arguments. Every other macro
 that adds modules to the program must stay in the module request. See
 `genes.incremental.ProgramRoots` and `tooling/README.md`.
 
+Genes reads the Haxe arguments with the Haxe 4.3.7 option table
+(`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as
+`--macro x`. An init macro given before `--macro genes.Generator.use()` can
+make Haxe type a module from old text, so after a file change Genes refuses
+the first request once, and the client sends it again. Give
+`--macro genes.Generator.use()` first to avoid this extra request. An
+argument that Genes cannot read counts as such an init macro.
+
 ## Async/await sugar (optional)
 
 genes-ts includes an `@:async` + `await(...)` macro that emits native

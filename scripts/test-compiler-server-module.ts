@@ -1380,6 +1380,36 @@ function earlyInitMacroGroups(): ReadonlyArray<Group> {
       ]
     },
     {
+      // The same init macro written as one argument, `--macro=<call>`, as
+      // Haxe 4.3.7 accepts it and keeps it in
+      // `Compiler.getConfiguration().args` (genes-f8vc.14.22). Before the
+      // fix, Genes looked only for `--macro` as an argument of its own, so
+      // the rule missed this macro and the full request published the old
+      // `mr/Fresh.ts`.
+      name: "early-init-inline-macro",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/Early.hx": earlyMacro
+      },
+      argsBeforeGenes: ["--macro=mr.Early.install()"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept (inline --macro=)",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        },
+        {
+          id: "Fresh saved again with its modification time kept, preview of Fresh (inline --macro=)",
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
+          module: "mr.Fresh",
+          initRefusal: "module",
+          expect: "preview"
+        }
+      ]
+    },
+    {
       name: "early-init-dependency-changed",
       files: {
         "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
@@ -2669,6 +2699,28 @@ function privateReachGroups(): ReadonlyArray<Group> {
       },
       steps: [
         { id: "std: a private method with a fresh name in a program with a project init macro (public-shape-changed)",
+          apply: () => edit("Pod.hx", "  public function title(): String {",
+            "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
+          module: "mr.Pod", expect: "public-shape-changed",
+          check: reasonNames("--macro mr.Spy.install() is an init macro outside Genes") }
+      ]
+    },
+    {
+      // The same project init macro written as one argument,
+      // `--macro=<call>` (genes-f8vc.14.22). Before the fix, Genes did not
+      // see it, so the private method previewed.
+      name: "std-private-init-macro-inline",
+      dce: "std",
+      extraArgs: ["--macro=mr.Spy.install()"],
+      files: {
+        ...ownMain(["Pod"]),
+        "mr/Spy.hx": "package mr;\n\nclass Spy {\n  public static function install(): Void {}\n}\n",
+        ...extensionCallFiles("Pod", {
+          user: "  public static function show(): String {\n    return new Pod().title();\n  }\n"
+        })
+      },
+      steps: [
+        { id: "std: a private method with a fresh name in a program with an inline --macro= project init macro (public-shape-changed)",
           apply: () => edit("Pod.hx", "  public function title(): String {",
             "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
           module: "mr.Pod", expect: "public-shape-changed",

@@ -43,6 +43,12 @@ enum HaxeArgument {
  * table is `Unreadable`, so a caller that must know every argument can
  * refuse. Haxe splits an argument with `=` at the first `=`.
  *
+ * Readers: `ProgramRoots` (the roots beside `--main`) and
+ * `ModuleRequest.initMacros` (the init macros of the init-macro-before-Genes
+ * rule and of the private-field rule of `-dce std`, genes-f8vc.14.22). Each
+ * one treats `Unreadable` as the unsafe case: it refuses or counts the
+ * argument as an init macro that can type.
+ *
  * Not read here: the meaning of `--next`, `--each` and `--run`, which a
  * caller must handle (they start another compilation or end the list).
  */
