@@ -941,8 +941,9 @@ class ModuleRequest {
    * may hold content that Haxe's own check missed: Haxe keeps file times in
    * whole seconds, so a second save in the same second looks unchanged.
    * `beginRequest` makes Haxe parse such a file again. A full request reads
-   * every file here before typing and keeps the newer status when the digest
-   * is the same; a deleted file keeps the digest `missing`. A file that
+   * every file here before typing and makes Haxe parse again each file whose
+   * digest or status differs; it keeps the newer status when the digest is
+   * the same, and a deleted file keeps the digest `missing`. A file that
    * `beginRequest` makes Haxe parse again is `unknown` until `afterSave`
    * proves it (`unproveParsed`), so a request that fails with a type error
    * leaves it `unknown`. A cache fact:
@@ -1255,7 +1256,9 @@ class ModuleRequest {
    * (`invalidate`): their content differs from what Haxe last typed, or an
    * earlier module request typed their module alone. A module of one of them
    * that arrives as an object of an earlier request was typed from old text
-   * (`keptStaleModules`).
+   * (`keptStaleModules`). The keys are written by `Path.normalize`, so that
+   * the walk of an `include` line on the class path of the request's folder
+   * (`./mr/A.hx`) and Haxe's positions (`mr/A.hx`) name one file.
    */
   static var invalidatedFiles: Map<String, Bool> = new Map();
 
@@ -1348,10 +1351,11 @@ class ModuleRequest {
   /**
    * Runs before Haxe types the program (`Generator.use()` is an init
    * macro): makes Haxe parse again each file whose content is not the
-   * content that Haxe last typed (`typedDigests`), each file of a module that
-   * an earlier module request typed alone (`typedAlone`), and, in a request
-   * that is not a module request, each file of a module that a published
-   * preview typed alone (`deferredFiles`, genes-f8vc.14.8).
+   * content that Haxe last typed (`typedDigests`; in a full request, also a
+   * file with the same digest and another file status), each file of a
+   * module that an earlier module request typed alone (`typedAlone`), and,
+   * in a request that is not a module request, each file of a module that
+   * a published preview typed alone (`deferredFiles`, genes-f8vc.14.8).
    *
    * Why: Haxe's compilation server compares file times in whole seconds.
    * Two saves of one file in the same second look like one, and the second
@@ -1373,6 +1377,18 @@ class ModuleRequest {
    * not change, and the digest `missing` for a deleted file, so that the
    * next full request does not make Haxe parse it (or the folder of a
    * deleted `import.hx`) again.
+   *
+   * A full request also makes Haxe parse again a file whose digest is the
+   * noted one but whose status is not (genes-f8vc.14.24, review of #270).
+   * Why: Genes notes content only in a full request with module records,
+   * but a module request or an editor request can make Haxe parse a file
+   * too. Example: with an init macro before Genes that loads
+   * `mr.inc.Late`, a save removes the class of `mr/inc/Late.hx`, a module
+   * request parses the file, and a second save in the same whole second
+   * puts the class back. The digest is the noted one, but Haxe holds the
+   * parse without the class; only the status shows the change. Cost: a
+   * save that keeps the content (or a `touch`) makes Haxe parse that file
+   * again once.
    *
    * The init macro rule (genes-v54c): this step runs inside
    * `Generator.use()`, so an init macro given before it has already run. If
@@ -1502,14 +1518,16 @@ class ModuleRequest {
           for (file => typed in typedDigests) {
             final now = readSource(file);
             preDigests.set(file, now);
-            if (!sameSinceRead(typed, now))
+            final same = sameSinceRead(typed, now);
+            if (!same)
               changed.push({file: file, content: now});
-            if (now.digest == typed.digest) {
+            if (now.digest == typed.digest || now.digest == MISSING_DIGEST)
               newer.push({file: file, content: now});
+            // The same digest with another status is a change too: the file
+            // changed and came back, and a request between may have made
+            // Haxe parse the other content (genes-f8vc.14.24).
+            if (same)
               continue;
-            }
-            if (now.digest == MISSING_DIGEST)
-              newer.push({file: file, content: now});
             stale.push(file);
             // A changed `import.hx` changes how every module of its folder
             // and the folders below is typed.
@@ -1542,6 +1560,77 @@ class ModuleRequest {
     unproveParsed([for (file in stale) if (noted.indexOf(file) < 0) file]);
     invalidate(stale);
     storeCacheFacts();
+  }
+
+  /**
+   * Notes in `typedDigests` what Haxe parsed for each file that the `include`
+   * lines listed and whose module has no declaration in the program
+   * (`ProgramRoots.declarationless`): the content read when
+   * `genes.Generator.use()` ran when it is proven (`provenSource`: the file
+   * did not change since), and `unknown` otherwise. Only a full request
+   * with module records calls it, after typing and before the kept-module
+   * stop: a module request, an editor request and a full request without
+   * module records note nothing. When one of them makes Haxe parse such a
+   * file, the next full request sees the file status change and makes Haxe
+   * parse the file again (`beginRequest`).
+   *
+   * Why (genes-f8vc.14.24, review round 3 of #269): no module file names
+   * such a file, so nothing else notes it. Example: `mr/inc/Late.hx` holds a
+   * `@:keep` class, and its proven digest is the one with the class. A save
+   * removes the class after Genes read the file and before Haxe's own walk
+   * parses it, and a second save in the same whole second, without
+   * `server/invalidate`, puts it back. Haxe keeps the parse without the
+   * class. Before, the digest with the class stayed proven, so the next
+   * full request did not make Haxe parse the file again and differed from
+   * cold until the file changed again. Now the change time of the second
+   * save makes the content `unknown`, and the next full request makes Haxe
+   * parse the file again. A file that stays without a declaration gets a
+   * proven digest, so the next full request makes Haxe parse it again only
+   * when it changed, and the init macro rule of `beginRequest` sees its
+   * change.
+   *
+   * With an init macro before `genes.Generator.use()` that can type a
+   * module (`typingMacrosBeforeGenes`), a file whose content Genes had not
+   * proven when that ran is `unknown`: the macro can have loaded the module
+   * from an old parse before Genes made Haxe parse the file again
+   * (`ProgramRoots.read` then makes the roots unknown too).
+   *
+   * The entry is written under each spelling that `typedDigests` already
+   * has for the file (`Path.normalize` compares them), or else under the
+   * path that `Context.resolvePath` gives for the module, which is how
+   * Haxe's positions spell it. A file that Haxe would find elsewhere is not
+   * noted, so the next full request makes Haxe parse it again
+   * (`ProgramRoots.beginRequest`).
+   */
+  static function noteDeclarationless(): Void {
+    final files = ProgramRoots.declarationless(GenerationChangeSet.observedModules());
+    if (files.length == 0)
+      return;
+    final early = typingMacrosBeforeGenes().length > 0;
+    final spellings = new Map<String, Array<String>>();
+    for (file in typedDigests.keys()) {
+      final key = Path.normalize(file);
+      final known = spellings.get(key);
+      if (known == null)
+        spellings.set(key, [file]);
+      else
+        known.push(file);
+    }
+    for (item in files) {
+      final content = early
+        && item.again ? unknownSource() : provenSource(item.file);
+      final known = spellings.get(Path.normalize(item.file));
+      if (known != null) {
+        for (file in known)
+          noteTyped(file, content);
+        continue;
+      }
+      final resolved = try Context.resolvePath(item.module.split('.').join('/')
+        + '.hx') catch (_:haxe.Exception) null;
+      if (resolved != null
+        && Path.normalize(resolved) == Path.normalize(item.file))
+        noteTyped(resolved, content);
+    }
   }
 
   /**
@@ -1579,7 +1668,7 @@ class ModuleRequest {
    */
   static function invalidate(files: Array<String>): Void {
     for (file in files)
-      invalidatedFiles.set(file, true);
+      invalidatedFiles.set(Path.normalize(file), true);
     if (files.length > 0)
       haxe.macro.CompilationServer.invalidateFiles([
         for (file in files)
@@ -1963,6 +2052,7 @@ class ModuleRequest {
    * parse it with the defines of a later moment, which an init macro between
    * them can change (`initMacroCall`).
    */
+  @:allow(genes.incremental.ProgramRoots)
   static function typingMacrosBeforeGenes(): Array<String> {
     final configuration = haxe.macro.Compiler.getConfiguration();
     if (configuration == null)
@@ -2083,7 +2173,8 @@ class ModuleRequest {
   static function keptStaleModules(): Array<String> {
     return [
       for (module in GenerationChangeSet.keptModules())
-        if (invalidatedFiles.exists(moduleFiles.get(module) ?? '')) module
+        if (invalidatedFiles.exists(Path.normalize(moduleFiles.get(module) ?? '')))
+          module
     ];
   }
 
@@ -2478,6 +2569,8 @@ class ModuleRequest {
     // or notes any digest. A module request refuses such a target with
     // `stale-source` and such another module with `source-changed`.
     if (descriptor.kind.match(Full) && descriptor.moduleRecords == true) {
+      // Before the stop below, which stores the cache facts.
+      noteDeclarationless();
       final kept = keptStaleModules();
       if (kept.length > 0) {
         final reason = keptStaleReason(kept);

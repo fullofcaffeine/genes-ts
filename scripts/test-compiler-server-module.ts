@@ -163,6 +163,31 @@ const raceMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Race {\n`
   + `      sys.io.File.saveContent(file, StringTools.replace(sys.io.File.getContent(file), parts[1], parts[2]));\n`
   + `    });\n  }\n}\n`;
 const raceArgs = ["--macro", `mr.Race.install(${JSON.stringify(raceFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
+
+/**
+ * A test double for an editor that saves a file twice inside one whole
+ * second while Haxe runs a full request (genes-f8vc.14.24): `mr.Strip`, an
+ * init macro given after `genes.Generator.use()` (so after Genes walked the
+ * included folders), replaces a text in the file that `strip.flag` names,
+ * before Haxe's own `include` walk parses the file, and puts the old content
+ * back in `onAfterTyping` with the modification time of the first save
+ * (`touch -r`), so Haxe's file-time check cannot see the second save. It
+ * runs only in a request with `--main` (a cold build or a full request), so
+ * the module request of a step never takes the flag.
+ */
+const stripMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Strip {\n`
+  + `  public static function install(flag: String, sources: String): Void {\n`
+  + `    if (!sys.FileSystem.exists(flag)\n`
+  + `      || haxe.macro.Compiler.getConfiguration().args.indexOf('--main') < 0)\n      return;\n`
+  + `    final parts = sys.io.File.getContent(flag).split('|');\n`
+  + `    sys.FileSystem.deleteFile(flag);\n    final file = sources + '/' + parts[0];\n`
+  + `    final original = sys.io.File.getContent(file);\n`
+  + `    sys.io.File.saveContent(file, StringTools.replace(original, parts[1], parts[2]));\n`
+  + `    Sys.command('touch', ['-r', file, flag + '.time']);\n`
+  + `    Context.onAfterTyping(_ -> {\n      sys.io.File.saveContent(file, original);\n`
+  + `      Sys.command('touch', ['-r', flag + '.time', file]);\n    });\n  }\n}\n`;
+const stripFlag = path.join(tempRoot, "strip.flag");
+const stripArgs = ["--macro", `mr.Strip.install(${JSON.stringify(stripFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
 const timeoutMs = 180_000;
 const keepControl = process.argv.includes("--keep-control");
 /** `--sweep` runs only the scripted structural sweep (`sweepGroup`). */
@@ -245,6 +270,15 @@ type Step = {
   readonly raceOnModule?: string;
   /** A save (`file|from|to`) that lands while Haxe types the full request. */
   readonly raceOnFull?: string;
+  /**
+   * A save (`file|from|to`, under `src/`) that lands after Genes walked the
+   * included folders and before Haxe's own `include` walk, and a second
+   * save that puts the file back in the same whole second (`mr.Strip`), in
+   * the cold build and in the full request of the step. Both see the first
+   * save, so they must still be equal. Only for a step without a module
+   * request: the cold build of a preview would take the flag.
+   */
+  readonly stripOnFull?: string;
   /**
    * A save (`file|from|to`, under `src/`) after Genes read the file and before
    * Haxe parses it, reverted after typing (`mr.Flip`), in the module request.
@@ -3185,6 +3219,74 @@ function extraRootGroups(): ReadonlyArray<Group> {
           module: "mr.Button", expect: "preview" }
       ]
     },
+    declarationlessRaceGroup("roots-declarationless-race", "mr/inc", "mr.inc"),
+    // The same race on the class path that Haxe gives without `-cp`: the
+    // folder of the request, which the walk spells `./rootinc/Late.hx` and
+    // Haxe's positions spell `rootinc/Late.hx` (genes-f8vc.14.24).
+    declarationlessRaceGroup("roots-declarationless-race-root-class-path", "../rootinc", "rootinc"),
+    {
+      // genes-f8vc.14.24: an init macro given before Genes that loads an
+      // included module by name can make Haxe use its old parse of a file
+      // without a declaration before Genes walks the folder. On 339b4855
+      // Genes noted no content of such a file, so the init macro rule did
+      // not see its change: when the file was saved in the same second after
+      // a module request had parsed it (no server/invalidate), the full
+      // request kept the old parse and differed from cold. Now the full
+      // request notes what Haxe parsed for each such file: the first time it
+      // cannot prove it (the roots are unknown, and the next full request is
+      // refused once), and a change of the file is refused once
+      // (`GENES-MODULE-REQUEST-003`).
+      name: "roots-declarationless-early-macro",
+      noInvalidate: true,
+      files: {
+        "mr/EarlyInclude.hx": `package mr;\n\n#if macro\nclass EarlyInclude {\n`
+          + `  public static function install(): Void {\n`
+          + `    haxe.macro.Context.getModule('mr.inc.Late');\n  }\n}\n#end\n`,
+        "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+          + `    return 'card ' + mr.Theme.color();\n  }\n}\n`,
+        "mr/inc/Late.hx": `package mr.inc;\n\n#if macro\n@:keep\nclass Late {\n`
+          + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+      },
+      argsBeforeGenes: ["--macro", "mr.EarlyInclude.install()"],
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        // No step edits `mr/Button.hx`: the init macro rule would refuse
+        // each module request of a changed file once, which is not what
+        // these steps show.
+        { id: "early macro: Genes has not proven the file without a declaration (include-changed)",
+          apply: () => {}, module: "mr.Button", expect: "include-changed", initRefusal: "full" },
+        { id: "early macro: module request after the full request proved the file",
+          apply: () => {}, module: "mr.Button", expect: "preview" },
+        // The module request runs the early macro too, so Haxe holds a parse
+        // of the file without the class when the save lands after it.
+        { id: "early macro: only the file without a declaration gets a class, in the same second",
+          apply: () => {}, module: "mr.Button", expect: "preview",
+          afterModule: () => editSameSecond("inc/Late.hx", "#if macro", "#if !acro"),
+          initRefusal: "full" },
+        { id: "early macro: module request after the full request built the class",
+          apply: () => {},
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    earlyMacroRestoreGroup("roots-early-macro-module-restore", "module"),
+    earlyMacroRestoreGroup("roots-early-macro-display-restore", "display"),
+    {
+      // genes-f8vc.14.24: the `root empty` lines of the records text follow
+      // the module names, not the order in which the file system lists the
+      // folder (APFS lists these files in another order).
+      name: "roots-empty-order",
+      dce: "std",
+      files: {
+        ...includeFiles,
+        ...Object.fromEntries(["Zeta", "Alpha", "Mid", "Beta", "Omega", "Kappa", "Delta"].map((name) =>
+          [`mr/inc/${name}.hx`, `package mr.inc;\n\n#if macro\nclass ${name} {}\n#end\n`]))
+      },
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        { id: "empty order: literal edit beside seven files without a declaration",
+          apply: button("return 'Save';", "return 'Save!';"), module: "mr.Button", expect: "preview" }
+      ]
+    },
     {
       name: "roots-include-ignore-wildcard",
       dce: "std",
@@ -3275,6 +3377,95 @@ function dceFullIncludeGroup(name: string, extraArgs: ReadonlyArray<string>,
             + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n`);
           edit("Button.hx", "return 'Save!';", "return 'Save';");
         }, module: "mr.Button", expect: "include-changed" }
+    ]
+  };
+}
+
+/**
+ * A listed file that loses its class while a full request runs
+ * (genes-f8vc.14.24, review round 3 of #269). Under `-dce full`,
+ * `include('<pack>', false)` adds `Late`, a `@:keep` class that keeps the
+ * private `mr.Button.unused`. In step 2, `mr.Strip` removes the class after
+ * Genes walked the folder and before Haxe's walk, and puts it back after
+ * typing with the same modification time; the session invalidates only
+ * `mr/Button.hx`. Haxe keeps the parse without the class. On 339b4855 Genes
+ * kept the old digest of the file as proven, so the full request of step 3
+ * kept that parse and differed from cold (`mr/Button.ts`, `<folder>/Late.ts`),
+ * and step 4 published a stale preview. `folder` is the included folder
+ * relative to `src/`.
+ */
+function declarationlessRaceGroup(name: string, folder: string, pack: string): Group {
+  return {
+    name,
+    files: {
+      "mr/Strip.hx": stripMacro,
+      [`${folder}/Card.hx`]: `package ${pack};\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+        + `    return 'card ' + mr.Theme.color();\n  }\n}\n`,
+      [`${folder}/Late.hx`]: `package ${pack};\n\n#if !acro\n@:keep\nclass Late {\n`
+        + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+    },
+    extraArgs: stripArgs,
+    programRoots: ["--macro", `include('${pack}', false)`],
+    steps: [
+      { id: `${name}: literal edit beside the kept class`, apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview" },
+      { id: `${name}: the class goes and comes back in one second while the full request runs`,
+        apply: () => edit("Button.hx", "return 'Save!';", "return 'Save';"),
+        stripOnFull: `${folder}/Late.hx|#if !acro|#if macro` },
+      // The second walk saw the file change while the request ran, so the
+      // roots are unknown until the next full request.
+      { id: `${name}: module request after the race (include-changed)`,
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "include-changed" },
+      { id: `${name}: literal edit after the full request parsed the class again`,
+        apply: () => edit("Button.hx", "return 'Save!';", "return 'Save';"),
+        module: "mr.Button", expect: "preview" }
+    ]
+  };
+}
+
+/**
+ * Another request makes Haxe parse an included file without its class, and
+ * a save puts the class back in the same whole second (genes-f8vc.14.24,
+ * review of #270 on 4c78e5d2). `mr.EarlyInclude`, an init macro given
+ * before `genes.Generator.use()`, loads `mr.inc.Late` in every request, also
+ * in a module request (`via: "module"`) and in an editor request with the
+ * session's defines (`via: "display"`), where Genes notes no content of the
+ * file. In step 3 a save removes the `@:keep` class of `mr/inc/Late.hx`, that
+ * request parses the file, and a second save in the same whole second puts
+ * the class back; no server/invalidate is sent. On 4c78e5d2 the next full
+ * request was refused once (`GENES-MODULE-REQUEST-003`): the digest was the
+ * proven one, only the file status differed, so Genes did not make Haxe
+ * parse the file again, and the request sent again differed from cold
+ * (`mr/Button.ts`, `mr/inc/Late.ts`); the previews after it were stale. Now
+ * a file whose status differs from the noted one is parsed again too.
+ */
+function earlyMacroRestoreGroup(name: string, via: "module" | "display"): Group {
+  const restore = () => editSameSecond("inc/Late.hx", "#if macro", "#if !acro");
+  return {
+    name,
+    noInvalidate: true,
+    files: {
+      "mr/EarlyInclude.hx": `package mr;\n\n#if macro\nclass EarlyInclude {\n`
+        + `  public static function install(): Void {\n`
+        + `    haxe.macro.Context.getModule('mr.inc.Late');\n  }\n}\n#end\n`,
+      "mr/inc/Late.hx": `package mr.inc;\n\n#if !acro\n@:keep\nclass Late {\n`
+        + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+    },
+    argsBeforeGenes: ["--macro", "mr.EarlyInclude.install()"],
+    programRoots: ["--macro", "include('mr.inc', false)"],
+    steps: [
+      { id: `${name}: module request without an edit`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      { id: `${name}: second module request without an edit`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      via === "module"
+        ? { id: `${name}: a module request parses the file without its class, which comes back in the same second`,
+            apply: () => editSource("mr/inc/Late.hx", "#if !acro", "#if macro"),
+            module: "mr.Button", expect: "source-changed", afterModule: restore, initRefusal: "full" }
+        : { id: `${name}: an editor request parses the file without its class, which comes back in the same second`,
+            apply: () => editSource("mr/inc/Late.hx", "#if !acro", "#if macro"),
+            display: { when: "after-save", form: "json-session" }, afterModule: restore, initRefusal: "full" },
+      { id: `${name}: module request after the full request`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      { id: `${name}: another module request`, apply: () => {}, module: "mr.Button", expect: "preview" }
     ]
   };
 }
@@ -4037,6 +4228,25 @@ function readRecordsText(file = descriptorFile): string | null {
   return existsSync(text) ? readFileSync(text, "utf8") : null;
 }
 
+/**
+ * Fails when the `root empty` lines of one `include` line in a records text
+ * are not sorted by module (genes-f8vc.14.24). Their order must not depend
+ * on the order in which the file system lists a folder.
+ */
+function rootEmptyInOrder(records: string | null, label: string): void {
+  let previous: string | null = null;
+  for (const line of (records ?? "").split("\n")) {
+    if (!line.startsWith("root empty ")) {
+      previous = null;
+      continue;
+    }
+    const module = line.split(" ")[2] ?? "";
+    ok(previous === null || previous < module,
+      `${label}: the root empty lines must be sorted by module (${previous ?? ""} before ${module})`);
+    previous = module;
+  }
+}
+
 /** Deletes the records text beside `file`, so that a request that writes none leaves none. */
 function clearRecordsText(file = descriptorFile): void {
   rmSync(`${file}.records.txt`, { force: true });
@@ -4567,16 +4777,31 @@ async function runGroup(group: Group,
       } else if (step.skipProgram !== true) {
         // The cold build of the preview check holds the same sources, unless
         // the step changes a file after the module request.
+        const strip = step.stripOnFull;
+        if (strip !== undefined) {
+          ok(step.module === undefined, `${label}: stripOnFull needs a step without a module request`);
+          writeFileSync(stripFlag, strip);
+        }
         const coldTree = previewCold !== undefined && step.afterModule === undefined
           ? previewCold : await coldBuild(compiler, label);
+        if (strip !== undefined) {
+          ok(!existsSync(stripFlag), `${label}: mr.Strip did not run in the cold build`);
+          writeFileSync(stripFlag, strip);
+        }
         const fullRefusal = step.initRefusal === "full" || step.initRefusal === "both";
         const program = await programRequest(server, label, step.raceOnFull, fullRefusal);
+        if (strip !== undefined) {
+          const [file, from] = strip.split("|");
+          ok(!existsSync(stripFlag), `${label}: mr.Strip did not run in the full request`);
+          ok(readFileSync(path.join(workspace, "src", file ?? ""), "utf8").includes(from ?? "|"),
+            `${label}: mr.Strip did not put the file back`);
+        }
         programMs = program.ms;
         const difference = treeDifference(hashTree(folder("program")), coldTree);
         deepStrictEqual(difference, [],
           `${label}: the full request after the step differs from the cold build:\n`
           + difference.join("\n"));
-        ok(program.refused || !fullRefusal,
+        ok(observe || program.refused || !fullRefusal,
           `${label}: the init macro rule did not refuse the full request`);
         base = hashTree(folder("program"));
         if (!observe) {
@@ -4584,6 +4809,7 @@ async function runGroup(group: Group,
           // advanced ones, and for the same sources they must be equal
           // (genes-f8vc.14.8), in its own check and in the plain text.
           const full = readRecordsText();
+          rootEmptyInOrder(full, label);
           const check = readRecordsReport().advancedCheck ?? "<absent>";
           if (advancedRecords !== null && step.afterModule === undefined && step.raceOnFull === undefined) {
             sameRecords(advancedRecords, full, label, "preview", "full request");
