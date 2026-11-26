@@ -12,6 +12,17 @@ export interface SerializedDirtyLoopOptions<Cause> {
    * in that delay restarts it.
    */
   readonly startDelayMs?: number;
+  /**
+   * Returns the quiet time before a follow-up run of the pending `cause`,
+   * instead of `debounceMs`. Default: `debounceMs` for every cause.
+   *
+   * Why: some follow-up runs start with a cheap step that should run at
+   * once. Example: the development session's module-first path starts a
+   * follow-up whose first step is a module request after the short start
+   * delay, and keeps `debounceMs` as the quiet time before its own program
+   * request.
+   */
+  readonly followUpDelayMs?: (cause: Cause) => number;
   readonly merge: (left: Cause, right: Cause) => Cause;
   readonly run: (cause: Cause) => Promise<void>;
   readonly onError: (error: Error) => void;
@@ -81,10 +92,18 @@ export class SerializedDirtyLoop<Cause> {
     }
     this.#schedule(
       this.#followUp
-        ? this.#options.debounceMs
+        ? this.#followUpDelay()
         : (this.#options.startDelayMs ?? this.#options.debounceMs),
       this.#followUp,
     );
+  }
+
+  /** The quiet time before a follow-up run of the pending cause. */
+  #followUpDelay(): number {
+    const delay = this.#options.followUpDelayMs?.(this.#pending);
+    return delay === undefined || !Number.isFinite(delay) || delay < 0
+      ? this.#options.debounceMs
+      : delay;
   }
 
   async waitForIdle(): Promise<void> {
@@ -160,7 +179,7 @@ export class SerializedDirtyLoop<Cause> {
         }
         const elapsed = Math.max(0, Date.now() - this.#lastRequestAt);
         this.#schedule(
-          Math.max(0, this.#options.debounceMs - elapsed),
+          Math.max(0, this.#followUpDelay() - elapsed),
           true,
         );
       });

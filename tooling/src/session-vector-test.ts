@@ -39,6 +39,10 @@ type EventKind =
   | "failed"
   | "compiler-lifecycle"
   | "output-check"
+  | "preview-generated"
+  | "preview-refused"
+  | "preview-confirmed"
+  | "preview-corrected"
   | "closed";
 
 interface EventRun {
@@ -315,6 +319,37 @@ for (const [event, valid] of [
     `compiler-lifecycle ${JSON.stringify(event)} must be ${valid ? "valid" : "rejected"}`,
   );
 }
+// Module previews (genes-f8vc.14.3) are emitted only with `modulePreview`;
+// their released shapes are checked here.
+const sha = "a".repeat(64);
+for (const [event, valid] of [
+  [{ kind: "preview-generated", revision: 2, module: "ui.Button", files: [{ path: "src-gen/ui/Button.ts", sha256: sha, sizeBytes: 3 }] }, true],
+  [{ kind: "preview-generated", revision: 2, module: "ui.Button", files: [] }, false],
+  [{ kind: "preview-generated", revision: 2, module: "ui.Button", files: [{ path: "/private/candidate/ui/Button.ts", sha256: sha, sizeBytes: 3 }] }, false],
+  [{ kind: "preview-generated", revision: 2, module: "ui/Button", files: [{ path: "src-gen/ui/Button.ts", sha256: sha, sizeBytes: 3 }] }, false],
+  [{ kind: "preview-refused", revision: 2, module: null, source: "session", code: "several-modules" }, true],
+  [{ kind: "preview-refused", revision: 2, module: "ui.Button", source: "genes", code: "public-shape-changed" }, true],
+  [{ kind: "preview-refused", revision: 2, module: "ui.Button", source: "host", code: "several-modules" }, false],
+  [{ kind: "preview-refused", revision: 2, module: "ui.Button", source: "genes", code: "Public shape" }, false],
+  [{ kind: "preview-confirmed", revision: 2, module: "ui.Button", generation: 2, paths: ["src-gen/ui/Button.ts"] }, true],
+  [{ kind: "preview-confirmed", revision: 2, module: "ui.Button", generation: 2, paths: [] }, false],
+  [{ kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 2, paths: ["src-gen/ui/Button.ts"], cause: "differs" }, true],
+  [{ kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 3, paths: ["src-gen/ui/Button.ts"], cause: "newer-revision" }, true],
+  [{ kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 2, paths: ["src-gen/ui/Button.ts"] }, false],
+  [{ kind: "preview-corrected", revision: 2, module: "ui.Button", generation: 2, paths: ["src-gen/ui/Button.ts"], cause: "stale" }, false],
+] as const) {
+  assert.equal(
+    validateProtocolEvent!({
+      protocol: DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+      version: DEVELOPMENT_SESSION_EVENT_VERSION,
+      sequence: 1,
+      at: 1,
+      event,
+    }),
+    valid,
+    `${event.kind} ${JSON.stringify(event)} must be ${valid ? "valid" : "rejected"}`,
+  );
+}
 const invalidSequenceCorpus = structuredClone(corpus) as unknown as {
   vectors: Array<{
     expected: { eventChecks: Array<{ sequence: number }> };
@@ -410,6 +445,10 @@ const events = new Set<EventKind>([
   "failed",
   "compiler-lifecycle",
   "output-check",
+  "preview-generated",
+  "preview-refused",
+  "preview-confirmed",
+  "preview-corrected",
   "closed",
 ]);
 const scriptSteps = new Set([
@@ -422,16 +461,23 @@ const scriptSteps = new Set([
   "watch-registered",
   "input-change",
   "input-burst-20",
+  "input-change-equal-content",
   "build-started",
   "compile-connected",
   "compile-connected-private-hxml",
   "compile-direct",
   "compile-failed",
   "compile-connected-replay-audit-differs",
+  "compile-module-preview",
+  "compile-module-preview-differs",
   "private-hxml-removed-before-validation",
   "inventory-failed-fatal",
   "candidate-generated",
   "output-check-replay-audit",
+  "preview-generated",
+  "preview-refused-previews-stopped",
+  "preview-confirmed",
+  "preview-corrected-differs",
   "validate-accepted",
   "validate-rejected",
   "reconcile-current",
@@ -584,6 +630,7 @@ assert.deepEqual(
     "burst-supersedes-active-candidate",
     "close-before-first-accepted-is-idempotent",
     "compile-failure-retains-last-good",
+    "equal-content-starts-no-build",
     "existing-generation-replacement-retry-retains-acceptance",
     "existing-generation-replacement-survives-first-build-failure",
     "existing-generation-survives-first-build-failure",
@@ -592,6 +639,8 @@ assert.deepEqual(
     "initial-validation-failure-repairs",
     "inline-hxml-option-stays-private",
     "late-attach-observes-compiler-fallback",
+    "module-preview-confirmed-at-acceptance",
+    "module-preview-difference-stops-previews",
     "publication-waits-for-reader",
     "publish-failure-rolls-back",
     "recovery-before-initial-build",
@@ -610,6 +659,7 @@ for (const required of [
   "commit-before-notify",
   "current-session-admission",
   "direct-fallback",
+  "equal-content-no-build",
   "existing-generation-import",
   "existing-generation-replacement",
   "exact-replacement-retry",
@@ -621,8 +671,10 @@ for (const required of [
   "idempotent-close",
   "inline-hxml-option",
   "last-good",
+  "module-preview",
   "newest-state-follow-up",
   "private-candidate",
+  "preview-correction",
   "private-compiler-input",
   "public-output-clean",
   "read-lease",
