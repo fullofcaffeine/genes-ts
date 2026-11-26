@@ -27,6 +27,12 @@ using haxe.macro.TypeTools;
  */
 class Imports {
   /**
+   * The metadata on each holder class that names the module whose typing
+   * made it (`importImpl`). `genes.incremental.HaxeDependencies` reads it.
+   */
+  public static inline final HOLDER_DEFINER_META = ':genes.importDefiner';
+
+  /**
    * Import a module's default export.
    *
    * Example:
@@ -486,6 +492,17 @@ class Imports {
     meta.push({
       name: ':genes.importAlias',
       params: [macro $v{spec.importAlias}],
+      pos: spec.pos
+    });
+
+    // The module that Haxe is typing, which makes this holder: Haxe gives
+    // the holder that module's file (`define_type` in `macroContext.ml`), so
+    // `genes.incremental.HaxeDependencies` can count the holder's entry of
+    // Haxe's dependency list with that module (genes-f8vc.14.41). Example:
+    // `@:genes.importDefiner("app.ui.Card")`.
+    meta.push({
+      name: HOLDER_DEFINER_META,
+      params: [macro $v{Context.getLocalModule()}],
       pos: spec.pos
     });
 

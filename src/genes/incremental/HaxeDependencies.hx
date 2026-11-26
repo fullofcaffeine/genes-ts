@@ -69,10 +69,12 @@ import genes.util.PathUtil;
  * - `F` is the file of exactly one module `X` of the program, `F` ends with
  *   that module's path, `X` is not in Haxe's standard library (see
  *   `collect`), and `F` is an entry of the program's list exactly once;
- *   the file of `A` must be an entry exactly once too: when it is an entry
- *   more than once, a block of it can be another module's (a type that a
- *   macro defined with that file), and no block of it counts, whatever the
- *   order of the list (`collect`);
+ *   when the file of `A` is an entry more than once, its blocks count
+ *   together for `A` only when every other entry is a `genes.ts.Imports`
+ *   holder that `A`'s typing made, as each holder records
+ *   (`Imports.HOLDER_DEFINER_META`, genes-f8vc.14.41); a block of any other
+ *   type with that file can be another module's, so then no block counts,
+ *   whatever the order of the list (`collect`);
  * - and either `X` has a macro function and `F` is listed at least twice
  *   for `A` (a macro module and `X` itself: a macro call also resolves the
  *   class of `X` in the program), or `X` has no macro function, has a
@@ -130,12 +132,13 @@ import genes.util.PathUtil;
  * above is a program module that Haxe loads with its dependent. A line
  * that does not pass is dropped, which can only refuse a preview.
  *
- * Limits: a module whose file also holds a `genes.ts.Imports` holder or any
- * other macro-defined type (a `Context.defineType` of a project macro or a
- * library, also one with an explicit `moduleDependency` that names the
- * module) carries no edge from Haxe's list, so a module that only it
- * reaches makes previews refuse more often until genes-f8vc.14.41 (record
- * the module that made each holder). A session `dump-path` folder that two Haxe processes share at the
+ * Limits: a module whose file also holds a macro-defined type other than
+ * the `genes.ts.Imports` holders that its own typing made (a
+ * `Context.defineType` of a project macro or a library, also one with an
+ * explicit `moduleDependency` that names the module) carries no edge from
+ * Haxe's list, so a module that only it reaches makes previews refuse. A
+ * holder made by an older Genes without the definer metadata counts as such
+ * a type until Haxe types its module again. A session `dump-path` folder that two Haxe processes share at the
  * same time can give one of them the other's lists (the development session
  * runs one server for its folder). On Windows, `scan` reads Haxe's text-mode
  * lists (`\r\n`, `\`), but a file whose full path Haxe spells otherwise
@@ -224,6 +227,13 @@ class HaxeDependencies {
   static var macroFunctions: Map<String, Bool> = new Map();
 
   /**
+   * For each module of this request, how many `genes.ts.Imports` holders
+   * name it as the module whose typing made them
+   * (`Imports.HOLDER_DEFINER_META`, `noteModules`).
+   */
+  static var holdersMadeBy: Map<String, Int> = new Map();
+
+  /**
    * Makes Haxe write its dependency lists for this request when `wanted`
    * (a `-dce std` full request with module records, or a `-dce std` module
    * request), and deletes Genes' own lists of an earlier request.
@@ -250,6 +260,7 @@ class HaxeDependencies {
     newMacroStateModules = 0;
     files = new Map();
     macroFunctions = new Map();
+    holdersMadeBy = new Map();
     typeNames = new Map();
     folder = null;
     owned = false;
@@ -328,6 +339,7 @@ class HaxeDependencies {
       moduleFiles: Map<String, String>): Void {
     files = moduleFiles;
     macroFunctions = new Map();
+    holdersMadeBy = new Map();
     typeNames = new Map();
     for (module => types in grouped) {
       final names = [];
@@ -336,6 +348,9 @@ class HaxeDependencies {
           case TInst(reference, _):
             final cls = reference.get();
             names.push(cls.pack.concat([cls.name]).join('.'));
+            final definer = holderDefiner(cls);
+            if (definer != null)
+              holdersMadeBy.set(definer, (holdersMadeBy.get(definer) ?? 0) + 1);
           case TEnum(reference, _):
             final enm = reference.get();
             names.push(enm.pack.concat([enm.name]).join('.'));
@@ -352,6 +367,22 @@ class HaxeDependencies {
         found;
       }
       macroFunctions.set(module, has);
+    }
+  }
+
+  /**
+   * Returns the module whose typing made the `genes.ts.Imports` holder
+   * `cls` (`@:genes.importDefiner("app.ui.Card")`), or `null` for any other
+   * class, or a holder whose metadata cannot be read.
+   */
+  static function holderDefiner(cls: ClassType): Null<String> {
+    final entries = cls.meta.extract(genes.ts.Imports.HOLDER_DEFINER_META);
+    if (entries.length != 1)
+      return null;
+    final params = entries[0].params ?? [];
+    return switch params {
+      case [{expr: EConst(CString(module, _))}]: module;
+      default: null;
     }
   }
 
@@ -541,26 +572,57 @@ class HaxeDependencies {
     }
     final scanned = scan(main, wanted, WINDOWS);
     final entries = scanned.entries;
+    // The blocks of each file, in the order of the list.
+    final blocksOfFile = new Map<String, Array<Array<String>>>();
+    final order = [];
     for (block in scanned.blocks) {
+      final known = blocksOfFile.get(block.file);
+      if (known == null) {
+        blocksOfFile.set(block.file, [block.lines]);
+        order.push(block.file);
+      } else {
+        known.push(block.lines);
+      }
+    }
+    for (file in order) {
+      final module = byFile.get(file);
+      final blocks = blocksOfFile.get(file);
+      if (module == null || blocks == null)
+        continue;
       // A file that is an entry more than once also names other modules: a
       // type that a macro defined with that file (`Context.defineType` takes
       // the file of the module being typed, or of the module that its
-      // `moduleDependency` names; for example a holder of `genes.ts.Imports`
-      // or a type that a project macro defines), or a module that
-      // `registerModuleDependency` made (`$DEP`). A block of that file can
-      // be another module's, and Genes cannot yet tell whose, so no block of
-      // it counts, whatever the order of the list (`sort_types`). A merge of
-      // `genes.ts.Imports` holders gave stale previews (review of #274:
-      // `probe7-explicit-module-dependency`,
-      // `probe8-displaced-holder-and-module-dependency`); genes-f8vc.14.41
-      // records the module that made each holder.
-      final module = byFile.get(block.file);
-      if (module == null || (entries.get(block.file) ?? 0) != 1)
+      // `moduleDependency` names), or a module that
+      // `registerModuleDependency` made (`$DEP`). The blocks count only when
+      // every other entry is a `genes.ts.Imports` holder that `module`'s
+      // typing made (genes-f8vc.14.41): `Imports.hx` records that module on
+      // each holder (`Imports.HOLDER_DEFINER_META`), and Haxe gives the
+      // holder that module's file, so the entries are `module` and its
+      // holders exactly when their number is one more than the holders that
+      // name `module`. A holder's block lists only `module`'s file, so the
+      // blocks together are `module`'s own. Any other type with that file (a
+      // project macro's type with an explicit `moduleDependency`, a `$DEP`
+      // module) adds an entry, and then no block counts, whatever the order
+      // of the list (`sort_types`). Positions play no part: a holder that
+      // Haxe made while it typed another module has that module's file
+      // (`probe8-displaced-holder-and-module-dependency`).
+      final entryCount = entries.get(file) ?? 0;
+      if (entryCount != blocks.length
+        || entryCount != 1 + (holdersMadeBy.get(module) ?? 0))
         continue;
+      // `counts` holds the most times that one block lists a line: "listed
+      // twice" means twice for one module (a macro module and the module
+      // itself), never once in each of two blocks.
       final counts = new Map<String, Int>();
-      for (line in block.lines)
-        if (byFile.exists(line))
-          counts.set(line, (counts.get(line) ?? 0) + 1);
+      for (lines in blocks) {
+        final own = new Map<String, Int>();
+        for (line in lines)
+          if (byFile.exists(line))
+            own.set(line, (own.get(line) ?? 0) + 1);
+        for (line => count in own)
+          if (count > (counts.get(line) ?? 0))
+            counts.set(line, count);
+      }
       // The macro fact of `module` (see the class comment): this request's
       // when Haxe typed it now, the macro list was read and every request of
       // the process ran in this macro state; else the kept fact for its

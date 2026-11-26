@@ -3828,11 +3828,13 @@ function sharedMacroFilesDeleted(_report: ModuleReport, label: string): void {
  * while the package `a.reach` sorts before it, so the holder's block came
  * last and the edge was lost there too. 979f8a64 and 932c1823 merged the
  * holder's block into `ViaBoth`, and the edit previewed in both packages,
- * but a merge can take another module's lines (`probe7`, `probe8`). So no
- * block of such a file counts again, and the literal edit of `mr.Button` is
- * `module-may-leave` until genes-f8vc.14.41 records the module that made
- * each holder. The literal edit of `ViaBoth` previews (its own request loads
- * `Codec`), and removing the only inline call is refused.
+ * but a merge can take another module's lines (`probe7`, `probe8`), so
+ * a51bf6b6 counted no block of such a file, and the literal edit of
+ * `mr.Button` was `module-may-leave`. genes-f8vc.14.41: `Imports.hx` now
+ * records the module whose typing made each holder, and the blocks of a
+ * file count together only when every other entry is a holder that names
+ * that module, so the edit previews again in both packages. The literal
+ * edit of `ViaBoth` previews, and removing the only inline call is refused.
  */
 function importHolderGroups(): ReadonlyArray<Group> {
   return [
@@ -3853,12 +3855,11 @@ function importHolderGroups(): ReadonlyArray<Group> {
           + "    return 'both ' + Codec.assume('value') + ' ' + join('a', 'b');\n  }\n}\n"
       },
       steps: [
-        // genes-f8vc.14.41: a preview again once Genes merges only the
-        // holders that `ViaBoth` made.
-        { id: `${name}: literal edit of a module beside the holder (module-may-leave until genes-f8vc.14.41)`,
+        // genes-f8vc.14.41: `module-may-leave` on a51bf6b6, a preview now
+        // that Genes merges the holders that `ViaBoth`'s typing made.
+        { id: `${name}: literal edit of a module beside the holder`,
           apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
-          module: "mr.Button", expect: "module-may-leave",
-          check: reasonNames(`${pack}.Codec`) },
+          module: "mr.Button", expect: "preview" },
         { id: `${name}: literal edit of the module with the holder`,
           apply: () => editSource(`${folderName}/ViaBoth.hx`, "'both '", "'both! '"),
           module: `${pack}.ViaBoth`, expect: "preview" },
@@ -3890,9 +3891,10 @@ function importHolderGroups(): ReadonlyArray<Group> {
  * On da5b15e7 and on 979f8a64 Genes gave the companion's lines to `Owner`
  * (`Owner` loads `Hidden`), so the second row previewed
  * `STALE mr/reach/Hidden.ts`. The true chain is `Definer`, the companion,
- * `Hidden`. No block of a file that is an entry more than once counts, so
- * the second row is `module-may-leave`: a module whose file holds a
- * macro-defined type carries no edge from Haxe's list.
+ * `Hidden`. The companion is no `genes.ts.Imports` holder that `Owner`
+ * made, so no block of `Owner.hx` counts, and the second row is
+ * `module-may-leave` (also with genes-f8vc.14.41, which merges only such
+ * holders).
  */
 function explicitModuleDependencyGroup(): Group {
   return {
@@ -3945,8 +3947,10 @@ function explicitModuleDependencyGroup(): Group {
  * `Owner.hx` is then an entry twice (`Owner` and the companion), and the
  * modules with a position in it are `Owner` and the holder, so 932c1823
  * merged the companion's block into `Owner`, and the second row was
- * `STALE mr/reach/Hidden.ts`. Now no block of such a file counts, and the
- * row is `module-may-leave`.
+ * `STALE mr/reach/Hidden.ts`. Now the row is `module-may-leave`: with
+ * genes-f8vc.14.41 the holder records `Other` as the module that made it,
+ * and Haxe gave it `Other`'s file, so `Owner.hx` has one entry more (the
+ * companion) than `Owner` and its holders, and no block of it counts.
  */
 function displacedHolderGroup(): Group {
   return {

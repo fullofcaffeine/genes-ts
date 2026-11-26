@@ -1107,25 +1107,29 @@ reference is refused before the `module-may-leave` check, by
 `public-shape-changed` for a public signature, or by `walkTargetFailure`
 (`walk-target-removed`) for a private signature or a body.
 
-No block of a file that is an entry of Haxe's list more than once counts:
-such a file also holds a type that a macro defined (`Context.defineType`
-takes the file of the module being typed, or of the module that its
-`moduleDependency` names), and Genes cannot yet tell whose block is whose.
-Two merges were tried in the review of #274 and each gave a stale preview,
-so until genes-f8vc.14.41 (record the module that made each
-`genes.ts.Imports` holder) a module with a holder or any other
-macro-defined type in its file carries no edge from Haxe's list, and
-previews refuse more often. The rows:
+The blocks of a file that is an entry of Haxe's list more than once count
+together only when every other entry is a `genes.ts.Imports` holder that
+the file's own module made (genes-f8vc.14.41). Such a file also holds a
+type that a macro defined (`Context.defineType` takes the file of the
+module being typed, or of the module that its `moduleDependency` names).
+`Imports.hx` records the module whose typing made each holder
+(`@:genes.importDefiner`), and Haxe gives the holder that module's file, so
+Genes compares the entry count with one more than the holders that name the
+module; positions play no part. Any other macro-defined type with that file
+adds an entry, and then no block counts: a module with such a type in its
+file carries no edge from Haxe's list. Two merges tried in the review of
+#274 (by position, 979f8a64 and 932c1823) each gave a stale preview, and
+a51bf6b6 counted no block of such a file. The rows:
 
 - `probe5-inline-and-import-holder` and
   `probe5-inline-and-import-holder-a-package`: `<pack>.ViaBoth` calls the
   inline `Codec.assume` and owns a holder of
-  `genes.ts.Imports.namedImport`. The literal edit of `mr.Button` is
-  `module-may-leave` (it previewed for `mr.reach` on da5b15e7, where the
-  order of the list decided, and in both packages on 979f8a64 and 932c1823,
-  which merged the holder). The literal edit of `ViaBoth` previews, because
-  its own request loads `Codec`, and removing the only inline call is
-  refused. 16 Caffeine files use `genes.ts.Imports`;
+  `genes.ts.Imports.namedImport`. The literal edit of `mr.Button` previews
+  (it previewed for `mr.reach` only on da5b15e7, where the order of the list
+  decided, and was `module-may-leave` on def4b46f and a51bf6b6, which
+  counted no block of such a file). The literal edit of `ViaBoth` previews,
+  and removing the only inline call is refused. 16 Caffeine files use
+  `genes.ts.Imports`;
 - `probe7-explicit-module-dependency`: the project macro
   `Gen.companion('on')`, called by `mr.reach.Definer`, defines the extern
   class `mr.reach.OwnerCompanion` with
@@ -1147,7 +1151,9 @@ previews refuse more often. The rows:
   which merged a file's blocks when every other module positioned there was
   a holder, gave the companion's lines to `Owner`: the second row was
   `STALE mr/reach/Hidden.ts` there and on da5b15e7, and is
-  `module-may-leave` now (also on def4b46f).
+  `module-may-leave` now (also on def4b46f and a51bf6b6): the holder names
+  `Other` and has `Other`'s file, so `Owner.hx` has one entry (the
+  companion) more than `Owner` and its holders.
 
 `yarn test` checks the reader of Haxe's list, also its Windows form
 (`tests/haxedependencies/HaxeDependenciesProbe.hx`).
