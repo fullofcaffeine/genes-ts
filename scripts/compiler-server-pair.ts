@@ -85,8 +85,8 @@ const warmupPairs = Number(option("warmup-pairs", "1"));
  * positions of each pair (B A A B), and A on the second. Ratios stay
  * B over A. Each side has its own server process, and an offset between
  * two processes looks like an A-B difference that one run cannot tell from
- * a real one; a small effect counts only when a `--swap` run gives the same
- * sign.
+ * a real one; a small effect counts only when the interval of a `--swap`
+ * run also leaves out 1 on the same side. The warm-up is mirrored too.
  */
 const swap = process.argv.includes("--swap");
 /** `--measure-off-b`: side B asks for no request measure, to measure the cost of the measure. */
@@ -399,7 +399,8 @@ async function main(): Promise<void> {
       // the pairs. With one server for both sides, each switch starts a new
       // macro state without module records, so each module sample needs a
       // full request first; with one server per side nothing switches.
-      for (const s of [a, b]) {
+      // With `--swap` the warm-up is mirrored too: B first, then A.
+      for (const s of swap ? [b, a] : [a, b]) {
         await prime(s);
         await measured(s);
       }
@@ -579,7 +580,8 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   process.stdout.write("B differs from A only where the 95% interval leaves out 1. The interval covers the "
     + "noise between pairs of this run only; each side has its own server process, and an offset between "
     + "the two processes counts as a difference (same-source medians fell between 0.998 and 1.006). "
-    + "A difference under about 1% is unproven until a second run with --swap gives the same sign.\n");
+    + "A difference under about 1% is unproven until a second run with --swap also gives an interval "
+    + "that leaves out 1 on the same side.\n");
   if (swap) process.stdout.write("sides swapped: B ran on the first server, in the A positions; ratios are B/A.\n");
   const span = (values: number[]): string =>
     values.length === 0 ? "n/a" : `${Math.min(...values)} to ${Math.max(...values)}`;

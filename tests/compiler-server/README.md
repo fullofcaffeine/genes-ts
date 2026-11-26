@@ -1407,8 +1407,10 @@ side has its own server process, and an offset between the two processes
 counts as an A-B difference: same-source medians fell between 0.998 and
 1.006, and one same-source no-edit interval (1.0006 to 1.0100) left out 1.
 For a small effect, run again with `--swap` (B runs on the first server, in
-the A positions, B A A B; ratios stay B over A) and count the effect only
-when both runs give the same sign. The runner prints this rule above the
+the A positions, B A A B, with the warm-up mirrored too; ratios stay B over
+A) and count the effect only when the interval of each run leaves out 1 on
+the same side. The same sign alone is not enough: with no real difference,
+two runs agree in sign half the time. The runner prints this rule above the
 ratios. Wall time is a report line. Beside words it prints
 the minor collections of A and B. When the two sides of a pair collected a
 different number of times, the words line says "uncertain: collection counts
