@@ -1401,7 +1401,15 @@ before each module sample. The measured request is a module request of
 instructions and CPU time it prints the median pair ratio (B1 + B2) /
 (A1 + A2), its order-statistic 95% interval (the 6th to the 15th of 20
 sorted ratios), and the lowest and highest. B differs from A only when the
-interval leaves out 1. Wall time is a report line. Beside words it prints
+interval leaves out 1, and a difference under about 1% is unproven after one
+run. The interval covers the noise between the pairs of one run only. Each
+side has its own server process, and an offset between the two processes
+counts as an A-B difference: same-source medians fell between 0.998 and
+1.006, and one same-source no-edit interval (1.0006 to 1.0100) left out 1.
+For a small effect, run again with `--swap` (B runs on the first server, in
+the A positions, B A A B; ratios stay B over A) and count the effect only
+when both runs give the same sign. The runner prints this rule above the
+ratios. Wall time is a report line. Beside words it prints
 the minor collections of A and B. When the two sides of a pair collected a
 different number of times, the words line says "uncertain: collection counts
 differ" and gives the uncertainty: up to one minor heap (262,144 words with
@@ -1429,8 +1437,14 @@ of CPU time before Genes when it comes right after one, or 26 ms after the
 report when it is the tenth itself. The runner counts the connections of
 each server and sends cheap `-version` requests until the measured request
 is neither a tenth connection nor the one right after it; a request after a
-collection waits for it to end. It prints, for each side, the samples with
-more than 30 ms of CPU time outside Genes; both counts should be 0.
+collection waits for it to end. It prints, for each position of A B B A,
+the samples with more than 12 ms of CPU time outside Genes (before the init
+macro or after the report) and the highest such time. A periodic
+collection would show as 26 to 344 ms. What remains is smaller and lands
+at positions 2 and 4, where the server waited through two requests of the
+other side: such samples spend about 15 to 30 ms before Genes against about
+7 ms, and about 4% more instructions. Both sides get it equally often, so
+it widens the interval without biasing the median.
 
 Spread of the runner with the same source on both sides (B with an unused
 define, 20 pairs, load 25 to 41), instructions:

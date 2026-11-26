@@ -80,6 +80,15 @@ const pairs = Number(option("pairs", "20"));
 const repeat = Number(option("repeat", "0"));
 const target = option("module", "mr.Button");
 const warmupPairs = Number(option("warmup-pairs", "1"));
+/**
+ * `--swap`: the B configuration runs on the first server and in the A
+ * positions of each pair (B A A B), and A on the second. Ratios stay
+ * B over A. Each side has its own server process, and an offset between
+ * two processes looks like an A-B difference that one run cannot tell from
+ * a real one; a small effect counts only when a `--swap` run gives the same
+ * sign.
+ */
+const swap = process.argv.includes("--swap");
 /** `--measure-off-b`: side B asks for no request measure, to measure the cost of the measure. */
 const measureOffB = process.argv.includes("--measure-off-b");
 /**
@@ -271,7 +280,8 @@ async function main(): Promise<void> {
   serverA.installSignalCleanup();
   const serverB = servers === 2 && repeat === 0 ? await OwnedHaxeCompilerServer.start(repoRoot) : serverA;
   if (serverB !== serverA) serverB.installSignalCleanup();
-  const serverOf = (s: Side): OwnedHaxeCompilerServer => s.name === "A" ? serverA : serverB;
+  const serverOf = (s: Side): OwnedHaxeCompilerServer =>
+    (s.name === "A") !== swap ? serverA : serverB;
   let unavailable = typeof counters === "string" ? counters : null;
   const read = async (s: Side): Promise<ProcessCounters | null> => {
     const pid = serverOf(s).process.pid;
@@ -395,7 +405,7 @@ async function main(): Promise<void> {
       }
       const primeEach = kind === "module" && serverA === serverB;
       for (let index = 0; index < warmupPairs + pairs; index += 1) {
-        for (const s of [a, b, b, a]) {
+        for (const s of swap ? [b, a, a, b] : [a, b, b, a]) {
           if (primeEach) await prime(s);
           const sample = await measured(s);
           if (index >= warmupPairs) samples.push(sample);
@@ -412,6 +422,7 @@ async function main(): Promise<void> {
       defineB,
       kind,
       edit,
+      swap,
       module: target,
       servers: serverA === serverB ? 1 : 2,
       warmupPairs,
@@ -526,7 +537,11 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   const collectionsA: number[] = [];
   const collectionsB: number[] = [];
   for (let index = 0; index + 3 < samples.length; index += 4) {
-    const [a1, b1, b2, a2] = [samples[index]!, samples[index + 1]!, samples[index + 2]!, samples[index + 3]!];
+    // Each group of four holds two samples of each side, in A B B A order,
+    // or B A A B with `--swap`.
+    const group = samples.slice(index, index + 4);
+    const [a1, a2] = group.filter((sample) => sample.side === "A") as [Sample, Sample];
+    const [b1, b2] = group.filter((sample) => sample.side === "B") as [Sample, Sample];
     const ratio = (pick: (sample: Sample) => number | null): number | null => {
       const values = [a1, b1, b2, a2].map(pick);
       if (values.some((value) => value === null)) return null;
@@ -561,7 +576,11 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
         + `(lowest ${Math.min(...values).toFixed(4)}, highest ${Math.max(...values).toFixed(4)}, `
         + `${values.length} pairs)${note}\n`);
   };
-  process.stdout.write("B differs from A only where the 95% interval leaves out 1.\n");
+  process.stdout.write("B differs from A only where the 95% interval leaves out 1. The interval covers the "
+    + "noise between pairs of this run only; each side has its own server process, and an offset between "
+    + "the two processes counts as a difference (same-source medians fell between 0.998 and 1.006). "
+    + "A difference under about 1% is unproven until a second run with --swap gives the same sign.\n");
+  if (swap) process.stdout.write("sides swapped: B ran on the first server, in the A positions; ratios are B/A.\n");
   const span = (values: number[]): string =>
     values.length === 0 ? "n/a" : `${Math.min(...values)} to ${Math.max(...values)}`;
   const collections = `minor collections A ${span(collectionsA)}, B ${span(collectionsB)}`;
@@ -581,20 +600,25 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   line("instructions", ratios.instructions, unavailable === null ? "" : ` (${unavailable})`);
   line("cpu", ratios.cpu);
   line("wall (report line, not a gate)", ratios.wall);
-  // A request that pays for a Haxe collection shows it outside Genes: before
-  // the init macro or after the report.
+  // CPU time outside Genes (before the init macro or after the report). A
+  // periodic collection would show here; the collection guard keeps it out.
+  // Some remains, larger where the server waited through two requests of
+  // the other side (position 2 and 4 of A B B A).
   const outside = (sample: Sample): number | null =>
     sample.beforeGenesMs === null || sample.afterGenesMs === null
       ? null : sample.beforeGenesMs + sample.afterGenesMs;
-  const hits = (side: "A" | "B"): number => samples.filter((sample) => sample.side === side
-    && (outside(sample) ?? 0) > 30).length;
-  const most = (side: "A" | "B"): string => {
-    const values = samples.filter((sample) => sample.side === side && outside(sample) !== null)
-      .map((sample) => outside(sample)!);
-    return values.length === 0 ? "n/a" : `${Math.max(...values).toFixed(1)} ms`;
+  const threshold = 12;
+  const order = swap ? ["B", "A", "A", "B"] : ["A", "B", "B", "A"];
+  const byPosition = [0, 1, 2, 3].map((position) => samples.filter((_, index) =>
+    index % 4 === position && (outside(samples[index]!) ?? 0) > threshold).length);
+  const highest = (position: number): string => {
+    const values = samples.filter((_, index) => index % 4 === position)
+      .map((sample) => outside(sample)).filter((value): value is number => value !== null);
+    return values.length === 0 ? "n/a" : Math.max(...values).toFixed(1);
   };
-  process.stdout.write(`samples with more than 30 ms of CPU outside Genes: A ${hits("A")}, B ${hits("B")} `
-    + `(highest A ${most("A")}, B ${most("B")})\n`);
+  process.stdout.write(`samples with more than ${threshold} ms of CPU outside Genes, by position `
+    + `${order.join(" ")}: ${byPosition.join(", ")} of ${samples.length / 4} each `
+    + `(highest ms ${[0, 1, 2, 3].map(highest).join(", ")})\n`);
   const memory = samples.map((sample) => sample.serverRssMb).filter((value): value is number => value !== null);
   if (memory.length > 0)
     process.stdout.write(`server resident memory: first ${memory[0]} MB, last ${memory[memory.length - 1]} MB, `
