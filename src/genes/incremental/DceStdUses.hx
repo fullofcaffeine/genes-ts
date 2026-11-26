@@ -145,14 +145,22 @@ class DceStdUses {
     final known = stdFiles.get(file);
     if (known != null)
       return known;
-    final absolute = PathUtil.normalize(FileSystem.absolutePath(file))
-      .toLowerCase();
-    var found = false;
-    for (folder in stdFolders())
-      if (StringTools.startsWith(absolute, folder))
-        found = true;
+    final found = isStdPath(PathUtil.normalize(FileSystem.absolutePath(file)));
     stdFiles.set(file, found);
     return found;
+  }
+
+  /**
+   * Returns true when `absolute`, an absolute and normalized file path, is
+   * in a standard-library folder. `HaxeDependencies` calls it with paths
+   * that it keeps between requests.
+   */
+  public static function isStdPath(absolute: String): Bool {
+    final lower = absolute.toLowerCase();
+    for (folder in stdFolders())
+      if (StringTools.startsWith(lower, folder))
+        return true;
+    return false;
   }
 
   /**

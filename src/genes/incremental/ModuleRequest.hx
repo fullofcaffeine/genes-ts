@@ -244,6 +244,12 @@ typedef ModuleRequestReport = {
   final profileMs: Float;
 
   /**
+   * Time spent reading and parsing Haxe's own dependency lists
+   * (`HaxeDependencies.edges`) in this request.
+   */
+  final dependencyListMs: Float;
+
+  /**
    * Time spent reading, hashing and reading the status of source files in
    * this request.
    */
@@ -368,6 +374,12 @@ typedef ModuleRecordsReport = {
 
   /** Time of the `-dce std` facts (`DceStdUses`) in this request (format 2). */
   final profileMs: Float;
+
+  /**
+   * Time spent reading and parsing Haxe's own dependency lists
+   * (`HaxeDependencies.edges`) in this request.
+   */
+  final dependencyListMs: Float;
 
   /**
    * The modules whose records an accepted preview advanced since the full
@@ -1059,6 +1071,14 @@ class ModuleRequest {
   static var rootSeconds = 0.0;
   static var requestShape: Null<String> = null;
 
+  /**
+   * The modules with a macro function, outside Haxe's standard library and
+   * Genes' own folder, that Haxe's list names for the requested module of
+   * a module request (`addHaxeDependencies`); `structuralRefusal` refuses
+   * them as opaque macro modules.
+   */
+  static var requestMacroModules: Array<String> = [];
+
   /** `targetFactsOf` of each module of this request, read in `afterSave`. */
   static var requestFacts: Map<String, String> = new Map();
 
@@ -1286,6 +1306,7 @@ class ModuleRequest {
     requestFacts = new Map();
     requestDeclarationFacts = new Map();
     requestProfiles = new Map();
+    requestMacroModules = [];
     requestDeclared = null;
     profileSeconds = 0.0;
     DceStdUses.reset();
@@ -2578,8 +2599,7 @@ class ModuleRequest {
     // read before dead-code elimination (genes-f8vc.14.26).
     if (DceStdUses.stdProfile()
       && (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true))
-      HaxeDependencies.noteModules(grouped, moduleFiles,
-        descriptor.kind.match(Full));
+      HaxeDependencies.noteModules(grouped, moduleFiles);
     // The declaration facts of every module (`targetFactsOf`): after every
     // after-typing macro, before dead-code elimination and before the roots.
     if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true) {
@@ -4465,6 +4485,12 @@ class ModuleRequest {
           'Genes cannot see into'
         };
     }
+    for (dependency in requestMacroModules)
+      return {
+        code: 'opaque-macro',
+        reason: '$module loads $dependency, which has a macro function that ' +
+        'Genes cannot see into'
+      };
     for (dependency in oldDependencies)
       if (storedOpaqueMacros.exists(dependency))
         return {
@@ -4654,16 +4680,19 @@ class ModuleRequest {
    *
    * In a module request, a module that only Haxe's list names gets the
    * `opaqueMacro` fact that `afterSave` gives the modules that the typed
-   * bodies name (`opaqueMacroModule`), so a new call of a project macro is
-   * refused also when no import line names its class (`opaque-macro`).
+   * bodies name (`opaqueMacroModule`), and each listed module outside
+   * Haxe's standard library and Genes' own folder that has a macro function
+   * counts as an opaque macro module even when it is no edge
+   * (`requestMacroModules`). So a new call of a project macro is refused
+   * also when no import line names its class (`opaque-macro`).
    */
   static function addHaxeDependencies(only: Null<String>): Void {
-    final edges = HaxeDependencies.edges();
+    final listed = HaxeDependencies.edges(only);
     final newcomers = [];
     for (module => profile in requestProfiles) {
       if (only != null && module != only)
         continue;
-      final extra = edges.get(module);
+      final extra = listed.edges.get(module);
       if (extra == null || extra.length == 0)
         continue;
       final known = new Map<String, Bool>();
@@ -4694,6 +4723,14 @@ class ModuleRequest {
         privateReach: null,
         privateStructure: false
       });
+    // A listed module with a macro function that is no edge (listed once:
+    // an instance macro, or a macro through `@:using`) can still be the
+    // project macro that the module calls (`structuralRefusal`).
+    if (only != null)
+      requestMacroModules = [
+        for (dependency in listed.macroModules.get(only) ?? [])
+          if (!transparentFile(moduleFiles.get(dependency))) dependency
+      ];
   }
 
   /**
@@ -5267,6 +5304,7 @@ class ModuleRequest {
       checkMs: GenerationChangeSet.milliseconds(checkSeconds),
       rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds),
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
+      dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       hashedSources: hashed,
       trustedSources: trustedSources,
@@ -5293,6 +5331,7 @@ class ModuleRequest {
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       factsMs: GenerationChangeSet.milliseconds(factsSeconds),
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
+      dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
       advanced: advanced,
       advancedCheck: advancedCheck
     };

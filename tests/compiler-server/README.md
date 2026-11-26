@@ -1064,6 +1064,28 @@ the modules that each module loads (`HaxeDependencies`, written with
   row still were); removing the only read of the constant is refused
   (`module-may-leave`, naming `app.graph.ReferenceCard`).
 
+The `review-` groups come from the review of genes-ts #272 (round 1, on
+7447d44d). `mr.reach.Built` has `@:build(mr.reach.Model.build())`;
+`mr.reach.Model` has a runtime `label()` and, inside `#if macro`, the static
+`build()`, so Haxe's list of `mr.reach.Built` names `mr/reach/Model.hx` for
+a module of its macro context. `mr.reach.User` is the only module that calls
+`Model.label()`, and the last row removes that call:
+
+- `review-plain-build`: the build macro does nothing (a control,
+  `module-may-leave` on 7447d44d too);
+- `review-build-removes-meta`: the build macro removes its own `@:build`
+  metadata. On 7447d44d the line counted and the preview kept
+  `mr/reach/Model.ts` (`STALE` with `--observe` and `GENES_TEST_SOURCE`);
+- `review-build-registers-own-file`: the build macro registers
+  `mr/reach/Model.hx` with `registerModuleDependency`, so the line is listed
+  twice. On 7447d44d "listed twice" counted, and the preview was `STALE`.
+
+Each first row (a literal edit of `mr.Button`) previews, and each last row
+is now `module-may-leave`: a line listed once counts only when its file was
+no module of the macro context in the request that typed the dependent,
+twice only when the module has a macro function, and never when the file is
+a second entry of the program's list.
+
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
 literal arguments); every other macro that adds modules must stay in it.

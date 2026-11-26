@@ -3711,12 +3711,72 @@ function inlineReachGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/**
+ * The review rows of genes-ts #272 round 1 (Fable on 7447d44d). `mr.reach.Built`
+ * has `@:build(mr.reach.Model.build())`, and `mr.reach.Model` has a runtime
+ * `label()` and, inside `#if macro`, the static `build()`. So Haxe's list of
+ * `mr.reach.Built` names `mr/reach/Model.hx` for a module of Haxe's macro
+ * context. `mr.reach.User` is the only module that calls `Model.label()`;
+ * the last row removes that call, and a full build then drops
+ * `mr/reach/Model.ts`. `build` is the line that the build macro runs first:
+ *
+ * - `review-plain-build`: nothing (a control; `module-may-leave` on
+ *   7447d44d too, because the metadata named the macro class);
+ * - `review-build-removes-meta`: it removes its own `@:build` metadata, so
+ *   no metadata names the macro class. On 7447d44d the line counted, and
+ *   the preview kept `mr/reach/Model.ts` (`STALE`);
+ * - `review-build-registers-own-file`: it registers `mr/reach/Model.hx` as a
+ *   file that `mr.reach.Built` depends on, so the line is listed twice (a
+ *   macro module and a module that `registerModuleDependency` made). On
+ *   7447d44d "listed twice" counted, and the preview was `STALE` too.
+ *
+ * Now a line counts once only when its file was no module of the macro
+ * context in the request that typed the dependent, twice only when the
+ * module has a macro function, and never when the file is a second entry
+ * of the program's list. Each last row is `module-may-leave`.
+ */
+function reviewBuildGroups(): ReadonlyArray<Group> {
+  const variants: ReadonlyArray<{ readonly name: string, readonly build: string }> = [
+    { name: "review-plain-build", build: "" },
+    { name: "review-build-removes-meta",
+      build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n" },
+    { name: "review-build-registers-own-file",
+      build: "    haxe.macro.Context.registerModuleDependency(haxe.macro.Context.getLocalModule(),\n"
+        + "      haxe.macro.Context.resolvePath('mr/reach/Model.hx'));\n" }
+  ];
+  return variants.map((variant) => ({
+    name: variant.name,
+    dce: "std",
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Built.text());", "trace(mr.reach.User.text());"]),
+      "mr/reach/Model.hx": "package mr.reach;\n\nclass Model {\n"
+        + "  public static function label(): String {\n    return 'model';\n  }\n\n"
+        + "  #if macro\n  public static function build(): Array<haxe.macro.Expr.Field> {\n"
+        + variant.build
+        + "    return haxe.macro.Context.getBuildFields();\n  }\n  #end\n}\n",
+      "mr/reach/Built.hx": "package mr.reach;\n\n@:build(mr.reach.Model.build())\nclass Built {\n"
+        + "  public static function text(): String {\n    return 'built';\n  }\n}\n",
+      "mr/reach/User.hx": reachUser("User", "user", "Model.label()")
+    },
+    steps: [
+      { id: `${variant.name}: literal edit of a module beside the build macro`,
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview" },
+      { id: `${variant.name}: the only call of Model.label() is removed (module-may-leave)`,
+        apply: () => editSource("mr/reach/User.hx", "Model.label()", "'model'"),
+        module: "mr.reach.User", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Model") }
+    ]
+  }));
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
   ...stdGroups(),
   ...extraRootGroups(),
   ...inlineReachGroups(),
+  ...reviewBuildGroups(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
