@@ -1407,15 +1407,10 @@ different number of times, it prints "collection counts differ; words not
 compared" instead, because one collection moves words by up to one minor
 heap (about 1.2% of a fixture module request).
 
-Without `--edit`, each measured module request repeats a request with no
-change: Haxe types nothing again and every kept bucket of Genes hits. Such
-numbers compare A with B on a no-edit request; they are not the cost of a
-save. `--edit=literal` changes the string literal `return 'Save';` of the
-requested module to `return 'Sava';` and back before each measured request,
-and sends `server/invalidate` for the file to each server, so that Haxe
-types the module again (`typedAgainModules: ["mr.Button"]`) and Genes reads
-it anew. Both sides make the same edit, so each pair stays equal in work.
-The runner stops when such a request gives no preview.
+Each measured module request repeats a request with no change: Haxe types
+nothing again and every kept bucket of Genes hits. Such numbers compare A
+with B on a no-edit request; they are not the cost of a save. An edit mode
+comes in genes-f8vc.14.40.
 
 Spread of the runner with the same source on both sides (B with an unused
 define, 20 pairs, load 25 to 41), instructions:

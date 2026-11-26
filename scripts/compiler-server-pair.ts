@@ -30,10 +30,9 @@
  * repeat and the spread of each unit: the exit check of genes-f8vc.14.33
  * wants equal counts, words within 0.5% and instructions within 3%.
  *
- * Without `--edit` each measured module request repeats a request with no
- * change, so Haxe types nothing again: the numbers compare A with B on a
- * no-edit request, not the cost of a save. `--edit=literal` edits one
- * string literal of the requested module before each measured request.
+ * Each measured module request repeats a request with no change, so Haxe
+ * types nothing again: the numbers compare A with B on a no-edit request,
+ * not the cost of a save. An edit mode comes in genes-f8vc.14.40.
  *
  * Retired instructions need `node --experimental-ffi` on macOS (the yarn
  * script passes it) and a built `tooling/dist`; otherwise they are printed
@@ -73,18 +72,6 @@ const target = option("module", "mr.Button");
 const warmupPairs = Number(option("warmup-pairs", "1"));
 /** `--measure-off-b`: side B asks for no request measure, to measure the cost of the measure. */
 const measureOffB = process.argv.includes("--measure-off-b");
-/**
- * `--edit=literal`: before each measured module request, change one string
- * literal of the requested module's source to the other of two values of
- * the same length, and send Haxe's `server/invalidate` for the file, so that
- * Haxe types the module again and Genes reads it anew, as after a save.
- * Every sample makes the same kind of edit, so A and B do equal work.
- */
-const edit = option("edit", "");
-if (edit !== "" && edit !== "literal") throw new Error("--edit is literal");
-if (edit !== "" && option("kind", "module") !== "module") throw new Error("--edit needs --kind=module");
-/** The two values of `--edit=literal` in `mr/Button.hx` of the fixture. */
-const EDIT_VALUES = ["return 'Save';", "return 'Sava';"] as const;
 const servers = Number(option("servers", "2"));
 if (!Number.isInteger(warmupPairs) || warmupPairs < 0) throw new Error("--warmup-pairs needs a whole number");
 if (servers !== 1 && servers !== 2) throw new Error("--servers is 1 or 2");
@@ -276,33 +263,7 @@ async function main(): Promise<void> {
     descriptor(s, { kind: "full", moduleRecords: true });
     await send(s, programArgs(s), `${s.name} full request`);
   };
-  // `--edit=literal`: the file of the requested module and the next value.
-  const editedFile = path.join(workspace, "src", ...target.split(".")) + ".hx";
-  let edits = 0;
-  const applyEdit = async (s: Side): Promise<void> => {
-    const text = readFileSync(editedFile, "utf8");
-    const from = EDIT_VALUES[edits % 2]!;
-    const to = EDIT_VALUES[(edits + 1) % 2]!;
-    if (!text.includes(from)) throw new Error(`--edit=literal: ${editedFile} has no ${from}`);
-    writeFileSync(editedFile, text.replace(from, to));
-    edits += 1;
-    // Haxe 4.3.7 compares file times in whole seconds; a session sends
-    // this for each saved file before the next request.
-    const result = await serverOf(s).compile(["--display", JSON.stringify({
-      jsonrpc: "2.0", id: 1, method: "server/invalidate", params: { file: editedFile }
-    })], `${s.name} invalidate`, timeoutMs, workspace);
-    if (result.code !== 0) throw new Error(`server/invalidate failed\n${result.stdout}\n${result.stderr}`);
-    // The other server must forget the old text too.
-    if (serverA !== serverB) {
-      const other = serverOf(s) === serverA ? serverB : serverA;
-      const again = await other.compile(["--display", JSON.stringify({
-        jsonrpc: "2.0", id: 1, method: "server/invalidate", params: { file: editedFile }
-      })], "invalidate other", timeoutMs, workspace);
-      if (again.code !== 0) throw new Error(`server/invalidate failed\n${again.stdout}\n${again.stderr}`);
-    }
-  };
   const measured = async (s: Side): Promise<Sample> => {
-    if (edit === "literal") await applyEdit(s);
     const args = kind === "program" ? programArgs(s) : moduleArgs(s);
     // The rolling replay audit prints other modules in each request; off,
     // so that equal program requests do equal work.
@@ -316,8 +277,6 @@ async function main(): Promise<void> {
     const wallMs = performance.now() - started;
     const after = await read(s);
     const { result, measure } = readMeasure(s, kind);
-    if (edit === "literal" && result !== "preview")
-      throw new Error(`--edit=literal: the ${s.name} module request gave ${result}, not a preview`);
     const instructions = before?.instructions == null || after?.instructions == null
       ? null : after.instructions - before.instructions;
     const cpuMs = before?.cpuNs == null || after?.cpuNs == null
@@ -379,7 +338,6 @@ async function main(): Promise<void> {
       b: sourceB,
       defineB,
       kind,
-      edit,
       module: target,
       servers: serverA === serverB ? 1 : 2,
       warmupPairs,
