@@ -3896,9 +3896,17 @@ function importHolderGroups(): ReadonlyArray<Group> {
  * `module-may-leave` (also with genes-f8vc.14.41, which merges only such
  * holders).
  */
-function explicitModuleDependencyGroup(): Group {
+function explicitModuleDependencyGroup(variant: "plain" | "hand-written-definer" = "plain"): Group {
+  // `probe9-hand-written-definer-metadata` (review of genes-ts #278): the
+  // companion also carries `@:genes.importDefiner('mr.reach.Owner')`, the
+  // metadata of a `genes.ts.Imports` holder. On 28666732 it balanced the
+  // companion's extra entry, so Genes merged its block into `Owner` and the
+  // second row was `STALE mr/reach/Hidden.ts`; only a class of the package
+  // `genes.ts.imports` counts as a holder now, and the row is refused.
+  const forged = variant === "hand-written-definer";
+  const meta = forged ? "meta: [{name: ':genes.importDefiner', params: [macro 'mr.reach.Owner'], pos: pos}],\n      " : "";
   return {
-    name: "probe7-explicit-module-dependency",
+    name: forged ? "probe9-hand-written-definer-metadata" : "probe7-explicit-module-dependency",
     dce: "std",
     files: {
       "mr/Main.hx": mainWith(["trace(mr.reach.Owner.text());", "trace(mr.reach.Definer.text());"]),
@@ -3915,7 +3923,7 @@ function explicitModuleDependencyGroup(): Group {
         + "  #if macro\n  static function define(): Void {\n"
         + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Owner.hx'), min: 0, max: 1});\n"
         + "    Context.defineType({pack: ['mr', 'reach'], name: 'OwnerCompanion', pos: pos, isExtern: true,\n"
-        + "      kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n"
+        + `      ${meta}kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n`
         + "      kind: FVar(macro : mr.reach.Hidden)}]}, 'mr.reach.Owner');\n"
         + "  }\n  #end\n}\n"
     },
@@ -3925,10 +3933,10 @@ function explicitModuleDependencyGroup(): Group {
       // has no companion and no `Hidden` while a cold build has both (a
       // difference of Haxe itself, whatever Genes does). An edit of
       // `Definer` makes both builds run the macro.
-      { id: "probe7: literal edit of Definer, which still makes the companion",
+      { id: `${forged ? "probe9" : "probe7"}: literal edit of Definer, which still makes the companion`,
         apply: () => editSource("mr/reach/Definer.hx", "'definer '", "'definer! '"),
         module: "mr.reach.Definer", expect: "preview" },
-      { id: "probe7: Definer no longer makes the companion (module-may-leave)",
+      { id: `${forged ? "probe9" : "probe7"}: Definer no longer makes the companion (module-may-leave)`,
         apply: () => editSource("mr/reach/Definer.hx", "Gen.companion('on')", "Gen.companion('of')"),
         module: "mr.reach.Definer", expect: "module-may-leave",
         check: reasonNames("mr.reach.Hidden") }
@@ -4007,6 +4015,7 @@ const groups: ReadonlyArray<Group> = [
   ...reviewBuildGroups(),
   ...importHolderGroups(),
   explicitModuleDependencyGroup(),
+  explicitModuleDependencyGroup("hand-written-definer"),
   displacedHolderGroup(),
   ...privateAccessGroups(),
   {

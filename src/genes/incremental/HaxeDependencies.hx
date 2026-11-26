@@ -373,9 +373,16 @@ class HaxeDependencies {
   /**
    * Returns the module whose typing made the `genes.ts.Imports` holder
    * `cls` (`@:genes.importDefiner("app.ui.Card")`), or `null` for any other
-   * class, or a holder whose metadata cannot be read.
+   * class, or a holder whose metadata cannot be read. Only a class of the
+   * package `genes.ts.imports` counts, where `Imports.hx` defines its
+   * holders: the same metadata written on another class (for example a
+   * type that a project macro defines with an explicit `moduleDependency`)
+   * must not balance its extra entry
+   * (`probe9-hand-written-definer-metadata`).
    */
   static function holderDefiner(cls: ClassType): Null<String> {
+    if (cls.pack.join('.') != 'genes.ts.imports')
+      return null;
     final entries = cls.meta.extract(genes.ts.Imports.HOLDER_DEFINER_META);
     if (entries.length != 1)
       return null;
@@ -605,7 +612,9 @@ class HaxeDependencies {
       // module) adds an entry, and then no block counts, whatever the order
       // of the list (`sort_types`). Positions play no part: a holder that
       // Haxe made while it typed another module has that module's file
-      // (`probe8-displaced-holder-and-module-dependency`).
+      // (`probe8-displaced-holder-and-module-dependency`). A holder is
+      // shared by name: a second module that imports the same thing reuses
+      // it, its own file has one entry, and its block counts as before.
       final entryCount = entries.get(file) ?? 0;
       if (entryCount != blocks.length
         || entryCount != 1 + (holdersMadeBy.get(module) ?? 0))

@@ -1115,7 +1115,12 @@ module being typed, or of the module that its `moduleDependency` names).
 `Imports.hx` records the module whose typing made each holder
 (`@:genes.importDefiner`), and Haxe gives the holder that module's file, so
 Genes compares the entry count with one more than the holders that name the
-module; positions play no part. Any other macro-defined type with that file
+module; positions play no part, and only a class of the package
+`genes.ts.imports` counts as a holder (`probe9-hand-written-definer-metadata`
+writes the same metadata on a project macro's type: it does not balance the
+extra entry, and the row is refused). A holder is shared by name: a second
+module that imports the same thing reuses it, its own file has one entry,
+and its block counts as before. Any other macro-defined type with that file
 adds an entry, and then no block counts: a module with such a type in its
 file carries no edge from Haxe's list. Two merges tried in the review of
 #274 (by position, 979f8a64 and 932c1823) each gave a stale preview, and
