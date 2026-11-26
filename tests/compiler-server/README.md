@@ -251,8 +251,9 @@ structure `inc.Env.Envelope` and so writes the signature fact of its field
 (both directions), a macro of another module and an after-typing macro
 (`inc.MetaMacro`, `inc.MarkMacro`) that add `@:ts.returnType` to a field of
 `inc.MetaTarget`, which Haxe does not type again, and a value of the enum
-abstract `inc.Color` that `inc.Env` spells through a fact that
-`inc.ColorFacts` writes (only rule 7, the witness, makes `inc.Env` dirty), private types
+abstract `inc.Color` that the copy in `inc.ColorFacts` spells (`inc.ColorFacts`
+must be dirty; before genes-f8vc.14.31 the generic `inc.Env.Bag` spelled the
+values too, and only rule 7, the witness, made `inc.Env` dirty), private types
 with one name, enum abstract values, new, edited, deleted and renamed
 declarations, type errors, a generation diagnostic, a failure in
 `onGenerate` and one after the commit (`inc.FailMacro` and flag files), a

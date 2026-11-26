@@ -1430,18 +1430,23 @@ const edits: ReadonlyArray<Edit> = [
       "class Leaf2 {\n  public static var marker = 1;\n", "class Leaf2 {")
   },
   {
-    // genes-f8vc.9.22: inc.ColorFacts extends inc.Env.Bag<Array<inc.Color>>.
-    // The printed inc.Env reads inc.Color by name to spell the values, but
-    // the recorded signature-fact answer (`Array<inc.Color>`) stays the
-    // same text. Only rule 7 (the witness inc.Color) makes inc.Env dirty.
+    // genes-f8vc.9.22: inc.ColorFacts extends inc.Env.Bag<Array<inc.Color>>,
+    // so its typedef ColorsBag spells the values of inc.Color
+    // (`items: ("blue" | "red-v3")[]`), and inc.ColorFacts must be printed
+    // again when a value changes. Until genes-f8vc.14.31 that copy's fact
+    // also took the key of the field `items` of the generic inc.Env.Bag, so
+    // the printed inc.Env spelled the values too (`Bag<T> = {items: ("blue"
+    // | "red-v2")[]}`) and had to be dirty here. Since genes-f8vc.14.31 a
+    // copied field has its own facts: inc.Env prints `items: T`, does not
+    // depend on inc.Color, and may stay clean; warm still equals cold.
     id: "an enum abstract value changes; a fact of another module names it",
     apply: () => edit("inc/Color.hx", '"red-v2"', '"red-v3"'),
-    dirtyModules: ["inc.Env"]
+    dirtyModules: ["inc.ColorFacts"]
   },
   {
     id: "that enum abstract value restored",
     apply: () => edit("inc/Color.hx", '"red-v3"', '"red-v2"'),
-    dirtyModules: ["inc.Env"]
+    dirtyModules: ["inc.ColorFacts"]
   },
   {
     // genes-f8vc.9.24, L1 of the round-3 review of #244: the after-typing
