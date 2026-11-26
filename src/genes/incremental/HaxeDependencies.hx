@@ -68,7 +68,10 @@ import genes.util.PathUtil;
  *
  * - `F` is the file of exactly one module `X` of the program, `F` ends with
  *   that module's path, `X` is not in Haxe's standard library (see
- *   `collect`), and `F` is an entry of the program's list exactly once;
+ *   `collect`), and `F` is an entry of the program's list exactly once, or
+ *   once more than the `genes.ts.Imports` holders that `X`'s typing made
+ *   (each holder has `X`'s file; the line then names `X` or one of its
+ *   holders, and a holder exists only after Haxe typed `X`);
  *   when the file of `A` is an entry more than once, its blocks count
  *   together for `A` only when every other entry is a `genes.ts.Imports`
  *   holder that `A`'s typing made, as each holder records
@@ -136,9 +139,12 @@ import genes.util.PathUtil;
  * the `genes.ts.Imports` holders that its own typing made (a
  * `Context.defineType` of a project macro or a library, also one with an
  * explicit `moduleDependency` that names the module) carries no edge from
- * Haxe's list, so a module that only it reaches makes previews refuse. A
- * holder made by an older Genes without the definer metadata counts as such
- * a type until Haxe types its module again. A session `dump-path` folder that two Haxe processes share at the
+ * Haxe's list, and is the target of no edge from it, so a module that only
+ * such a line reaches makes previews refuse. A module whose only extra
+ * entries are its own holders keeps its edges in both directions
+ * (`probe9i-importer-reached-through-inline-constant`). A holder made by an
+ * older Genes without the definer metadata counts as such a type until
+ * Haxe types its module again. A session `dump-path` folder that two Haxe processes share at the
  * same time can give one of them the other's lists (the development session
  * runs one server for its folder). On Windows, `scan` reads Haxe's text-mode
  * lists (`\r\n`, `\`), but a file whose full path Haxe spells otherwise
@@ -378,9 +384,10 @@ class HaxeDependencies {
    * holders: the same metadata written on another class (for example a
    * type that a project macro defines with an explicit `moduleDependency`)
    * must not balance its extra entry
-   * (`probe9-hand-written-definer-metadata`).
+   * (`probe9-hand-written-definer-metadata`). `ModuleRequest.holderOf`
+   * reads it too, for the holder rule of module requests.
    */
-  static function holderDefiner(cls: ClassType): Null<String> {
+  public static function holderDefiner(cls: ClassType): Null<String> {
     if (cls.pack.join('.') != genes.ts.Imports.HOLDER_PACKAGE)
       return null;
     final entries = cls.meta.extract(genes.ts.Imports.HOLDER_DEFINER_META);
@@ -669,8 +676,20 @@ class HaxeDependencies {
       final macros = [];
       for (line => count in counts) {
         final dependency = byFile.get(line);
-        if (dependency == null || dependency == module
-          || (entries.get(line) ?? 0) != 1)
+        if (dependency == null || dependency == module)
+          continue;
+        // The line's file is the file of `dependency` and of each holder
+        // that `dependency`'s typing made, and of nothing else, when its
+        // entries are one more than those holders (the same count as for
+        // the blocks above, genes-f8vc.14.43). Then the line names
+        // `dependency` or one of its holders, and either one means that
+        // Haxe loaded `dependency`: a holder exists only after Haxe typed
+        // its definer, and Haxe loads the definer with the holder
+        // (`add_dependency` in `define_type`). Example: `mr.reach.Second`
+        // reads only the inline constant `a.reach.First.WORD`, and `First`
+        // calls `Imports` (`probe9i-importer-reached-through-inline-constant`).
+        final listed = entries.get(line) ?? 0;
+        if (listed != 1 && listed != 1 + (holdersMadeBy.get(dependency) ?? 0))
           continue;
         if (macroFunctions.get(dependency) == true) {
           macros.push(dependency);

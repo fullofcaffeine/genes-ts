@@ -1141,7 +1141,9 @@ the name of a holder includes the module whose typing made it
 (genes-f8vc.14.43, see the shared-holder rows below). A module that inlines
 a function of another module that calls `genes.ts.Imports` loads that
 module's holder; its own file has one entry, and its block counts as
-before. Any other macro-defined type with that file
+before. The same count decides whether a line of another module that names
+the file counts: the file may be an entry once, or once more than the
+holders of its module (`probe9i-importer-reached-through-inline-constant`). Any other macro-defined type with that file
 adds an entry, and then no block counts: a module with such a type in its
 file carries no edge from Haxe's list. Two merges tried in the review of
 #274 (by position, 979f8a64 and 932c1823) each gave a stale preview, and
@@ -1182,32 +1184,40 @@ a51bf6b6 counted no block of such a file. The rows:
   companion) more than `Owner` and its holders.
 
 The shared-holder rows (genes-f8vc.14.43 and genes-f8vc.14.44, Fable in the
-review of #278). Before, a holder was shared by name: when two modules
-imported the same thing, Haxe made one holder at the call site of the
-module that it typed first, and the import line of each importer's source
-map named that position. A warm request does not always type the modules
-in the order of a cold build, so the maps could differ from cold. Now the
-holder's name includes the module whose typing makes it
-(`Imports.ensureExternImportType`), so each importer makes its own holder
-at its own call site, and an edit of one module cannot move the holder of
-another. A holder has no output file, but it is a module of the stored
-records, and a preview advances only the records of its own module. So
-`modulesThatMayLeave` also returns the stored holders that no module that
-stays loads: a module request whose module no longer makes one of its
-holders is refused (`module-may-leave`), because a full build no longer has
-that holder. `mr.Main` names `a.reach.First` before `mr.reach.Second`, so a
-cold build types `First` first:
+reviews of #278 and of fa51ca57). A holder is the hidden extern class that
+`genes.ts.Imports` defines for one import; its metadata makes Genes print
+the import line. Each holder now comes from two facts only: the import and
+the module whose typing makes it (the definer,
+`Imports.ensureExternImportType`):
+
+- its name is a digest of both, so each importer makes its own holder, and
+  an edit of one module cannot change the holder of another;
+- its position, which the import line of the source map names, is the
+  start of the definer's file, not a call site. Haxe types a function body
+  when something first uses it, so with a call-site position the order in
+  which Haxe typed the calls of one module decided the map.
+
+A holder has no output file, but it is a module of the stored records, and
+a preview advances only the records of its own module. So the full request
+stores the definer and the import of each holder, and a module request
+whose module no longer makes one of its stored holders is refused
+(`module-may-leave`, under every `-dce` profile); the reason names the
+module and the import, for example `the import of join from "node:path"`.
+A holder leaves only when its definer stops making it or leaves, so the
+check needs no walk over typed bodies. `mr.Main` names `a.reach.First`
+before `mr.reach.Second`, so a cold build types `First` first:
 
 - `probe9b-holder-maker-drops-import`: `First` and `Second` both call
   `namedImport('node:path', 'join')`. When `First` replaces the call with a
   local function, b39e32c9 published a preview while cold also changed
-  `mr/reach/Second.ts.map` (the holder moved to `Second`); now the row is
-  `module-may-leave`, and the reason names `First`'s holder. When `First`
-  calls `namedImport` again, the warm full request on b39e32c9 reused the
-  holder that `Second` made and differed from cold in
-  `a/reach/First.ts.map` and `mr/reach/Second.ts.map`; now the module
-  request is `other-modules-typed` (Haxe makes a holder that the stored
-  records do not hold), and the full request equals cold;
+  `mr/reach/Second.ts.map` (the shared holder moved to `Second`); now the
+  row is `module-may-leave`. When `First` calls `namedImport` again, the
+  warm full request on b39e32c9 reused the holder that `Second` made and
+  differed from cold in `a/reach/First.ts.map` and
+  `mr/reach/Second.ts.map`; now the module request is
+  `other-modules-typed` (Haxe makes a holder that the stored records do not
+  hold; the reason names its import and its definer), and the full request
+  equals cold;
 - `probe9c-earlier-module-adds-shared-import`: `First` starts with the local
   function, and `Second` makes the holder. When `First` adds the call, the
   warm full request on b39e32c9 differed from cold in the same two maps
@@ -1217,23 +1227,63 @@ cold build types `First` first:
   imports `resolve`, so no holder is shared. When `First` drops its call,
   b39e32c9 published a preview whose records still held `First`'s holder,
   which the full request after it no longer had; now the row is
-  `module-may-leave`. When a module is the only one that calls
-  `genes.ts.Imports`, the same edit was already `module-may-leave` before,
-  because `genes.ts.Imports` itself may leave;
+  `module-may-leave`;
 - `probe9e-inline-holder-of-another-module`: `Second` inlines
   `First.join()`, which calls `namedImport`, so `Second` loads `First`'s
-  holder. An inline call is the usual way that a module loads another
-  module's holder (a `@:generic` function that calls `namedImport`, or code
-  that names a holder class by hand, is not checked). When the inline
-  function drops the call, the request is refused before the holder rule,
-  because an inline body is part of the public shape
-  (`public-shape-changed`, also on b39e32c9).
+  holder. Inline code is the usual way that a module loads another
+  module's holder (also a `@:generic` function, whose typed body Haxe
+  copies; code that names a holder class by hand is not checked). When the
+  inline function drops the call, the request is refused before the holder
+  rule, because an inline body is part of the public shape
+  (`public-shape-changed`, also on b39e32c9);
+- `probe9f-holder-position-full`, `probe9f-holder-position-preview` and
+  `probe9f-holder-position-inline`: `First` calls `namedImport` for `join`
+  in `one()` and in `two()`, and `mr.Main` calls only `two()`. On fa51ca57,
+  where a holder was positioned at the first call that Haxe typed, each row
+  was red: after `Main` calls `one()` instead, the warm full request kept
+  the holder at `two()` and differed from cold in `a/reach/First.ts.map`;
+  a literal edit of `First` gave a preview whose `a/reach/First.ts.map`
+  differed from cold (the module request typed `one()` first); and with
+  `Second` inlining a `First` function, a moved call in `two()` gave the
+  same stale map. Now all three equal cold;
+- `probe9g-holder-in-dead-code` (`-dce std`): `First` calls `namedImport`
+  inside `if (SERVER)`, where `SERVER` is an inline `false`. Haxe removes
+  that code before Genes reads the bodies, but the macro ran, so the holder
+  exists. On fa51ca57, a literal edit of `Second` was `module-may-leave`,
+  because no kept body named the holder; now it previews, and so does a
+  literal edit of `First`;
+- `probe9h-dead-function-drops-import-full` (`-dce full`): a private
+  function that nothing calls drops its `namedImport` call. On b39e32c9 and
+  fa51ca57 the preview was accepted with records that still held the
+  holder (and `genes.ts.Imports`), which the full request after it no
+  longer had. Now it is `module-may-leave`;
+- `probe9i-importer-reached-through-inline-constant` (`-dce std`):
+  `Second` reads only the inline constant `First.WORD`, and `First` calls
+  `namedImport`. On b39e32c9 and fa51ca57 a literal edit of `mr.Button` was
+  `module-may-leave`, because `First`'s file was an entry of Haxe's list
+  more than once (`First` and its holder), so the line of `Second` that
+  names it did not count. Now the line counts when the extra entries are
+  `First`'s own holders, and the row previews;
+- `probe9j-two-holders-of-one-import`: `First` calls `namedImport` for
+  `join` and inlines `Second.join()`, which does the same, so `First` holds
+  two holders of one import. The preview and the full request print one
+  import line (`Dependencies.pushAndGet` keeps the first holder in plan
+  order). `yarn test` checks the same case in classic output at run time
+  (`tests/TestImportHelper.hx`, `testTwoHoldersOfOneImport`);
+- `probe9k-previews-in-a-row-with-a-holder` (`-dce std`): a preview of
+  `First`, then a module request of `Second`, which loads `First`, with no
+  full request between them. The second request is `other-modules-typed`
+  (also on b39e32c9): Genes makes the next request type each module that a
+  module request typed (`retypeLater`), so Haxe makes `First`'s holder
+  again with it, and a holder with a newer stamp than the stored one never
+  meets an unchanged definer.
 
-Limit (no row shows it): within one module, the holder is positioned at the
-first call that Haxe types. If two fields of one module make the same
-import, and another module makes Haxe type the second field first (through
-a field without an explicit type), a warm request possibly types the fields
-in a different order than a cold build.
+Limit (no row in the gate): a hand-written module that has no output file,
+such as an extern class with `@:jsRequire` alone in its file, is not a
+candidate of `modulesThatMayLeave`. Under `-dce std`, when the requested
+module drops its only use of such a module, the preview is accepted with
+records that still hold it (red on b39e32c9 and on fa51ca57; the holder
+rule of genes-f8vc.14.44 does not cover it).
 
 `yarn test` checks the reader of Haxe's list, also its Windows form
 (`tests/haxedependencies/HaxeDependenciesProbe.hx`).
@@ -1609,9 +1659,10 @@ macro makes by name
 to a module outside the request's program; an after-save callback that
 another after-save callback registers while the save phase runs, when it is
 registered after the callback of Genes; and a file that a macro reads in a
-module outside the request, other than `import.hx` and resources. No group
-covers a redefined extern module (a `genes.ts.imports` holder); the shadow
-gate covers its fingerprint for full requests.
+module outside the request, other than `import.hx` and resources. A
+redefined extern module (a `genes.ts.imports` holder that the requested
+module makes again) is covered by the shared-holder rows (`probe9b` to
+`probe9k`), and the shadow gate covers its fingerprint for full requests.
 
 `--keep-control` also roots one module request with `--macro keep(<module>)`
 instead and prints whether the next full request differs from cold (it does:

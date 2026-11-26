@@ -4007,6 +4007,22 @@ function displacedHolderGroup(): Group {
 }
 
 /**
+ * Returns a check that a refusal names what a developer can find in the
+ * source: the definer `a.reach.First` and the import of `join` from
+ * `node:path` (S4 of the review of genes-f8vc.14.43). With `hidesHolder`,
+ * the reason must not name a holder's hashed class (`Import_<hash>`) at
+ * all; `other-modules-typed` names it in parentheses after the import.
+ */
+function namesJoinImport(hidesHolder: boolean): (report: ModuleReport, label: string) => void {
+  return (report, label) => {
+    for (const text of ["a.reach.First", "join", "node:path"])
+      reasonNames(text)(report, label);
+    ok(!hidesHolder || !String(report.reason).includes("Import_"),
+      `${label}: the reason must not name a holder's hashed class: ${String(report.reason)}`);
+  };
+}
+
+/**
  * Modules that import the same thing with `genes.ts.Imports`
  * (genes-f8vc.14.43 and genes-f8vc.14.44, found by Fable in the review of
  * genes-ts #278). `mr.Main` names `a.reach.First` before
@@ -4019,7 +4035,8 @@ function displacedHolderGroup(): Group {
  * holder, and a warm request does not always make it in the same module as
  * a cold build. Now the name of a holder includes the module whose typing
  * makes it (`Imports.ensureExternImportType`), so each importer makes its
- * own holder at its own call site. A holder has no output file, but it is a
+ * own holder, positioned at the start of its own file (`holderReviewGroups`
+ * shows why not at a call site). A holder has no output file, but it is a
  * module of the stored records, so a module request that no longer makes
  * one of its holders is refused (`module-may-leave`, genes-f8vc.14.44): a
  * preview advances only the records of its own module, and they would keep
@@ -4047,8 +4064,9 @@ function displacedHolderGroup(): Group {
  *   `First.join()`, so `Second` loads the holder that `First` makes. When
  *   that inline function drops the import, the request is refused before
  *   the holder rule, because an inline body is part of the public shape
- *   (`public-shape-changed`, also on b39e32c9). This is the only way for a
- *   module to load another module's holder.
+ *   (`public-shape-changed`, also on b39e32c9). Inline code is the usual
+ *   way for a module to load another module's holder (also a `@:generic`
+ *   function, whose typed body Haxe copies).
  * - `probe9c-earlier-module-adds-shared-import`: `First` starts without the
  *   import, and `Second` makes the holder. When `First` adds the import,
  *   the warm full request reused the holder that `Second` made, while a
@@ -4064,7 +4082,7 @@ function sharedHolderGroups(): ReadonlyArray<Group> {
     + `    final join: (String, String) -> String = ${join};\n`
     + `    return '${word} ' + join('a', 'b');\n  }\n}\n`;
   const main = mainWith(["trace(a.reach.First.text());", "trace(mr.reach.Second.text());"]);
-  const namesHolder = reasonNames("genes.ts.imports.Import_");
+
   return [
     {
       name: "probe9b-holder-maker-drops-import",
@@ -4077,10 +4095,10 @@ function sharedHolderGroups(): ReadonlyArray<Group> {
       steps: [
         { id: "probe9b: First, which made the shared holder, drops the import (module-may-leave)",
           apply: () => editSource("a/reach/First.hx", importJoin, localJoin),
-          module: "a.reach.First", expect: "module-may-leave", check: namesHolder },
+          module: "a.reach.First", expect: "module-may-leave", check: namesJoinImport(true) },
         { id: "probe9b: First imports join again while Second holds it (other-modules-typed)",
           apply: () => editSource("a/reach/First.hx", localJoin, importJoin),
-          module: "a.reach.First", expect: "other-modules-typed", check: namesHolder }
+          module: "a.reach.First", expect: "other-modules-typed", check: namesJoinImport(false) }
       ]
     },
     {
@@ -4095,7 +4113,7 @@ function sharedHolderGroups(): ReadonlyArray<Group> {
       steps: [
         { id: "probe9d: First drops its import while Second imports another export (module-may-leave)",
           apply: () => editSource("a/reach/First.hx", importJoin, localJoin),
-          module: "a.reach.First", expect: "module-may-leave", check: namesHolder }
+          module: "a.reach.First", expect: "module-may-leave", check: namesJoinImport(true) }
       ]
     },
     {
@@ -4132,6 +4150,203 @@ function sharedHolderGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/**
+ * The rows of the second review of genes-f8vc.14.43 and genes-f8vc.14.44
+ * (Fable on fa51ca57). Each one names the commit where it was red.
+ *
+ * - `probe9f-holder-position-full`, `-preview` and `-inline`: `First` calls
+ *   `namedImport('node:path', 'join')` in `one()` and in `two()`, and
+ *   `Main` calls only `two()`. On fa51ca57 a holder was positioned at the
+ *   first call that Haxe typed in its module. Haxe types a function body at
+ *   its first use, so that call depends on the rest of the program: after
+ *   `Main` calls `one()` instead, the warm full request kept the holder at
+ *   `two()` ("the full request after the step differs from the cold
+ *   build", `a/reach/First.ts.map`); a literal edit of `First` gave a
+ *   preview whose module request typed `one()` first ("a/reach/First.ts.map
+ *   of the preview differs from the cold build"); the same with `Second`
+ *   inlining `First.first()` and a moved call in `two()`. Now a holder is
+ *   positioned at the start of its definer's file.
+ * - `probe9g-holder-in-dead-code` (`-dce std`): `First` calls `namedImport`
+ *   under `if (SERVER)`, an inline `false`. The macro ran, so the holder
+ *   exists, but Haxe removes the code before Genes reads the bodies. On
+ *   fa51ca57 a literal edit of `Second` was `module-may-leave` (no kept
+ *   body named the holder). Now the holder rule reads the definer that the
+ *   full request stored, and both literal edits preview.
+ * - `probe9h-dead-function-drops-import-full` (`-dce full`): a private
+ *   function that nothing calls drops its call. On b39e32c9 and fa51ca57
+ *   the preview was accepted, and its records still held the holder ("the
+ *   records after the preview differ from the records after the full
+ *   request"). Now it is `module-may-leave` under every `-dce` profile, and
+ *   the reason names the module and the import.
+ * - `probe9i-importer-reached-through-inline-constant` (`-dce std`):
+ *   `Second` reads only the inline constant `First.WORD`, and `First` calls
+ *   `namedImport`. On b39e32c9 and fa51ca57 a literal edit of `mr.Button`
+ *   was `module-may-leave`: `First`'s file is an entry of Haxe's list for
+ *   `First` and for its holder, so the line of `Second` did not count. Now
+ *   it counts when the extra entries are `First`'s own holders.
+ * - `probe9j-two-holders-of-one-import`: `First` holds its own holder of
+ *   `join` and the one of `Second.join()`, which it inlines. The preview
+ *   and the full request print one import line (`Dependencies.pushAndGet`).
+ *   Green on fa51ca57; it covers a path that no row ran before.
+ * - `probe9k-previews-in-a-row-with-a-holder` (`-dce std`): a preview of
+ *   `First`, then a module request of `Second` with no full request
+ *   between them. The review predicted `other-modules-changed` for the
+ *   holder, whose stored stamp the preview does not advance. The answer is
+ *   `other-modules-typed` for `First` (also on b39e32c9): Genes makes the
+ *   next request type each module that a module request typed
+ *   (`retypeLater`), so Haxe makes the holder again with its definer.
+ */
+function holderReviewGroups(): ReadonlyArray<Group> {
+  const importJoin = "genes.ts.Imports.namedImport('node:path', 'join')";
+  const localJoin = "(a: String, b: String) -> a + '/' + b";
+  /** A static function `name` whose body imports `join` with its own call. */
+  const joinFunction = (head: string, name: string, word: string): string =>
+    `  ${head} function ${name}(): String {\n`
+    + `    final join: (String, String) -> String = ${importJoin};\n`
+    + `    return '${word} ' + join('a', 'b');\n  }\n`;
+  const firstWith = (body: string): string => `package a.reach;\n\nclass First {\n${body}}\n`;
+  const twoCalls = firstWith(joinFunction("public static", "one", "one") + "\n"
+    + joinFunction("public static", "two", "two"));
+  /** The import lines of `node:path` in one published TypeScript file. */
+  const pathImports = (file: string): ReadonlyArray<string> =>
+    readFileSync(file, "utf8").split("\n")
+      .filter((line) => line.startsWith("import") && line.includes("\"node:path\""));
+  return [
+    {
+      name: "probe9f-holder-position-full",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.two());"]),
+        "a/reach/First.hx": twoCalls
+      },
+      steps: [
+        { id: "probe9f: Main calls one() instead of two() (full request)",
+          apply: () => editSource("mr/Main.hx", "a.reach.First.two()", "a.reach.First.one()") }
+      ]
+    },
+    {
+      name: "probe9f-holder-position-preview",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.two());"]),
+        "a/reach/First.hx": twoCalls
+      },
+      steps: [
+        { id: "probe9f: a literal edit of First, whose module request types one() first (preview)",
+          apply: () => editSource("a/reach/First.hx", "'two '", "'twO '"),
+          module: "a.reach.First", expect: "preview" }
+      ]
+    },
+    {
+      name: "probe9f-holder-position-inline",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.two());", "trace(mr.reach.Second.text());"]),
+        "a/reach/First.hx": firstWith(joinFunction("public static inline", "first", "one") + "\n"
+          + "  public static function two(): String {\n"
+          + `    final joinTwo: (String, String) -> String = ${importJoin};\n`
+          + "    return 'two ' + joinTwo('a', 'b');\n  }\n"),
+        "mr/reach/Second.hx": reachUser("Second", "second", "a.reach.First.first()")
+      },
+      steps: [
+        { id: "probe9f: the call in two() moves; Second inlines first() (preview)",
+          apply: () => editSource("a/reach/First.hx", "joinTwo: (String, String) -> String = ",
+            "joinTwo: (String, String) -> String = /* moved */ "),
+          module: "a.reach.First", expect: "preview" }
+      ]
+    },
+    {
+      name: "probe9g-holder-in-dead-code",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.text());", "trace(mr.reach.Second.text());"]),
+        "a/reach/First.hx": firstWith("  static inline final SERVER = false;\n\n"
+          + "  public static function text(): String {\n    if (SERVER) {\n"
+          + `      final join: (String, String) -> String = ${importJoin};\n`
+          + "      return join('a', 'b');\n    }\n    return 'first';\n  }\n"),
+        "mr/reach/Second.hx": reachUser("Second", "second", "'b'")
+      },
+      steps: [
+        { id: "probe9g: a literal edit of Second while First imports in dead code (preview)",
+          apply: () => editSource("mr/reach/Second.hx", "'second '", "'secand '"),
+          module: "mr.reach.Second", expect: "preview" },
+        { id: "probe9g: a literal edit of First, which still makes its holder (preview)",
+          apply: () => editSource("a/reach/First.hx", "'first'", "'firzt'"),
+          module: "a.reach.First", expect: "preview" }
+      ]
+    },
+    {
+      name: "probe9h-dead-function-drops-import-full",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.text());"]),
+        "a/reach/First.hx": firstWith("  public static function text(): String {\n"
+          + "    return 'first';\n  }\n\n" + joinFunction("static", "unused", "unused"))
+      },
+      steps: [
+        { id: "probe9h: a function that nothing calls drops its import under -dce full (module-may-leave)",
+          apply: () => editSource("a/reach/First.hx", importJoin, localJoin),
+          module: "a.reach.First", expect: "module-may-leave", check: namesJoinImport(true) }
+      ]
+    },
+    {
+      name: "probe9i-importer-reached-through-inline-constant",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.reach.Second.text());"]),
+        "a/reach/First.hx": firstWith("  public static inline final WORD = 'word';\n\n"
+          + joinFunction("public static", "text", "first")),
+        "mr/reach/Second.hx": reachUser("Second", "second", "a.reach.First.WORD")
+      },
+      steps: [
+        { id: "probe9i: a literal edit of Button while Second reaches First only through an inline constant (preview)",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      name: "probe9j-two-holders-of-one-import",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.text());", "trace(mr.reach.Second.text());"]),
+        "a/reach/First.hx": firstWith("  public static function text(): String {\n"
+          + `    final join: (String, String) -> String = ${importJoin};\n`
+          + "    return 'first ' + join('a', 'b') + mr.reach.Second.join()('c', 'd');\n  }\n"),
+        "mr/reach/Second.hx": "package mr.reach;\n\nclass Second {\n"
+          + "  public static inline function join(): (String, String) -> String {\n"
+          + `    return ${importJoin};\n  }\n\n`
+          + "  public static function text(): String {\n    return 'second ' + join()('a', 'b');\n  }\n}\n"
+      },
+      steps: [
+        { id: "probe9j: a literal edit of First, which holds its own holder and Second's (preview)",
+          apply: () => editSource("a/reach/First.hx", "'first '", "'firzt '"),
+          module: "a.reach.First", expect: "preview",
+          check: (_report, label) => {
+            for (const tree of ["preview", "program"]) {
+              const lines = pathImports(path.join(folder(tree), "a/reach/First.ts"));
+              strictEqual(lines.length, 1,
+                `${label}: ${tree} a/reach/First.ts must import node:path once: ${lines.join(" | ")}`);
+              ok(lines[0] !== undefined && !lines[0].includes(","),
+                `${label}: ${tree} a/reach/First.ts must import join once: ${lines.join(" | ")}`);
+            }
+          } }
+      ]
+    },
+    {
+      name: "probe9k-previews-in-a-row-with-a-holder",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.reach.Second.text());"]),
+        "a/reach/First.hx": firstWith(joinFunction("public static", "text", "first")),
+        "mr/reach/Second.hx": reachUser("Second", "second", "a.reach.First.text()")
+      },
+      steps: [
+        { id: "probe9k: a literal edit of First, which makes its holder again (preview)",
+          apply: () => editSource("a/reach/First.hx", "'first '", "'firzt '"),
+          module: "a.reach.First", expect: "preview", skipProgram: true },
+        { id: "probe9k: then a literal edit of Second, which loads First and its holder (other-modules-typed)",
+          apply: () => editSource("mr/reach/Second.hx", "'second '", "'secand '"),
+          module: "mr.reach.Second", expect: "other-modules-typed" }
+      ]
+    }
+  ];
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
@@ -4144,6 +4359,7 @@ const groups: ReadonlyArray<Group> = [
   explicitModuleDependencyGroup("hand-written-definer"),
   displacedHolderGroup(),
   ...sharedHolderGroups(),
+  ...holderReviewGroups(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.

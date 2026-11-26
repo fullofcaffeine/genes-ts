@@ -501,12 +501,12 @@ two files after it reads them and leaves the folders. See
 
 `genes.ts.Imports` makes a hidden extern class (a holder) for each import,
 and each module makes its own holders. The import line in a module's source
-map names that module's own call, so it does not depend on which module
-Haxe typed first; before, two modules that imported the same thing shared
-one holder, and a warm request could give other source maps than a cold
-build. A holder has no output file, but a preview is refused
-(`module-may-leave`) when its module no longer makes one of its holders,
-because a full build no longer has that holder.
+map names line 1 of the file of the module that made the holder, so it does
+not depend on the order in which Haxe types modules or functions. A holder
+has no output file, but under every `-dce` mode a preview is refused
+(`module-may-leave`) when its module no longer calls `genes.ts.Imports` for
+one of its imports, because a full build no longer has that holder. The
+reason names the module and the import.
 
 Genes reads the Haxe arguments with the Haxe 4.3.7 option table
 (`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as

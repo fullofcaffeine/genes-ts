@@ -28,7 +28,8 @@ using haxe.macro.TypeTools;
 class Imports {
   /**
    * The metadata on each holder class that names the module whose typing
-   * made it (`importImpl`). `genes.incremental.HaxeDependencies` reads it.
+   * made it (`ensureExternImportType`). `genes.incremental.HaxeDependencies`
+   * and `genes.incremental.ModuleRequest` read it.
    */
   public static inline final HOLDER_DEFINER_META = ':genes.importDefiner';
 
@@ -450,22 +451,31 @@ class Imports {
    * Haxe is typing, and defines it on first use.
    *
    * A holder is an extern class in `HOLDER_PACKAGE` whose metadata
-   * (`@:jsRequire`, `@:genes.importAlias`) makes Genes print the import. Its
-   * position is the module argument of the first call that Haxe types in
-   * that module, and the import line of the module's source map names that
-   * position.
+   * (`@:jsRequire`, `@:genes.importAlias`) makes Genes print the import.
+   * Everything about a holder comes from two facts only: the import and the
+   * module whose typing makes it (the definer). Its name is a digest of
+   * both. Its position, which the import line of the source map names, is
+   * the start of the definer's file (line 1, column 1), not the call site.
    *
-   * Why the name includes the module (genes-f8vc.14.43): when two modules
-   * share one holder, Haxe makes it at the call site of whichever module it
-   * types first, and both source maps name that position. A warm compilation
-   * server does not always type the modules in the order of a cold build:
-   * if `a.reach.First` adds an import that `mr.reach.Second` already holds,
-   * the warm request reuses `Second`'s holder while a cold build makes it in
-   * `First`. So every module makes its own holder, positioned in its own
-   * file, and no edit of one module can move the holder of another. Two
-   * holders with the same import in one module share one import line
-   * (`Dependencies.pushAndGet`), for example a module's own holder and one
-   * that an inline call of another module brings in.
+   * Why the name includes the definer (genes-f8vc.14.43): when two modules
+   * share one holder, Haxe makes it while it types whichever module comes
+   * first, and a warm compilation server does not always type the modules
+   * in the order of a cold build. So every module makes its own holder, and
+   * no edit of one module can change the holder of another.
+   *
+   * Why the position is fixed (genes-f8vc.14.43, review round 2): one
+   * module can call `Imports` for the same import in two functions. Haxe
+   * types a function body when something first uses it, so which call Haxe
+   * types first depends on the rest of the program. A call-site position
+   * would then change with an edit of another module (`Main` calls `one()`
+   * instead of `two()`), and a warm server would keep the old one
+   * (`probe9f-holder-position-full` and the other `probe9f` rows).
+   *
+   * Two holders with the same import in one module share one import line
+   * (`Dependencies.pushAndGet` keeps the first in plan order), for example
+   * a module's own holder and one that an inline call of another module
+   * brings in. That line names the start of the first holder's definer
+   * file.
    */
   private static function ensureExternImportType(spec: ImportTypeSpec): TypePath {
     // The module that Haxe is typing, which makes this holder. Haxe gives
@@ -500,6 +510,7 @@ class Imports {
     } catch (_:Dynamic) {
       // Define it below.
     }
+    final pos = holderPosition(spec.pos);
 
     final meta: Metadata = [];
     // Drive Genes' import generation.
@@ -508,26 +519,26 @@ class Imports {
         meta.push({
           name: ':jsRequire',
           params: [macro $v{spec.module}, macro $v{'default'}],
-          pos: spec.pos
+          pos: pos
         });
       case Namespace:
         meta.push({
           name: ':jsRequire',
           params: [macro $v{spec.module}],
-          pos: spec.pos
+          pos: pos
         });
       case Named:
         meta.push({
           name: ':jsRequire',
           params: [macro $v{spec.module}, macro $v{spec.exportName}],
-          pos: spec.pos
+          pos: pos
         });
     }
 
     meta.push({
       name: ':genes.importAlias',
       params: [macro $v{spec.importAlias}],
-      pos: spec.pos
+      pos: pos
     });
 
     // Record the module that makes this holder, so
@@ -537,14 +548,14 @@ class Imports {
     meta.push({
       name: HOLDER_DEFINER_META,
       params: [macro $v{definer}],
-      pos: spec.pos
+      pos: pos
     });
 
     if (spec.native != null) {
       meta.push({
         name: ':native',
         params: [macro $v{spec.native}],
-        pos: spec.pos
+        pos: pos
       });
     }
 
@@ -552,14 +563,14 @@ class Imports {
       meta.push({
         name: ':genes.importAttributeType',
         params: [macro $v{spec.importAttributeType}],
-        pos: spec.pos
+        pos: pos
       });
     }
 
     final def: TypeDefinition = {
       pack: pack,
       name: name,
-      pos: spec.pos,
+      pos: pos,
       meta: meta,
       isExtern: true,
       kind: TDClass(null, [], false, false, false),
@@ -568,6 +579,26 @@ class Imports {
 
     Context.defineType(def);
     return {pack: pack, name: name, params: []};
+  }
+
+  /**
+   * Returns the position of a new holder: the start of the file of the class
+   * that Haxe is typing, so of the definer's file. Example: a call in
+   * `src/app/ui/Card.hx` gives `src/app/ui/Card.hx` at offset 0.
+   *
+   * Why not the call site: see `ensureExternImportType`. Why the local class
+   * and not `callPos`: a macro that returns an `Imports` call can give the
+   * call a position in the macro's own file, so two calls of one module
+   * could name two files. The local class belongs to the definer, and its
+   * position does not depend on which call Haxe types first. Without a
+   * local class (an init macro, whose definer is empty), the file of
+   * `callPos` is used.
+   */
+  static function holderPosition(callPos: Position): Position {
+    final local = Context.getLocalClass();
+    final file = Context.getPosInfos(local == null ? callPos : local.get().pos)
+      .file;
+    return Context.makePosition({file: file, min: 0, max: 0});
   }
   #end
 }

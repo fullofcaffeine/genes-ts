@@ -21,6 +21,18 @@ using Lambda;
 using haxe.macro.TypeTools;
 
 /**
+ * One `genes.ts.Imports` holder of a request (genes-f8vc.14.44): the module
+ * whose typing made it (`definer`, from `@:genes.importDefiner`) and its
+ * import in words (`label`), for example `the import of join from
+ * "node:path"`. `ModuleRequest` refuses a preview whose module no longer
+ * makes one of its stored holders, and names the import in the reason.
+ */
+typedef ImportHolder = {
+  final definer: String;
+  final label: String;
+}
+
+/**
  * The facts of one module that a module request compares with the last full
  * request. A full request with `"moduleRecords": true` keeps one record for
  * each module that it emitted. Plain text only: no `Type`, `Ref` or
@@ -1071,6 +1083,15 @@ class ModuleRequest {
   @:persistent static var storedEpochs: Map<String, String> = new Map();
 
   /**
+   * The `genes.ts.Imports` holders of the stored full request, by holder
+   * module: the module whose typing made each one and a readable name of its
+   * import (`requestHolders`, genes-f8vc.14.44). A preview never changes
+   * them: it is accepted only when its module makes exactly its stored
+   * holders (`decide`).
+   */
+  @:persistent static var storedHolders: Map<String, ImportHolder> = new Map();
+
+  /**
    * `targetFactsOf` of every module that the stored full request saw, read
    * in `afterSave`: after every after-typing macro, before dead-code
    * elimination.
@@ -1101,6 +1122,14 @@ class ModuleRequest {
 
   /** `targetFactsOf` of each module of this request, read in `afterSave`. */
   static var requestFacts: Map<String, String> = new Map();
+
+  /**
+   * The `genes.ts.Imports` holders that Haxe made or loaded in this request,
+   * read in `afterSave`, before dead-code elimination (`holderOf`). A
+   * holder in code that Haxe removes, such as `if (false) { ... }`, is
+   * here too: Haxe ran the macro while it typed the code.
+   */
+  static var requestHolders: Map<String, ImportHolder> = new Map();
 
   /**
    * `declarationFactsOf` of each module of this request, read in
@@ -1324,6 +1353,7 @@ class ModuleRequest {
     rootSeconds = 0.0;
     requestShape = null;
     requestFacts = new Map();
+    requestHolders = new Map();
     requestDeclarationFacts = new Map();
     requestProfiles = new Map();
     requestMacroModules = [];
@@ -2627,6 +2657,11 @@ class ModuleRequest {
       for (module => list in grouped) {
         requestFacts.set(module, targetFactsOf(list));
         requestDeclarationFacts.set(module, declarationFactsOf(list));
+        for (type in list) {
+          final holder = holderOf(type);
+          if (holder != null)
+            requestHolders.set(module, holder);
+        }
       }
       factsSeconds += haxe.Timer.stamp() - factsStart;
     }
@@ -3355,6 +3390,7 @@ class ModuleRequest {
     for (module in GenerationChangeSet.observedModules())
       seen.set(module, GenerationChangeSet.epochs(module));
     storedEpochs = seen;
+    storedHolders = requestHolders.copy();
     final facts = new Map<String, String>();
     for (module in seen.keys()) {
       final known = requestFacts.get(module);
@@ -3957,6 +3993,7 @@ class ModuleRequest {
     storedOutputFolder = '';
     records = new Map();
     storedEpochs = new Map();
+    storedHolders = new Map();
     storedTargetFacts = new Map();
     externalUses = new Map();
     storedFiles = new Map();
@@ -4191,7 +4228,9 @@ class ModuleRequest {
     }
     if (others.length > 0)
       return refuse('other-modules-typed',
-        'Haxe typed other modules again: ' + others.slice(0, 5).join(', '));
+        'Haxe typed other modules again: ' + others.slice(0, 5)
+        .map(readableModule)
+        .join(', '));
     // Every other module of this request must be the one of the stored
     // records: not typed in this request, and not in an earlier module
     // request either (its stamp would then be newer), unless a published
@@ -4279,6 +4318,21 @@ class ModuleRequest {
       return refuse('public-shape-changed',
         'the public shape of $module ' +
         'changed: ${firstDifference(storedShape, currentShape)}$accessNote');
+    // A `genes.ts.Imports` holder that this module made in the stored full
+    // request and did not make now leaves the program of a full build, while
+    // a preview would keep its records (genes-f8vc.14.44). A holder leaves
+    // only when its definer stops making it or leaves, and every module
+    // that this request loads stays, so only the requested module's own
+    // holders can leave here; one in code that Haxe removes still counts as
+    // made (`probe9g-holder-in-dead-code`). This holds under every `-dce`
+    // profile (`probe9h-dead-function-drops-import-full`).
+    final dropped = droppedHolders(module);
+    if (dropped.length > 0)
+      return refuse('module-may-leave',
+        '$module no longer calls genes.ts.Imports for '
+        + dropped.slice(0, 5).join(', ')
+        + ', so a full build drops the hidden extern class of that import, '
+        + 'which the stored records hold');
     // Under `-dce std` Haxe keeps every class of each module that it loads,
     // so the set of loaded modules is part of the output: also an edit that
     // only removes an unused import can drop a module's file
@@ -4295,7 +4349,7 @@ class ModuleRequest {
         return refuse('module-may-leave',
           'no module that stays in the program is known to load ' +
           leaving.slice(0, 5)
-          .join(', ') + ', so a full build may drop it');
+          .join(', ') + ', so a full build may drop its file');
     }
     // The strict rule: the module uses exactly what it used in the stored
     // full request (see the class comment). Its signature (every field,
@@ -4754,10 +4808,84 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the stored modules with an output file, and the stored
-   * `genes.ts.Imports` holders, that a full build after the edit may no
-   * longer load, sorted: those that no chain of `DceStdUses.dependenciesOf`
-   * reaches from a module that surely stays.
+   * Returns the readable imports of the stored `genes.ts.Imports` holders
+   * that `module` made in the stored full request and that are not modules
+   * of this request, sorted. Example: `["the import of join from
+   * \"node:path\""]` when `a.reach.First` replaced its only
+   * `Imports.namedImport('node:path', 'join')` call with a local function.
+   *
+   * Why the stored definer and not a reach walk: a holder that no kept body
+   * names (its call is in code that Haxe removed) is still made, and a walk
+   * over typed bodies would call it leaving for every module request.
+   */
+  static function droppedHolders(module: String): Array<String> {
+    final observed = new Map<String, Bool>();
+    for (name in GenerationChangeSet.observedModules())
+      observed.set(name, true);
+    final names = [for (name in storedHolders.keys()) name];
+    names.sort(compareStrings);
+    final dropped = [];
+    for (name in names) {
+      final holder = storedHolders.get(name);
+      if (holder != null && holder.definer == module && !observed.exists(name))
+        dropped.push(holder.label);
+    }
+    return dropped;
+  }
+
+  /**
+   * Returns `name` for a refusal reason, with the import and the definer in
+   * front when it is a `genes.ts.Imports` holder of this request, whose
+   * hashed class name a developer cannot find in the source. Example:
+   * `the holder of the import of join from "node:path" that a.reach.First
+   * made (genes.ts.imports.Import_ef880a1a94dc)`.
+   */
+  static function readableModule(name: String): String {
+    final holder = requestHolders.get(name);
+    return holder == null ? name : 'the holder of ${holder.label} that '
+      + '${holder.definer} made ($name)';
+  }
+
+  /**
+   * Returns the definer and a readable import of a `genes.ts.Imports`
+   * holder class, or `null` for any other type. The definer comes from
+   * `@:genes.importDefiner` (`HaxeDependencies.holderDefiner`). The import
+   * comes from `@:jsRequire`: `the import of join from "node:path"`,
+   * `the default import of "./Button.tsx"`, or `the namespace import of
+   * "node:path"`. A developer finds it in the definer's source, unlike the
+   * holder's hashed class name.
+   */
+  static function holderOf(type: Type): Null<ImportHolder> {
+    final cls = switch type {
+      case TInst(reference, _): reference.get();
+      default: return null;
+    }
+    final definer = HaxeDependencies.holderDefiner(cls);
+    if (definer == null)
+      return null;
+    final strings = [
+      for (entry in cls.meta.extract(':jsRequire'))
+        for (param in entry.params ?? [])
+          switch param.expr {
+            case EConst(CString(text, _)):
+              text;
+            default:
+              '?';
+          }
+    ];
+    final label = switch strings {
+      case [request]: 'the namespace import of "$request"';
+      case [request, 'default']: 'the default import of "$request"';
+      case [request, name]: 'the import of $name from "$request"';
+      default: 'an import (${cls.name})';
+    }
+    return {definer: definer, label: label};
+  }
+
+  /**
+   * Returns the stored modules with an output file that a full build after
+   * the edit may no longer load, sorted: those that no chain of
+   * `DceStdUses.dependenciesOf` reaches from a module that surely stays.
    *
    * What surely stays: every module of this request (its program is a part
    * of the full program), the module of the stored `--main` class, and the
@@ -4779,17 +4907,9 @@ class ModuleRequest {
    * `mr.OnlyHere`: it is returned, because a full build drops
    * `mr/OnlyHere.ts`.
    *
-   * Why holders count (genes-f8vc.14.44): a holder has no output file, but
-   * it is a module of the stored records, and a preview advances only the
-   * records of the requested module (`previewCommitted`). When `a.Card`
-   * replaces its only `Imports.namedImport('node:path', 'join')` call with
-   * a local function, a full build no longer has `a.Card`'s holder, while
-   * the advanced records would keep it. Each module makes its own holders
-   * (`Imports.ensureExternImportType`), so the holder that `a.Card` no
-   * longer makes is reached by no chain, and the edit is refused. Another
-   * module usually loads `a.Card`'s holder only through an inline function
-   * of `a.Card`, and a change of an inline body is refused before this
-   * check (`public-shape-changed`, `probe9e-inline-holder-of-another-module`).
+   * A `genes.ts.Imports` holder has no output file and is not a candidate
+   * here: whether it leaves follows from the module that made it
+   * (`droppedHolders`, under every `-dce` profile).
    */
   static function modulesThatMayLeave(module: String,
       newDependencies: Array<String>, rootModule: String): Array<String> {
@@ -4816,14 +4936,8 @@ class ModuleRequest {
         for (edge in edges)
           visit(edge);
     }
-    final holderPrefix = genes.ts.Imports.HOLDER_PACKAGE + '.';
-    final candidates = GenerationCache.storedModules().concat([
-      for (name in storedEpochs.keys())
-        if (StringTools.startsWith(name, holderPrefix)) name
-    ]);
-    candidates.sort(compareStrings);
     return [
-      for (name in candidates)
+      for (name in GenerationCache.storedModules())
         if (name != rootModule && !reached.exists(name)) name
     ];
   }
@@ -5547,6 +5661,13 @@ class ModuleRequest {
     for (name in sortedKeys([for (key in storedReachers.keys()) key => true]))
       buffer.add('index reachers $name ${sortedCopy(storedReachers.get(name) ?? []).join(' ')}\n');
     buffer.add('index haxe-printer ${storedHaxePrinter ? 1 : 0}\n');
+    final holders = [for (name in storedHolders.keys()) name];
+    holders.sort(compareStrings);
+    for (name in holders) {
+      final holder = storedHolders.get(name);
+      if (holder != null)
+        buffer.add('index holder $name ${holder.definer} ${holder.label}\n');
+    }
     return buffer.toString();
   }
 

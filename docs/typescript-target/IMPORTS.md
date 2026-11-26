@@ -431,12 +431,12 @@ owns resolution.
 - For dotted exports (e.g. `"Dropdown.Menu"`), prefer using the helper from a
   local scope (it handles local aliasing correctly).
 - Each Haxe module gets its own hidden extern for each import: the name of
-  the extern includes the module that calls the helper. So when two modules
-  import the same export, the source map of each module points its import
-  line at the module's own first call. Before, the two
-  modules shared one extern, positioned at the call of the module that Haxe
-  typed first, so a warm compilation server could write other source maps
-  than a cold build.
+  the extern includes the module that calls the helper. In the source map,
+  the import line points at line 1 of that module's file, not at a call.
+  So the map does not depend on the order in which Haxe types modules or
+  functions, and a warm compilation server writes the same maps as a cold
+  build. When a module holds the same import twice (its own call and an
+  inline function of another module), Genes prints one import line.
 
 ---
 
