@@ -1099,6 +1099,19 @@ only typedefs could not be built: Genes prints such a module only for a
 signature that names the typedef, and removing that name is refused before
 the `module-may-leave` check (`public-shape-changed`).
 
+The review of #272 round 3 (genes-f8vc.14.35) hardened the rule without
+new gate rows, because neither case can be built so that it gives a
+different result here. A line listed once no longer counts for a module
+without a class or enum in the program: such a module (typedefs and a
+macro-only class) gets a file only through a signature that names the
+typedef, and removing that name is refused first (`public-shape-changed`).
+A block whose own file is an entry more than once is skipped: Haxe sorts the
+list by module path, so a module that `registerModuleDependency` made
+(`$DEP`) comes before a module in a package, and after one only in the root
+package, where its empty block took the real module's lines away (more
+refusals, never a stale file). `yarn test` checks the reader of Haxe's
+list, also its Windows form (`tests/haxedependencies/HaxeDependenciesProbe.hx`).
+
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
 literal arguments); every other macro that adds modules must stay in it.

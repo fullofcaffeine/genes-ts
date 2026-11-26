@@ -69,19 +69,24 @@ import genes.util.PathUtil;
  * - `F` is the file of exactly one module `X` of the program, `F` ends with
  *   that module's path, `X` is not in Haxe's standard library (see
  *   `collect`), and `F` is an entry of the program's list exactly once;
+ *   the file of `A` must be an entry exactly once too, so a block of a
+ *   module that `registerModuleDependency` or a macro made with that file
+ *   is never taken for `A`'s, whatever the order of the list;
  * - and either `X` has a macro function and `F` is listed at least twice
  *   for `A` (a macro module and `X` itself: a macro call also resolves the
- *   class of `X` in the program), or `X` has no macro function and `F` was
- *   not a module of Haxe's macro context when Haxe typed `A` (the macro
- *   fact below).
+ *   class of `X` in the program), or `X` has no macro function, has a
+ *   class or enum in the program, and `F` was not a module of Haxe's macro
+ *   context when Haxe typed `A` (the macro fact below).
  *
  * The macro fact. Haxe loads each macro module of `A` while it types `A`,
  * and adds its types to the macro interpreter (`flush_macro_context`),
  * which keeps them while it lives. So for a module that Haxe typed in this
  * request, `F` is a macro module when `F` is an entry of this request's
  * macro list, or when a class or enum of `X` is known to the interpreter
- * (`Type.resolveClass`; a module whose program part has only typedefs is
- * found only by the list). When the macro list cannot be read, the fact is
+ * (`Type.resolveClass`). The interpreter cannot see a module whose program
+ * part has no class or enum (only typedefs, with a macro-only class), so a
+ * line listed once never counts for such a module; an inline call or an
+ * inline constant always has a class behind it. When the macro list cannot be read, the fact is
  * unknown. Genes keeps the fact of each module by the digest of its epochs
  * (`GenerationChangeSet.epochs`), also in a file beside the descriptor that
  * outlives a new macro state of Genes, because a later request reuses the
@@ -126,7 +131,10 @@ import genes.util.PathUtil;
  *
  * Limits: a session `dump-path` folder that two Haxe processes share at the
  * same time can give one of them the other's lists (the development session
- * runs one server for its folder). Haxe also writes `dependants.dump` for
+ * runs one server for its folder). On Windows, `scan` reads Haxe's text-mode
+ * lists (`\r\n`, `\`), but a file whose full path Haxe spells otherwise
+ * than `fullPath` (for example the drive letter's case) gives no edge; this
+ * was checked only with `HaxeDependenciesProbe`, not on Windows. Haxe also writes `dependants.dump` for
  * both contexts, which Genes does not read; Haxe 4.3.7 has no define that
  * leaves it out. A hand-run request without a session `dump-path` reads the
  * shared `dump/macro` list of the working folder, which can hold another
@@ -135,6 +143,9 @@ import genes.util.PathUtil;
 class HaxeDependencies {
   /** The start of the environment variables of this class (`prepare`). */
   static inline final VARIABLE_PREFIX = 'GENES_HAXE_DEPENDENCIES_';
+
+  /** True on Windows, where Haxe writes the lists with `\r\n` and `\` (`scan`). */
+  static final WINDOWS = Sys.systemName() == 'Windows';
 
   /** Folders and files of other processes beside the descriptor that are older than this are deleted (`removeStale`). */
   static inline final STALE_SECONDS = 3600.0;
@@ -165,6 +176,15 @@ class HaxeDependencies {
 
   /** Time spent reading and parsing Haxe's lists in this request, in seconds. */
   public static var seconds(default, null) = 0.0;
+
+  /**
+   * The modules of this request that Haxe typed again and whose macro fact
+   * is unknown only because the process ran in another macro state before
+   * (the limit of the class comment): their lines listed once do not count.
+   * Both reports give it (`newMacroStateModules`), so a measurement shows
+   * whether that limit happens.
+   */
+  public static var newMacroStateModules(default, null) = 0;
 
   /** A name for this macro state of Genes, made on first use (`prepare`). */
   @:persistent static var macroState: Null<String> = null;
@@ -219,6 +239,7 @@ class HaxeDependencies {
   public static function prepare(descriptorPath: String, wanted: Bool): Void {
     read = null;
     seconds = 0.0;
+    newMacroStateModules = 0;
     files = new Map();
     macroFunctions = new Map();
     typeNames = new Map();
@@ -396,26 +417,41 @@ class HaxeDependencies {
    * line `<file>:`), and, when `wanted` is not `null`, the lines of the
    * entries whose file is in `wanted`. It allocates one string per entry
    * line and per kept line, and none for the other lines.
+   *
+   * `windows`: Haxe writes the list in text mode, so on Windows each line
+   * ends with `\r\n` and a path uses `\`. The `\r` is dropped on every
+   * system, and on Windows each `\` becomes `/`, the separator of
+   * `fullPath`. Example: `C:\app\src\mr\A.hx:\r\n` gives the entry
+   * `C:/app/src/mr/A.hx`. A file that still differs from `fullPath` (for
+   * example a drive letter in another case) gives no edge, which can only
+   * refuse a preview. `HaxeDependenciesProbe` checks both forms.
    */
-  static function scan(text: String, wanted: Null<Map<String, Bool>>): {
+  public static function scan(text: String, wanted: Null<Map<String, Bool>>,
+      windows: Bool): {
     entries: Map<String, Int>,
     blocks: Array<{file: String, lines: Array<String>}>
   } {
+    function clean(path: String): String {
+      return windows
+        && path.indexOf('\\') >= 0 ? path.split('\\').join('/') : path;
+    }
     final entries = new Map<String, Int>();
     final blocks = [];
     var lines: Null<Array<String>> = null;
     var at = 0;
     final length = text.length;
     while (at < length) {
-      var end = text.indexOf('\n', at);
-      if (end < 0)
-        end = length;
+      final next = text.indexOf('\n', at);
+      final stop = next < 0 ? length : next;
+      var end = stop;
+      if (end > at && StringTools.fastCodeAt(text, end - 1) == '\r'.code)
+        end--;
       if (end > at) {
         if (StringTools.fastCodeAt(text, at) == '\t'.code) {
           if (lines != null)
-            lines.push(text.substring(at + 1, end));
+            lines.push(clean(text.substring(at + 1, end)));
         } else if (StringTools.fastCodeAt(text, end - 1) == ':'.code) {
-          final file = text.substring(at, end - 1);
+          final file = clean(text.substring(at, end - 1));
           entries.set(file, (entries.get(file) ?? 0) + 1);
           lines = null;
           if (wanted == null || wanted.exists(file)) {
@@ -427,7 +463,7 @@ class HaxeDependencies {
           lines = null;
         }
       }
-      at = end + 1;
+      at = stop + 1;
     }
     return {entries: entries, blocks: blocks};
   }
@@ -463,8 +499,8 @@ class HaxeDependencies {
     // The files that were modules of Haxe's macro context in this request,
     // or `null` when the macro list cannot be read (then no fact of this
     // request is known).
-    final macroKeys = macroList == null ? null : scan(macroList,
-      new Map()).entries;
+    final macroKeys = macroList == null ? null : scan(macroList, new Map(),
+      WINDOWS).entries;
     final loadedInMacro = new Map<String, Bool>();
     function macroModule(keys: Map<String, Int>, file: String): Bool {
       if (keys.exists(file))
@@ -495,11 +531,15 @@ class HaxeDependencies {
       if (file != null && byFile.get(file) == only)
         wanted.set(file, true);
     }
-    final scanned = scan(main, wanted);
+    final scanned = scan(main, wanted, WINDOWS);
     final entries = scanned.entries;
     for (block in scanned.blocks) {
+      // A file that is an entry more than once also names a module that
+      // `registerModuleDependency` or a macro-defined type made with it, so
+      // a block of that file can be the other module's: skip them all,
+      // rather than rely on the order of Haxe's list (`sort_types`).
       final module = byFile.get(block.file);
-      if (module == null)
+      if (module == null || (entries.get(block.file) ?? 0) != 1)
         continue;
       final counts = new Map<String, Int>();
       for (line in block.lines)
@@ -523,9 +563,13 @@ class HaxeDependencies {
             facts.set(module, {epochs: epochs, files: found});
             factsChanged = true;
           }
-        } else if (facts != null && facts.exists(module)) {
-          facts.remove(module);
-          factsChanged = true;
+        } else {
+          if (macroKeys != null && !sameMacroState)
+            newMacroStateModules++;
+          if (facts != null && facts.exists(module)) {
+            facts.remove(module);
+            factsChanged = true;
+          }
         }
       } else if (facts != null) {
         final kept = facts.get(module);
@@ -543,7 +587,12 @@ class HaxeDependencies {
           macros.push(dependency);
           if (count >= 2)
             found.push(dependency);
-        } else if (suspects != null && !suspects.exists(line)) {
+        } else if (suspects != null && !suspects.exists(line)
+          && (typeNames.get(dependency) ?? []).length > 0) {
+          // A module without a class or enum in the program is never
+          // counted on a line listed once: the interpreter test cannot see
+          // its macro-only classes, and an inline call or an inline constant
+          // always has a class behind it.
           found.push(dependency);
         }
       }

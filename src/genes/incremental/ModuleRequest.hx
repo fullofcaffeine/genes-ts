@@ -250,6 +250,15 @@ typedef ModuleRequestReport = {
   final dependencyListMs: Float;
 
   /**
+   * The modules that Haxe typed again in this request and whose lines
+   * listed once in Haxe's list did not count, only because the Haxe process
+   * ran in another macro state of Genes before
+   * (`HaxeDependencies.newMacroStateModules`). Above 0, previews can be
+   * refused with `module-may-leave` until the server restarts.
+   */
+  final newMacroStateModules: Int;
+
+  /**
    * Time spent reading, hashing and reading the status of source files in
    * this request.
    */
@@ -380,6 +389,15 @@ typedef ModuleRecordsReport = {
    * (`HaxeDependencies.edges`) in this request.
    */
   final dependencyListMs: Float;
+
+  /**
+   * The modules that Haxe typed again in this request and whose lines
+   * listed once in Haxe's list did not count, only because the Haxe process
+   * ran in another macro state of Genes before
+   * (`HaxeDependencies.newMacroStateModules`). Above 0, previews can be
+   * refused with `module-may-leave` until the server restarts.
+   */
+  final newMacroStateModules: Int;
 
   /**
    * The modules whose records an accepted preview advanced since the full
@@ -5305,6 +5323,7 @@ class ModuleRequest {
       rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds),
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
       dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
+      newMacroStateModules: HaxeDependencies.newMacroStateModules,
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       hashedSources: hashed,
       trustedSources: trustedSources,
@@ -5332,6 +5351,7 @@ class ModuleRequest {
       factsMs: GenerationChangeSet.milliseconds(factsSeconds),
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
       dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
+      newMacroStateModules: HaxeDependencies.newMacroStateModules,
       advanced: advanced,
       advancedCheck: advancedCheck
     };
