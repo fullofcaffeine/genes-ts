@@ -261,6 +261,7 @@ private class NamePlanBuilder {
           visit(fallback, allocationScope(scope.reserved), preferences,
             moduleContext);
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(child -> visit(child, scope, preferences,
           moduleContext));
     }
@@ -375,6 +376,7 @@ private class NamePlanBuilder {
           scope.reserved.set(valueName, true);
       default:
     }
+    genes.incremental.RequestMeasure.plannerNode();
     expression.iter(child -> reserveDirectBindings(child, scope));
   }
 
@@ -633,6 +635,7 @@ private class NamePlanBuilder {
           (uses.exists(local.id) ? uses.get(local.id) : 0) + 1);
       default:
     }
+    genes.incremental.RequestMeasure.plannerNode();
     expression.iter(child -> countLocalUses(child, uses));
   }
 

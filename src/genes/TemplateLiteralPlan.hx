@@ -140,6 +140,7 @@ class TemplateLiteralPlan {
       if (expression == null)
         return;
       visit(expression);
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(walk);
     }
     for (member in module.members) {

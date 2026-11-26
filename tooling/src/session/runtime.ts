@@ -1066,6 +1066,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       Object.freeze({
         idleCollection: idleCollection !== false,
         ...(idleDelay === undefined ? {} : { idleCollectionDelayMs: idleDelay }),
+        ...(options.processCounters === true ? { processCounters: true } : {}),
       }),
     );
     this.#firstAcceptedPromise = new Promise((resolve, reject) => {
@@ -2410,6 +2411,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#recordRequestTimes(recordedFiles);
       }
       this.#keepUnwrittenSources(sourceReads);
+      if (compiler.process !== undefined) {
+        this.#emit({
+          kind: "request-measured",
+          revision: cause.revision,
+          request: "program",
+          module: null,
+          process: compiler.process,
+        });
+      }
       if (this.#closing !== null || abort.signal.aborted) return;
       // The rolling replay audit runs inside the Genes request; what it
       // printed and found is in the generation report beside the descriptor.
@@ -2871,6 +2881,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#recordRequestTimes(recordedFiles);
       }
       if (outcome.kind !== "compiled") this.#restoreInvalidations(changedFiles);
+      if (outcome.kind === "compiled" && outcome.process !== undefined) {
+        this.#emit({
+          kind: "request-measured",
+          revision,
+          request: "module",
+          module,
+          process: outcome.process,
+        });
+      }
       if (this.#closing !== null || signal.aborted) return "superseded";
       // A late preview: a newer change arrived while the module request
       // ran, so these files may show older text than the editor has. Show

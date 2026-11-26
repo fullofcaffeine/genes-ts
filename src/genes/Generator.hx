@@ -21,6 +21,7 @@ import genes.DependencyPlan.DependencyImportSpec;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.incremental.IncrementalShadow;
 import genes.incremental.ModuleRequest;
+import genes.incremental.RequestMeasure;
 import sys.FileSystem;
 
 using Lambda;
@@ -131,6 +132,7 @@ class Generator {
   }
 
   static function generate(api: JSGenApi) {
+    RequestMeasure.mark('genes.generate');
     validateOutputOverrideTiming();
     #if genes_generation_floor
     try {
@@ -915,7 +917,9 @@ class Generator {
     IncrementalShadow.committed();
     // With `"moduleRecords": true`, keep the facts that a later module
     // request checks (G3); otherwise this returns at once.
+    final endRecordsTimer = timer('genes.records.store');
     ModuleRequest.programCommitted(api.types, api.main, outputFile);
+    endRecordsTimer();
   }
 
   /**
@@ -945,8 +949,10 @@ class Generator {
       output: String, outputTransaction: OutputTransaction,
       target: String): Void {
     final started = haxe.Timer.stamp();
+    final endRootsTimer = timer('genes.module.roots');
     // The roots of dead-code elimination must not reach any printer.
     ModuleRequest.removeRoots();
+    endRootsTimer();
     // The program of this request is only a part of the full program: answer
     // feature questions as a full build would (`featureAnswer`). Every other
     // function is Haxe's own.
@@ -999,8 +1005,10 @@ class Generator {
         case v: v;
       }
     final own = toGenerate.get(target);
+    final endReferencesTimer = timer('genes.module.references');
     final declarations = ModuleRequest.typesOf(api.types, target);
     final references = ModuleRequest.referencesOf(target, declarations);
+    endReferencesTimer();
     var module: Null<Module> = null;
     var exposed = false;
     var emits = false;
@@ -1168,6 +1176,7 @@ class Generator {
     }
 
     final checkStart = haxe.Timer.stamp();
+    final endCheckTimer = timer('genes.module.check');
     final facts: genes.incremental.ModuleRequest.ModuleRequestFacts = {
       module: target,
       rootModule: output,
@@ -1191,6 +1200,7 @@ class Generator {
       runtimeRequests: module == null ? [] : module.internalRuntimeRequests()
     };
     final refusal = ModuleRequest.decide(facts);
+    endCheckTimer();
     final checkSeconds = haxe.Timer.stamp() - checkStart;
     final files = IncrementalShadow.recordedModule(target).files;
     final kept = ModuleRequest.keptLines(declarations).length;
@@ -1215,10 +1225,12 @@ class Generator {
     // genes-f8vc.14.8: the preview is published, so its module's records
     // advance to what a full request stores for these sources. The entry is
     // made while the shadow still holds what this request recorded.
+    final endRecordsTimer = timer('genes.records.advance');
     final entry = IncrementalShadow.previewEntry(target, api.types,
       facts.members, facts.rootFlags);
     IncrementalShadow.committed();
     ModuleRequest.previewCommitted(facts, entry);
+    endRecordsTimer();
     ModuleRequest.writeReport(target, 'preview', null, files, kept,
       haxe.Timer.stamp() - started, checkSeconds);
   }
@@ -1371,6 +1383,7 @@ class Generator {
   static function typesPerModule(types: Array<Type>) {
     final modules = new Map<String, Array<Type>>();
     for (type in types) {
+      RequestMeasure.generateDeclaration();
       switch type {
         case TInst(_.get() => {
           module: module,
@@ -1485,6 +1498,13 @@ class Generator {
         // later lookups change generated code (see `refreshCompilerTypes`).
         // Neither module nor anything that they import reads
         // `genes.generator.active`, so defining it first changes no text.
+        // The request measure starts first (only with a request
+        // descriptor), with the hook boundaries of `measureHooks`.
+        RequestMeasure.begin(genes.incremental.IncrementalRequest.requestedDescriptor() != null);
+        if (RequestMeasure.active) {
+          Context.onAfterTyping(_ -> RequestMeasure.mark('genes.after-typing'));
+          Context.onGenerate(_ -> RequestMeasure.mark('genes.on-generate'));
+        }
         ModuleRequest.begin();
         TypeUtil.refreshCompilerTypes();
       }
@@ -1518,6 +1538,7 @@ class Generator {
           return;
         final pos = Context.currentPos();
         for (type in types) {
+          RequestMeasure.generateDeclaration();
           switch type {
             case TInst(_.get() => cls, _)
               if (typeScriptProfile && hasRuntimeTypeInfo(cls)):
@@ -1537,8 +1558,39 @@ class Generator {
       });
       Context.onAfterGenerate(removeCompilerSentinel);
       Compiler.setCustomJSGenerator(Generator.generate);
+      if (!alreadyInstalled)
+        measureHooks();
     }
     #end
+  }
+
+  /**
+   * Registers the last hook boundaries of the request measure
+   * (`RequestMeasure`), after every other Genes hook of `use()`; without a
+   * request descriptor it registers nothing.
+   *
+   * Why: the phases of the measure must add up to the request, so that a
+   * report shows which part of its CPU time no phase names. Haxe runs the
+   * callbacks of one hook in the order of registration. The phases then
+   * follow Haxe's order: `genes.init` (this init macro), `haxe.typing`,
+   * `genes.after-typing` (the after-typing callbacks), `haxe.filters`,
+   * `genes.on-generate` (the callbacks before and after Haxe saves the class
+   * state, `ModuleRequest.afterSave` included), `haxe.dce` (dead-code
+   * elimination and the filters after it) and `genes.generate`. A
+   * callback of another macro that runs inside one of those spans counts
+   * in it.
+   */
+  static function measureHooks(): Void {
+    if (!RequestMeasure.active)
+      return;
+    RequestMeasure.mark('haxe.typing');
+    Context.onAfterTyping(_ -> RequestMeasure.mark('haxe.filters'));
+    // As `ModuleRequest.install`: a callback registered from inside a first
+    // after-save callback runs after the ones registered before, so this
+    // runs after `ModuleRequest.afterSave`.
+    Context.onGenerate(_ -> Context.onGenerate(_ ->
+      RequestMeasure.mark('haxe.dce'), false),
+      false);
   }
   #end
 

@@ -68,6 +68,7 @@ class JsonTypeSupport {
           visitType(fn.t);
         default:
       }
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(visitExpr);
     }
 

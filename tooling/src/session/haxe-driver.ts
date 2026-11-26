@@ -19,6 +19,12 @@ import {
 import { COMPILER_DATA_DEFINE } from "./compiler-data.js";
 import { launchHaxe } from "./haxe-launch.js";
 import {
+  processCounterDelta,
+  readProcessCounters,
+  type ProcessCounterDelta,
+  type ProcessCounters,
+} from "./process-counters.js";
+import {
   HAXE_SERVER_COLLECTION_PERIOD,
   HaxeStdioChannel,
   HaxeStdioTransportError,
@@ -29,6 +35,12 @@ const LOG_LIMIT = 128_000;
 
 export interface CompilerResult {
   readonly mode: "connected" | "direct";
+  /**
+   * What the request cost the owned server process, read before and after
+   * it; only with `HaxeSessionCompilerOptions.processCounters` and a
+   * `connected` request.
+   */
+  readonly process?: ProcessCounterDelta;
 }
 
 /** Private inputs that vary per request without changing wait-server ownership. */
@@ -53,7 +65,11 @@ export interface PreparedCompilerRequest {
  *   request that follows starts or replaces the server as usual.
  */
 export type ModuleCompileOutcome =
-  | { readonly kind: "compiled" }
+  | {
+      readonly kind: "compiled";
+      /** As `CompilerResult.process`. */
+      readonly process?: ProcessCounterDelta;
+    }
   | { readonly kind: "failed"; readonly message: string }
   | {
       readonly kind: "unavailable";
@@ -203,6 +219,12 @@ export interface HaxeSessionCompilerOptions {
   readonly idleCollectionDelayMs?: number;
   /** Passed to the channel; see `HaxeStdioChannelOptions`. */
   readonly frameStallMs?: number;
+  /**
+   * True reads the counters of the server process before and after each
+   * compile request on it (`readProcessCounters`) and returns the
+   * difference as `process`. Default false.
+   */
+  readonly processCounters?: boolean;
 }
 
 /**
@@ -644,6 +666,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
   readonly #idleCollection: boolean;
   readonly #idleCollectionDelayMs: number;
   readonly #frameStallMs: number | undefined;
+  readonly #processCounters: boolean;
   readonly #onEvent: (event: HaxeWaitServerEvent) => void;
   #request: ActiveRequest | null = null;
   /** True while `compileModule` runs; the idle requests then wait. */
@@ -666,6 +689,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
     this.#idleCollectionDelayMs =
       options.idleCollectionDelayMs ?? HAXE_SERVER_IDLE_COLLECTION_DELAY_MS;
     this.#frameStallMs = options.frameStallMs;
+    this.#processCounters = options.processCounters ?? false;
     this.#server = new OwnedHaxeWaitServer<CompilerResult>({
       projectRoot: layout.projectRoot,
       leasePath: layout.serverLeaseRelative,
@@ -821,7 +845,9 @@ export class HaxeSessionCompiler implements SessionCompiler {
         }
       }
       let body: Buffer;
+      let before: ProcessCounters | null = null;
       try {
+        before = await this.#readCounters(server);
         body = await server.channel.request(
           [`--cwd ${server.cwd}`, ...commandArgs(invocation, prepared)],
           signal,
@@ -848,7 +874,10 @@ export class HaxeSessionCompiler implements SessionCompiler {
           ).message,
         });
       }
-      return Object.freeze({ kind: "compiled" });
+      const measured = await this.#counterDelta(server, before);
+      return Object.freeze(
+        measured === null ? { kind: "compiled" } : { kind: "compiled", process: measured },
+      );
     } finally {
       this.#moduleRequestActive = false;
       this.#scheduleIdleCollection();
@@ -1057,6 +1086,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
     if (request.signal.aborted) {
       throw new Error("Haxe compilation was cancelled");
     }
+    const before = await this.#readCounters(server);
     const body = await server.channel.request(
       [
         `--cwd ${server.cwd}`,
@@ -1064,6 +1094,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
       ],
       request.signal,
     );
+    const measured = await this.#counterDelta(server, before);
     const answer = decodeHaxeServerAnswer(body.toString("utf8"));
     if (answer.failed) {
       throw new HaxeCommandError(
@@ -1076,7 +1107,33 @@ export class HaxeSessionCompiler implements SessionCompiler {
         request.invocation.candidateRoot,
       );
     }
-    return Object.freeze({ mode: "connected" });
+    return Object.freeze(
+      measured === null ? { mode: "connected" } : { mode: "connected", process: measured },
+    );
+  }
+
+  /**
+   * Reads the counters of the server process when `processCounters` is on,
+   * else returns null at once.
+   */
+  async #readCounters(server: StdioServer): Promise<ProcessCounters | null> {
+    const pid = server.child.pid;
+    if (!this.#processCounters || pid === undefined) return null;
+    return await readProcessCounters(pid);
+  }
+
+  /**
+   * Returns what the server process spent since `before`
+   * (`processCounterDelta`), or null when `before` is null or the second
+   * read fails.
+   */
+  async #counterDelta(
+    server: StdioServer,
+    before: ProcessCounters | null,
+  ): Promise<ProcessCounterDelta | null> {
+    if (before === null) return null;
+    const after = await this.#readCounters(server);
+    return after === null ? null : processCounterDelta(before, after);
   }
 
   async #compileDirect(): Promise<CompilerResult> {

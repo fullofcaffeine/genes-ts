@@ -672,6 +672,7 @@ private final class TsNarrowingPlanBuilder {
             inventorySourceExpression(argument.value);
         inventorySourceExpression(func.expr);
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(inventorySourceExpression);
     }
   }
@@ -1010,6 +1011,7 @@ private final class TsNarrowingPlanBuilder {
       state: TsNarrowingState): TsNarrowFlow {
     var normal: Null<TsNarrowingState> = state;
     var effects: Array<TsNarrowInvalidation> = [];
+    genes.incremental.RequestMeasure.plannerNode();
     expression.iter(child -> {
       final childState = normal == null ? new TsNarrowingState() : normal;
       final flow = analyze(child, childState);
@@ -1286,6 +1288,7 @@ private final class TsNarrowingPlanBuilder {
           TThrow(_) | TCast(_, _) | TMeta(_, _) | TEnumParameter(_, _, _) |
           TEnumIndex(_) | TIdent(_):
       }
+      genes.incremental.RequestMeasure.plannerNode();
       current.iter(visit);
     }
     visit(expression);

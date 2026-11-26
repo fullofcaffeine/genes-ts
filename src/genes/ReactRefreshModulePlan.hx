@@ -440,6 +440,7 @@ private class ModuleCodeGraph {
           followInstance(owner.get().name);
         default:
       }
+      genes.incremental.RequestMeasure.plannerNode();
       current.iter(visit);
     }
     while (queue.length > 0 && !found)
@@ -462,6 +463,7 @@ private class ModuleCodeGraph {
           return;
         default:
       }
+      genes.incremental.RequestMeasure.plannerNode();
       current.iter(visit);
     }
     for (expression in expressions)

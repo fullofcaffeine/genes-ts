@@ -502,6 +502,7 @@ private final class TsIndexedAccessPlanBuilder {
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
         visit(inner, resultUse);
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(child -> visit(child, ResultUsed));
     }
   }
@@ -577,6 +578,7 @@ private final class TsIndexedAccessPlanBuilder {
         case TLocal(local) if (local.id == localId):
           found = true;
         default:
+          genes.incremental.RequestMeasure.plannerNode();
           candidate.iter(visitLocal);
       }
     }

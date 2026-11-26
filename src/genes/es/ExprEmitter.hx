@@ -830,6 +830,7 @@ class ExprEmitter extends Emitter {
    * this shared helper so the authored mapping is recorded first.
    */
   function emitExpressionPos(expression: TypedExpr): Void {
+    genes.incremental.RequestMeasure.printerNode();
     final dynamicImportMarker = CompilerInternal.dynamicImportExpansionMarker(expression);
     emitPos(dynamicImportMarker == null ? expression.pos : dynamicImportMarker.pos);
   }

@@ -43,7 +43,12 @@ import {
   type SessionDependencies,
 } from "./session/runtime.js";
 import { acquireSessionLock } from "./session/session-lock.js";
-import { summarizePreviewTimings } from "./session/index.js";
+import {
+  processCounterDelta,
+  readProcessCounters,
+  summarizePreviewTimings,
+  type ProcessCounterDelta,
+} from "./session/index.js";
 import type {
   DevelopmentEvent,
   DevelopmentEventBody,
@@ -158,6 +163,8 @@ class PreviewCompiler implements SessionCompiler {
   readonly requests: RequestRecord[] = [];
   /** The Genes files of the current sources, relative to the output folder. */
   tree: Record<string, string> = {};
+  /** Returned as `process` by each request when set (`processCounters`). */
+  process: ProcessCounterDelta | null = null;
   #inFlight = false;
 
   #descriptorPath(invocation: BoundInvocation): string {
@@ -235,7 +242,7 @@ class PreviewCompiler implements SessionCompiler {
     assertInvocationCurrent?: () => void | Promise<void>,
     prepared?: PreparedCompilerRequest,
     invalidatedFiles: readonly string[] = [],
-  ): Promise<{ readonly mode: "connected" | "direct" }> {
+  ): Promise<{ readonly mode: "connected" | "direct"; readonly process?: ProcessCounterDelta }> {
     const started = this.#begin("program", invocation, invalidatedFiles, prepared);
     try {
       await assertInvocationCurrent?.();
@@ -254,7 +261,7 @@ class PreviewCompiler implements SessionCompiler {
         [path.basename(invocation.candidateOutputFile)]: "export const entry = true;\n",
         ...(step.files ?? this.tree),
       });
-      return { mode: "connected" };
+      return this.process === null ? { mode: "connected" } : { mode: "connected", process: this.process };
     } finally {
       this.#end(invocation, started);
     }
@@ -302,7 +309,7 @@ class PreviewCompiler implements SessionCompiler {
             format: 2, kind: "module", module, result: "preview",
             refusal: null, reason: null, files: Object.keys(files).sort(),
           }), "utf8");
-          return { kind: "compiled" };
+          return this.process === null ? { kind: "compiled" } : { kind: "compiled", process: this.process };
         }
       }
     } finally {
@@ -628,6 +635,57 @@ await withHarness("confirmed", async (harness) => {
   assert.equal(summary.timeToAcceptance!.count, 1);
   assert.equal(summary.rows[0]!.previewMs! <= summary.rows[0]!.acceptedMs!, true);
 });
+
+// --- processCounters: each request reports what it cost the server -------
+
+await withHarness("measured", async (harness) => {
+  const mark = harness.session.inspect().lastSequence;
+  harness.compiler.process = Object.freeze({ instructions: 1_000_000, cpuMs: 12.5, unavailable: null });
+  harness.compiler.tree = { ...harness.compiler.tree, "ui/Button.ts": "export const button = 7;\n" };
+  harness.save(BUTTON, "package ui;\nclass Button { static var v = 7; }\n");
+  await harness.session.waitForIdle();
+  assert.deepEqual(
+    kindsAfter(harness, mark),
+    ["inputs-changed", "build-started", "request-measured", "preview-generated", "request-measured",
+      "candidate-generated", "generation-accepted", "preview-confirmed"],
+  );
+  assert.deepEqual(bodies(harness, "request-measured"), [
+    { kind: "request-measured", revision: 2, request: "module", module: "ui.Button",
+      process: { instructions: 1_000_000, cpuMs: 12.5, unavailable: null } },
+    { kind: "request-measured", revision: 2, request: "program", module: null,
+      process: { instructions: 1_000_000, cpuMs: 12.5, unavailable: null } },
+  ]);
+});
+
+// --- The counter reader on this process (no Haxe needed) -------------------
+
+{
+  assert.equal(await readProcessCounters(-1), null, "no counters for an impossible process id");
+  const before = await readProcessCounters(process.pid);
+  assert.notEqual(before, null);
+  let spin = 0;
+  for (let index = 0; index < 5_000_000; index += 1) spin += index % 7;
+  assert.equal(spin > 0, true);
+  const after = await readProcessCounters(process.pid);
+  const delta = processCounterDelta(before!, after!);
+  if (process.platform === "darwin") {
+    assert.equal(delta.unavailable, null);
+    assert.equal(delta.instructions! > 0, true, `instructions ${String(delta.instructions)}`);
+  } else {
+    assert.equal(delta.instructions, null);
+    assert.equal(typeof delta.unavailable, "string");
+  }
+  if (process.platform === "darwin" || process.platform === "linux") {
+    assert.equal(delta.cpuMs! >= 0, true);
+  }
+  assert.deepEqual(
+    processCounterDelta(
+      { pid: 1, instructions: null, cpuNs: 5_000_000, unavailable: "no route" },
+      { pid: 1, instructions: null, cpuNs: 7_500_000, unavailable: "no route" },
+    ),
+    { instructions: null, cpuMs: 2.5, unavailable: "no route" },
+  );
+}
 
 // --- A refusal sends the program request at once, with a pending state ----
 

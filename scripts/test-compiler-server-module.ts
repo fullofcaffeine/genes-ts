@@ -214,6 +214,21 @@ type ModuleReport = {
    * when a preview could not advance them exactly. Absent before.
    */
   readonly records?: string;
+  /** Work counts, words and phases of the request (genes-f8vc.14.33); absent before. */
+  readonly measure?: RequestMeasure | null;
+};
+
+/**
+ * The parts of a report's `measure` field (`genes.incremental.RequestMeasure`)
+ * that this gate reads.
+ */
+type RequestMeasure = {
+  readonly format: number;
+  readonly cpuMs: number;
+  readonly words: number;
+  readonly unnamedCpuMs: number;
+  readonly work: Readonly<Record<string, number>>;
+  readonly phases: ReadonlyArray<{ readonly name: string; readonly calls: number }>;
 };
 
 /** One scripted edit, the module that the session previews, and the expected answer. */
@@ -3877,7 +3892,9 @@ type RecordsReport = {
   /** Modules whose records an accepted preview advanced since the full request before (genes-f8vc.14.8). */
   readonly advanced?: number,
   /** `none`, `equal`, `sources-changed`, or `differs: <first difference>` (genes-f8vc.14.8). */
-  readonly advancedCheck?: string
+  readonly advancedCheck?: string,
+  /** The measure of the whole full request (genes-f8vc.14.33). */
+  readonly measure?: RequestMeasure | null
 };
 
 function readRecordsReport(file = descriptorFile): RecordsReport {
@@ -4577,6 +4594,9 @@ async function main(): Promise<void> {
       + `module sizes ${Math.min(...sizes.values())}-${Math.max(...sizes.values())} lines at the end; `
       + `median load per CPU ${median(rows.map((row) => row.load)).toFixed(2)} (diagnostic)\n`);
   }
+  let measured = "measure repeats skipped";
+  if (!sweep && (only === undefined || "measure-repeats".includes(only)))
+    measured = await runMeasureRepeats(compiler);
   let control = "keep control skipped";
   if (keepControl)
     control = await runKeepControl(compiler);
@@ -4591,7 +4611,80 @@ async function main(): Promise<void> {
     + `every full request after a step equal to cold; tree check on ${treeChecks} `
     + `previews: cold changes only the previewed module's files; ${initRefusals} `
     + `requests refused once because Haxe may have typed old text (genes-v54c), `
-    + `as their steps expected, and equal to cold when sent again; ${control})\n`);
+    + `as their steps expected, and equal to cold when sent again; ${measured}; ${control})\n`);
+}
+
+/** The work counter names of `RequestWorkCounts`, each of which every measure must report. */
+const workCounters = [
+  "afterTypingDeclarations", "generateDeclarations", "bodyReads", "bodyFunctions",
+  "printerNodes", "plannerNodes", "factNodes", "recordsRead", "recordsWritten"
+];
+
+/** Fails unless `measure` holds every work counter as a whole number and named phases. */
+function checkMeasure(measure: RequestMeasure | null | undefined, label: string): RequestMeasure {
+  ok(measure !== undefined && measure !== null, `${label}: the report has no measure`);
+  strictEqual(measure.format, 1, `${label}: measure format`);
+  deepStrictEqual(Object.keys(measure.work).sort(), [...workCounters].sort(),
+    `${label}: the work counters of the measure`);
+  for (const name of workCounters)
+    ok(Number.isInteger(measure.work[name]) && measure.work[name]! >= 0,
+      `${label}: work counter ${name} is ${String(measure.work[name])}`);
+  ok(measure.words > 0 && measure.cpuMs >= 0, `${label}: words ${measure.words}, cpu ${measure.cpuMs} ms`);
+  for (const phase of ["genes.init", "haxe.typing", "genes.after-typing", "haxe.filters",
+    "genes.on-generate", "haxe.dce", "genes.generate"])
+    ok(measure.phases.some((entry) => entry.name === phase), `${label}: no phase ${phase}`);
+  return measure;
+}
+
+/**
+ * genes-f8vc.14.33: the measure of a request repeats. After a full request
+ * (whose generation report and records report must carry a measure), the
+ * same module request runs four times on the warm server with no edit
+ * between; the last three must report equal work counts, equal phase
+ * names and calls, and allocated words within 0.5% (the first one warms
+ * the module request's own state). Counts and words of equal work must not
+ * depend on the load of the host; CPU and wall time may.
+ */
+async function runMeasureRepeats(
+  compiler: ReturnType<typeof selectedHaxeCompiler>
+): Promise<string> {
+  prepare({ name: "measure-repeats", steps: [] });
+  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  try {
+    await programRequest(server, "measure first");
+    const program = checkMeasure(readRecordsReport().measure, "full request records report");
+    ok(program.work.generateDeclarations! > 0 && program.work.recordsWritten! > 0,
+      `full request: work ${JSON.stringify(program.work)}`);
+    checkMeasure((JSON.parse(readFileSync(reportFile, "utf8")) as { readonly measure?: RequestMeasure | null })
+      .measure, "full request generation report");
+    const measures: RequestMeasure[] = [];
+    for (let repeat = 0; repeat < 4; repeat += 1) {
+      writeDescriptor({ kind: "module", module: "mr.Button" });
+      rmSync(reportFile, { force: true });
+      const result = await server.compile(incremental(moduleArguments("mr.Button", folder("measure"))),
+        `Measure repeat ${repeat}`, timeoutMs, workspace);
+      ok(result.code === 0, `measure repeat ${repeat} failed\n${describe(result)}`);
+      const report = readReport();
+      strictEqual(report.result, "preview", `measure repeat ${repeat}: ${report.refusal}: ${report.reason}`);
+      measures.push(checkMeasure(report.measure, `measure repeat ${repeat}`));
+    }
+    const repeats = measures.slice(1);
+    const first = repeats[0]!;
+    ok(first.work.printerNodes! > 0 && first.work.plannerNodes! > 0 && first.work.bodyReads! > 0
+      && first.work.recordsRead! > 0, `module request: work ${JSON.stringify(first.work)}`);
+    for (const [index, measure] of repeats.entries()) {
+      deepStrictEqual(measure.work, first.work, `measure repeat ${index + 2}: work counts differ`);
+      deepStrictEqual(measure.phases.map((phase) => `${phase.name} x${phase.calls}`),
+        first.phases.map((phase) => `${phase.name} x${phase.calls}`),
+        `measure repeat ${index + 2}: phases differ`);
+    }
+    const words = repeats.map((measure) => measure.words);
+    const wordSpread = (Math.max(...words) - Math.min(...words)) / Math.min(...words);
+    ok(wordSpread <= 0.005, `measure repeats: words ${words.join(", ")} differ by ${(wordSpread * 100).toFixed(3)}%`);
+    return `measure repeats: 3 equal work counts, words within ${(wordSpread * 100).toFixed(4)}%`;
+  } finally {
+    await server.stop();
+  }
 }
 
 /**

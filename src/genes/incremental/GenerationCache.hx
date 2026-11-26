@@ -390,6 +390,7 @@ class GenerationCache {
 
   /** Returns the stored entry of one module, or `null`. */
   public static function entry(module: String): Null<CachedModule> {
+    RequestMeasure.recordRead();
     return storedKey == null ? null : entries.get(module);
   }
 
@@ -662,6 +663,7 @@ class GenerationCache {
     storedGlobalAnswers = asked;
     entries = modules;
     inventory = others;
+    RequestMeasure.recordsWritten(Lambda.count(modules));
     storedOutputFolder = outputFolder;
     storedUnderReuse = underReuse;
     storedBytes = size;
@@ -751,6 +753,7 @@ class GenerationCache {
     if (size > BYTE_BUDGET)
       return false;
     entries.set(module, entry);
+    RequestMeasure.recordsWritten();
     storedBytes = size;
     storedAnswerBytes = storedAnswerBytes - before.answers + after.answers;
     return true;

@@ -324,6 +324,7 @@ class DceStdUses {
           }
         default:
       }
+      genes.incremental.RequestMeasure.factNode();
       TypedExprTools.iter(expression, visit);
     }
     for (type in types)
@@ -335,6 +336,7 @@ class DceStdUses {
           if (constructor != null)
             fields.push(constructor.get());
           for (field in fields) {
+            genes.incremental.RequestMeasure.bodyRead(field);
             final body = field.expr();
             if (body != null)
               visit(body);
@@ -609,12 +611,14 @@ class DceStdUses {
             inType(item.v.t, 0);
         default:
       }
+      genes.incremental.RequestMeasure.factNode();
       TypedExprTools.iter(expression, inBody);
     }
     function inField(field: ClassField): Void {
       inType(field.type, 0);
       for (param in field.params)
         inType(param.t, 0);
+      genes.incremental.RequestMeasure.bodyRead(field);
       final body = field.expr();
       if (body != null)
         inBody(body);
@@ -762,15 +766,18 @@ class DceStdUses {
           addType(fn.t, 0);
         default:
       }
+      genes.incremental.RequestMeasure.factNode();
       TypedExprTools.iter(expression, addBody);
     }
     function addField(field: ClassField): Void {
       addType(field.type, 0);
+      genes.incremental.RequestMeasure.bodyRead(field);
       final body = field.expr();
       if (body != null)
         addBody(body);
       for (signature in field.overloads.get()) {
         addType(signature.type, 0);
+        genes.incremental.RequestMeasure.bodyRead(signature);
         final other = signature.expr();
         if (other != null)
           addBody(other);
@@ -1063,10 +1070,12 @@ private class DceStdWalk {
       markType(field.type);
       if (externClass)
         continue;
+      genes.incremental.RequestMeasure.bodyRead(field);
       final body = field.expr();
       if (body != null)
         expr(body);
       for (signature in field.overloads.get()) {
+        genes.incremental.RequestMeasure.bodyRead(signature);
         final other = signature.expr();
         if (other != null)
           expr(other);
@@ -1553,6 +1562,7 @@ private class DceStdWalk {
         expr(value);
         throwStrings(value);
       default:
+        genes.incremental.RequestMeasure.factNode();
         TypedExprTools.iter(expression, expr);
     }
   }
@@ -1560,6 +1570,7 @@ private class DceStdWalk {
   /** The `to_string` loop of the `throw` case: every part of the thrown value. */
   function throwStrings(item: TypedExpr): Void {
     toStringOf(item.t);
+    genes.incremental.RequestMeasure.factNode();
     TypedExprTools.iter(item, throwStrings);
   }
 

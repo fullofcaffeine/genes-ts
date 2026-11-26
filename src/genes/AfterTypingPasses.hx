@@ -153,6 +153,7 @@ class AfterTypingClass {
     final arrived = stamp;
     if (arrived != null && arrived.arrival == Kept)
       GenerationChangeSet.recordKeptBodyRead();
+    genes.incremental.RequestMeasure.bodyRead(field);
     final body = field.expr();
     known.set(key, body);
     return body;
@@ -280,6 +281,7 @@ class AfterTypingPasses {
     // clock is read.
     final classSeconds = observed == null ? null : [for (_ in classPasses) 0.0];
     for (index => type in types) {
+      genes.incremental.RequestMeasure.afterTypingDeclaration();
       switch type {
         case TClassDecl(reference):
           final seen = observed == null ? null : observed[index];

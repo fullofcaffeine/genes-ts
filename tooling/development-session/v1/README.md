@@ -311,6 +311,20 @@ every string and object key. It otherwise preserves the host's values. The
 host still decides which remaining application data is safe to send to a
 browser.
 
+### Request measures (`processCounters`)
+
+A session with `processCounters: true` (genes-f8vc.14.33) reads the counters
+of its owned Haxe server before and after each request that runs on it and
+emits `request-measured` (`revision`, `request`: `program` or `module`,
+`module` or null, `process`). `process` has `instructions` (retired CPU
+instructions, or null), `cpuMs` (user plus system CPU time, or null) and
+`unavailable` (why `instructions` is null, else null). On macOS the counters
+come from `proc_pid_rusage`; on Linux only the CPU time is read. A module
+request's event comes before its `preview-generated` or `preview-refused`
+event; a program request's event comes before its `candidate-generated`
+event. Retired instructions repeat within a few percent on a loaded host,
+where wall time does not, so a benchmark compares them.
+
 ## Private validation and last-good output
 
 The host validates a complete private `ValidationTree`. For a TypeScript

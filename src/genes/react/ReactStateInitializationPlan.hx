@@ -143,6 +143,7 @@ private final class ReactStateInitializationPlanBuilder {
         }
       default:
     }
+    genes.incremental.RequestMeasure.plannerNode();
     expression.iter(visit);
   }
 
