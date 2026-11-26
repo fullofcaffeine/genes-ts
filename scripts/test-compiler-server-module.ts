@@ -4655,6 +4655,15 @@ function checkMeasure(measure: RequestMeasure | null | undefined, label: string)
   strictEqual(inAfterTyping, measure.work.afterTypingDeclarations,
     `${label}: the genes.after-typing span holds ${inAfterTyping} of `
     + `${measure.work.afterTypingDeclarations} after-typing declarations`);
+  // The prefix sum above cannot see swapped hook marks: the walk keeps its
+  // name under any parent. The start order can: with the marks swapped,
+  // `haxe.filters` starts before the walk, and `genes.after-typing` after it.
+  const startOf = (name: string): number => measure.phases.findIndex((entry) => entry.name === name);
+  ok(startOf("genes.after-typing") < startOf("genes.after-typing.walk")
+    && startOf("genes.after-typing.walk") < startOf("haxe.filters"),
+    `${label}: phase start order is ${measure.phases.map((entry) => entry.name)
+      .filter((name) => ["genes.after-typing", "genes.after-typing.walk", "haxe.filters"].includes(name))
+      .join(", ")}, not genes.after-typing, genes.after-typing.walk, haxe.filters`);
   for (const phase of measure.phases.filter((entry) => entry.name.startsWith("haxe.")))
     for (const name of workCounters)
       strictEqual(phase.work[name], 0, `${label}: Haxe phase ${phase.name} holds Genes work ${name}`);

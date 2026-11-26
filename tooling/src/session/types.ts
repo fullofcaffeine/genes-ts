@@ -1047,6 +1047,8 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * True reads the counters of the owned Haxe server before and after each
    * program request and module request that runs on it
    * (`readProcessCounters`), and emits a `request-measured` event for each.
+   * While generation reuse is active it also asks Genes for its request
+   * measure (`"requestMeasure": true` in the request descriptor).
    * Retired instructions repeat within about 2% on a busy host, where wall
    * time varies by 160%, so a benchmark compares them, not milliseconds.
    * On macOS without `--experimental-ffi` each read starts a short helper

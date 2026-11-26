@@ -126,7 +126,13 @@ typedef RequestMeasureReport = {
   /** The work counts of the whole request. */
   final work: RequestWorkCounts;
 
-  /** Each phase once, in the order in which it first started. */
+  /**
+   * Each phase once, in the order in which it first started. The measure's
+   * own cost (two clock reads and a copy of the counts per start and end)
+   * falls on the phases that start most often, so their share is too large
+   * (example: `genes.after-typing.pass.signatureCache` starts 69 times in a
+   * fixture module request).
+   */
   final phases: Array<RequestPhaseMeasure>;
 }
 

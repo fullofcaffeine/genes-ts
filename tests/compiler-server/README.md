@@ -1283,7 +1283,11 @@ and counts nothing.
 The measure is opt-in because it costs retired instructions: 6.5% of a full
 request and 4.0% of a module request of the fixture program (medians of 20
 paired runs with `--measure-off-b`; 95% intervals 5.4% to 7.2% and 3.7% to
-4.4%). The development session sets the field with `processCounters: true`.
+4.4%). The development session sets the field with `processCounters: true`
+while generation reuse is active. The cost falls on the phases that start
+most often, so their share is too large: `genes.after-typing.pass.signatureCache`
+starts 69 times in the fixture module request, and each start reads the
+clocks.
 
 | Field | Unit | Meaning |
 | --- | --- | --- |
@@ -1374,8 +1378,13 @@ compare `words` from different runs; compare A and B inside one paired run.
 The module gate checks the measure (group `measure-repeats`). A full request
 without `"requestMeasure"` must report no measure. With it, both reports of a
 full request must carry a measure with every count and the hook phases; the
-`genes.after-typing` span must hold every after-typing declaration, and no
-`haxe.*` phase may hold Genes work. Then the same module request runs four
+`genes.after-typing` span must hold every after-typing declaration, no
+`haxe.*` phase may hold Genes work, and the phases must start in the order
+`genes.after-typing`, `genes.after-typing.walk`, `haxe.filters`. Only the
+order check sees swapped hook marks (the walk keeps its name under any
+parent): with the two after-typing marks swapped on purpose, the group
+failed with "phase start order is haxe.filters, genes.after-typing.walk,
+genes.after-typing". Then the same module request runs four
 times; the last three must give equal counts and phases, and words within
 0.5%.
 
@@ -1392,7 +1401,21 @@ before each module sample. The measured request is a module request of
 instructions and CPU time it prints the median pair ratio (B1 + B2) /
 (A1 + A2), its order-statistic 95% interval (the 6th to the 15th of 20
 sorted ratios), and the lowest and highest. B differs from A only when the
-interval leaves out 1. Wall time is a report line.
+interval leaves out 1. Wall time is a report line. Beside words it prints
+the minor collections of A and B; when the two sides of a pair collected a
+different number of times, it prints "collection counts differ; words not
+compared" instead, because one collection moves words by up to one minor
+heap (about 1.2% of a fixture module request).
+
+Without `--edit`, each measured module request repeats a request with no
+change: Haxe types nothing again and every kept bucket of Genes hits. Such
+numbers compare A with B on a no-edit request; they are not the cost of a
+save. `--edit=literal` changes the string literal `return 'Save';` of the
+requested module to `return 'Sava';` and back before each measured request,
+and sends `server/invalidate` for the file to each server, so that Haxe
+types the module again (`typedAgainModules: ["mr.Button"]`) and Genes reads
+it anew. Both sides make the same edit, so each pair stays equal in work.
+The runner stops when such a request gives no preview.
 
 Spread of the runner with the same source on both sides (B with an unused
 define, 20 pairs, load 25 to 41), instructions:

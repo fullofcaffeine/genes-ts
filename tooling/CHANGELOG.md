@@ -11,8 +11,8 @@ it.
   Haxe server before and after each program request and module request and
   emits `request-measured` (`request`, `module`, and `process`: retired
   instructions, CPU milliseconds, or the reason why instructions are
-  unavailable). It also asks Genes for its request measure
-  (`"requestMeasure": true` in the request descriptor). `readProcessCounters`
+  unavailable). While generation reuse is active it also asks Genes for its
+  request measure (`"requestMeasure": true` in the request descriptor). `readProcessCounters`
   and `processCounterDelta` are exported; they never throw. On macOS they
   use `proc_pid_rusage` through `node:ffi` (in this process with
   `--experimental-ffi`, else in a short helper process, 50 to 140 ms per
