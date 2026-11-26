@@ -227,8 +227,13 @@ type RequestMeasure = {
   readonly cpuMs: number;
   readonly words: number;
   readonly unnamedCpuMs: number;
+  readonly minorCollections: number;
   readonly work: Readonly<Record<string, number>>;
-  readonly phases: ReadonlyArray<{ readonly name: string; readonly calls: number }>;
+  readonly phases: ReadonlyArray<{
+    readonly name: string;
+    readonly calls: number;
+    readonly work: Readonly<Record<string, number>>;
+  }>;
 };
 
 /** One scripted edit, the module that the session previews, and the expected answer. */
@@ -3635,9 +3640,13 @@ function writeDescriptor(fields: Record<string, unknown>, file = descriptorFile)
     afterTyping: "reuse",
     generation: "reuse",
     recordsText: true,
+    ...(measureRequests ? { requestMeasure: true } : {}),
     ...fields
   }));
 }
+
+/** True while `runMeasureRepeats` runs: every descriptor asks for the request measure. */
+let measureRequests = false;
 
 function incremental(args: string[], file = descriptorFile): string[] {
   return [...args, "-D", `genes.dev_incremental=${file}`];
@@ -4630,9 +4639,25 @@ function checkMeasure(measure: RequestMeasure | null | undefined, label: string)
     ok(Number.isInteger(measure.work[name]) && measure.work[name]! >= 0,
       `${label}: work counter ${name} is ${String(measure.work[name])}`);
   ok(measure.words > 0 && measure.cpuMs >= 0, `${label}: words ${measure.words}, cpu ${measure.cpuMs} ms`);
-  for (const phase of ["genes.init", "haxe.typing", "genes.after-typing", "haxe.filters",
-    "genes.on-generate", "haxe.dce", "genes.generate"])
+  ok(Number.isInteger(measure.minorCollections) && measure.minorCollections >= 0,
+    `${label}: minor collections ${measure.minorCollections}`);
+  for (const phase of ["genes.init", "haxe.typing", "genes.after-typing", "genes.after-typing.walk",
+    "haxe.filters", "genes.on-generate", "haxe.dce", "genes.generate"])
     ok(measure.phases.some((entry) => entry.name === phase), `${label}: no phase ${phase}`);
+  // The hook phases are labelled by the order in which Haxe runs the
+  // callbacks (review of genes-ts #275): the Genes after-typing walk must
+  // fall in the `genes.after-typing` span, and no Haxe phase may hold Genes
+  // work.
+  const inAfterTyping = measure.phases
+    .filter((phase) => phase.name === "genes.after-typing" || phase.name.startsWith("genes.after-typing."))
+    .reduce((sum, phase) => sum + (phase.work.afterTypingDeclarations ?? 0), 0);
+  ok(measure.work.afterTypingDeclarations! > 0, `${label}: no declaration was visited after typing`);
+  strictEqual(inAfterTyping, measure.work.afterTypingDeclarations,
+    `${label}: the genes.after-typing span holds ${inAfterTyping} of `
+    + `${measure.work.afterTypingDeclarations} after-typing declarations`);
+  for (const phase of measure.phases.filter((entry) => entry.name.startsWith("haxe.")))
+    for (const name of workCounters)
+      strictEqual(phase.work[name], 0, `${label}: Haxe phase ${phase.name} holds Genes work ${name}`);
   return measure;
 }
 
@@ -4651,6 +4676,10 @@ async function runMeasureRepeats(
   prepare({ name: "measure-repeats", steps: [] });
   const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
   try {
+    // Without `"requestMeasure": true` the reports carry no measure.
+    await programRequest(server, "measure off");
+    strictEqual(readRecordsReport().measure ?? null, null, "a full request that asked for no measure has one");
+    measureRequests = true;
     await programRequest(server, "measure first");
     const program = checkMeasure(readRecordsReport().measure, "full request records report");
     ok(program.work.generateDeclarations! > 0 && program.work.recordsWritten! > 0,
@@ -4683,6 +4712,7 @@ async function runMeasureRepeats(
     ok(wordSpread <= 0.005, `measure repeats: words ${words.join(", ")} differ by ${(wordSpread * 100).toFixed(3)}%`);
     return `measure repeats: 3 equal work counts, words within ${(wordSpread * 100).toFixed(4)}%`;
   } finally {
+    measureRequests = false;
     await server.stop();
   }
 }

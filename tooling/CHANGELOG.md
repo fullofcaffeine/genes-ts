@@ -11,10 +11,14 @@ it.
   Haxe server before and after each program request and module request and
   emits `request-measured` (`request`, `module`, and `process`: retired
   instructions, CPU milliseconds, or the reason why instructions are
-  unavailable). `readProcessCounters` and `processCounterDelta` are exported.
-  On macOS they use `proc_pid_rusage` through `node:ffi` (in this process
-  with `--experimental-ffi`, else in a short helper process); no root and no
-  native build step. On Linux only the CPU time is read. Protocol: version 1
+  unavailable). It also asks Genes for its request measure
+  (`"requestMeasure": true` in the request descriptor). `readProcessCounters`
+  and `processCounterDelta` are exported; they never throw. On macOS they
+  use `proc_pid_rusage` through `node:ffi` (in this process with
+  `--experimental-ffi`, else in a short helper process, 50 to 140 ms per
+  read); no root and no native build step. A Node without `node:ffi` (Node
+  24) starts no helper and reports instructions as unavailable. On Linux only
+  the CPU time is read. Protocol: version 1
   gains this opt-in event kind; a host must ignore a kind that it does not
   know.
 - The development session can show the edited module first

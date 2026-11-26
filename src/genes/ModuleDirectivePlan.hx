@@ -74,7 +74,12 @@ class ModuleDirectivePlan {
     seenOwners = new Map();
     plans = new Map();
     finalized = false;
-    Context.onAfterTyping(capture);
+    // A phase of the request measure (`RequestMeasure`) when one runs.
+    Context.onAfterTyping(types -> {
+      final end = genes.incremental.RequestMeasure.open('genes.after-typing.module-directives');
+      capture(types);
+      end();
+    });
   }
 
   static function capture(types: Array<ModuleType>): Void {

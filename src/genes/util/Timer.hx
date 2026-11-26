@@ -7,7 +7,7 @@ package genes.util;
  * the timing table, so ordinary builds do not write a separate profile and a
  * warm compiler server retains no Genes timing state between requests.
  *
- * In a request with a request descriptor, the same phase is also a phase of
+ * In a request whose descriptor has `"requestMeasure": true`, the same phase is also a phase of
  * `genes.incremental.RequestMeasure` (CPU time, allocated words and work
  * counts in the request report); otherwise that adds nothing.
  */

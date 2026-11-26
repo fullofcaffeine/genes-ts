@@ -45,6 +45,10 @@ const HELPER_FLAGS = Object.freeze([
   "--disable-warning=ExperimentalWarning",
 ]);
 const HELPER_TIMEOUT_MS = 10_000;
+/** The largest pid that `proc_pid_rusage` takes (`int32`). */
+const MAX_PID = 0x7fff_ffff;
+/** The reason for a Node that has no `node:ffi`, such as Node 24. */
+const NO_FFI = "this Node has no node:ffi (retired instructions need Node 26 or later)";
 
 /** The two calls of `libSystem` that the macOS route needs. */
 interface DarwinCalls {
@@ -103,10 +107,18 @@ async function loadDarwinCalls(): Promise<DarwinCalls | null> {
   }
 }
 
-/** Reads the counters of `pid` with `proc_pid_rusage`, or returns null when the call fails. */
+/**
+ * Reads the counters of `pid` with `proc_pid_rusage`, or returns null when
+ * the call fails or throws (for example a pid that is no `int32`), so that
+ * a read never fails a compile request.
+ */
 function readDarwin(calls: DarwinCalls, pid: number): ProcessCounters | null {
   const buffer = Buffer.alloc(RUSAGE_INFO_V4_BYTES);
-  if (calls.procPidRusage(pid, RUSAGE_INFO_V4, buffer) !== 0) return null;
+  try {
+    if (calls.procPidRusage(pid, RUSAGE_INFO_V4, buffer) !== 0) return null;
+  } catch {
+    return null;
+  }
   const ticks =
     buffer.readBigUInt64LE(RI_USER_TIME) + buffer.readBigUInt64LE(RI_SYSTEM_TIME);
   return Object.freeze({
@@ -125,26 +137,29 @@ function readDarwin(calls: DarwinCalls, pid: number): ProcessCounters | null {
  * BOUNDARY_DYNAMIC: the helper prints one JSON object; each field is
  * checked before use.
  */
-function readDarwinInHelper(pid: number): Promise<ProcessCounters> {
+function readDarwinInHelper(pid: number): Promise<ProcessCounters | null> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [...HELPER_FLAGS, HELPER, String(pid)],
       { env: {}, timeout: HELPER_TIMEOUT_MS, windowsHide: true },
       (error, stdout) => {
+        // The helper prints `null` for a process that it may not read, as
+        // the in-process route returns null for it.
+        if (error === null && stdout.trim() === "null") {
+          resolve(null);
+          return;
+        }
         const counters = error === null ? parseCounters(stdout, pid) : null;
-        resolve(
-          counters ??
-            Object.freeze({
-              pid,
-              instructions: null,
-              cpuNs: null,
-              unavailable: "macOS: the node:ffi helper could not read proc_pid_rusage",
-            }),
-        );
+        resolve(counters ?? unavailableCounters(pid, "macOS: the node:ffi helper process failed"));
       },
     );
   });
+}
+
+/** Counters of `pid` with neither counter, and the reason why. */
+function unavailableCounters(pid: number, why: string): ProcessCounters {
+  return Object.freeze({ pid, instructions: null, cpuNs: null, unavailable: why });
 }
 
 /** Returns the counters in `text` (the helper's JSON line), or null when it is not one. */
@@ -216,27 +231,30 @@ function readLinux(pid: number): ProcessCounters | null {
  * How: on macOS, `proc_pid_rusage` with `RUSAGE_INFO_V4` (no root needed
  * for a process of the same user), through `node:ffi` in this process when
  * Node runs with `--experimental-ffi`, else in a short helper process that
- * does (about 50 ms more per read). On Linux only the CPU time, from
- * `/proc`; instructions are unavailable (see `unavailable`). On other
- * platforms both are unavailable.
+ * does (50 to 140 ms more per read, measured at load 39 to 53). A Node
+ * without `node:ffi` (Node 24) starts no helper: both counters are
+ * unavailable, with that reason. On Linux only the CPU time, from `/proc`;
+ * instructions are unavailable (see `unavailable`). On other platforms both
+ * are unavailable. Never throws.
  */
 export async function readProcessCounters(pid: number): Promise<ProcessCounters | null> {
-  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (!Number.isInteger(pid) || pid <= 0 || pid > MAX_PID) return null;
   switch (process.platform) {
     case "darwin": {
       darwinCalls ??= loadDarwinCalls();
       const calls = await darwinCalls;
-      return calls === null ? await readDarwinInHelper(pid) : readDarwin(calls, pid);
+      if (calls !== null) return readDarwin(calls, pid);
+      // `--experimental-ffi` is a Node option exactly when this Node has
+      // `node:ffi`; without it a helper could not work either.
+      if (!process.allowedNodeEnvironmentFlags.has("--experimental-ffi")) {
+        return unavailableCounters(pid, NO_FFI);
+      }
+      return await readDarwinInHelper(pid);
     }
     case "linux":
       return readLinux(pid);
     default:
-      return Object.freeze({
-        pid,
-        instructions: null,
-        cpuNs: null,
-        unavailable: `${process.platform}: no route to the counters of another process`,
-      });
+      return unavailableCounters(pid, `${process.platform}: no route to the counters of another process`);
   }
 }
 
@@ -271,7 +289,11 @@ if (process.argv[1] === HELPER) {
   void (async () => {
     darwinCalls = loadDarwinCalls();
     const calls = await darwinCalls;
-    const counters = calls === null || process.platform !== "darwin" ? null : readDarwin(calls, pid);
+    // `null` only for a process that it may not read (as the in-process
+    // route); a failed load of `node:ffi` gives a reason instead.
+    const counters = calls === null || process.platform !== "darwin"
+      ? unavailableCounters(pid, "macOS: the node:ffi helper could not load proc_pid_rusage")
+      : readDarwin(calls, pid);
     process.stdout.write(`${JSON.stringify(counters)}\n`);
   })();
 }

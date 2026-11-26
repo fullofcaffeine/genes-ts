@@ -1050,8 +1050,9 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * Retired instructions repeat within about 2% on a busy host, where wall
    * time varies by 160%, so a benchmark compares them, not milliseconds.
    * On macOS without `--experimental-ffi` each read starts a short helper
-   * process (about 50 ms per read, before and after the request, outside
-   * its counters). Default false: no reads.
+   * process (50 to 140 ms per read, before and after the request, outside
+   * its counters); on a Node without `node:ffi` (Node 24) instructions are
+   * unavailable and no helper starts. Default false: no reads.
    */
   readonly processCounters?: boolean;
   readonly pollIntervalMs?: number;

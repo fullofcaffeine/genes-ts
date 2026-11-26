@@ -157,7 +157,9 @@ class Generator {
     // Without `-D genes.dev_incremental`, or when the request descriptor does
     // not select the shadow, this returns at once and every hook below does
     // nothing, so the request runs exactly as before.
+    final endShadowStartTimer = timer('genes.shadow.start');
     IncrementalShadow.start(outputFile, outputTransaction);
+    endShadowStartTimer();
 
     try {
       removeCompilerSentinel();
@@ -914,7 +916,9 @@ class Generator {
     }
     // Stage 3: compare and store only after the complete tree is public, so
     // a failed request keeps the cache of the last successful generation.
+    final endShadowCommitTimer = timer('genes.shadow.commit');
     IncrementalShadow.committed();
+    endShadowCommitTimer();
     // With `"moduleRecords": true`, keep the facts that a later module
     // request checks (G3); otherwise this returns at once.
     final endRecordsTimer = timer('genes.records.store');
@@ -1498,11 +1502,18 @@ class Generator {
         // later lookups change generated code (see `refreshCompilerTypes`).
         // Neither module nor anything that they import reads
         // `genes.generator.active`, so defining it first changes no text.
-        // The request measure starts first (only with a request
-        // descriptor), with the hook boundaries of `measureHooks`.
-        RequestMeasure.begin(genes.incremental.IncrementalRequest.requestedDescriptor() != null);
+        // The request measure starts first (only when the request
+        // descriptor asks for it), with the hook boundaries of
+        // `measureHooks`. Haxe
+        // 4.3.7 runs after-typing callbacks in reverse order of
+        // registration, so this first one runs after every other Genes
+        // after-typing callback; before-save callbacks run in order of
+        // registration, so this one runs before the other Genes ones.
+        final requested = genes.incremental.IncrementalRequest.requestedDescriptor();
+        RequestMeasure.begin(requested != null
+          && requested.requestMeasure == true);
         if (RequestMeasure.active) {
-          Context.onAfterTyping(_ -> RequestMeasure.mark('genes.after-typing'));
+          Context.onAfterTyping(_ -> RequestMeasure.mark('haxe.filters'));
           Context.onGenerate(_ -> RequestMeasure.mark('genes.on-generate'));
         }
         ModuleRequest.begin();
@@ -1537,6 +1548,7 @@ class Generator {
         if (ModuleRequest.skipsGenerationStamps())
           return;
         final pos = Context.currentPos();
+        final endStamps = RequestMeasure.open('genes.on-generate.stamps');
         for (type in types) {
           RequestMeasure.generateDeclaration();
           switch type {
@@ -1555,6 +1567,7 @@ class Generator {
             default:
           }
         }
+        endStamps();
       });
       Context.onAfterGenerate(removeCompilerSentinel);
       Compiler.setCustomJSGenerator(Generator.generate);
@@ -1570,21 +1583,31 @@ class Generator {
    * request descriptor it registers nothing.
    *
    * Why: the phases of the measure must add up to the request, so that a
-   * report shows which part of its CPU time no phase names. Haxe runs the
-   * callbacks of one hook in the order of registration. The phases then
+   * report shows which part of its CPU time no phase names. The phases
    * follow Haxe's order: `genes.init` (this init macro), `haxe.typing`,
-   * `genes.after-typing` (the after-typing callbacks), `haxe.filters`,
-   * `genes.on-generate` (the callbacks before and after Haxe saves the class
-   * state, `ModuleRequest.afterSave` included), `haxe.dce` (dead-code
-   * elimination and the filters after it) and `genes.generate`. A
-   * callback of another macro that runs inside one of those spans counts
-   * in it.
+   * `genes.after-typing` (the Genes after-typing callbacks, with
+   * `genes.after-typing.*` inside), `haxe.filters`, `genes.on-generate` (the
+   * callbacks before and after Haxe saves the class state,
+   * `ModuleRequest.afterSave` included), `haxe.dce` (dead-code elimination
+   * and the filters after it) and `genes.generate`.
+   *
+   * Order of callbacks in Haxe 4.3.7 (`Common.compiler_callbacks`): it runs
+   * after-typing callbacks in reverse order of registration
+   * (`Finalization.finalize` walks the list that `add_after_typing`
+   * prepends to), and before-save and after-save callbacks in order of
+   * registration (`run` reverses the list). So the after-typing callback
+   * registered here, last, runs first and starts `genes.after-typing`; the
+   * one registered first in `use()` runs last and starts `haxe.filters`. An
+   * after-typing callback of a macro given after `Generator.use()` runs
+   * before both and counts in `haxe.typing`; one of a macro given before it
+   * counts in `haxe.filters`. The gate `measure-repeats` checks that no
+   * `haxe.*` phase holds a Genes work count.
    */
   static function measureHooks(): Void {
     if (!RequestMeasure.active)
       return;
     RequestMeasure.mark('haxe.typing');
-    Context.onAfterTyping(_ -> RequestMeasure.mark('haxe.filters'));
+    Context.onAfterTyping(_ -> RequestMeasure.mark('genes.after-typing'));
     // As `ModuleRequest.install`: a callback registered from inside a first
     // after-save callback runs after the ones registered before, so this
     // runs after `ModuleRequest.afterSave`.

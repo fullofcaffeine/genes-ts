@@ -65,12 +65,18 @@ const defineB = option("define-b", "");
 const pairs = Number(option("pairs", "20"));
 const repeat = Number(option("repeat", "0"));
 const target = option("module", "mr.Button");
+const warmupPairs = Number(option("warmup-pairs", "1"));
+/** `--measure-off-b`: side B asks for no request measure, to measure the cost of the measure. */
+const measureOffB = process.argv.includes("--measure-off-b");
+const servers = Number(option("servers", "2"));
+if (!Number.isInteger(warmupPairs) || warmupPairs < 0) throw new Error("--warmup-pairs needs a whole number");
+if (servers !== 1 && servers !== 2) throw new Error("--servers is 1 or 2");
 const kindOption = option("kind", "module");
 if (!Number.isInteger(pairs) || pairs < 1) throw new Error("--pairs needs a whole number of 1 or more");
 if (!Number.isInteger(repeat) || repeat < 0) throw new Error("--repeat needs a whole number");
 if (kindOption !== "module" && kindOption !== "program") throw new Error("--kind is module or program");
 const kind: "module" | "program" = kindOption;
-if (repeat === 0 && sourceA === sourceB && defineB === "") {
+if (repeat === 0 && sourceA === sourceB && defineB === "" && !measureOffB) {
   throw new Error("A and B are the same: give --b=<genes src> or --define-b=<name>");
 }
 
@@ -84,12 +90,14 @@ interface Measure {
   readonly processCpuEndMs: number;
   readonly words: number;
   readonly unnamedCpuMs: number;
+  readonly minorCollections: number;
   readonly work: Work;
   readonly phases: ReadonlyArray<{
     readonly name: string;
     readonly calls: number;
     readonly cpuMs: number;
     readonly words: number;
+    readonly work: Work;
   }>;
 }
 
@@ -195,6 +203,7 @@ function descriptor(s: Side, fields: Record<string, unknown>): void {
     programDigest: "pair",
     afterTyping: "reuse",
     generation: "reuse",
+    requestMeasure: !(measureOffB && s.name === "B"),
     ...fields
   }));
 }
@@ -226,17 +235,21 @@ async function main(): Promise<void> {
   const counters = await loadCounters();
   const a = side("A", sourceA, "");
   const b = side("B", sourceB, defineB);
-  const server = await OwnedHaxeCompilerServer.start(repoRoot);
-  server.installSignalCleanup();
-  const pid = server.process.pid;
+  const serverA = await OwnedHaxeCompilerServer.start(repoRoot);
+  serverA.installSignalCleanup();
+  const serverB = servers === 2 && repeat === 0 ? await OwnedHaxeCompilerServer.start(repoRoot) : serverA;
+  if (serverB !== serverA) serverB.installSignalCleanup();
+  const serverOf = (s: Side): OwnedHaxeCompilerServer => s.name === "A" ? serverA : serverB;
   let unavailable = typeof counters === "string" ? counters : null;
-  const read = async (): Promise<ProcessCounters | null> => {
+  const read = async (s: Side): Promise<ProcessCounters | null> => {
+    const pid = serverOf(s).process.pid;
     if (typeof counters === "string" || pid === undefined) return null;
     const value = await counters.readProcessCounters(pid);
     if (value !== null && value.unavailable !== null) unavailable = value.unavailable;
     return value;
   };
-  const send = async (args: string[], label: string): Promise<void> => {
+  const send = async (s: Side, args: string[], label: string): Promise<void> => {
+    const server = serverOf(s);
     const result = await server.compile(args, label, timeoutMs, workspace);
     if (result.code !== 0) {
       throw new Error(`${label} failed\n${result.stdout}\n${result.stderr}\n${server.logs}`);
@@ -244,7 +257,7 @@ async function main(): Promise<void> {
   };
   const prime = async (s: Side): Promise<void> => {
     descriptor(s, { kind: "full", moduleRecords: true });
-    await send(programArgs(s), `${s.name} full request`);
+    await send(s, programArgs(s), `${s.name} full request`);
   };
   const measured = async (s: Side): Promise<Sample> => {
     const args = kind === "program" ? programArgs(s) : moduleArgs(s);
@@ -254,11 +267,11 @@ async function main(): Promise<void> {
       ? { kind: "full", moduleRecords: true, audit: { modules: 0, seed: 0 } }
       : { kind: "module", module: target });
     const load = loadavg()[0] ?? 0;
-    const before = await read();
+    const before = await read(s);
     const started = performance.now();
-    await send(args, `${s.name} ${kind} request`);
+    await send(s, args, `${s.name} ${kind} request`);
     const wallMs = performance.now() - started;
-    const after = await read();
+    const after = await read(s);
     const { result, measure } = readMeasure(s, kind);
     const instructions = before?.instructions == null || after?.instructions == null
       ? null : after.instructions - before.instructions;
@@ -282,7 +295,7 @@ async function main(): Promise<void> {
       named: cpuMs === null || cpuMs <= 0 || namedMs === null ? null : namedMs / cpuMs,
       beforeGenesMs,
       afterGenesMs,
-      serverRssMb: residentMb(pid),
+      serverRssMb: residentMb(serverOf(s).process.pid),
       load
     };
   };
@@ -294,27 +307,36 @@ async function main(): Promise<void> {
       for (let index = 0; index < repeat; index += 1) samples.push(await measured(a));
       printRepeats(samples, unavailable);
     } else {
-      // One warm-up of each side, then the pairs.
+      // One warm-up of each side, then `--warmup-pairs` pairs whose samples
+      // are dropped (the first pair of a run is the most biased one), then
+      // the pairs. With one server for both sides, each switch starts a new
+      // macro state without module records, so each module sample needs a
+      // full request first; with one server per side nothing switches.
       for (const s of [a, b]) {
         await prime(s);
         await measured(s);
       }
-      for (let index = 0; index < pairs; index += 1) {
+      const primeEach = kind === "module" && serverA === serverB;
+      for (let index = 0; index < warmupPairs + pairs; index += 1) {
         for (const s of [a, b, b, a]) {
-          if (kind === "module") await prime(s);
-          samples.push(await measured(s));
+          if (primeEach) await prime(s);
+          const sample = await measured(s);
+          if (index >= warmupPairs) samples.push(sample);
         }
       }
       printPairs(samples, unavailable);
     }
   } finally {
-    await server.stop();
+    await serverA.stop();
+    if (serverB !== serverA) await serverB.stop();
     writeFileSync(path.join(tempRoot, "result.json"), `${JSON.stringify({
       a: sourceA,
       b: sourceB,
       defineB,
       kind,
       module: target,
+      servers: serverA === serverB ? 1 : 2,
+      warmupPairs,
       instructionsUnavailable: unavailable,
       samples
     }, null, 2)}\n`);
@@ -347,6 +369,27 @@ function median(values: ReadonlyArray<number>): number {
   return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
+/**
+ * The order-statistic interval of the median of `values` with at least 95%
+ * coverage, or null with fewer than 6 values: the k-th lowest and k-th
+ * highest value, where k is the largest index with
+ * P(Binomial(n, 1/2) < k) <= 2.5%. For 20 values it is the 6th to the 15th.
+ */
+function medianInterval(values: ReadonlyArray<number>): { low: number; high: number } | null {
+  const n = values.length;
+  const sorted = [...values].sort((left, right) => left - right);
+  let cumulative = 0;
+  let k = 0;
+  let choose = 1;
+  for (let i = 0; i < n; i += 1) {
+    cumulative += choose / 2 ** n;
+    if (cumulative > 0.025) break;
+    k = i + 1;
+    choose = (choose * (n - i)) / (i + 1);
+  }
+  return k < 1 ? null : { low: sorted[k - 1]!, high: sorted[n - k]! };
+}
+
 function percent(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(2)}%`;
 }
@@ -355,12 +398,12 @@ function printRepeats(all: ReadonlyArray<Sample>, unavailable: string | null): v
   // `readMeasure` refuses a missing measure in this mode.
   const samples = all.map((sample) => ({ ...sample, measure: sample.measure! }));
   const workNames = Object.keys(samples[0]?.measure.work ?? {});
-  process.stdout.write(`| repeat | result | ${workNames.join(" | ")} | words | instructions | cpu ms | named | wall ms | load |\n`);
-  process.stdout.write(`|${" --- |".repeat(workNames.length + 9)}\n`);
+  process.stdout.write(`| repeat | result | ${workNames.join(" | ")} | words | minor collections | instructions | cpu ms | named | wall ms | load |\n`);
+  process.stdout.write(`|${" --- |".repeat(workNames.length + 10)}\n`);
   samples.forEach((sample, index) => {
     process.stdout.write(`| ${index + 1} | ${sample.result} | `
       + `${workNames.map((name) => sample.measure.work[name]).join(" | ")} | `
-      + `${sample.measure.words} | ${sample.instructions ?? "n/a"} | `
+      + `${sample.measure.words} | ${sample.measure.minorCollections} | ${sample.instructions ?? "n/a"} | `
       + `${sample.cpuMs?.toFixed(1) ?? "n/a"} | ${percent(sample.named)} | `
       + `${sample.wallMs.toFixed(0)} | ${sample.load.toFixed(1)} |\n`);
   });
@@ -380,7 +423,16 @@ function printRepeats(all: ReadonlyArray<Sample>, unavailable: string | null): v
   process.stdout.write(`haxe.after-genes cpu ms: ${outside((sample) => sample.afterGenesMs)}\n`);
   process.stdout.write(`measure cpu ms (genes.init to report): ${outside((sample) => sample.measure.cpuMs)}`
     + `, unnamed: ${outside((sample) => sample.measure.unnamedCpuMs)}\n`);
-  const phases = samples[samples.length - 1]?.measure.phases ?? [];
+  const last = samples[samples.length - 1]!.measure;
+  const span = last.phases.filter((phase) => phase.name === "genes.after-typing"
+    || phase.name.startsWith("genes.after-typing."));
+  const haxeWork = last.phases.filter((phase) => phase.name.startsWith("haxe.")
+    && Object.values(phase.work).some((value) => value !== 0)).map((phase) => phase.name);
+  process.stdout.write(`genes.after-typing span: ${span.reduce((sum, phase) => sum + (phase.work.afterTypingDeclarations ?? 0), 0)} `
+    + `of ${last.work.afterTypingDeclarations} after-typing declarations, `
+    + `${span.reduce((sum, phase) => sum + phase.cpuMs, 0).toFixed(2)} ms; `
+    + `haxe.* phases with Genes work: ${haxeWork.length === 0 ? "none" : haxeWork.join(", ")}\n`);
+  const phases = last.phases;
   process.stdout.write("phases of the last repeat (self cpu ms, words):\n");
   for (const phase of [...phases].sort((left, right) => right.cpuMs - left.cpuMs)) {
     process.stdout.write(`  ${phase.name} x${phase.calls}: ${phase.cpuMs} ms, ${phase.words} words\n`);
@@ -409,11 +461,15 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   const results = new Set(samples.map((sample) => `${sample.side}:${sample.result}`));
   process.stdout.write(`samples: ${samples.length} (${[...results].sort().join(", ")})\n`);
   const line = (name: string, values: number[], note = ""): void => {
+    const interval = medianInterval(values);
     process.stdout.write(values.length === 0
       ? `${name}: unavailable${note}\n`
-      : `${name}: median B/A ${median(values).toFixed(4)} (lowest ${Math.min(...values).toFixed(4)}, `
-        + `highest ${Math.max(...values).toFixed(4)}, ${values.length} pairs)${note}\n`);
+      : `${name}: median B/A ${median(values).toFixed(4)}, 95% interval of the median `
+        + `${interval === null ? "n/a (fewer than 6 pairs)" : `${interval.low.toFixed(4)} to ${interval.high.toFixed(4)}`} `
+        + `(lowest ${Math.min(...values).toFixed(4)}, highest ${Math.max(...values).toFixed(4)}, `
+        + `${values.length} pairs)${note}\n`);
   };
+  process.stdout.write("B differs from A only where the 95% interval leaves out 1.\n");
   line("words", ratios.words);
   line("instructions", ratios.instructions, unavailable === null ? "" : ` (${unavailable})`);
   line("cpu", ratios.cpu);

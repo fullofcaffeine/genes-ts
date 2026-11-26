@@ -31,7 +31,7 @@ import { publishArtifacts, recoverArtifacts } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
 import type { HaxeWaitServerEvent } from "./haxe-server/index.js";
 import { establishSessionAuthority } from "./session/authority-migration.js";
-import { moduleRequestArguments } from "./session/effective-invocation.js";
+import { incrementalDescriptorText, moduleRequestArguments } from "./session/effective-invocation.js";
 import type {
   ModuleCompileOutcome,
   PreparedCompilerRequest,
@@ -661,6 +661,17 @@ await withHarness("measured", async (harness) => {
 
 {
   assert.equal(await readProcessCounters(-1), null, "no counters for an impossible process id");
+  assert.equal(await readProcessCounters(2 ** 31), null, "no counters for a pid beyond int32 (no FFI throw)");
+  // `processCounters` also asks Genes for its request measure.
+  assert.equal(
+    JSON.parse(incrementalDescriptorText({ kind: "module", module: "ui.Button", requestMeasure: true }, "d")!)
+      .requestMeasure,
+    true,
+  );
+  assert.equal(
+    "requestMeasure" in JSON.parse(incrementalDescriptorText({ kind: "module", module: "ui.Button" }, "d")!),
+    false,
+  );
   const before = await readProcessCounters(process.pid);
   assert.notEqual(before, null);
   let spin = 0;

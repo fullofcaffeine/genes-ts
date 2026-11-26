@@ -912,6 +912,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #acceptedPreparedDigest: string | null = null;
   /** The checked `modulePreview` option, or `null` without module requests. */
   readonly #modulePreview: ModulePreviewSettings | null;
+  /** `GenesDevelopmentOptions.processCounters`: also asks Genes for its request measure. */
+  readonly #processCounters: boolean;
   /** Previews shown and not yet settled by an accepted generation, by module. */
   readonly #pendingPreviews = new Map<string, PendingPreview>();
   /** Modules whose preview differed from the program result: no more previews. */
@@ -1008,6 +1010,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       options.existingGeneration,
     );
     this.#generationReuse = snapshotGenerationReuse(options.generationReuse);
+    this.#processCounters = options.processCounters === true;
     this.#modulePreview = snapshotModulePreview(
       options.modulePreview,
       this.#generationReuse,
@@ -2335,6 +2338,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             auditModules: reuse.auditModules,
             // Module requests compare an edit with these records.
             moduleRecords: this.#modulePreview !== null,
+            ...(this.#processCounters ? { requestMeasure: true } : {}),
           });
       const generationReport = path.join(requestRoot, GENERATION_REPORT_FILE);
       const boundInvocation = bindHaxeInvocation(
@@ -2845,7 +2849,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         path.join(outputRoot, this.#layout.outputIdentity),
         requestRoot,
         stagedCompilerData?.descriptorPath,
-        Object.freeze({ kind: "module", module }),
+        Object.freeze({
+          kind: "module",
+          module,
+          ...(this.#processCounters ? { requestMeasure: true } : {}),
+        }),
       );
       const reportPath = path.join(requestRoot, GENERATION_REPORT_FILE);
       rmSync(reportPath, { force: true });

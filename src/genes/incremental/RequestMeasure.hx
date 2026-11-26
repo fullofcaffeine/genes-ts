@@ -66,6 +66,13 @@ typedef RequestPhaseMeasure = {
   /**
    * Words that the Haxe process allocated in the phase: minor plus major
    * minus promoted words of `eval.vm.Gc.counters()`, rounded.
+   *
+   * Not stable between runs: OCaml 5.1 adds the free rest of the minor
+   * heap at each minor collection, so a phase in which a collection falls
+   * gets up to one minor heap more (example: `genes.generate` of the same
+   * module request reported 6,149 words in one run and 235,188 in
+   * another). Equal requests in one run give equal words per phase; the
+   * sum over all phases (`RequestMeasureReport.words`) is the stable unit.
    */
   final words: Float;
 
@@ -86,6 +93,15 @@ typedef RequestMeasureReport = {
 
   /** Words allocated from the start of `Generator.use()` to this report. */
   final words: Float;
+
+  /**
+   * Minor collections from the start of `Generator.use()` to this report
+   * (`eval.vm.Gc.quick_stat().minor_collections`). Each one can add up to
+   * one minor heap of words that were never allocated (see
+   * `RequestPhaseMeasure.words`), so two `words` values compare only when
+   * this count is close too.
+   */
+  final minorCollections: Int;
 
   /**
    * The CPU time of the Haxe process since it started, in milliseconds,
@@ -133,9 +149,12 @@ typedef RequestMeasureReport = {
  * `genes.plan.inventory`, `genes.emit.implementation`, `genes.module.check`
  * and others inside).
  *
- * How: `begin` turns the measure on only for a request with a request
- * descriptor (`IncrementalRequest`), so an ordinary build reads no clock
- * and allocates nothing for it. `mark` switches the top phase at a hook
+ * How: `begin` turns the measure on only for a request whose request
+ * descriptor asks for it (`"requestMeasure": true`, `IncrementalRequest`),
+ * so every other request reads no clock and allocates nothing for it. On,
+ * it costs retired instructions: 6.5% of a full request and 4.0% of a
+ * module request of the fixture program (medians of 20 paired runs; 95%
+ * intervals 5.4% to 7.2% and 3.7% to 4.4%). `mark` switches the top phase at a hook
  * boundary; `open` (also through `genes.util.Timer.timer`) starts a nested
  * phase. `report` gives the object that a request report stores.
  *
@@ -167,7 +186,7 @@ class RequestMeasure {
   /** The top phases that hold Genes work which no nested phase names. */
   static final CATCH_ALL = ['genes.after-typing', 'genes.on-generate', 'genes.generate'];
 
-  /** True while a request with a descriptor runs; every step below does nothing otherwise. */
+  /** True while a request that asked for the measure runs; every step below does nothing otherwise. */
   public static var active(default, null) = false;
 
   static final counts: Array<Int> = [for (_ in 0...COUNTERS) 0];
@@ -177,11 +196,12 @@ class RequestMeasure {
   static var order: Array<PhaseTotal> = [];
   static var beginCpu = 0.0;
   static var beginWords = 0.0;
+  static var beginMinorCollections = 0;
 
   /**
    * Starts the measure of a new request, or turns it off. `Generator.use()`
-   * calls it first, with `on` true only when the request has a request
-   * descriptor. Every count starts again here, also when a warm server kept
+   * calls it first, with `on` true only when the request descriptor has
+   * `"requestMeasure": true`. Every count starts again here, also when a warm server kept
    * the macro state of an earlier request.
    */
   public static function begin(on: Bool): Void {
@@ -206,6 +226,7 @@ class RequestMeasure {
     #end
     beginCpu = cpu();
     beginWords = words();
+    beginMinorCollections = minorCollections();
     push('genes.init', true);
   }
 
@@ -328,6 +349,7 @@ class RequestMeasure {
       format: FORMAT,
       cpuMs: milliseconds(now.cpu - beginCpu),
       words: wholeWords(now.words - beginWords),
+      minorCollections: minorCollections() - beginMinorCollections,
       processCpuStartMs: milliseconds(beginCpu),
       processCpuEndMs: milliseconds(now.cpu),
       unnamedCpuMs: milliseconds(unnamed),
@@ -438,6 +460,15 @@ class RequestMeasure {
   /** `value` rounded to a whole number of words, kept as a `Float` (counts pass 2^31). */
   static function wholeWords(value: Float): Float
     return Math.ffloor(value + 0.5);
+
+  /** Minor collections since the process started. */
+  static function minorCollections(): Int {
+    #if eval
+    return Std.int(eval.vm.Gc.quick_stat().minor_collections);
+    #else
+    return 0;
+    #end
+  }
 
   /** Words that the process allocated since it started. */
   static function words(): Float {
