@@ -430,6 +430,13 @@ owns resolution.
   imports).
 - For dotted exports (e.g. `"Dropdown.Menu"`), prefer using the helper from a
   local scope (it handles local aliasing correctly).
+- Each Haxe module gets its own hidden extern for each import: the name of
+  the extern includes the module that calls the helper. So when two modules
+  import the same export, the source map of each module points its import
+  line at the module's own first call. Before, the two
+  modules shared one extern, positioned at the call of the module that Haxe
+  typed first, so a warm compilation server could write other source maps
+  than a cold build.
 
 ---
 

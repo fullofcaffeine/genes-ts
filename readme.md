@@ -499,6 +499,15 @@ the defines into its macro context before Genes runs); Genes deletes those
 two files after it reads them and leaves the folders. See
 `genes.incremental.HaxeDependencies`.
 
+`genes.ts.Imports` makes a hidden extern class (a holder) for each import,
+and each module makes its own holders. The import line in a module's source
+map names that module's own call, so it does not depend on which module
+Haxe typed first; before, two modules that imported the same thing shared
+one holder, and a warm request could give other source maps than a cold
+build. A holder has no output file, but a preview is refused
+(`module-may-leave`) when its module no longer makes one of its holders,
+because a full build no longer has that holder.
+
 Genes reads the Haxe arguments with the Haxe 4.3.7 option table
 (`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as
 `--macro x`. An init macro given before `--macro genes.Generator.use()` can

@@ -445,7 +445,32 @@ class Imports {
     return parts;
   }
 
+  /**
+   * Returns the hidden extern holder class for one import of the module that
+   * Haxe is typing, and defines it on first use.
+   *
+   * A holder is an extern class in `HOLDER_PACKAGE` whose metadata
+   * (`@:jsRequire`, `@:genes.importAlias`) makes Genes print the import. Its
+   * position is the module argument of the first call that Haxe types in
+   * that module, and the import line of the module's source map names that
+   * position.
+   *
+   * Why the name includes the module (genes-f8vc.14.43): when two modules
+   * share one holder, Haxe makes it at the call site of whichever module it
+   * types first, and both source maps name that position. A warm compilation
+   * server does not always type the modules in the order of a cold build:
+   * if `a.reach.First` adds an import that `mr.reach.Second` already holds,
+   * the warm request reuses `Second`'s holder while a cold build makes it in
+   * `First`. So every module makes its own holder, positioned in its own
+   * file, and no edit of one module can move the holder of another. Two
+   * holders with the same import in one module share one import line
+   * (`Dependencies.pushAndGet`), for example a module's own holder and one
+   * that an inline call of another module brings in.
+   */
   private static function ensureExternImportType(spec: ImportTypeSpec): TypePath {
+    // The module that Haxe is typing, which makes this holder. Haxe gives
+    // the holder that module's file (`define_type` in `macroContext.ml`).
+    final definer = Context.getLocalModule();
     final key = (switch spec.kind {
       case Default: 'default';
       case Named: 'named';
@@ -460,7 +485,9 @@ class Imports {
       + '|'
       + (spec.native != null ? spec.native : '')
       + '|'
-      + (spec.importAttributeType != null ? spec.importAttributeType : '');
+      + (spec.importAttributeType != null ? spec.importAttributeType : '')
+      + '|'
+      + definer;
 
     final hash = Md5.encode(key).substr(0, 12);
     final pack = HOLDER_PACKAGE.split('.');
@@ -503,14 +530,13 @@ class Imports {
       pos: spec.pos
     });
 
-    // The module that Haxe is typing, which makes this holder: Haxe gives
-    // the holder that module's file (`define_type` in `macroContext.ml`), so
+    // Record the module that makes this holder, so
     // `genes.incremental.HaxeDependencies` can count the holder's entry of
     // Haxe's dependency list with that module (genes-f8vc.14.41). Example:
     // `@:genes.importDefiner("app.ui.Card")`.
     meta.push({
       name: HOLDER_DEFINER_META,
-      params: [macro $v{Context.getLocalModule()}],
+      params: [macro $v{definer}],
       pos: spec.pos
     });
 

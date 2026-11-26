@@ -612,9 +612,11 @@ class HaxeDependencies {
       // module) adds an entry, and then no block counts, whatever the order
       // of the list (`sort_types`). Positions play no part: a holder that
       // Haxe made while it typed another module has that module's file
-      // (`probe8-displaced-holder-and-module-dependency`). A holder is
-      // shared by name: a second module that imports the same thing reuses
-      // it, its own file has one entry, and its block counts as before.
+      // (`probe8-displaced-holder-and-module-dependency`). Each module makes
+      // its own holders: the holder's name includes the module
+      // (genes-f8vc.14.43). A module that inlines another module's function
+      // that calls `Imports` loads that module's holder; its own file has
+      // one entry, and its block counts as before.
       final entryCount = entries.get(file) ?? 0;
       if (entryCount != blocks.length
         || entryCount != 1 + (holdersMadeBy.get(module) ?? 0))

@@ -4295,7 +4295,7 @@ class ModuleRequest {
         return refuse('module-may-leave',
           'no module that stays in the program is known to load ' +
           leaving.slice(0, 5)
-          .join(', ') + ', so a full build may drop its file');
+          .join(', ') + ', so a full build may drop it');
     }
     // The strict rule: the module uses exactly what it used in the stored
     // full request (see the class comment). Its signature (every field,
@@ -4754,9 +4754,10 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the stored modules with an output file that a full build after
-   * the edit may no longer load, sorted: those that no chain of
-   * `DceStdUses.dependenciesOf` reaches from a module that surely stays.
+   * Returns the stored modules with an output file, and the stored
+   * `genes.ts.Imports` holders, that a full build after the edit may no
+   * longer load, sorted: those that no chain of `DceStdUses.dependenciesOf`
+   * reaches from a module that surely stays.
    *
    * What surely stays: every module of this request (its program is a part
    * of the full program), the module of the stored `--main` class, and the
@@ -4777,6 +4778,18 @@ class ModuleRequest {
    * Example: `mr.Card` drops `import mr.OnlyHere;` and nothing else loads
    * `mr.OnlyHere`: it is returned, because a full build drops
    * `mr/OnlyHere.ts`.
+   *
+   * Why holders count (genes-f8vc.14.44): a holder has no output file, but
+   * it is a module of the stored records, and a preview advances only the
+   * records of the requested module (`previewCommitted`). When `a.Card`
+   * replaces its only `Imports.namedImport('node:path', 'join')` call with
+   * a local function, a full build no longer has `a.Card`'s holder, while
+   * the advanced records would keep it. Each module makes its own holders
+   * (`Imports.ensureExternImportType`), so the holder that `a.Card` no
+   * longer makes is reached by no chain, and the edit is refused. Another
+   * module usually loads `a.Card`'s holder only through an inline function
+   * of `a.Card`, and a change of an inline body is refused before this
+   * check (`public-shape-changed`, `probe9e-inline-holder-of-another-module`).
    */
   static function modulesThatMayLeave(module: String,
       newDependencies: Array<String>, rootModule: String): Array<String> {
@@ -4803,8 +4816,14 @@ class ModuleRequest {
         for (edge in edges)
           visit(edge);
     }
+    final holderPrefix = genes.ts.Imports.HOLDER_PACKAGE + '.';
+    final candidates = GenerationCache.storedModules().concat([
+      for (name in storedEpochs.keys())
+        if (StringTools.startsWith(name, holderPrefix)) name
+    ]);
+    candidates.sort(compareStrings);
     return [
-      for (name in GenerationCache.storedModules())
+      for (name in candidates)
         if (name != rootModule && !reached.exists(name)) name
     ];
   }
