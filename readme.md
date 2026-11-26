@@ -501,7 +501,10 @@ must equal the answer of the last full request. A typedef of the edited
 module that writes facts at fields of another file, such as
 `{ > Base.BaseProps, ... }`, must write the same facts as in the full
 request (`foreign-facts-changed` otherwise): another module prints those
-fields, and a preview prints only the edited module.
+fields, and a preview prints only the edited module. For the same reason
+the fields of other files that its typedefs copy must stay the same, also
+without a fact (`foreign-fields-changed`): a module that extends such a
+typedef writes its facts there.
 
 ## Async/await sugar (optional)
 

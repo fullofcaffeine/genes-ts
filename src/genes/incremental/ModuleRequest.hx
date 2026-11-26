@@ -75,6 +75,17 @@ typedef ModuleRecord = {
    * request in which they differ (`foreign-facts-changed`, genes-f8vc.14.27).
    */
   final foreignFacts: Array<String>;
+
+  /**
+   * The source positions of the fields of other files that the module's
+   * typedef bodies hold, with or without a fact (`foreignFieldsOf`), sorted.
+   * Example: `src/ui/Frame.hx:120:131` for `typedef First<X> = {>
+   * ui.Frame.Frame<X>, extra: Int}`. A typedef of another module that
+   * extends `First<Tone>` writes its facts at these fields. `decide`
+   * refuses a request in which they differ (`foreign-fields-changed`, review
+   * round 2 of genes-ts #273).
+   */
+  final foreignFields: Array<String>;
 }
 
 /**
@@ -652,7 +663,9 @@ typedef ModuleRecordsReport = {
  *   built to answer its React Fast Refresh split) has the answer of the
  *   stored full request (`planFactAnswers`, `answers-changed`), and the
  *   module's typedefs write the same facts at fields of other files as
- *   there (`foreign-facts-changed`, genes-f8vc.14.27);
+ *   there (`foreign-facts-changed`, genes-f8vc.14.27) and hold the same
+ *   fields of other files, with or without a fact (`foreign-fields-changed`,
+ *   because a module that extends such a typedef writes its facts there);
  * - Haxe's own printer was not used, nothing was looked up by name outside
  *   the inventory, the output folder is not the program's, and no source of
  *   its maps is inside a folder where the program and preview output paths
@@ -3310,7 +3323,8 @@ class ModuleRequest {
         skeleton: references.skeleton,
         shape: shapes.get(module),
         positions: reuse ? earlier.positions : importedPositions(own),
-        foreignFacts: genes.ts.SignatureCache.foreignAnonFactsOf(module)
+        foreignFacts: genes.ts.SignatureCache.foreignAnonFactsOf(module),
+        foreignFields: reuse ? earlier.foreignFields : foreignFieldsOf(own)
       });
     }
     final seen = new Map<String, String>();
@@ -3510,7 +3524,8 @@ class ModuleRequest {
       skeleton: facts.references.skeleton,
       shape: shape,
       positions: importedPositions(facts.types),
-      foreignFacts: genes.ts.SignatureCache.foreignAnonFactsOf(module)
+      foreignFacts: genes.ts.SignatureCache.foreignAnonFactsOf(module),
+      foreignFields: foreignFieldsOf(facts.types)
     });
     storedEpochs.set(module, epochs);
     final targetFacts = requestFacts.get(module);
@@ -4355,14 +4370,16 @@ class ModuleRequest {
     // After a structural edit the module can ask whether a module that it
     // imports now reaches it (`cycle`); `structuralRefusal` proved from the
     // stored runtime requests that none does.
-    // The facts that the module's typedefs write at fields of other files
-    // (`{> Other.Frame<Tone>, ...}`). Another module prints those fields, and
-    // a preview prints only this module, so a change is a refusal. With the
-    // same facts, the captures of this module write each such field as in
-    // the full request; the other writers are the modules of this request
-    // (the stored ones, checked above) and importers, which stay equal
-    // because the visible public shape is equal. `planFactAnswers` also
-    // needs the same order of the writers (see there).
+    // The fields of other files that the module's typedefs hold
+    // (`{> Other.Frame<X>, ...}`, `foreignFieldsOf`), with or without a
+    // fact, and the facts that their captures write there. Another module
+    // prints those fields, and a preview prints only this module, so a
+    // change is a refusal. A module outside this request that extends such
+    // a typedef (`{> First<Tone>, ...}`) is typed again in the next full
+    // build and writes its facts at the fields that the typedef holds: with
+    // the same fields, at the same places as in the full request.
+    // `planFactAnswers` also needs the same order of the writers (see
+    // there).
     final foreignFacts = genes.ts.SignatureCache.foreignAnonFactsOf(module);
     if (foreignFacts.join('\n') != record.foreignFacts.join('\n'))
       return refuse('foreign-facts-changed',
@@ -4370,6 +4387,14 @@ class ModuleRequest {
         'than in the full request, which other modules read: ' +
         firstDifference(record.foreignFacts.join('\n'),
           foreignFacts.join('\n')));
+    final foreignFields = foreignFieldsOf(facts.types);
+    if (foreignFields.join('\n') != record.foreignFields.join('\n'))
+      return refuse('foreign-fields-changed',
+        'a typedef of $module holds other fields of other files than in the '
+        + 'full request, where typedefs of other modules that extend it write '
+        + 'their facts: '
+        + firstDifference(record.foreignFields.join('\n'),
+          foreignFields.join('\n')));
     final wrong = wrongAnswers(recorded.answers, entry.answers, ownFiles,
       structural ? test -> !reachesAtRuntime(test,
         module) : null).concat(planFactAnswers(module));
@@ -5230,11 +5255,21 @@ class ModuleRequest {
    *
    * - every module of this request other than the requested one is the
    *   stored one (`decide` checked its epochs, its sources and that Haxe did
-   *   not type it again), so its captures are the stored ones. A module
-   *   outside this request that imports the requested one is typed again in
-   *   the next full build. Its captures stay equal because the visible public
-   *   shape of the requested module is equal (`public-shape-changed`; the
-   *   values of an enum abstract are inline bodies in the shape);
+   *   not type it again), so its captures are the stored ones;
+   * - a module outside this request that imports the requested one is typed
+   *   again in the next full build. Its typedefs type the same, because the
+   *   visible public shape of the requested module is equal
+   *   (`public-shape-changed`; the values of an enum abstract are inline
+   *   bodies in the shape). But a capture writes at the positions of fields,
+   *   which the shape does not hold. Such a module writes at the fields of
+   *   its own typedefs, of unchanged modules, and of the requested module's
+   *   typedefs that it extends. These last are fields of the requested
+   *   module's own file, whose facts the module's own questions compare in
+   *   source order (`wrongAnswers`), or fields of other files that its
+   *   typedefs hold, which must be the stored ones (`foreign-fields-changed`,
+   *   review round 2 of genes-ts #273: `First<X> = {> Frame<X>, ...}`
+   *   becomes `{> Frame2<X>, ...}`, and an importer's `{> First<Tone>, ...}`
+   *   then writes at `Frame2.value`);
    * - the requested module writes the same facts at fields of other files as
    *   in the full request (`foreign-facts-changed`);
    * - the order of the captures follows Haxe's list of declarations, which
@@ -5495,6 +5530,8 @@ class ModuleRequest {
           buffer.add('  position $line\n');
       for (line in record.foreignFacts)
         buffer.add('  foreign-fact $line\n');
+      for (line in record.foreignFields)
+        buffer.add('  foreign-field $line\n');
     }
     final classes = storedClassFacts.get(module);
     if (classes != null) {
@@ -6265,6 +6302,78 @@ class ModuleRequest {
     }
     lines.sort(compareStrings);
     return lines.join('\n');
+  }
+
+  /**
+   * Returns the source positions (`<file>:<min>:<max>`, as the facts of
+   * `genes.ts.SignatureCache` key them) of each field of an anonymous
+   * structure that a typedef of `types` holds and that another file
+   * declares, sorted, each once. It reads the typed typedefs, so a request
+   * whose `SignatureCache` facts came from kept buckets gives the same list.
+   *
+   * Why (review round 2 of genes-ts #273): a typedef that copies the fields
+   * of a typedef of another file (`typedef First<X> = {> Frame<X>, extra:
+   * Int}`) holds those fields with their own positions. A typedef of
+   * another module that extends it (`typedef Use = {> First<Tone>, ...}`)
+   * writes its facts there, and both files print them. When `First` copies
+   * `Frame2` instead, the signature and the visible shape stay, but a full
+   * build types that other module again and it writes at the fields of
+   * `Frame2`. A module request does not see that module, so the list of
+   * such fields must stay (`foreign-fields-changed`).
+   *
+   * The walk is the one of `SignatureCache.captureAnonFieldTypes`: the
+   * fields of an anonymous structure and their types, the argument of
+   * `Null`, the type arguments of a named type (not its body), function
+   * arguments and results. A field of a file of the module itself is left
+   * out, so a literal edit that moves the module's own fields changes
+   * nothing; a typedef that a macro made with fields of another file counts
+   * as long as those fields stay the same.
+   */
+  static function foreignFieldsOf(types: Array<Type>): Array<String> {
+    final ownFiles = new Map<String, Bool>();
+    for (type in types) {
+      final pos = positionOf(type);
+      if (pos != null)
+        ownFiles.set(Context.getPosInfos(pos).file, true);
+    }
+    final found = new Map<String, Bool>();
+    function walk(type: Type, depth: Int): Void {
+      if (depth > 64)
+        return;
+      switch type {
+        case TLazy(force):
+          walk(force(), depth + 1);
+        case TAnonymous(_.get() => anonymous):
+          for (field in anonymous.fields) {
+            final info = Context.getPosInfos(field.pos);
+            if (!ownFiles.exists(info.file))
+              found.set('${info.file}:${info.min}:${info.max}', true);
+            walk(field.type, depth + 1);
+          }
+        case TInst(_, params) | TEnum(_, params) | TAbstract(_, params) |
+          TType(_, params):
+          for (param in params)
+            walk(param, depth + 1);
+        case TFun(args, ret):
+          for (arg in args)
+            walk(arg.t, depth + 1);
+          walk(ret, depth + 1);
+        case TDynamic(inner) if (inner != null):
+          walk(inner, depth + 1);
+        case TMono(reference) if (reference.get() != null):
+          walk(reference.get(), depth + 1);
+        default:
+      }
+    }
+    for (type in types)
+      switch type {
+        case TType(reference, _):
+          walk(reference.get().type, 0);
+        default:
+      }
+    final keys = [for (key in found.keys()) key];
+    keys.sort(compareStrings);
+    return keys;
   }
 
   /**

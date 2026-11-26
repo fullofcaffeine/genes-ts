@@ -3694,6 +3694,46 @@ function anonFactGroups(): ReadonlyArray<Group> {
           apply: () => edit("Card.hx", "First = {> Frame<Tone>, extra: Int}", "First = {> Frame2<Tone>, extra: Int}"),
           module: "mr.Card", expect: "foreign-facts-changed" }
       ]
+    },
+    {
+      // Review round 2 of genes-ts #273 (Fable): the generic typedef
+      // `First<X>` of the edited module copies the field `value` of
+      // `mr.Frame`, and writes no fact there. `mr.User`, outside the module
+      // request, extends `First<Tone>` and so writes the fact at the field
+      // that `First` copies. When `First` copies `Frame2.value` instead, the
+      // signature and the visible shape stay, and a full build types
+      // `mr.User` again, which then writes at `Frame2.value`: cold prints
+      // `mr/Card.ts` and `mr/Frame.ts` again. The printed field types are
+      // genes-f8vc.14.31; the row compares preview, full request and cold
+      // only with each other.
+      name: "anon-generic-importer",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.Card.label());", "trace(mr.User.make().more);"]),
+        "mr/Frame.hx": frame,
+        "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
+          + `typedef First<X> = {> Frame<X>, extra: Int}\n\n`
+          + `private typedef Second<X> = {> Frame2<X>, other: Int}\n\n`
+          + `class Card {\n  public static function label(): String {\n`
+          + `    final two: Frame2<Int> = {value: 2};\n`
+          + `    return 'card ' + FrameTools.describe2(two);\n  }\n}\n`,
+        "mr/User.hx": `package mr;\n\nimport mr.Card;\nimport mr.Frame;\n\n`
+          + `typedef Use = {> First<Tone>, more: Int}\n\n`
+          + `class User {\n  public static function make(): Use {\n`
+          + `    return {value: Warm, extra: 1, more: 2};\n  }\n}\n`
+      },
+      steps: [
+        // Refused: `mr.Card` prints `First`, which reads the fact at
+        // `Frame.value` that only `mr.User` writes, and `mr.User` is not in
+        // the module request, so the request has no fact there while the
+        // full request has the one of `mr.User`.
+        { id: "anon: literal edit of a module whose generic typedef an importer extends (answers-changed)",
+          apply: () => edit("Card.hx", "'card '", "'card! '"),
+          module: "mr.Card", expect: "answers-changed" },
+        { id: "anon: the generic typedef copies the fields of another typedef (foreign-fields-changed)",
+          apply: () => edit("Card.hx", "First<X> = {> Frame<X>, extra: Int}", "First<X> = {> Frame2<X>, extra: Int}"),
+          module: "mr.Card", expect: "foreign-fields-changed" }
+      ]
     }
   ];
 }

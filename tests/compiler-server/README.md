@@ -947,12 +947,33 @@ review of genes-ts #273 (row of Fable) check it, both under `-dce std`:
   module changes how that typedef prints); the row compares preview, full
   request and cold only with each other.
 
+`anon-generic-importer` (review round 2 of #273): the edited `mr.Card`
+has `typedef First<X> = {> Frame<X>, extra: Int}`, which writes no fact,
+and `mr.User`, outside the module request, has `typedef Use = {>
+First<Tone>, more: Int}`, so it writes the fact at `Frame.value`. A literal
+edit of `mr.Card` is refused (`answers-changed`: `mr.Card` prints `First`,
+whose fact only `mr.User` writes). Then `First` extends `Frame2<X>`: the
+signature and the visible shape stay, and a full build types `mr.User`
+again, which writes at `Frame2.value`. On ad63a932 and on 5fd3552e the
+module request previewed (`STALE mr/Card.ts mr/Card.ts.map mr/Frame.ts
+mr/Frame.ts.map mr/User.ts.map`); now it is refused
+(`foreign-fields-changed`): the fields of other files that the module's
+typedefs hold, with or without a fact, must be the stored ones
+(`ModuleRecord.foreignFields`, read from the typed typedefs, so a request
+whose facts came from kept buckets reads the same list).
+
 An equal plan answer is a full build's answer when the same typedef
 captures write each field in the same order. The modules of the request
-are the stored ones; an importer outside the request stays equal because
-the visible public shape of the edited module is equal; the edited module
-writes the same foreign facts. The order of the captures follows Haxe's
-declaration list, which a module request does not prove.
+are the stored ones. An importer outside the request is typed again; its
+types are the same because the visible public shape of the edited module
+is equal, but a capture writes at field positions, which the shape does
+not hold. It writes at fields of its own typedefs, of unchanged modules and
+of the edited module's typedefs that it extends: fields of the edited
+module's own file, which the module's own questions compare in source
+order, or fields of other files that its typedefs hold, which must be the
+stored ones (`foreign-fields-changed`). The edited module writes the same
+foreign facts (`foreign-facts-changed`). The order of the captures follows
+Haxe's declaration list, which a module request does not prove.
 
 An `answers-changed` reason now lists every difference (at most 40), each
 with the stored answer or "not asked".
