@@ -333,7 +333,8 @@ async function main(): Promise<void> {
     edits += 1;
     // Haxe 4.3.7 compares file times in whole seconds; a session sends
     // this for each saved file before the next request. Both servers read
-    // the shared workspace, so both must forget the old text.
+    // the shared workspace, so both must forget the old text. The loop goes
+    // by server, not by side, so `--swap` needs no branch here.
     for (const server of serverA === serverB ? [serverA] : [serverA, serverB]) {
       await sendTo(server, ["--display", JSON.stringify({
         jsonrpc: "2.0", id: 1, method: "server/invalidate", params: { file: editedFile }
@@ -580,8 +581,8 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   process.stdout.write("B differs from A only where the 95% interval leaves out 1. The interval covers the "
     + "noise between pairs of this run only; each side has its own server process, and an offset between "
     + "the two processes counts as a difference (same-source medians fell between 0.998 and 1.006). "
-    + "A difference under about 1% is unproven until a second run with --swap also gives an interval "
-    + "that leaves out 1 on the same side.\n");
+    + "A difference under about 1% is unproven until each run, this one and one with --swap, gives an "
+    + "interval that leaves out 1 on the same side.\n");
   if (swap) process.stdout.write("sides swapped: B ran on the first server, in the A positions; ratios are B/A.\n");
   const span = (values: number[]): string =>
     values.length === 0 ? "n/a" : `${Math.min(...values)} to ${Math.max(...values)}`;
