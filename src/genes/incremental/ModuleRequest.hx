@@ -5165,7 +5165,7 @@ class ModuleRequest {
         return false;
       // A key that names a typedef's copy of a field ends with
       // `@<typedef>` (`SignatureCache.copyKey`, genes-f8vc.14.31).
-      final mark = answer.name.indexOf('@');
+      final mark = genes.ts.SignatureCache.copyMarkIndex(answer.name);
       final position = mark < 0 ? answer.name : answer.name.substr(0, mark);
       final copy = mark < 0 ? '' : answer.name.substr(mark);
       final parts = position.split(':');

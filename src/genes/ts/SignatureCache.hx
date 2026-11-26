@@ -674,8 +674,21 @@ class SignatureCache {
   static inline function copyKey(pos: Position, owner: String): String
     return posKey(pos) + COPY_MARK + owner;
 
-  /** The separator of a `copyKey`; a `typedefKey` holds no `@`. */
+  /** The separator of a `copyKey`; a `typedefKey` holds no `@` and no `:`. */
   static inline final COPY_MARK = '@';
+
+  /**
+   * Returns the index of the `@` that starts the typedef part of a fact key
+   * (`copyKey`), or -1 for a position key (`posKey`). Only an `@` after the
+   * last `:` counts: a file path can hold `@` (`node_modules/@scope`, a
+   * pnpm `name@version` folder, an e-mail home folder), but a typedef key
+   * holds neither `@` nor `:`. Every reader of a key splits it with this
+   * function (review of genes-ts #276).
+   */
+  public static function copyMarkIndex(key: String): Int {
+    final mark = key.lastIndexOf(COPY_MARK);
+    return mark > key.lastIndexOf(':') ? mark : -1;
+  }
 
   /**
    * Reads the body of the typedef `definition` with `read` and returns its
@@ -723,7 +736,7 @@ class SignatureCache {
     final copied = map.get(key);
     if (copied != null)
       return copied;
-    final mark = key.indexOf(COPY_MARK);
+    final mark = copyMarkIndex(key);
     return mark < 0 ? null : map.get(key.substr(0, mark));
   }
 
@@ -1266,7 +1279,7 @@ class SignatureCache {
 
   /** Returns the file of a `posKey` (`<file>:<min>:<max>`). */
   static function keyFile(fullKey: String): String {
-    final mark = fullKey.indexOf(COPY_MARK);
+    final mark = copyMarkIndex(fullKey);
     final key = mark < 0 ? fullKey : fullKey.substr(0, mark);
     final last = key.lastIndexOf(':');
     final middle = last <= 0 ? -1 : key.lastIndexOf(':', last - 1);

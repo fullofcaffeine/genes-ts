@@ -3030,21 +3030,35 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Returns the typedef of a field access's receiver type (through `Null`
-   * and lazy types), or `null` when the receiver has no typedef type. Its
-   * copy of an anonymous field has its own facts (genes-f8vc.14.31).
-   * Example: for `writer.value` with `writer: Writer` and `typedef Writer =
-   * {> S<Tone>, w: Int}`, the facts of `Writer`'s copy of `S.value`.
+   * Returns the typedef of a field access's receiver type (through `Null`,
+   * lazy types and aliases), or `null` when the receiver has no typedef
+   * type. Its copy of an anonymous field has its own facts
+   * (genes-f8vc.14.31). Example: for `writer.value` with `writer: Writer`
+   * and `typedef Writer = {> S<Tone>, w: Int}`, the facts of `Writer`'s copy
+   * of `S.value`. An alias (`typedef A = Writer`) leads to the first typedef
+   * whose body is not another typedef, so `a.value` reads the same facts
+   * (review of genes-ts #276).
    */
-  static function receiverTypedef(type: Type): Null<DefType> {
+  static function receiverTypedef(type: Type, depth = 0): Null<DefType> {
+    if (depth > 32)
+      return null;
     return switch type {
       case TLazy(resolve):
-        receiverTypedef(resolve());
+        receiverTypedef(resolve(), depth + 1);
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
         TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        receiverTypedef(inner);
+        receiverTypedef(inner, depth + 1);
       case TType(reference, _):
-        reference.get();
+        final definition = reference.get();
+        switch definition.type {
+          case TType(_.get() => {pack: [], name: "Null"}, _):
+            definition;
+          case TType(_, _) | TLazy(_):
+            final next = receiverTypedef(definition.type, depth + 1);
+            next == null ? definition : next;
+          default:
+            definition;
+        }
       default:
         null;
     }

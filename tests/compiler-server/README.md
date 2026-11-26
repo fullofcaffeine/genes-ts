@@ -1019,6 +1019,19 @@ was refused on 906e4b35 (`answers-changed`, because `mr.Card` printed
 cold. The guard rows keep their bodies on their own lines, so that their
 edits move no field position of the module's own file.
 
+`anon-at-path` and `anon-at-path-dce-full` (review of genes-ts #276, row of
+Fable): `kit.Kit` lies on the class path `lib@v1`, as a file under
+`node_modules/@scope` or a pnpm `name@version` folder does. A fact key is
+`<file>:<min>:<max>` or `<file>:<min>:<max>@<typedef>`. On dcb0fd15 three
+readers split a key at its first `@`, so the literal edit of `kit.Kit` was
+refused (`foreign-facts-changed`, its own fact listed as foreign), while
+the same edit of `mr.Plain` under `src` previewed. Now
+`SignatureCache.copyMarkIndex` splits at the `@` after the last `:` (a
+typedef key holds neither), and both edits preview, equal to cold. On
+906e4b35, which has no copy keys, both previewed. The third step requires
+that `kit/Kit.ts` prints the values of `Mood`; the review predicted a loss
+there under `-dce full`, but dcb0fd15 printed them too.
+
 The two guards `foreign-facts-changed` and `foreign-fields-changed` stay.
 With the copy keys they are no longer needed by these rows: with both
 guards disabled (a scratch copy of the source), the edits of

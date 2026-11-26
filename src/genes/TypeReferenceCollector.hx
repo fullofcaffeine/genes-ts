@@ -139,10 +139,13 @@ class TypeReferenceCollector {
           && CompilerInternal.isSemanticOnlyType(definition.meta)) {
           // Keep dependency planning identical to the type printer: the alias
           // itself has no output identity, so only its applied value can own
-          // imported/native dependencies.
-          collect(definition.type.applyTypeParameters(definition.params,
-            params),
-            '$rule.semantic-only-typedef', definition.pos);
+          // imported/native dependencies. As the printer, read the facts of
+          // the fields that the alias copies under its own name
+          // (genes-f8vc.14.31, review of genes-ts #276).
+          final body = definition.type.applyTypeParameters(definition.params,
+            params);
+          genes.ts.SignatureCache.readingTypedefBody(definition,
+            () -> collect(body, '$rule.semantic-only-typedef', definition.pos));
         } else
           switch [definition, params] {
             case [

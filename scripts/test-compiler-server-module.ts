@@ -3816,8 +3816,59 @@ function anonFactGroups(): ReadonlyArray<Group> {
             apply: () => recordCopyOrder(order) }
         ]
       };
-    })
+    }),
+    ...(["std", "full"] as const).map((dce): Group => ({
+      // Review of genes-ts #276 (row of Fable): a class path that holds `@`
+      // (`node_modules/@scope`, a pnpm `name@version` folder). Fact keys are
+      // `<file>:<min>:<max>` or `<file>:<min>:<max>@<typedef>`; a reader that
+      // split a key at its first `@` took the folder for a typedef copy. Then
+      // the module request of `kit.Kit` listed its own fact as foreign
+      // (`foreign-facts-changed`), and a printer of `KitShape` missed the
+      // declaration's fact. `SignatureCache.copyMarkIndex` splits at the `@`
+      // after the last `:`. The third step requires that `kit/Kit.ts` prints
+      // the values of `Mood`. The review predicted a loss there under
+      // `-dce full`; dcb0fd15 printed them too, because the printer then
+      // reads the enum abstract itself, so the step guards the output only.
+      name: `anon-at-path${dce === "std" ? "" : "-dce-full"}`,
+      dce,
+      extraArgs: ["-cp", "lib@v1"],
+      files: {
+        "mr/Main.hx": mainWith(["trace(kit.Kit.label());", "trace(mr.Plain.label());"]),
+        "mr/Plain.hx": `package mr;\n\nenum abstract PlainMood(String) {\n  var Calm = 'calm';\n  var Loud = 'loud';\n}\n\n`
+          + `class Plain {\n  public static function label(): String {\n    final shape: PlainShape = {mood: Calm, size: 1};\n    return 'plain ' + shape.size;\n  }\n}\n\n`
+          + `typedef PlainShape = {mood: PlainMood, size: Int}\n`,
+        "../lib@v1/kit/Kit.hx": `package kit;\n\nenum abstract Mood(String) {\n  var Calm = 'calm';\n  var Loud = 'loud';\n}\n\n`
+          + `class Kit {\n  public static function label(): String {\n    final shape: KitShape = {mood: Calm, size: 1};\n    return 'kit ' + shape.size;\n  }\n}\n\n`
+          + `typedef KitShape = {mood: Mood, size: Int}\n`
+      },
+      steps: [
+        { id: `anon: literal edit of a module under src (${dce})`,
+          apply: () => edit("Plain.hx", "'plain '", "'plain! '"),
+          module: "mr.Plain", expect: "preview" },
+        { id: `anon: literal edit of a module on a class path that holds @ (${dce})`,
+          apply: () => editSource("../lib@v1/kit/Kit.hx", "'kit '", "'kit! '"),
+          module: "kit.Kit", expect: "preview" },
+        { id: `anon: kit/Kit.ts prints the values of the enum abstract (${dce})`,
+          apply: () => requireOutput("kit/Kit.ts", /mood: "calm" \| "loud"/,
+            `KitShape prints the values of Mood (${dce})`) }
+      ]
+    }))
   ];
+}
+
+/**
+ * Requires that `file` of the last full request (which the driver found
+ * equal to cold) matches `pattern`. With `--observe` it prints the file
+ * instead of failing.
+ */
+function requireOutput(file: string, pattern: RegExp, what: string): void {
+  const text = readFileSync(path.join(folder("program"), file), "utf8");
+  if (pattern.test(text))
+    return;
+  if (observe)
+    process.stdout.write(`OUTPUT-MISSING ${what}\n${text}\n`);
+  else
+    ok(false, `${file} does not match ${pattern}: ${what}`);
 }
 
 /** `mr/Frame.ts` of the full request of each `anon-copy-order-` group (genes-f8vc.14.31). */
