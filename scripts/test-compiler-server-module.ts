@@ -349,6 +349,15 @@ type Group = {
   /** The `--main` class of the full requests; `mr.Main` when not given. */
   readonly main?: string;
   /**
+   * More roots of the full requests only (genes-f8vc.14.12): class-name
+   * arguments and `--macro include(...)` lines. A module request leaves
+   * them out, as the development session does
+   * (`moduleRequestArguments` of `tooling/src/session`).
+   */
+  readonly programRoots?: ReadonlyArray<string>;
+  /** Give `programRoots` before `--macro genes.Generator.use()` instead of after the class paths. */
+  readonly rootsBeforeGenes?: boolean;
+  /**
    * Extra Haxe arguments given before `--macro genes.Generator.use()`: an
    * after-typing callback registered here runs after the passes of Genes.
    */
@@ -2944,10 +2953,395 @@ function chainGroups(): ReadonlyArray<Group> {
   ];
 }
 
+/** Writes a new file under `src/` (or one outside it, with `../`) and moves its time. */
+function addSource(relative: string, text: string): void {
+  const file = path.join(workspace, "src", relative);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  touch(file);
+  saved.add(file);
+}
+
+/** Deletes a file under `src/`. */
+function removeSource(relative: string): void {
+  const file = path.join(workspace, "src", relative);
+  rmSync(file);
+  saved.add(file);
+}
+
+/** A class `<pack>.<name>` whose `text()` returns `literal` and calls each of `uses`. */
+function rootClass(pack: string, name: string, literal: string,
+    uses: ReadonlyArray<string> = [], imports: ReadonlyArray<string> = []): string {
+  return `package ${pack};\n\n${imports.map((module) => `import ${module};\n`).join("")}`
+    + `\nclass ${name} {\n  public static function text(): String {\n`
+    + `    return '${literal}'${uses.map((use) => ` + ' ' + ${use}`).join("")};\n  }\n}\n`;
+}
+
+/**
+ * Programs with roots beside `--main` (genes-f8vc.14.12): a class-name
+ * argument, a recursive `--macro include(...)`, a non-recursive one, and
+ * a program shaped like Caffeine's development build (`--main`, four
+ * non-recursive includes, `-dce std`). Only the full requests have these
+ * roots; a module request leaves them out, as the development session
+ * does. Each root holds a module that only the root brings into the program
+ * and a module that only that module imports. Before genes-f8vc.14.12
+ * Genes knew only the `--main` root, so every module request of these
+ * groups was refused with `module-may-leave`.
+ */
+function extraRootGroups(): ReadonlyArray<Group> {
+  const button = (from: string, to: string) => () => edit("Button.hx", from, to);
+  const includeFiles = {
+    "mr/inc/Card.hx": rootClass("mr.inc", "Card", "card", ["CardHelp.text()", "mr.Theme.color()"]),
+    "mr/inc/CardHelp.hx": rootClass("mr.inc", "CardHelp", "help"),
+    "mr/inc/sub/Deep.hx": rootClass("mr.inc.sub", "Deep", "deep", ["DeepHelp.text()"]),
+    "mr/inc/sub/DeepHelp.hx": rootClass("mr.inc.sub", "DeepHelp", "deep help")
+  };
+  return [
+    {
+      name: "roots-class-name",
+      dce: "std",
+      files: {
+        "mr/extra/Format.hx": rootClass("mr.extra", "Format", "format",
+          ["FormatHelp.text()", "mr.Theme.color()"]),
+        "mr/extra/FormatHelp.hx": rootClass("mr.extra", "FormatHelp", "format help")
+      },
+      programRoots: ["mr.extra.Format"],
+      steps: [
+        { id: "roots: literal edit beside a class-name root", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "roots: literal edit of the class-name root",
+          apply: () => editSource("mr/extra/Format.hx", "'format'", "'format!'"),
+          module: "mr.extra.Format", expect: "preview" },
+        { id: "roots: literal edit of a module that only the root imports",
+          apply: () => editSource("mr/extra/FormatHelp.hx", "'format help'", "'format help!'"),
+          module: "mr.extra.FormatHelp", expect: "preview" },
+        { id: "roots: structural edit of the class-name root",
+          apply: () => editSource("mr/extra/Format.hx", "'format!'", "'format!' + more()"
+            + ";\n  }\n\n  static function more(): String {\n    return 'more'"),
+          module: "mr.extra.Format", expect: "preview" },
+        { id: "roots: the class-name root drops its only import of a module (module-may-leave)",
+          apply: () => editSource("mr/extra/Format.hx", " + ' ' + FormatHelp.text()", ""),
+          module: "mr.extra.Format", expect: "module-may-leave" }
+      ]
+    },
+    {
+      name: "roots-include-recursive",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc')"],
+      steps: [
+        { id: "include: literal edit beside a recursive include", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "include: literal edit of a module in a subfolder of the include",
+          apply: () => editSource("mr/inc/sub/Deep.hx", "'deep'", "'deep!'"),
+          module: "mr.inc.sub.Deep", expect: "preview" },
+        { id: "include: structural edit of a module that only an included module imports",
+          apply: () => editSource("mr/inc/sub/DeepHelp.hx", "    return 'deep help';",
+            "    return 'deep help' + extra();\n  }\n\n  static function extra(): String {\n    return '+';"),
+          module: "mr.inc.sub.DeepHelp", expect: "preview" },
+        { id: "include: a new file in a subfolder of the include (include-changed)",
+          apply: () => {
+            addSource("mr/inc/sub/Fresh.hx", rootClass("mr.inc.sub", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" },
+        // A file that Genes first sees in a full request is unknown once
+        // (genes-f8vc.14.11). An included file is not: the full request
+        // read it before typing, when it walked the included folders
+        // (`ProgramRoots.beginRequest`), so it proves what Haxe parsed.
+        { id: "include: first module request after the new file was built",
+          apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "include: literal edit after the new file was built", apply: button("return 'Save!';", "return 'Save';"),
+          module: "mr.Button", expect: "preview" },
+        // A removed file of the stored program is a changed source before
+        // the include rule is checked.
+        { id: "include: a file of the include is removed (source-changed)",
+          apply: () => {
+            removeSource("mr/inc/sub/Fresh.hx");
+            edit("Button.hx", "return 'Save';", "return 'Save!';");
+          }, module: "mr.Button", expect: "source-changed" },
+        { id: "include: a changed include argument (session-changed)",
+          apply: () => {
+            groupProgramRoots = ["--macro", "include('mr.inc', true, ['mr.inc.sub.Deep'])"];
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "session-changed" },
+        { id: "include: literal edit with an ignore list", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      name: "roots-include-flat",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        { id: "include flat: literal edit beside a non-recursive include", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "include flat: literal edit of an included module",
+          apply: () => editSource("mr/inc/Card.hx", "'card'", "'card!'"),
+          module: "mr.inc.Card", expect: "preview" },
+        { id: "include flat: a new file in a subfolder that the include leaves out",
+          apply: () => {
+            addSource("mr/inc/sub/Fresh.hx", rootClass("mr.inc.sub", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "preview" },
+        { id: "include flat: a new file in the included folder (include-changed)",
+          apply: () => {
+            addSource("mr/inc/Fresh.hx", rootClass("mr.inc", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save';", "return 'Save!';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      name: "roots-include-before-genes",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      rootsBeforeGenes: true,
+      steps: [
+        { id: "include before Genes: literal edit", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "include before Genes: a new file in the included folder (include-changed)",
+          apply: () => {
+            addSource("mr/inc/Fresh.hx", rootClass("mr.inc", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    // Under `-dce full` an included module that dead-code elimination
+    // keeps can keep a field of the edited module. Before genes-f8vc.14.12
+    // the module request did not see the new file and published
+    // `mr/Button.ts` without `unused`, which cold keeps.
+    dceFullIncludeGroup("roots-include-dce-full", [], ["--macro", "include('mr.inc', false)"]),
+    // Review of #269: Haxe also takes an option and its value as one
+    // argument with `=`. On 0723e4e8 `-D=probe_inline` took the next
+    // argument as its value, and `--macro=include(...)` was not read, so
+    // the include line was missed and both previews were stale.
+    dceFullIncludeGroup("roots-inline-define-dce-full", ["-D=probe_inline"],
+      ["--macro", "include('mr.inc', false)"]),
+    dceFullIncludeGroup("roots-inline-macro-dce-full", [], ["--macro=include('mr.inc',false)"]),
+    {
+      // On 0723e4e8 `-D=probe_inline` took the class name as its value
+      // (`module-may-leave`, safe but no preview).
+      name: "roots-inline-define-class-name",
+      dce: "std",
+      extraArgs: ["-D=probe_inline"],
+      files: {
+        "mr/extra/Format.hx": rootClass("mr.extra", "Format", "format", ["mr.Theme.color()"])
+      },
+      programRoots: ["mr.extra.Format"],
+      steps: [
+        { id: "inline define: literal edit beside a class-name root", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      // A file of the included folder with no declaration outside macro
+      // code: Haxe parses it and adds nothing. On 0723e4e8 it made the roots
+      // unknown, so every module request was refused (`include-changed`).
+      name: "probe-macro-only-module",
+      dce: "std",
+      files: {
+        ...includeFiles,
+        "mr/inc/MacroOnly.hx": "package mr.inc;\n\n#if macro\nclass MacroOnly {\n  public static function make() {}\n}\n#end\n"
+      },
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        { id: "macro-only module: literal edit beside it", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "macro-only module: it gets a declaration (include-changed)",
+          apply: () => {
+            editSource("mr/inc/MacroOnly.hx", "#end\n", "#end\n\nclass MacroOnlyRuntime {\n  public static function text(): String {\n    return 'runtime';\n  }\n}\n");
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      // Review round 2 of #269: a client that sends no `server/invalidate`
+      // saves a declaration-less included file in the same second. Haxe's
+      // file-time check misses it, and Genes proved no content of it, so
+      // on d8b4b5ad the full request kept the old parse (differs from cold:
+      // `mr/Button.ts`, `mr/inc/Late.ts`) and the next preview was stale.
+      // Now the full request makes Haxe parse such a file again.
+      name: "probe-late-macro-only-module",
+      noInvalidate: true,
+      files: {
+        "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+          + `    return 'card ' + mr.Theme.color();\n  }\n}\n`,
+        "mr/inc/Late.hx": `package mr.inc;\n\n#if macro\n@:keep\nclass Late {\n`
+          + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+      },
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        { id: "late macro-only: literal edit beside it", apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "late macro-only: the file gets a class in the same second (include-changed)",
+          apply: () => {
+            editSameSecond("inc/Late.hx", "#if macro", "#if !acro");
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" },
+        { id: "late macro-only: literal edit after the full request built the class",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      name: "roots-include-ignore-wildcard",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc', true, ['mr.inc.sub*'])"],
+      steps: [
+        { id: "ignore wildcard: literal edit", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "ignore wildcard: a new file in an ignored folder",
+          apply: () => {
+            addSource("mr/inc/sub/Fresh.hx", rootClass("mr.inc.sub", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "preview" },
+        { id: "ignore wildcard: a new file in the included folder (include-changed)",
+          apply: () => {
+            addSource("mr/inc/Fresh.hx", rootClass("mr.inc", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save';", "return 'Save!';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      // `classPaths` given: only the folder `lib` (relative to the request).
+      name: "roots-include-class-paths",
+      dce: "std",
+      extraArgs: ["-cp", "lib"],
+      files: {
+        "../lib/canvas/Surface.hx": rootClass("canvas", "Surface", "surface", ["canvas.Paint.text()"]),
+        "../lib/canvas/Paint.hx": rootClass("canvas", "Paint", "paint")
+      },
+      programRoots: ["--macro", "include('canvas', false, null, ['lib'])"],
+      steps: [
+        { id: "class paths: literal edit", apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "class paths: literal edit of an included module",
+          apply: () => editSource("../lib/canvas/Paint.hx", "'paint'", "'paint!'"),
+          module: "canvas.Paint", expect: "preview" },
+        { id: "class paths: a new file in the included folder (include-changed)",
+          apply: () => {
+            addSource("../lib/canvas/Fresh.hx", rootClass("canvas", "Fresh", "fresh"));
+            edit("Button.hx", "return 'Save!';", "return 'Save';");
+          }, module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    {
+      // Haxe skips the optional `Bool` and takes `['x']` as `ignore`; Genes
+      // reads each argument in its place only, so the roots are unknown.
+      // (Haxe 4.3.7 takes only constant arguments in an init macro and
+      // rejects `#if` around it, so this is the include line that Genes
+      // cannot read and Haxe accepts.)
+      name: "roots-include-wrong-argument",
+      dce: "std",
+      files: includeFiles,
+      programRoots: ["--macro", "include('mr.inc', ['x'])"],
+      steps: [
+        { id: "wrong argument: an array where include takes a Bool (include-changed)",
+          apply: button("return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "include-changed" }
+      ]
+    },
+    caffeineShapedGroup()
+  ];
+}
+
+/**
+ * An include under `-dce full` (genes-f8vc.14.12): `mr.inc.Card` is
+ * `@:keep`, a literal edit of `mr.Button` previews, and a new `@:keep` class
+ * in the included folder that calls the private `mr.Button.unused()` is
+ * refused (`include-changed`), because cold then keeps `unused`.
+ * `extraArgs` go to every request, `programRoots` to the full requests.
+ */
+function dceFullIncludeGroup(name: string, extraArgs: ReadonlyArray<string>,
+    programRoots: ReadonlyArray<string>): Group {
+  const button = (from: string, to: string) => () => edit("Button.hx", from, to);
+  return {
+    name,
+    extraArgs,
+    files: {
+      "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+        + `    return 'card ' + mr.Theme.color();\n  }\n}\n`
+    },
+    programRoots,
+    steps: [
+      { id: `${name}: literal edit beside an include`, apply: button("return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview" },
+      { id: `${name}: a new kept file of the include uses a field of the edited module (include-changed)`,
+        apply: () => {
+          addSource("mr/inc/Caller.hx", `package mr.inc;\n\n@:keep\nclass Caller {\n`
+            + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n`);
+          edit("Button.hx", "return 'Save!';", "return 'Save';");
+        }, module: "mr.Button", expect: "include-changed" }
+    ]
+  };
+}
+
+/**
+ * A program shaped like Caffeine's development build (`development.hxml`
+ * over `web.hxml`): `--main`, four non-recursive includes (two packages of
+ * one domain tree, a UI package and a package on a second class path), and
+ * `-dce std` after the default. Included modules import each other and the
+ * modules of `--main`, and each include has a module that only it brings
+ * into the program. The second class path is relative (`lib`), so the
+ * listing of `include('canvas', false)` resolves it as Haxe does.
+ */
+function caffeineShapedGroup(): Group {
+  return {
+    name: "roots-caffeine-shaped",
+    dce: "std",
+    // A class path relative to the request's folder, as in Caffeine's HXML.
+    extraArgs: ["-cp", "lib"],
+    files: {
+      "app/domain/Note.hx": rootClass("app.domain", "Note", "note", ["mr.Theme.color()"]),
+      "app/domain/Store.hx": rootClass("app.domain", "Store", "store", ["Note.text()"]),
+      "app/domain/viewport/Camera.hx": rootClass("app.domain.viewport", "Camera", "camera",
+        ["app.domain.Note.text()"]),
+      "app/domain/viewport/Zoom.hx": rootClass("app.domain.viewport", "Zoom", "zoom"),
+      "app/ui/viewport/View.hx": `package app.ui.viewport;\n\nimport app.domain.viewport.Camera;\n\n`
+        + `class View {\n  public static function text(): String {\n`
+        + `    return 'view ' + Camera.text() + ' ' + canvas.Surface.text() + ' ' + ViewHelp.text();\n  }\n}\n`,
+      "app/ui/viewport/ViewHelp.hx": rootClass("app.ui.viewport", "ViewHelp", "view help"),
+      "../lib/canvas/Surface.hx": rootClass("canvas", "Surface", "surface", ["canvas.Paint.text()"]),
+      "../lib/canvas/Paint.hx": rootClass("canvas", "Paint", "paint")
+    },
+    programRoots: [
+      "--macro", "include('app.domain', false)",
+      "--macro", "include('app.domain.viewport', false)",
+      "--macro", "include('app.ui.viewport', false)",
+      "--macro", "include('canvas', false)"
+    ],
+    steps: [
+      { id: "caffeine: literal edit of a module of --main", apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview" },
+      { id: "caffeine: literal edit of a module that included modules import",
+        apply: () => edit("Theme.hx", "return 'blue';", "return 'teal';"),
+        module: "mr.Theme", expect: "preview" },
+      { id: "caffeine: literal edit of an included domain module",
+        apply: () => editSource("app/domain/Note.hx", "'note'", "'note!'"),
+        module: "app.domain.Note", expect: "preview" },
+      { id: "caffeine: literal edit of an included viewport module",
+        apply: () => editSource("app/domain/viewport/Zoom.hx", "'zoom'", "'zoom!'"),
+        module: "app.domain.viewport.Zoom", expect: "preview" },
+      { id: "caffeine: structural edit of an included UI module",
+        apply: () => editSource("app/ui/viewport/View.hx",
+          "' ' + ViewHelp.text();\n  }\n",
+          "' ' + ViewHelp.text() + label();\n  }\n\n  static function label(): String {\n    return 'label';\n  }\n"),
+        module: "app.ui.viewport.View", expect: "preview" },
+      { id: "caffeine: literal edit of a module on the second class path",
+        apply: () => editSource("../lib/canvas/Paint.hx", "'paint'", "'paint!'"),
+        module: "canvas.Paint", expect: "preview" }
+    ]
+  };
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
   ...stdGroups(),
+  ...extraRootGroups(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
@@ -3542,6 +3936,9 @@ function folder(name: string): string {
 let groupArgs: ReadonlyArray<string> = [];
 let groupDce: "std" | "full" = "full";
 let groupMain = "mr.Main";
+/** `Group.programRoots` of the running group; a step may change it (a changed include argument). */
+let groupProgramRoots: ReadonlyArray<string> = [];
+let groupRootsBeforeGenes = false;
 
 /** The number of accepted previews whose tree check passed. */
 let treeChecks = 0;
@@ -3566,13 +3963,18 @@ async function invalidate(server: OwnedHaxeCompilerServer, label: string): Promi
   saved.clear();
 }
 
-/** Arguments shared by every request: the defines of the session. */
-function commonArguments(): string[] {
+/**
+ * Arguments shared by every request: the defines of the session. With
+ * `program`, also the roots that only the full request has
+ * (`groupProgramRoots`).
+ */
+function commonArguments(program = false): string[] {
   return [
     "-cp", genesSource,
     "-lib", "helder.set",
     "-D", `genes-ts=${genesVersion}`,
     ...groupArgsBeforeGenes,
+    ...(program && groupRootsBeforeGenes ? groupProgramRoots : []),
     "--macro", "genes.Generator.use()",
     "-cp", path.join(workspace, "src"),
     "-D", "js-es=6",
@@ -3580,12 +3982,13 @@ function commonArguments(): string[] {
     "-debug",
     "-D", "genes.ts",
     "-D", `genes.source_map_root=${tempRoot}`,
-    ...groupArgs
+    ...groupArgs,
+    ...(program && !groupRootsBeforeGenes ? groupProgramRoots : [])
   ];
 }
 
 function programArguments(out: string): string[] {
-  return [...commonArguments(), "--main", groupMain, "-js",
+  return [...commonArguments(true), "--main", groupMain, "-js",
     path.join(out, "index.ts")];
 }
 
@@ -3915,6 +4318,8 @@ function prepare(group: Group): void {
   groupDce = group.dce ?? "full";
   groupMain = group.main ?? "mr.Main";
   groupArgsBeforeGenes = group.argsBeforeGenes ?? [];
+  groupProgramRoots = group.programRoots ?? [];
+  groupRootsBeforeGenes = group.rootsBeforeGenes === true;
   invalidateSaved = group.noInvalidate !== true;
   saved.clear();
 }

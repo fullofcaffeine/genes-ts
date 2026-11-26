@@ -629,7 +629,7 @@ yarn test:compiler-server:rollback # raw/structured post-staging recovery
 yarn test:compiler-server:kept-types # proof: typed values kept between requests
 yarn test:compiler-server:after-typing # keep rule gate: plain/measure/reuse/compare equal cold
 yarn test:compiler-server:shadow # incremental generation: compare and reuse (replayed modules, stored walk) equal cold
-yarn test:compiler-server:module # G3 module requests: previews equal cold, refusals by code, cold changes only the previewed module, advanced records equal a full request's
+yarn test:compiler-server:module # G3 module requests: previews equal cold, refusals by code, cold changes only the previewed module, advanced records equal a full request's; --only=roots- for programs with class-name roots and include lines (genes-f8vc.14.12)
 yarn test:compiler-server:module --sweep # 100 structural -dce std edits of 20 generated UI modules
 yarn test:compiler-server:module --chain # 100 chains of 5 previews with no full request inside, records checked after each
 yarn test:null-safety # compiler scope, macro order, escape inventory, stable compile

@@ -12,6 +12,7 @@ import sys.io.File;
 import genes.AfterTypingPasses.AfterTypingClass;
 import genes.incremental.GenerationCache.CachedModule;
 import genes.incremental.IncrementalRequest;
+import genes.incremental.ProgramRoots.ProgramRootsFacts;
 import genes.util.PathUtil;
 import genes.util.TypeUtil;
 
@@ -608,6 +609,13 @@ typedef ModuleRecordsReport = {
  *   request loads, because Haxe compares file times only in whole seconds),
  *   so an edit outside the module's imports is a refusal too
  *   (`source-changed`);
+ * - each `--macro include(...)` line of the stored full request adds the
+ *   same modules now (`include-changed`, `ProgramRoots.includeFailure`,
+ *   genes-f8vc.14.12): Genes lists the included folders again, so a new file
+ *   there is refused, also under `-dce full`, where a new `@:keep` class can
+ *   keep a field of this module. A module request has no such line (the
+ *   session leaves the roots of the program out), so it checks the stored
+ *   ones;
  * - the module uses exactly what it used: its signature (every declaration
  *   and field, private ones included, with kinds, types, type-parameter
  *   constraints and metadata;
@@ -704,9 +712,11 @@ typedef ModuleRecordsReport = {
  * - `module-may-leave` (every `-dce std` request, also a literal edit):
  *   every module with an output file stays loaded. Haxe loads a module with
  *   each module that names it (`DceStdUses.dependenciesOf`: typed references
- *   and import lines), and the request's own modules surely stay. Example:
- *   an edit removes the only `import app.Legacy;`, and a full build drops
- *   `app/Legacy.ts`;
+ *   and import lines), and the request's own modules surely stay, and so do
+ *   the module of the stored `--main` class, each class-name argument and
+ *   each module that an `include` line adds (`ProgramRoots`,
+ *   genes-f8vc.14.12). Example: an edit removes the only
+ *   `import app.Legacy;`, and a full build drops `app/Legacy.ts`;
  * - `opaque-macro`: no build macro on the module and no imported macro
  *   module other than Genes' own and the standard library's. Such a macro
  *   can read a file or keep state that Genes cannot see;
@@ -1007,6 +1017,19 @@ class ModuleRequest {
 
   /** The class (`TypeUtil.baseTypeFullName`) of the stored full request's `--main` function, or empty. */
   @:persistent static var storedMain = '';
+
+  /**
+   * The roots of the stored full request beside `--main`: its class-name
+   * arguments and the modules that its `include` lines add
+   * (`ProgramRoots.read`, genes-f8vc.14.12). A module request counts them
+   * as staying in the program (`modulesThatMayLeave`) and refuses when an
+   * `include` line may add other modules now (`include-changed`).
+   */
+  @:persistent static var storedRoots: ProgramRootsFacts = {
+    classNames: [],
+    includes: [],
+    unknown: []
+  };
 
   /** `GenerationChangeSet.epochs` of every module that the stored full request saw. */
   @:persistent static var storedEpochs: Map<String, String> = new Map();
@@ -1404,6 +1427,21 @@ class ModuleRequest {
       cacheFactsChanged = true;
     }
     final stale = alone.copy();
+    // The files of the `include` lines before Haxe walks them (`ProgramRoots`,
+    // genes-f8vc.14.12; only a full request with module records stores
+    // roots): Haxe parses again each one whose typed content Genes has not
+    // proven, such as a file without a declaration. The content read now is
+    // what Haxe parses, so `provenSource` can prove it after typing (the
+    // key in both spellings that Haxe can give the file: `./mr/A.hx` and
+    // `mr/A.hx`).
+    if (descriptor.moduleRecords == true && descriptor.kind.match(Full))
+      for (item in ProgramRoots.beginRequest(provenTypedFiles())) {
+        for (key in [item.file, Path.normalize(item.file)])
+          if (!preDigests.exists(key))
+            preDigests.set(key, item.content);
+        if (item.again && stale.indexOf(item.file) < 0)
+          stale.push(item.file);
+      }
     if (cacheFactsLost) {
       // This process typed modules with these defines before, and Genes
       // lost what it knew about them: make Haxe parse every source file of
@@ -1976,6 +2014,7 @@ class ModuleRequest {
    * compilation of `#if x define("a") #else mr.Typer.run() #end` could read
    * otherwise than Haxe read it when `x` was set by an init macro between.
    */
+  @:allow(genes.incremental.ProgramRoots)
   static function initMacroCall(text: String): Null<String> {
     if (text.indexOf('#') >= 0)
       return null;
@@ -2152,6 +2191,22 @@ class ModuleRequest {
    * two different reads, give no status, so the file is never trusted by
    * its status (`holdsContent`) or proven by it (`provenSource`).
    */
+  /**
+   * Returns the files (as `Path.normalize` writes them, so that `mr/A.hx`
+   * and `./mr/A.hx` are one file) for which Genes holds a proven digest of
+   * the content that Haxe last typed (`typedDigests`), neither `unknown`
+   * nor `missing`. `beginRequest` compares each such file and makes Haxe
+   * parse it again when it changed.
+   */
+  static function provenTypedFiles(): Map<String, Bool> {
+    final proven = new Map<String, Bool>();
+    for (file => typed in typedDigests)
+      if (typed.digest != UNKNOWN_DIGEST && typed.digest != MISSING_DIGEST)
+        proven.set(Path.normalize(file), true);
+    return proven;
+  }
+
+  @:allow(genes.incremental.ProgramRoots)
   static function readSource(file: String): SourceContent {
     final started = haxe.Timer.stamp();
     final readAt = Sys.time() * 1000;
@@ -2169,6 +2224,7 @@ class ModuleRequest {
   }
 
   /** Returns the status of `file` with the moment `readAt`, or `null` when it cannot be read. */
+  @:allow(genes.incremental.ProgramRoots)
   static function statusOf(file: String, readAt: Float): Null<SourceStat> {
     return try {
       final stat = FileSystem.stat(file);
@@ -2189,6 +2245,7 @@ class ModuleRequest {
    * size, modification time, change time and inode. `readAt` is not
    * compared.
    */
+  @:allow(genes.incremental.ProgramRoots)
   static function sameStatus(left: SourceStat, right: SourceStat): Bool {
     return left.size == right.size
       && left.mtime == right.mtime
@@ -3175,6 +3232,7 @@ class ModuleRequest {
       }
       findMain(main);
     }
+    storedRoots = ProgramRoots.read(GenerationChangeSet.observedModules());
     storedKey = key;
     storedOutputFolder = absoluteFolder(outputFile);
     // The program request stays the authority (genes-f8vc.14.8): its records
@@ -3758,6 +3816,7 @@ class ModuleRequest {
     storedInitMacros = [];
     advancedModules = new Map();
     advancedSnapshot = null;
+    storedRoots = {classNames: [], includes: [], unknown: []};
   }
 
   /**
@@ -4021,6 +4080,14 @@ class ModuleRequest {
       if (file != ownFile && file != targetFile && !holdsContent(file, stored))
         return refuse('source-changed',
           '$file changed since the stored records');
+    // The `include` lines of the stored full request add the same modules
+    // now (genes-f8vc.14.12): a new or removed file in an included folder
+    // changes the program, also under `-dce full` (a new `@:keep` class can
+    // keep a field of this module). A removed file of the stored program is
+    // already `source-changed` above.
+    final includeChange = ProgramRoots.includeFailure(storedRoots);
+    if (includeChange != null)
+      return refuse('include-changed', includeChange);
     final failures = GenerationChangeSet.sameObjectFailures();
     if (failures.length > 0)
       return refuse('same-object-failure',
@@ -4454,7 +4521,10 @@ class ModuleRequest {
    * `DceStdUses.dependenciesOf` reaches from a module that surely stays.
    *
    * What surely stays: every module of this request (its program is a part
-   * of the full program) and the module of the stored `--main` class. The
+   * of the full program), the module of the stored `--main` class, and the
+   * stored roots beside `--main`: each class-name argument and each module
+   * that an `include` line adds (`storedRoots`, genes-f8vc.14.12; `decide`
+   * checked before that the `include` lines add the same modules now). The
    * chains use the stored dependencies of every other module and
    * `newDependencies` of the requested one.
    *
@@ -4482,6 +4552,8 @@ class ModuleRequest {
     final dot = storedMain.lastIndexOf('.');
     if (dot > 0)
       visit(storedMain.substr(0, dot));
+    for (name in ProgramRoots.modulesOf(storedRoots))
+      visit(name);
     var index = 0;
     while (index < queue.length) {
       final name = queue[index++];
@@ -5061,7 +5133,8 @@ class ModuleRequest {
   /**
    * Returns every record that a module request reads as one plain text,
    * sorted, so that two requests can be compared line by line
-   * (genes-f8vc.14.8): the stored `--main` class, the generation cache
+   * (genes-f8vc.14.8): the stored `--main` class, the roots beside it
+   * (`ProgramRoots.text`, genes-f8vc.14.12), the generation cache
    * outside its entries (`GenerationCache.cacheText`), the proven content of
    * each source file, the text of each module of the stored program
    * (`moduleText`) and the indexes (`indexesText`).
@@ -5080,8 +5153,11 @@ class ModuleRequest {
     final buffer = new StringBuf();
     buffer.add('records ${storedKey == null ? 'none' : 'stored'}\n');
     buffer.add('main $storedMain\n');
+    // Fixed order: the init macros of the full request (genes-f8vc.14.8),
+    // then its roots beside `--main` (genes-f8vc.14.12).
     for (text in storedInitMacros)
       buffer.add('init-macro $text\n');
+    buffer.add(ProgramRoots.text(storedRoots));
     buffer.add(GenerationCache.cacheText());
     for (file in sortedKeys([for (name in storedFiles.keys()) name => true])) {
       final content = storedFiles.get(file);

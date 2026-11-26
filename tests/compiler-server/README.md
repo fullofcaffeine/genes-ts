@@ -902,6 +902,109 @@ which keeps the strict rule (`signature-changed`). On Genes before the rule
 `signature-changed` or `uses-changed`, and so does every row with a new
 code except `public-shape-changed` and the two `other-modules-typed` rows.
 
+The `roots-` groups (genes-f8vc.14.12) give the full requests roots beside
+`--main`; the module requests leave them out, as the development session
+does. Before the fix Genes knew only the `--main` root, so a module that
+only such a root brought into the program was never counted as staying,
+and every `-dce std` module request was refused with `module-may-leave`
+(each preview row below got that code on 1704dcac, with `--observe` and
+`GENES_TEST_SOURCE`, except the edits of a module that the request itself
+types). Now the full request stores the class-name arguments and the
+modules that each `include` line adds (`ProgramRoots`), and those modules
+and every module that they load count as staying:
+
+- `roots-class-name`: the class-name root `mr.extra.Format`, which imports
+  `mr.extra.FormatHelp`. Literal edits of `mr.Button`, of the root and of
+  the module that only the root imports, and a structural edit of the root,
+  preview. When the root drops its only use of `mr.extra.FormatHelp`, the
+  request is still refused (`module-may-leave`);
+- `roots-include-recursive`: `include('mr.inc')`, with modules in a
+  subfolder. Edits beside the include, of a module in the subfolder and of a
+  module that only an included module imports preview. A new file in the
+  subfolder is refused (`include-changed`, the rule below); the module
+  request after the full request that built it previews. (A file that Genes
+  first sees in a full request is unknown once, but the full request reads
+  every included file before typing, so it proves what Haxe parsed.) The removal of that file is refused as a
+  changed source of the stored program (`source-changed`). A changed
+  include argument changes `programDigest` (`session-changed`);
+- `roots-include-flat`: `include('mr.inc', false)`. A new file in a
+  subfolder, which the include leaves out, still previews; a new file in
+  the included folder is refused (`include-changed`);
+- `roots-include-before-genes`: the same include given before
+  `--macro genes.Generator.use()`. Haxe runs the file walk of `include`
+  after every init macro, so the order changes nothing;
+- `roots-include-dce-full`: an include under `-dce full`. A new `@:keep`
+  class in the included folder calls the private `mr.Button.unused()`, so
+  cold keeps that function. On 1704dcac the module request did not see the
+  new file and published a `mr/Button.ts` without it (`STALE`); now it is
+  refused (`include-changed`);
+- `roots-caffeine-shaped`: a program shaped like Caffeine's development
+  build: `--main mr.Main`, four non-recursive includes (`app.domain`,
+  `app.domain.viewport`, `app.ui.viewport`, and `canvas` on the relative
+  second class path `lib`) and `-dce std`. Literal edits of a module of
+  `--main`, of a module that included modules import, of included modules
+  on both class paths, and a structural edit of an included module, all
+  preview.
+
+The review of #269 added these groups:
+
+- `roots-inline-define-dce-full` and `roots-inline-macro-dce-full`: Haxe
+  also takes an option and its value as one argument with `=`. With
+  `-D=probe_inline` before `--macro include('mr.inc', false)`, or with
+  `--macro=include('mr.inc',false)`, 0723e4e8 missed the include line, and
+  the `-dce full` edit of `roots-include-dce-full` published a stale
+  `mr/Button.ts`. Now `HaxeArguments.read` reads both forms, and the edit is
+  refused (`include-changed`);
+- `roots-inline-define-class-name`: `-D=probe_inline` before a class-name
+  root (`module-may-leave` on 0723e4e8, now a preview);
+- `probe-macro-only-module`: an included file that is all `#if macro` has
+  no declaration in the program. On 0723e4e8 it made the roots unknown
+  (`include-changed`); now the literal edit previews, and the request is
+  refused when the file gets a declaration;
+- `probe-late-macro-only-module` (review round 2, `noInvalidate`,
+  `-dce full`): `mr/inc/Late.hx` is all inside `#if macro`, with a `@:keep`
+  class that calls `mr.Button.unused()`. A save in the same second turns
+  `#if macro` into `#if !acro`. The module request is refused
+  (`include-changed`); on d8b4b5ad the full request after it kept Haxe's old
+  parse of the file and differed from cold (`mr/Button.ts`,
+  `mr/inc/Late.ts`), and the next preview was stale. Now the full request
+  makes Haxe parse every included file that Genes has not proven again, so
+  it equals cold and the next edit previews;
+- `roots-include-ignore-wildcard` (`['mr.inc.sub*']`: a new file in the
+  ignored folder previews, one in the included folder is refused) and
+  `roots-include-class-paths` (`classPaths` given);
+- `roots-include-wrong-argument` (`include('mr.inc', ['x'])`, where Haxe
+  skips the optional `Bool` and takes `['x']` as `ignore`): Genes reads each
+  argument only in its place, so it cannot know the modules, and every
+  module request is refused (`include-changed`). Haxe 4.3.7 takes only
+  constant arguments in an init macro (`include('mr' + '.inc')` fails with
+  "Argument should be a constant") and rejects `#if` around it ("Invalid
+  macro call"), so no row has such a line.
+
+The include rule (`include-changed`): a module request lists each included
+folder again with the stored arguments of its `include` line and refuses
+when the modules differ from the stored ones, or when the file of a listed
+module without a declaration changed. It also refuses when Genes could not
+read the roots: an option that it does not know, `--next`, `--each` or
+`--run`, an `include` argument out of its place, or a listed module
+that was not in the stored program and whose file changed while the full
+request ran.
+
+Known gap (review round 3 of #269, tracked as genes-f8vc.14.24): a listed
+file that had a class can lose its declarations between the first walk of
+the include folders and Haxe's own walk, and then be saved back inside the
+same whole second, without `server/invalidate` for the second save. That
+needs two saves inside one whole second around the start of a full request.
+Haxe then keeps a parse that Genes never noted, and the old digest stays
+proven, so a later full request differs from cold and a preview after it is
+stale. No row covers it yet. The development session sends
+`server/invalidate` for each changed file that it sees, which makes Haxe
+parse the file again.
+
+The contract with a client: a module request may leave out only what Genes
+reads (`--main`, class-name arguments and `--macro include(...)` lines with
+literal arguments); every other macro that adds modules must stay in it.
+
 `--sweep` runs only the scripted sweep (group `sweep-ui`, `-dce std`): 20
 generated UI modules (controls, layout, views and two shells, 40 to 150
 lines) and five structural edits of each, in order: a new private function
