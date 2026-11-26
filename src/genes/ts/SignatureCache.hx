@@ -1084,10 +1084,13 @@ class SignatureCache {
    * once: `anonTs <key> +<text>` or `anonSource <key> +<type>` (the answer
    * text of `factAnswer`). Empty without `-D genes.dev_incremental`.
    *
-   * Why (genes-f8vc.14.27): a module request reads the facts of other
-   * modules from the stored full request only when the requested module
-   * wrote the same such facts there (`ModuleRecord.foreignFacts`). Else its
-   * edit can change what another module reads at one of those fields.
+   * Why (genes-f8vc.14.27): another module prints those fields, and a
+   * module request prints only the edited module. Module records keep these
+   * facts (`ModuleRecord.foreignFacts`), and a module request whose edited
+   * module writes other ones is refused (`foreign-facts-changed`). Example:
+   * `typedef First = {> Frame<Tone>, extra: Int}` becomes `{> Frame2<Tone>,
+   * extra: Int}`: the signature stays, but a full build prints the file of
+   * `Frame` again.
    */
   public static function foreignAnonFactsOf(module: String): Array<String> {
     final lines = foreignAnonFacts.get(module);

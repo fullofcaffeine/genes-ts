@@ -3584,6 +3584,12 @@ function anonFactGroups(): ReadonlyArray<Group> {
     + `    return label;\n  }\n}\n\ntypedef DraftViewProps = {\n  final draft: Draft;\n}\n\n`
     + `@:genes.reactComponent\nfunction DraftView(props: DraftViewProps): Element {\n`
     + `  return <p>{props.draft.replay(false)}</p>;\n}\n`;
+  const frame = `package mr;\n\nenum abstract Tone(String) {\n  var Warm = "warm";\n  var Cold = "cold";\n}\n\n`
+    + `typedef Frame<T> = {value: T}\n\ntypedef Frame2<T> = {value: T}\n\n`
+    + `class FrameTools {\n  public static function describe<T>(frame: Frame<T>): String {\n`
+    + `    return 'frame ' + Std.string(frame.value);\n  }\n\n`
+    + `  public static function describe2<T>(frame: Frame2<T>): String {\n`
+    + `    return 'frame2 ' + Std.string(frame.value);\n  }\n}\n`;
   const idea = `package mr;\n\nimport genes.react.Element;\nimport genes.react.React.useState;\n`
     + `import mr.Draft.DraftView;\nimport mr.Draft.Draft;\n\n@:genes.reactComponent\nfunction Idea(): Element {\n`
     + `  final draft = useState(new Draft('idea'));\n`
@@ -3624,6 +3630,69 @@ function anonFactGroups(): ReadonlyArray<Group> {
         { id: "anon: literal edit of a component whose import reads a field of a module it does not name",
           apply: () => edit("Idea.hx", "'idea '", "'idea! '"),
           module: "mr.Idea", expect: "preview" }
+      ]
+    },
+    {
+      // `foreign-facts-changed` (review of genes-ts #273, row of Fable): a
+      // typedef of the edited module copies the fields of a typedef of
+      // `mr.Frame` (`{> Frame<Tone>, ...}`), so its capture writes the facts
+      // of the field `value`, which `mr/Frame.hx` declares. An edit of the
+      // typedef body that keeps the flattened field list keeps the
+      // signature, but writes other facts there.
+      name: "anon-foreign-facts",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.Card.label());"]),
+        "mr/Frame.hx": frame,
+        "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
+          + `private typedef Unused = {> Frame<Tone>, extra: Int}\n\n`
+          + `class Card {\n  public static function label(): String {\n`
+          + `    final one: Frame<Int> = {value: 1};\n    final two: Frame2<Int> = {value: 2};\n`
+          + `    return 'card ' + FrameTools.describe(one) + FrameTools.describe2(two);\n  }\n}\n`
+      },
+      steps: [
+        { id: "anon: literal edit of a module whose typedef extends a generic typedef of another file",
+          apply: () => edit("Card.hx", "'card '", "'card! '"),
+          module: "mr.Card", expect: "preview" },
+        { id: "anon: a second literal edit (the stored facts come from a kept bucket)",
+          apply: () => edit("Card.hx", "'card! '", "'card!! '"),
+          module: "mr.Card", expect: "preview" },
+        { id: "anon: the typedef extends another typedef with the same fields (foreign-facts-changed)",
+          apply: () => edit("Card.hx", "{> Frame<Tone>, extra: Int}", "{> Frame2<Tone>, extra: Int}"),
+          module: "mr.Card", expect: "foreign-facts-changed" },
+        { id: "anon: the typedef declares the field itself (foreign-facts-changed)",
+          apply: () => edit("Card.hx", "{> Frame2<Tone>, extra: Int}", "{value: Tone, extra: Int}"),
+          module: "mr.Card", expect: "foreign-facts-changed" }
+      ]
+    },
+    {
+      // The red row of `foreign-facts-changed`: only `First` writes the facts
+      // of `Frame.value`. When it extends `Frame2` instead, a full build
+      // prints `mr/Frame.ts` again with other field types, so a preview of
+      // `mr.Card` alone would leave a stale `mr/Frame.ts`. The printed field
+      // types themselves are the older defect genes-f8vc.14.31 (a typedef
+      // that extends a generic typedef of another module changes how that
+      // typedef prints); this row compares preview, full request and cold
+      // only with each other.
+      name: "anon-foreign-facts-stale",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.Card.label());"]),
+        "mr/Frame.hx": frame,
+        "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
+          + `private typedef First = {> Frame<Tone>, extra: Int}\n\n`
+          + `private typedef Second = {> Frame2<Tone>, other: Int}\n\n`
+          + `class Card {\n  public static function label(): String {\n`
+          + `    final two: Frame2<Int> = {value: 2};\n`
+          + `    return 'card ' + FrameTools.describe2(two);\n  }\n}\n`
+      },
+      steps: [
+        { id: "anon: literal edit of a module whose typedefs extend typedefs of another file",
+          apply: () => edit("Card.hx", "'card '", "'card! '"),
+          module: "mr.Card", expect: "preview" },
+        { id: "anon: the only typedef that writes the facts of Frame.value extends Frame2 instead (foreign-facts-changed)",
+          apply: () => edit("Card.hx", "First = {> Frame<Tone>, extra: Int}", "First = {> Frame2<Tone>, extra: Int}"),
+          module: "mr.Card", expect: "foreign-facts-changed" }
       ]
     }
   ];

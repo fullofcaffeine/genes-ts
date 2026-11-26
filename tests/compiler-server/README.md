@@ -923,6 +923,37 @@ answer of the stored full request:
   `mr/Hist.hx:114:134` (`label`), each "full request: not asked". Now it
   previews, equal to cold.
 
+The plan check can only refuse. The edited module's own files depend on
+the plan of an import through its own `refreshSplit` and `cycle` answers,
+which are compared with the stored ones. The files of other modules are
+guarded by `foreign-facts-changed`: a typedef of the edited module that
+copies the fields of a typedef of another file (`{> Frame<Tone>, ...}`)
+writes facts at those fields, which that file prints. Two groups from the
+review of genes-ts #273 (row of Fable) check it, both under `-dce std`:
+
+- `anon-foreign-facts`: `mr.Card` has `private typedef Unused = {>
+  Frame<Tone>, extra: Int}`. Two literal edits preview. Then `Unused`
+  extends `Frame2<Tone>`, and then declares `{value: Tone, extra: Int}`
+  itself. Each keeps the flattened field list, so the signature stays, and
+  each is refused (`foreign-facts-changed`; `answers-changed` on ad63a932);
+- `anon-foreign-facts-stale`, the red row: `mr.Card` has `First = {>
+  Frame<Tone>, extra: Int}` and `Second = {> Frame2<Tone>, other: Int}`,
+  and no other use of `Frame`. When `First` extends `Frame2<Tone>`, a full
+  build prints `mr/Frame.ts` again. On ad63a932 the module request
+  previewed `mr.Card` alone (`--observe`: `STALE mr/Frame.ts
+  mr/Frame.ts.map`); now it is refused (`foreign-facts-changed`). The field
+  types that cold prints in `mr/Frame.ts` are the older defect
+  genes-f8vc.14.31 (a typedef that extends a generic typedef of another
+  module changes how that typedef prints); the row compares preview, full
+  request and cold only with each other.
+
+An equal plan answer is a full build's answer when the same typedef
+captures write each field in the same order. The modules of the request
+are the stored ones; an importer outside the request stays equal because
+the visible public shape of the edited module is equal; the edited module
+writes the same foreign facts. The order of the captures follows Haxe's
+declaration list, which a module request does not prove.
+
 An `answers-changed` reason now lists every difference (at most 40), each
 with the stored answer or "not asked".
 

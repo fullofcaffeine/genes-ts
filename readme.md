@@ -500,7 +500,8 @@ private typedef of the import) belong to the imported module, and each one
 must equal the answer of the last full request. A typedef of the edited
 module that writes facts at fields of another file, such as
 `{ > Base.BaseProps, ... }`, must write the same facts as in the full
-request (`foreign-facts-changed` otherwise).
+request (`foreign-facts-changed` otherwise): another module prints those
+fields, and a preview prints only the edited module.
 
 ## Async/await sugar (optional)
 

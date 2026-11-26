@@ -905,7 +905,12 @@ class IncrementalShadow {
       return build();
     final before = shadow.planModule;
     shadow.planModule = module;
-    final plan = build();
+    // The pass that takes stored walk steps catches an error and runs again
+    // live (`startRerun`): a throw must not leave this module as the asker.
+    final plan = try build() catch (error:haxe.Exception) {
+      shadow.planModule = before;
+      throw error;
+    }
     shadow.planModule = before;
     return plan;
   }
@@ -2115,6 +2120,7 @@ class IncrementalShadow {
     rootFlagTexts = new Map();
     replayable = new Map();
     planFallback = null;
+    planModule = null;
   }
 
   /**

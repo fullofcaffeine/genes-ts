@@ -4355,10 +4355,14 @@ class ModuleRequest {
     // After a structural edit the module can ask whether a module that it
     // imports now reaches it (`cycle`); `structuralRefusal` proved from the
     // stored runtime requests that none does.
-    // The facts that the module's typedefs write at fields of other files:
-    // with the same ones, every such fact of a full build after the edit is
-    // the stored one, because every other module is the stored one (checked
-    // above). `planFactAnswers` relies on it.
+    // The facts that the module's typedefs write at fields of other files
+    // (`{> Other.Frame<Tone>, ...}`). Another module prints those fields, and
+    // a preview prints only this module, so a change is a refusal. With the
+    // same facts, the captures of this module write each such field as in
+    // the full request; the other writers are the modules of this request
+    // (the stored ones, checked above) and importers, which stay equal
+    // because the visible public shape is equal. `planFactAnswers` also
+    // needs the same order of the writers (see there).
     final foreignFacts = genes.ts.SignatureCache.foreignAnonFactsOf(module);
     if (foreignFacts.join('\n') != record.foreignFacts.join('\n'))
       return refuse('foreign-facts-changed',
@@ -5206,22 +5210,40 @@ class ModuleRequest {
    * Empty when each such answer equals the answer of the stored full
    * request for the same key.
    *
-   * Why: the requested module's output depends on these plans, for example
-   * through the React Fast Refresh split of an import, whose plan reads the
-   * fields of the import's private typedefs. Such a plan belongs to a
-   * module that Haxe did not type again, so its answers are not the
-   * requested module's own (the stored entry of that module never asked
-   * them, genes-f8vc.14.27).
+   * Why: such a plan belongs to a module that Haxe did not type again, so
+   * its answers are not the requested module's own (the stored entry of the
+   * requested module never asked them, genes-f8vc.14.27). Example: to print
+   * an import of a component module, the requested module asks for the
+   * React Fast Refresh split of that module, and the plan of that module
+   * reads the fields of its private typedefs.
    *
-   * Why an equal stored answer cannot be stale: a fact at a field is
-   * written by the captures of typedefs. Every module other than the
-   * requested one is the stored one (`decide` checked its epochs and that
-   * Haxe did not type it again), so its captures are the stored ones. The
-   * requested module writes the same facts at fields of other files as in
-   * the full request (`foreign-facts-changed`, checked before). So a full
-   * build after the edit has the stored answer at each such field. A fact
-   * that the stored full request never read, or read with another answer,
-   * is a refusal.
+   * What this check proves, and what it does not. It can only refuse. The
+   * requested module's own output depends on such a plan through answers
+   * that the requested module records itself: the split of the import
+   * (`refreshSplit`) and import cycles (`cycle`). `wrongAnswers` compares
+   * them with the stored ones; they carry the proof for its files. The
+   * files of other modules are guarded by `foreign-facts-changed`. This
+   * check adds that the late plan read the facts of the stored full
+   * request. An equal answer is the answer of a full build after the edit
+   * when the same typedef captures write each such field, in the same
+   * order:
+   *
+   * - every module of this request other than the requested one is the
+   *   stored one (`decide` checked its epochs, its sources and that Haxe did
+   *   not type it again), so its captures are the stored ones. A module
+   *   outside this request that imports the requested one is typed again in
+   *   the next full build. Its captures stay equal because the visible public
+   *   shape of the requested module is equal (`public-shape-changed`; the
+   *   values of an enum abstract are inline bodies in the shape);
+   * - the requested module writes the same facts at fields of other files as
+   *   in the full request (`foreign-facts-changed`);
+   * - the order of the captures follows Haxe's list of declarations, which
+   *   this request does not prove. Two typedefs that write different facts
+   *   at one field make a full build depend on that order already
+   *   (genes-f8vc.14.31).
+   *
+   * A fact that the stored full request never read, or read with another
+   * answer, is a refusal.
    *
    * The stored answer of a key is the same in each stored entry: the facts
    * are fixed after typing, and a replayed entry keeps answers that its
