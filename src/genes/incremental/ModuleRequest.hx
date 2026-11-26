@@ -23,9 +23,9 @@ using haxe.macro.TypeTools;
 /**
  * One `genes.ts.Imports` holder of a request (genes-f8vc.14.44): the module
  * whose typing made it (`definer`, from `@:genes.importDefiner`) and its
- * import in words (`label`), for example `the import of join from
- * "node:path"`. `ModuleRequest` refuses a preview whose module no longer
- * makes one of its stored holders, and names the import in the reason.
+ * import in words (`label`), for example `join from "node:path"`.
+ * `ModuleRequest` refuses a preview whose module no longer makes one of its
+ * stored holders, and names the import in the reason.
  */
 typedef ImportHolder = {
   final definer: String;
@@ -4320,19 +4320,22 @@ class ModuleRequest {
         'changed: ${firstDifference(storedShape, currentShape)}$accessNote');
     // A `genes.ts.Imports` holder that this module made in the stored full
     // request and did not make now leaves the program of a full build, while
-    // a preview would keep its records (genes-f8vc.14.44). A holder leaves
-    // only when its definer stops making it or leaves, and every module
-    // that this request loads stays, so only the requested module's own
-    // holders can leave here; one in code that Haxe removes still counts as
-    // made (`probe9g-holder-in-dead-code`). This holds under every `-dce`
-    // profile (`probe9h-dead-function-drops-import-full`).
+    // a preview would keep its records (genes-f8vc.14.44). This check covers
+    // only the requested module's own holders: one in code that Haxe removes
+    // still counts as made (`probe9g-holder-in-dead-code`), under every
+    // `-dce` profile (`probe9h-dead-function-drops-import-full`). A holder
+    // also leaves when its definer leaves the program. Under `-dce std`
+    // `modulesThatMayLeave` covers that, because a definer has an output
+    // file there. Under `-dce full` no rule covers a definer that the
+    // requested module stops loading (genes-f8vc.14.46).
     final dropped = droppedHolders(module);
     if (dropped.length > 0)
       return refuse('module-may-leave',
-        '$module no longer calls genes.ts.Imports for '
+        '$module no longer imports '
         + dropped.slice(0, 5).join(', ')
-        + ', so a full build drops the hidden extern class of that import, '
-        + 'which the stored records hold');
+        + ' (with genes.ts.Imports or a helper that uses it), so a full '
+        + 'build drops the hidden extern class of that import, which the '
+        + 'stored records hold');
     // Under `-dce std` Haxe keeps every class of each module that it loads,
     // so the set of loaded modules is part of the output: also an edit that
     // only removes an unused import can drop a module's file
@@ -4810,8 +4813,8 @@ class ModuleRequest {
   /**
    * Returns the readable imports of the stored `genes.ts.Imports` holders
    * that `module` made in the stored full request and that are not modules
-   * of this request, sorted. Example: `["the import of join from
-   * \"node:path\""]` when `a.reach.First` replaced its only
+   * of this request, sorted. Example: `["join from \"node:path\""]` when
+   * `a.reach.First` replaced its only
    * `Imports.namedImport('node:path', 'join')` call with a local function.
    *
    * Why the stored definer and not a reach walk: a holder that no kept body
@@ -4842,7 +4845,8 @@ class ModuleRequest {
    */
   static function readableModule(name: String): String {
     final holder = requestHolders.get(name);
-    return holder == null ? name : 'the holder of ${holder.label} that '
+    return
+      holder == null ? name : 'the holder of the import of ${holder.label} that '
       + '${holder.definer} made ($name)';
   }
 
@@ -4850,8 +4854,8 @@ class ModuleRequest {
    * Returns the definer and a readable import of a `genes.ts.Imports`
    * holder class, or `null` for any other type. The definer comes from
    * `@:genes.importDefiner` (`HaxeDependencies.holderDefiner`). The import
-   * comes from `@:jsRequire`: `the import of join from "node:path"`,
-   * `the default import of "./Button.tsx"`, or `the namespace import of
+   * comes from `@:jsRequire`: `join from "node:path"`,
+   * `the default export of "./Button.tsx"`, or `the namespace of
    * "node:path"`. A developer finds it in the definer's source, unlike the
    * holder's hashed class name.
    */
@@ -4874,10 +4878,10 @@ class ModuleRequest {
           }
     ];
     final label = switch strings {
-      case [request]: 'the namespace import of "$request"';
-      case [request, 'default']: 'the default import of "$request"';
-      case [request, name]: 'the import of $name from "$request"';
-      default: 'an import (${cls.name})';
+      case [request]: 'the namespace of "$request"';
+      case [request, 'default']: 'the default export of "$request"';
+      case [request, name]: '$name from "$request"';
+      default: 'the import of ${cls.name}';
     }
     return {definer: definer, label: label};
   }

@@ -583,8 +583,17 @@ class Imports {
 
   /**
    * Returns the position of a new holder: the start of the file of the class
-   * that Haxe is typing, so of the definer's file. Example: a call in
-   * `src/app/ui/Card.hx` gives `src/app/ui/Card.hx` at offset 0.
+   * that Haxe is typing. Example: a call in `src/app/ui/Card.hx` gives
+   * `src/app/ui/Card.hx` at offset 0.
+   *
+   * That file is usually the definer's file, but not always. In a
+   * `@:genericBuild` macro the local class is the generic class, which can
+   * be in another file. For a class that a macro defined, the file is the
+   * one that the macro gave. In a build macro of an enum or a typedef there
+   * is no local class, and the file of `callPos` is used. In each case the
+   * position still does not depend on the order in which Haxe types the
+   * calls, except when two such macros make the same import in one definer
+   * from different files.
    *
    * Why not the call site: see `ensureExternImportType`. Why the local class
    * and not `callPos`: a macro that returns an `Imports` call can give the

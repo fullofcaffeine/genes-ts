@@ -499,14 +499,16 @@ the defines into its macro context before Genes runs); Genes deletes those
 two files after it reads them and leaves the folders. See
 `genes.incremental.HaxeDependencies`.
 
-`genes.ts.Imports` makes a hidden extern class (a holder) for each import,
-and each module makes its own holders. The import line in a module's source
-map names line 1 of the file of the module that made the holder, so it does
-not depend on the order in which Haxe types modules or functions. A holder
-has no output file, but under every `-dce` mode a preview is refused
-(`module-may-leave`) when its module no longer calls `genes.ts.Imports` for
-one of its imports, because a full build no longer has that holder. The
-reason names the module and the import.
+`genes.ts.Imports` (and a helper that uses it, such as
+`genes.css.CssModule.imported`) makes a hidden extern class (a holder) for
+each import, and each module makes its own holders. The import line in a
+module's source map names line 1, column 0 of the file of the module that
+made the holder, not the call, so it does not depend on the order in which
+Haxe types modules or functions. A holder has no output file, but under
+every `-dce` mode a preview is refused (`module-may-leave`) when its module
+no longer imports something that it imported this way, because a full
+build no longer has that holder. The reason names the module and the
+import.
 
 Genes reads the Haxe arguments with the Haxe 4.3.7 option table
 (`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as

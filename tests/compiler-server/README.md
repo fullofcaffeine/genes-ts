@@ -1202,9 +1202,13 @@ a preview advances only the records of its own module. So the full request
 stores the definer and the import of each holder, and a module request
 whose module no longer makes one of its stored holders is refused
 (`module-may-leave`, under every `-dce` profile); the reason names the
-module and the import, for example `the import of join from "node:path"`.
-A holder leaves only when its definer stops making it or leaves, so the
-check needs no walk over typed bodies. `mr.Main` names `a.reach.First`
+module and the import, for example `a.reach.First no longer imports join
+from "node:path" (with genes.ts.Imports or a helper that uses it)`. This
+check needs no walk over typed bodies, and it covers only the requested
+module's own holders. A holder also leaves when its definer leaves the
+program: under `-dce std`, `modulesThatMayLeave` covers that, because a
+definer has an output file there; under `-dce full` no rule covers it (see
+the limit below). `mr.Main` names `a.reach.First`
 before `mr.reach.Second`, so a cold build types `First` first:
 
 - `probe9b-holder-maker-drops-import`: `First` and `Second` both call
@@ -1245,7 +1249,16 @@ before `mr.reach.Second`, so a cold build types `First` first:
   a literal edit of `First` gave a preview whose `a/reach/First.ts.map`
   differed from cold (the module request typed `one()` first); and with
   `Second` inlining a `First` function, a moved call in `two()` gave the
-  same stale map. Now all three equal cold;
+  same stale map. Now all three equal cold, and the preview row checks the
+  documented position: the import line maps to line 1, column 0 of
+  `a/reach/First.hx` (it was red on a test copy that used the position of
+  the local class instead);
+- `probe9f-holder-position-macro`: the same as the first `probe9f` row, but
+  `one()` gets its import from the project macro `a.reach.JoinMacro.join()`,
+  whose `namedImport` literal is in the macro's own file. A holder takes
+  its file from the class that Haxe is typing, not from the call: on a test
+  copy that used the file of the call, the warm full request differed from
+  cold in `a/reach/First.ts.map`;
 - `probe9g-holder-in-dead-code` (`-dce std`): `First` calls `namedImport`
   inside `if (SERVER)`, where `SERVER` is an inline `false`. Haxe removes
   that code before Genes reads the bodies, but the macro ran, so the holder
@@ -1278,12 +1291,19 @@ before `mr.reach.Second`, so a cold build types `First` first:
   again with it, and a holder with a newer stamp than the stored one never
   meets an unchanged definer.
 
-Limit (no row in the gate): a hand-written module that has no output file,
-such as an extern class with `@:jsRequire` alone in its file, is not a
-candidate of `modulesThatMayLeave`. Under `-dce std`, when the requested
-module drops its only use of such a module, the preview is accepted with
-records that still hold it (red on b39e32c9 and on fa51ca57; the holder
-rule of genes-f8vc.14.44 does not cover it).
+Limits (no row in the gate; genes-f8vc.14.46):
+
+- a hand-written module that has no output file, such as an extern class
+  with `@:jsRequire` alone in its file, is not a candidate of
+  `modulesThatMayLeave`. Under `-dce std`, when the requested module drops
+  its only use of such a module, the preview is accepted with records that
+  still hold it (red on b39e32c9 and on fa51ca57; the holder rule of
+  genes-f8vc.14.44 does not cover it);
+- under `-dce full`, no rule covers a module with holders that the
+  requested module stops loading, for example through an unused `import`
+  line or a function that nothing calls. A preview can then be accepted
+  with records that still hold that module and its holders. This is
+  predicted from the code, not shown by a row.
 
 `yarn test` checks the reader of Haxe's list, also its Windows form
 (`tests/haxedependencies/HaxeDependenciesProbe.hx`).

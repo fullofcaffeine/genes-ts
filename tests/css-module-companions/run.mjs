@@ -239,14 +239,6 @@ function compileFailure(define, expected) {
   );
 }
 
-function sourcePoint(file, needle) {
-  const source = readFileSync(file, "utf8");
-  const offset = source.indexOf(needle);
-  assert.notEqual(offset, -1, `${file} contains ${needle}`);
-  const lines = source.slice(0, offset).split("\n");
-  return { line: lines.length, column: lines.at(-1).length };
-}
-
 function assertImportMap(generatedFile) {
   const source = readFileSync(generatedFile, "utf8");
   const token = '"./card.module.css"';
@@ -261,14 +253,15 @@ function assertImportMap(generatedFile) {
     column: generatedLines.at(-1).length,
     bias: SourceMapConsumer.GREATEST_LOWER_BOUND,
   });
+  // The import line maps to line 1, column 0 of the Haxe file that calls
+  // `imported`, not to the literal: the hidden holder of the import is
+  // positioned there, so the map is the same in every build, whatever order
+  // Haxe types the calls in (genes-f8vc.14.43).
   assert.match(original.source ?? "", /src\/css_module_companions\/Main\.hx$/u);
   assert.deepEqual(
     { line: original.line, column: original.column },
-    sourcePoint(
-      path.join(fixtureRoot, "src/css_module_companions/Main.hx"),
-      '"./card.module.css"',
-    ),
-    "the generated CSS request maps to the authored Haxe literal",
+    { line: 1, column: 0 },
+    "the generated CSS request maps to line 1, column 0 of the Haxe file that calls imported",
   );
 }
 

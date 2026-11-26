@@ -298,6 +298,11 @@ export function exportedStyles() {
 There is no runtime companion import, CSS registry, wrapper object, or Genes
 styling runtime. The host's ordinary CSS loader supplies the imported object.
 
+In the source map of the generated file, the CSS import line maps to line 1,
+column 0 of the Haxe file that calls `imported`, not to the string literal.
+This position is the same in every build, so a warm compilation server and a
+cold build write the same map, whichever call Haxe types first.
+
 ## Actual classic declaration output
 
 Classic JavaScript can still serve TypeScript callers. With `-D dts`, the same

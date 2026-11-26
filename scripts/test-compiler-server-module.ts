@@ -107,6 +107,7 @@ import {
 import { cpus, loadavg } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import {
   hashTree,
   OwnedHaxeCompilerServer,
@@ -4007,6 +4008,32 @@ function displacedHolderGroup(): Group {
 }
 
 /**
+ * Returns where the source map of a generated file maps the first `token`:
+ * the source relative to the workspace's `src/`, its line (from 1) and its
+ * column (from 0). The `probe9f` rows use it to check the documented
+ * position of an import line: line 1, column 0 of the definer's file.
+ */
+function importLineOrigin(generatedPath: string, token: string):
+    { source: string | null, line: number | null, column: number | null } {
+  const generated = readFileSync(generatedPath, "utf8");
+  const offset = generated.indexOf(token);
+  ok(offset !== -1, `${generatedPath} contains ${token}`);
+  const before = generated.slice(0, offset).split("\n");
+  const consumer = new SourceMapConsumer(
+    JSON.parse(readFileSync(`${generatedPath}.map`, "utf8")) as RawSourceMap);
+  const original = consumer.originalPositionFor({
+    line: before.length,
+    column: before.at(-1)?.length ?? 0,
+    bias: SourceMapConsumer.GREATEST_LOWER_BOUND
+  });
+  const marker = `${path.sep}src${path.sep}`;
+  const source = original.source === null ? null
+    : original.source.includes(marker) ? original.source.slice(original.source.lastIndexOf(marker) + marker.length)
+    : original.source;
+  return { source, line: original.line, column: original.column };
+}
+
+/**
  * Returns a check that a refusal names what a developer can find in the
  * source: the definer `a.reach.First` and the import of `join` from
  * `node:path` (S4 of the review of genes-f8vc.14.43). With `hidesHolder`,
@@ -4165,7 +4192,17 @@ function sharedHolderGroups(): ReadonlyArray<Group> {
  *   preview whose module request typed `one()` first ("a/reach/First.ts.map
  *   of the preview differs from the cold build"); the same with `Second`
  *   inlining `First.first()` and a moved call in `two()`. Now a holder is
- *   positioned at the start of its definer's file.
+ *   positioned at the start of its definer's file, and the preview row also
+ *   checks that position: the import line of the preview and of the full
+ *   request maps to line 1, column 0 of `a/reach/First.hx`
+ *   (`importLineOrigin`; red with the local class's own position).
+ * - `probe9f-holder-position-macro`: the same as `-full`, but `one()` gets
+ *   its import from a project macro, `a.reach.JoinMacro.join()`, whose
+ *   `namedImport` literal is in the macro's own file. The holder takes its
+ *   file from the local class (`Imports.holderPosition`); with the file of
+ *   the call, the warm full request differed from cold in
+ *   `a/reach/First.ts.map` (the holder was in `First.hx` warm and in
+ *   `JoinMacro.hx` cold).
  * - `probe9g-holder-in-dead-code` (`-dce std`): `First` calls `namedImport`
  *   under `if (SERVER)`, an inline `false`. The macro ran, so the holder
  *   exists, but Haxe removes the code before Genes reads the bodies. On
@@ -4232,7 +4269,32 @@ function holderReviewGroups(): ReadonlyArray<Group> {
       steps: [
         { id: "probe9f: a literal edit of First, whose module request types one() first (preview)",
           apply: () => editSource("a/reach/First.hx", "'two '", "'twO '"),
-          module: "a.reach.First", expect: "preview" }
+          module: "a.reach.First", expect: "preview",
+          check: (_report, label) => {
+            // The documented position, not only warm equal to cold: the
+            // import line maps to line 1, column 0 of the definer's file.
+            for (const tree of ["preview", "program"])
+              deepStrictEqual(importLineOrigin(path.join(folder(tree), "a/reach/First.ts"), "join as"),
+                { source: "a/reach/First.hx", line: 1, column: 0 },
+                `${label}: the import line of ${tree} a/reach/First.ts must map to line 1, column 0 of a/reach/First.hx`);
+          } }
+      ]
+    },
+    {
+      name: "probe9f-holder-position-macro",
+      files: {
+        "mr/Main.hx": mainWith(["trace(a.reach.First.two());"]),
+        "a/reach/JoinMacro.hx": "package a.reach;\n\nimport haxe.macro.Expr;\n\nclass JoinMacro {\n"
+          + "  public static macro function join(): Expr {\n"
+          + `    return macro ${importJoin};\n  }\n}\n`,
+        "a/reach/First.hx": firstWith("  public static function one(): String {\n"
+          + "    final join: (String, String) -> String = a.reach.JoinMacro.join();\n"
+          + "    return 'one ' + join('a', 'b');\n  }\n\n"
+          + joinFunction("public static", "two", "two"))
+      },
+      steps: [
+        { id: "probe9f: Main calls one(), whose import comes from a macro in another file (full request)",
+          apply: () => editSource("mr/Main.hx", "a.reach.First.two()", "a.reach.First.one()") }
       ]
     },
     {
