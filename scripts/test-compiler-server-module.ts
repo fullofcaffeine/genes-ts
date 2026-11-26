@@ -3864,6 +3864,69 @@ function importHolderGroups(): ReadonlyArray<Group> {
   });
 }
 
+/**
+ * A type that a project macro defines with an explicit `moduleDependency`
+ * (review of genes-ts #274, round 2). `mr.reach.Definer` calls
+ * `Gen.companion('on')`, which defines the extern class
+ * `mr.reach.OwnerCompanion` with `Context.defineType(def, 'mr.reach.Owner')`,
+ * a position in `Owner.hx`, and a field of type `mr.reach.Hidden`. Nothing
+ * else names `Hidden`. The macro always returns `'gen'`, so the edit `'on'`
+ * to `'of'` changes no typed code of `Definer`, but a cold build no longer
+ * makes the companion and drops `mr/reach/Hidden.ts`.
+ *
+ * The first row edits `Definer` and keeps the companion: its module request
+ * types `Definer`, so the companion and `Hidden` are loaded and it previews
+ * on every commit. The second row is the case.
+ *
+ * The companion has the file of `mr.reach.Owner`, so that file is an entry
+ * of Haxe's list twice, and the module request counts equal the entries.
+ * On da5b15e7 and on 979f8a64 Genes gave the companion's lines to `Owner`
+ * (`Owner` loads `Hidden`), so the second row previewed
+ * `STALE mr/reach/Hidden.ts`. The true chain is `Definer`, the companion,
+ * `Hidden`. Now only holders of `genes.ts.Imports` count with the module of
+ * their file, so the second row is `module-may-leave`: a module whose file
+ * holds another macro-defined type carries no edge from Haxe's list.
+ */
+function explicitModuleDependencyGroup(): Group {
+  return {
+    name: "probe7-explicit-module-dependency",
+    dce: "std",
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Owner.text());", "trace(mr.reach.Definer.text());"]),
+      "mr/reach/Owner.hx": reachUser("Owner", "owner", "'.'"),
+      "mr/reach/Hidden.hx": "package mr.reach;\n\nclass Hidden {\n  public function new() {}\n}\n",
+      "mr/reach/Definer.hx": reachUser("Definer", "definer", "Gen.companion('on')"),
+      "mr/reach/Gen.hx": "package mr.reach;\n\n#if macro\nimport haxe.macro.Context;\nimport haxe.macro.Expr;\n#end\n\n"
+        + "class Gen {\n"
+        + "  public static macro function companion(flag: haxe.macro.Expr): haxe.macro.Expr {\n"
+        + "    switch flag.expr {\n"
+        + "      case EConst(CString('on', _)):\n        define();\n"
+        + "      default:\n    }\n"
+        + "    return macro 'gen';\n  }\n\n"
+        + "  #if macro\n  static function define(): Void {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Owner.hx'), min: 0, max: 1});\n"
+        + "    Context.defineType({pack: ['mr', 'reach'], name: 'OwnerCompanion', pos: pos, isExtern: true,\n"
+        + "      kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n"
+        + "      kind: FVar(macro : mr.reach.Hidden)}]}, 'mr.reach.Owner');\n"
+        + "  }\n  #end\n}\n"
+    },
+    steps: [
+      // Not a literal edit of `mr.Button`: Haxe then reuses `Definer` from
+      // its cache without running the macro again, so the warm full request
+      // has no companion and no `Hidden` while a cold build has both (a
+      // difference of Haxe itself, whatever Genes does). An edit of
+      // `Definer` makes both builds run the macro.
+      { id: "probe7: literal edit of Definer, which still makes the companion",
+        apply: () => editSource("mr/reach/Definer.hx", "'definer '", "'definer! '"),
+        module: "mr.reach.Definer", expect: "preview" },
+      { id: "probe7: Definer no longer makes the companion (module-may-leave)",
+        apply: () => editSource("mr/reach/Definer.hx", "Gen.companion('on')", "Gen.companion('of')"),
+        module: "mr.reach.Definer", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Hidden") }
+    ]
+  };
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
@@ -3872,6 +3935,7 @@ const groups: ReadonlyArray<Group> = [
   ...inlineReachGroups(),
   ...reviewBuildGroups(),
   ...importHolderGroups(),
+  explicitModuleDependencyGroup(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.

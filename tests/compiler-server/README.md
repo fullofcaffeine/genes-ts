@@ -1108,10 +1108,9 @@ reference is refused before the `module-may-leave` check, by
 (`walk-target-removed`) for a private signature or a body.
 
 The blocks of a file that is an entry of Haxe's list more than once count
-together only when each entry is a module of the request with that file,
-and else not at all (a `registerModuleDependency` module, `$DEP`, can be
-among them). The review of #274 (round 1) found the common case:
-`genes.ts.Imports.namedImport` makes its holder class with
+together only when each entry is a module of the request with that file
+and every other one is a holder of `genes.ts.Imports`; else no block
+counts. `genes.ts.Imports.namedImport` makes its holder class with
 `Context.defineType`, and Haxe gives it the file of the module being typed.
 In `probe5-inline-and-import-holder`, `mr.reach.ViaBoth` calls the inline
 `Codec.assume` and owns such a holder. On def4b46f, which skipped every
@@ -1122,6 +1121,29 @@ for `mr.reach`, which sorts after `genes.ts.imports`, and was refused in
 before it (16 Caffeine files use `genes.ts.Imports`, in packages that sort
 before it too). Now the edit previews in both groups, the literal edit of
 `ViaBoth` previews, and removing the only inline call is still refused.
+
+`probe7-explicit-module-dependency` (review of #274, round 2): the project
+macro `Gen.companion('on')`, called by `mr.reach.Definer`, defines the
+extern class `mr.reach.OwnerCompanion` with
+`Context.defineType(def, 'mr.reach.Owner')`, a position in `Owner.hx` and a
+field of type `mr.reach.Hidden`, which nothing else names. The counts and
+the sets of `Owner.hx` are equal, so 979f8a64 gave the companion's lines to
+`Owner`. When `Definer` stops making the companion (`'on'` to `'of'`, no
+other typed change), cold drops `mr/reach/Hidden.ts`: the second row was
+`STALE mr/reach/Hidden.ts` on da5b15e7 and on 979f8a64, `module-may-leave`
+on def4b46f, and is `module-may-leave` now. Its first row is a literal edit
+of `Definer` (a preview on every commit), not of `mr.Button`: after an
+edit of `mr.Button`, Haxe reuses `Definer` from its cache without running
+the macro, so the warm full request has no companion and no `Hidden` while
+a cold build has both, a difference of Haxe itself.
+
+Limits of this rule: a module whose file holds a macro-defined type other
+than an `Imports` holder carries no edge from Haxe's list, so a module that
+only it reaches makes previews refuse; and a holder whose position is in
+one file but that Haxe made while it typed another module has the file of
+that other module, so the counts of both files differ and no block of
+either counts (a refusal, never a stale file).
+
 `yarn test` checks the reader of Haxe's list, also its Windows form
 (`tests/haxedependencies/HaxeDependenciesProbe.hx`).
 

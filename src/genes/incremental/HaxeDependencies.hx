@@ -69,12 +69,11 @@ import genes.util.PathUtil;
  * - `F` is the file of exactly one module `X` of the program, `F` ends with
  *   that module's path, `X` is not in Haxe's standard library (see
  *   `collect`), and `F` is an entry of the program's list exactly once;
- *   when the file of `A` is an entry more than once, each entry must be a
- *   module of the request with that file (a type that a macro defined while
- *   Haxe typed `A`, such as the holder of `genes.ts.Imports`), and then
- *   the blocks count together for `A`; else, when a `registerModuleDependency`
- *   module (`$DEP`) can be among them, no block counts, whatever the order
- *   of the list;
+ *   when the file of `A` is an entry more than once, the blocks count
+ *   together for `A` only when each entry is a module of the request with
+ *   that file and every other one is a holder that `genes.ts.Imports` made
+ *   while Haxe typed `A` (`HOLDER_PREFIX`); else no block counts, whatever
+ *   the order of the list (`collect`);
  * - and either `X` has a macro function and `F` is listed at least twice
  *   for `A` (a macro module and `X` itself: a macro call also resolves the
  *   class of `X` in the program), or `X` has no macro function, has a
@@ -132,7 +131,15 @@ import genes.util.PathUtil;
  * above is a program module that Haxe loads with its dependent. A line
  * that does not pass is dropped, which can only refuse a preview.
  *
- * Limits: a session `dump-path` folder that two Haxe processes share at the
+ * Limits: a module whose file also holds a macro-defined type other than a
+ * `genes.ts.Imports` holder (a `Context.defineType` of a project macro or a
+ * library, also one with an explicit `moduleDependency`) gets no edge from
+ * Haxe's list, so a module that only it reaches makes previews refuse. A
+ * holder whose position is in one file but that Haxe made while it typed
+ * another module (an `Imports` call in code that a macro copied there) has
+ * the file of that other module: the blocks of neither file count then
+ * (the counts differ), so that case can only refuse, never give a stale
+ * file. A session `dump-path` folder that two Haxe processes share at the
  * same time can give one of them the other's lists (the development session
  * runs one server for its folder). On Windows, `scan` reads Haxe's text-mode
  * lists (`\r\n`, `\`), but a file whose full path Haxe spells otherwise
@@ -146,6 +153,13 @@ import genes.util.PathUtil;
 class HaxeDependencies {
   /** The start of the environment variables of this class (`prepare`). */
   static inline final VARIABLE_PREFIX = 'GENES_HAXE_DEPENDENCIES_';
+
+  /**
+   * The package of the holder classes that `genes.ts.Imports` defines with
+   * `Context.defineType` (`genes.ts.imports.<name>`): the only macro-defined
+   * types whose blocks count with the module whose file they have (`collect`).
+   */
+  static inline final HOLDER_PREFIX = 'genes.ts.imports.';
 
   /** True on Windows, where Haxe writes the lists with `\r\n` and `\` (`scan`). */
   static final WINDOWS = Sys.systemName() == 'Windows';
@@ -489,13 +503,17 @@ class HaxeDependencies {
     // has a file.
     final byFile = new Map<String, String>();
     final shared = new Map<String, Bool>();
-    // How many modules of this request have each file, also those that fail
-    // the path check below (a type that a macro defined with the position of
-    // the module that it typed).
-    final modulesOfFile = new Map<String, Int>();
+    // The modules of this request that have each file, also those that fail
+    // the path check below (a type that a macro defined with a position in
+    // that file, such as a holder of `genes.ts.Imports`).
+    final modulesOfFile = new Map<String, Array<String>>();
     for (module => source in files) {
       final full = fullPath(source);
-      modulesOfFile.set(full, (modulesOfFile.get(full) ?? 0) + 1);
+      final same = modulesOfFile.get(full);
+      if (same == null)
+        modulesOfFile.set(full, [module]);
+      else
+        same.push(module);
       if (DceStdUses.isStdPath(full)
         || !StringTools.endsWith(full,
           '/' + module.split('.').join('/') + '.hx'))
@@ -560,23 +578,40 @@ class HaxeDependencies {
       final blocks = blocksOfFile.get(file);
       if (module == null || blocks == null)
         continue;
-      // A file that is an entry more than once also names another module:
-      // a type that a macro defined while Haxe typed `module`
-      // (`Context.defineType` takes the file of the module being typed; for
-      // example the holder class of `genes.ts.Imports`), or a module that
-      // `registerModuleDependency` made (`$DEP`, no type of the program).
-      // When each entry is a module of this request with that file, no
-      // `$DEP` module is among them, and the blocks together are what Haxe
-      // loads with `module`: a cold build types `module`, which makes the
-      // other types and loads their dependencies. Otherwise skip them all,
-      // rather than rely on the order of the list (`sort_types`).
+      // A file that is an entry more than once also names other modules: a
+      // type that a macro defined with that file (`Context.defineType` takes
+      // the file of the module being typed, or of the module that its
+      // `moduleDependency` names), or a module that
+      // `registerModuleDependency` made (`$DEP`). The blocks count together
+      // only when each entry is a module of this request with that file and
+      // every module but `module` is a holder of `genes.ts.Imports`
+      // (`HOLDER_PREFIX`). `Imports.hx` makes a holder with one
+      // `defineType` call without a `moduleDependency`, while Haxe types the
+      // module that calls `Imports`, so a cold build loads the holder and its
+      // dependencies with `module`. Any other macro-defined type can belong
+      // to another module (review of #274, `probe7-explicit-module-dependency`:
+      // a type defined from `mr.reach.Definer` with the file of
+      // `mr.reach.Owner`), so its file's blocks are skipped, whatever the
+      // order of the list (`sort_types`).
       final entryCount = entries.get(file) ?? 0;
-      if (entryCount != blocks.length
-        || (entryCount != 1 && modulesOfFile.get(file) != entryCount))
+      if (entryCount != blocks.length)
         continue;
+      if (entryCount != 1) {
+        final same = modulesOfFile.get(file) ?? [];
+        if (same.length != entryCount)
+          continue;
+        var holdersOnly = true;
+        for (other in same)
+          if (other != module && !StringTools.startsWith(other, HOLDER_PREFIX))
+            holdersOnly = false;
+        if (!holdersOnly)
+          continue;
+      }
       // `counts` holds the most times that one block lists a line: "listed
       // twice" means twice for one module (a macro module and the module
-      // itself), never once in each of two blocks.
+      // itself), never once in each of two blocks. With only holders merged,
+      // this changes no result today (a holder lists no macro module); it is
+      // kept so that a merge can never make a pair out of two blocks.
       final counts = new Map<String, Int>();
       for (lines in blocks) {
         final own = new Map<String, Int>();
