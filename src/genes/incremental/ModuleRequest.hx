@@ -114,6 +114,34 @@ typedef ModuleProfile = {
   final privateStructure: Bool;
 }
 
+/**
+ * What the classes of one module add to `ModuleRequest.externalUses`
+ * besides the foreign references of its record (genes-f8vc.14.8). Plain
+ * text, sorted, each line once.
+ *
+ * Why per module: an accepted preview replaces the facts of its own module
+ * and makes `externalUses` again from the facts of every module
+ * (`externalUsesOf`), as a full request makes it from its declarations.
+ * Example: `class Panel extends mr.Base` in `mr.Panel` gives the parent line
+ * `mr.Base *`; `@:access(mr.Gadget)` on a class of `mr.GadgetUser` gives the
+ * access `mr.Gadget`.
+ */
+typedef ModuleClassFacts = {
+  /** `<parent> *` for each parent class in another module of a class of the module, at any depth. */
+  final parents: Array<String>;
+
+  /** The `@:access` paths (as written) on the classes, fields and constructors of the module. */
+  final accesses: Array<String>;
+
+  /**
+   * Each class of the module: its full name (`TypeUtil.baseTypeFullName`)
+   * and the names that an `@:access` path is compared with
+   * (`reachNamesOf`), or `null` when its parent chain is longer than the
+   * limit, so that every path reaches it.
+   */
+  final classes: Array<{name: String, reach: Null<Array<String>>}>;
+}
+
 /** The live facts of the requested module that the generator gives to `decide`. */
 typedef ModuleRequestFacts = {
   /** The module that the request previews. */
@@ -229,6 +257,15 @@ typedef ModuleRequestReport = {
 
   /** The number of files of the stored program that the status rule trusted without reading them. */
   final trustedSources: Int;
+
+  /**
+   * What the request did with the stored records (format 3,
+   * genes-f8vc.14.8): `advanced` after a published preview (the records of
+   * its module now describe the sources, `previewCommitted`), `kept` after a
+   * refusal, or `dropped: <why>` when a published preview could not advance
+   * them exactly and Genes forgot every record instead.
+   */
+  final records: String;
 }
 
 /**
@@ -285,11 +322,18 @@ typedef CacheFacts = {
   /** `typedDigests`: the content that Haxe last typed for each file. */
   final typed: Array<{file: String, content: SourceContent}>;
 
-  /** `typedAlone`: files that a module request typed alone and could not mark. */
+  /** `typedAlone`: files of modules that a module request typed alone; the next request makes Haxe parse them again. */
   final typedAlone: Array<String>;
 
   /** `leftoverRoots`: modules whose roots a failed request left. */
   final leftoverRoots: Array<String>;
+
+  /**
+   * `deferredFiles` (format 2, genes-f8vc.14.8): files of modules that an
+   * accepted preview typed alone; the next request that is not a module
+   * request makes Haxe parse them again.
+   */
+  final deferred: Array<String>;
 }
 
 /** The report of the record step of one full request with `"moduleRecords": true`. */
@@ -322,6 +366,25 @@ typedef ModuleRecordsReport = {
 
   /** Time of the `-dce std` facts (`DceStdUses`) in this request (format 2). */
   final profileMs: Float;
+
+  /**
+   * The modules whose records an accepted preview advanced since the full
+   * request before (format 3, genes-f8vc.14.8).
+   */
+  final advanced: Int;
+
+  /**
+   * The check of those advanced records against the records of this
+   * request (format 3, `ModuleRequest.programCommitted`): `none` (nothing
+   * was advanced), `equal`, `sources-changed` (a source file differs from
+   * the one that the last preview knew, so the records may differ),
+   * `key-changed` (the session key changed since the previews), or
+   * `differs: <module>: <first difference>`, a defect that the request
+   * also reports as the warning `GENES-MODULE-REQUEST-005`. It compares the
+   * text of each advanced module (`moduleText`) and the indexes
+   * (`indexesText`), not the records of the other modules.
+   */
+  final advancedCheck: String;
 }
 
 /**
@@ -381,8 +444,8 @@ typedef ModuleRecordsReport = {
  * Haxe parse it, or the folder of a deleted `import.hx`, again, and a file
  * created again at that path counts as changed.
  *
- * The cache facts (genes-lnrv). `typedDigests`, `typedAlone` and
- * `leftoverRoots` say what Haxe's module cache holds, and Haxe keeps that
+ * The cache facts (genes-lnrv). `typedDigests`, `typedAlone`,
+ * `deferredFiles` and `leftoverRoots` say what Haxe's module cache holds, and Haxe keeps that
  * cache while the server runs. Genes keeps them in `@:persistent` fields,
  * and Haxe sets those back to their first values when it types the macro
  * classes of Genes again: after a request with other defines, when a macro
@@ -451,7 +514,11 @@ typedef ModuleRecordsReport = {
  * leaves the incremental path, so this check does not apply there.
  *
  * What a client must do (no shipping client asks for module records yet;
- * the Genes development session in `tooling/` does not): after
+ * the Genes development session in `tooling/` does not): send a full
+ * request with module records first in each new server process, before any
+ * module request (a module request without records is refused with
+ * `no-records`, and the files that it typed stay unknown until a later full
+ * request); after
  * `GENES-MODULE-REQUEST-003` or `init-macro-before-genes`, send the same
  * request again once, and if it is refused again, report the refusal
  * instead of looping. A second refusal means that a file changed again in
@@ -500,8 +567,10 @@ typedef ModuleRecordsReport = {
  * - the module is not the output root, is not exposed, has no public root
  *   entries, and gets an implementation file;
  * - Haxe typed no module other than the requested one, and every other
- *   module of the request has the epochs of the stored full request (so a
- *   module that an earlier module request typed again is a refusal too);
+ *   module of the request has the stored epochs: those of the stored full
+ *   request, or of the published preview that advanced its records
+ *   (genes-f8vc.14.8). A module that an earlier module request typed again
+ *   without publishing a preview of it is a refusal too;
  * - the defines are the ones that the session key holds: a define that a
  *   macro sets after the first after-typing callback of Genes changes what
  *   printing reads (`GenerationChangeSet.definesChangedAfterTyping`,
@@ -533,7 +602,8 @@ typedef ModuleRecordsReport = {
  *   no macro and no `@:generic` declaration: modules that import it then
  *   need no new typing;
  * - no source file of the stored program other than the module's own
- *   changed since the full request (content digest, or the status rule
+ *   changed since the stored records (the full request, or the published
+ *   preview that advanced the file's module; content digest, or the status rule
  *   above; also `import.hx` files, and also files of modules that this
  *   request loads, because Haxe compares file times only in whole seconds),
  *   so an edit outside the module's imports is a refusal too
@@ -729,19 +799,80 @@ typedef ModuleRecordsReport = {
  * Haxe saved the class state and removes before printing, so they never
  * reach Haxe's cache (unlike `--macro keep(...)`). A request that fails
  * before the generator runs leaves them; the next request removes them
- * before dead-code elimination (`leftoverRoots`). When Haxe typed the
- * module in this request, Genes marks it for a new typing
+ * before dead-code elimination (`leftoverRoots`). When Haxe typed a
+ * module in a module request, Genes marks it for a new typing
  * (`retypeLater`), so that the next full request types
  * it again with the whole program: a type that another module's use decides,
- * such as `static final items = []`, would otherwise stay as typed alone. A
- * module request stores nothing in the generation cache and keeps no records
- * of its own.
+ * such as `static final items = []`, would otherwise stay as typed alone.
+ * The mark fires at once for every module that the request typed, as
+ * before, except for the requested module of a published preview: its mark
+ * waits for the next request that is not a module request, which also makes
+ * Haxe parse its file again (`deferredFiles`), see below. A request that
+ * fails after this step leaves the requested module's file to the next
+ * request (`typedAlone`).
+ *
+ * Previews in a row (genes-f8vc.14.8). A development session sends a module
+ * request for each save, and the full request only after a quiet time. A
+ * published preview therefore advances the records of its own module to the
+ * records that a full request stores for these sources
+ * (`previewCommitted`): its `ModuleRecord`, its epochs, its declaration
+ * facts, its `-dce std` facts (`profileCache`), its class facts
+ * (`storedClassFacts`), its proven file content (`storedFiles`) and its
+ * generation cache entry (`GenerationCache.advance`, made by
+ * `IncrementalShadow.previewEntry` as a full request makes it). Every index
+ * that reads several modules (`externalUses`, `storedUseCounts`,
+ * `storedFeatureAnswers`, `storedReachers` and the others of
+ * `commitProfiles`) is then made again from the facts of every module, by
+ * the code that a full request uses (`deriveIndexes`). So the next module
+ * request compares with records that match the sources, never with records
+ * of an older text. Example: `app.Card` and `app.Deck` both call
+ * `StringTools.lpad`. A preview of `app.Card` removes its call (admitted:
+ * `app.Deck` keeps it), and `storedUseCounts` then counts one module with
+ * that use. A later preview that removes the call from `app.Deck` too is
+ * refused (`dce-use-removed`), because a full build then drops
+ * `StringTools.lpad`; with the counts of the old text it would have counted
+ * `app.Card` and admitted the edit.
+ *
+ * Why the advanced records are exact: the preview's checks proved that a
+ * full build after the edit changes only the module's own files, and every
+ * other module of the program is the module of the stored records (same
+ * epochs, same source files, same declaration facts). So a full request for
+ * these sources would store the same facts for every other module, and for
+ * this module the facts that the preview read with the same functions. A
+ * refused request advances nothing. A published preview whose facts cannot
+ * all be read exactly forgets every record instead (`drop`, report
+ * `records: "dropped: ..."`), so the next module request is refused
+ * (`no-records`) until a full request.
+ *
+ * Haxe keeps the module that a published preview typed for later module
+ * requests: its mark for a new typing fires only at the start of the next
+ * request that is not a module request (`fireRetypeMark`), and that request
+ * also makes Haxe parse its file again (`deferredFiles`). So a later
+ * preview of a module that imports it directly finds it unchanged. Limit: a
+ * module of the last full request that depends on it (Haxe keeps the module
+ * object that it was typed against) is typed again by Haxe, and a module
+ * request whose program holds such a module is refused
+ * (`other-modules-typed`) until the next full request. Example: after a
+ * preview of `app.Theme`, a preview of `app.Button`, which imports it,
+ * works; a preview of `app.Panel`, whose program holds the `app.Button` of
+ * the full request, is refused.
+ *
+ * The program request stays the authority: it types those modules again
+ * and its records replace every advanced record. When no source file
+ * changed since the last preview, it also compares its records of each
+ * advanced module, and every index, with the advanced ones (only those:
+ * the records of the other modules are the stored ones); a difference is
+ * a defect, reported as the warning `GENES-MODULE-REQUEST-005` and in the
+ * records report (`advancedCheck`).
  *
  * Without `-D genes.dev_incremental` nothing here runs.
  */
 class ModuleRequest {
-  /** The format of `ModuleRequestReport` and `ModuleRecordsReport`. */
-  static inline final REPORT_FORMAT = 2;
+  /**
+   * The format of `ModuleRequestReport` and `ModuleRecordsReport`. Format 3
+   * adds `records`, `advanced` and `advancedCheck` (genes-f8vc.14.8).
+   */
+  static inline final REPORT_FORMAT = 3;
 
   /**
    * Words that `shapeOf` writes for a macro field and a `@:generic`
@@ -811,11 +942,27 @@ class ModuleRequest {
   @:persistent static var typedDigests: Map<String, SourceContent> = new Map();
 
   /**
-   * Files of modules that a module request typed alone and could not mark
-   * for a new typing (`retypeLater` failed). The next request invalidates
-   * them before typing.
+   * Files of modules that a module request typed alone and that the next
+   * request of any kind must make Haxe parse again before typing: the
+   * modules that `retypeLater` could not mark, and the requested module
+   * while its own mark waits for the end of the request
+   * (`settleRetypeMark`: a published preview moves its file to
+   * `deferredFiles`, any other result fires the mark and takes the file
+   * out). So a request that fails after `retypeLater` leaves the file here,
+   * and no later request reuses the module that Haxe typed alone. A cache
+   * fact.
    */
   @:persistent static var typedAlone: Array<String> = [];
+
+  /**
+   * Files of modules that a published preview typed alone (genes-f8vc.14.8).
+   * Later module requests reuse these modules, whose records the preview
+   * advanced (`previewCommitted`); the next request that is not a module
+   * request makes Haxe parse them again before typing (`beginRequest`), and
+   * fires their mark for a new typing (`fireRetypeMark`), so that the
+   * program request types them with the whole program. A cache fact.
+   */
+  @:persistent static var deferredFiles: Array<String> = [];
 
   /**
    * Modules whose roots a request added and did not remove (it failed
@@ -978,11 +1125,66 @@ class ModuleRequest {
     Bool> = new Map();
 
   /**
-   * The last computed `-dce std` facts of each module, with the epochs that
-   * they were computed for, so that a full request reads a module again only
-   * after Haxe typed it again (as `shapeCache`). Dropped with the records.
+   * The `-dce std` facts of each module of the stored full request, with the
+   * epochs that they were computed for: the source of the `-dce std` indexes
+   * (`commitProfiles`). The full request keeps its facts of every module here
+   * when it commits, and an accepted preview replaces the facts of its module
+   * (genes-f8vc.14.8). The next full request reads a module again only after
+   * Haxe typed it again (as `shapeCache`). Dropped with the records.
    */
   @:persistent static var profileCache: Map<String, ModuleProfile> = new Map();
+
+  /**
+   * The class facts (`ModuleClassFacts`) of each module of the stored full
+   * request, from its declarations after dead-code elimination: with the
+   * records, the source of `externalUses` (`externalUsesOf`). An accepted
+   * preview replaces the facts of its module (genes-f8vc.14.8).
+   */
+  @:persistent static var storedClassFacts: Map<String,
+    ModuleClassFacts> = new Map();
+
+  /**
+   * The init macros (the text after each `--macro`) of the stored full
+   * request, which `commitProfiles` reads for `storedPrivateAccess`. Kept
+   * with the records, so that an accepted preview, whose request can have
+   * other `--macro` lines (a session removes `include(...)`), makes the
+   * indexes from the full request's macros (review of genes-ts #268).
+   */
+  @:persistent static var storedInitMacros: Array<String> = [];
+
+  /**
+   * The modules whose records an accepted preview advanced since the stored
+   * full request (genes-f8vc.14.8). The next full request compares its own
+   * records of them with the advanced ones (`advancedSnapshot`) and then
+   * forgets this set.
+   */
+  @:persistent static var advancedModules: Map<String, Bool> = new Map();
+
+  /**
+   * The advanced records as plain text, read by a full request in
+   * `afterSave` before it replaces them: the proven file contents, the text
+   * of each advanced module (`moduleText`) and the indexes (`indexesText`).
+   * `null` when nothing was advanced, or when the session key changed.
+   */
+  static var advancedSnapshot: Null<{
+    files: Map<String, String>,
+    modules: Map<String, String>,
+    indexes: String
+  }> = null;
+
+  /**
+   * What this request did with the stored records, for the module request
+   * report (`ModuleRequestReport.records`): `kept` unless `previewCommitted`
+   * advanced or dropped them.
+   */
+  static var recordsResult = 'kept';
+
+  /**
+   * The mark of the requested module that `retypeLater` started in this
+   * module request, with the module's file, until `settleRetypeMark` fires
+   * or keeps it; `null` when Haxe did not type the requested module.
+   */
+  static var pendingRetype: Null<{token: String, file: Null<String>}> = null;
 
   /** The `-dce std` facts of each module of this request (see `storedUses`). */
   static var requestProfiles: Map<String, ModuleProfile> = new Map();
@@ -1076,8 +1278,23 @@ class ModuleRequest {
     cacheFactsKey = '';
     cacheFactsToken = '';
     cacheFactsLost = false;
+    advancedSnapshot = null;
+    recordsResult = 'kept';
+    pendingRetype = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
+    // Every request with the define that is not a module request fires the
+    // mark of the modules that module requests typed alone, also a request
+    // that left the incremental path (an editor request, an unreadable
+    // descriptor): the mark is Haxe's own, so it works without the records.
+    switch IncrementalRequest.mode() {
+      case On(descriptor) if (descriptor.kind.match(Module(_))):
+      case On(descriptor):
+        fireRetypeMark(descriptor.path);
+      case Off(path, _) if (path.length > 0):
+        fireRetypeMark(path);
+      case Absent | Off(_, _):
+    }
     beginRequest();
   }
 
@@ -1108,8 +1325,10 @@ class ModuleRequest {
   /**
    * Runs before Haxe types the program (`Generator.use()` is an init
    * macro): makes Haxe parse again each file whose content is not the
-   * content that Haxe last typed (`typedDigests`), and each file that an
-   * earlier module request typed alone and could not mark (`typedAlone`).
+   * content that Haxe last typed (`typedDigests`), each file of a module that
+   * an earlier module request typed alone (`typedAlone`), and, in a request
+   * that is not a module request, each file of a module that a published
+   * preview typed alone (`deferredFiles`, genes-f8vc.14.8).
    *
    * Why: Haxe's compilation server compares file times in whole seconds.
    * Two saves of one file in the same second look like one, and the second
@@ -1168,12 +1387,23 @@ class ModuleRequest {
         cacheFactsLost = !fresh && !readCacheFacts();
       }
     }
+    // Files of modules that a module request typed alone: every request
+    // makes Haxe parse those of `typedAlone` again, and a request that is not
+    // a module request also those of published previews (`deferredFiles`,
+    // genes-f8vc.14.8), whose mark `begin` has fired.
     final alone = typedAlone.copy();
-    final stale = alone.copy();
     if (alone.length > 0) {
       typedAlone = [];
       cacheFactsChanged = true;
     }
+    if (!descriptor.kind.match(Module(_)) && deferredFiles.length > 0) {
+      for (file in deferredFiles)
+        if (alone.indexOf(file) < 0)
+          alone.push(file);
+      deferredFiles = [];
+      cacheFactsChanged = true;
+    }
+    final stale = alone.copy();
     if (cacheFactsLost) {
       // This process typed modules with these defines before, and Genes
       // lost what it knew about them: make Haxe parse every source file of
@@ -1344,8 +1574,13 @@ class ModuleRequest {
   /** The suffix of the stored cache facts, after the descriptor path. */
   static inline final CACHE_FACTS_SUFFIX = '.typed-sources.json';
 
-  /** The format of the stored cache facts (`encodeCacheFacts`). */
-  static inline final CACHE_FACTS_FORMAT = 1;
+  /**
+   * The format of the stored cache facts (`encodeCacheFacts`). Format 2
+   * adds `deferred` (genes-f8vc.14.8); a file of format 1 is not read, so
+   * the first new macro state after an update makes Haxe parse every file
+   * again once (`cacheFactsLost`).
+   */
+  static inline final CACHE_FACTS_FORMAT = 2;
 
   /**
    * Notes `content` as what Haxe holds for `file` (`typedDigests`), and marks
@@ -1391,7 +1626,8 @@ class ModuleRequest {
 
   /**
    * Reads the stored cache facts (`<descriptor>.typed-sources.json`) into
-   * `typedDigests`, `typedAlone` and `leftoverRoots`. `beginRequest` calls it
+   * `typedDigests`, `typedAlone`, `leftoverRoots` and `deferredFiles`.
+   * `beginRequest` calls it
    * once in each macro state, before it compares any file.
    *
    * Why: these three facts say what Haxe's module cache holds, and Haxe keeps
@@ -1434,6 +1670,9 @@ class ModuleRequest {
     for (item in facts.leftoverRoots)
       if (leftoverRoots.indexOf(item) < 0)
         leftoverRoots = leftoverRoots.concat([item]);
+    for (item in facts.deferred)
+      if (deferredFiles.indexOf(item) < 0)
+        deferredFiles = deferredFiles.concat([item]);
     return true;
   }
 
@@ -1475,8 +1714,8 @@ class ModuleRequest {
   }
 
   /**
-   * Writes `typedDigests`, `typedAlone` and `leftoverRoots` to the stored
-   * cache facts when they changed since the last write (`readCacheFacts`
+   * Writes `typedDigests`, `typedAlone`, `leftoverRoots` and `deferredFiles`
+   * to the stored cache facts when they changed since the last write (`readCacheFacts`
    * explains why). Called at the end of each step that changes them, also
    * before a refusal stops the request.
    *
@@ -1516,8 +1755,8 @@ class ModuleRequest {
    * process token (`claimProcessToken`), one
    * entry per file of `typedDigests` (`[file, digest]`, or `[file, digest,
    * size, mtime, ctime, ino, readAt]` when a status is kept; sorted by
-   * file), `typedAlone` and `leftoverRoots`. Times are milliseconds, and
-   * Haxe's JSON keeps them exactly.
+   * file), `typedAlone`, `leftoverRoots` and `deferred` (`deferredFiles`).
+   * Times are milliseconds, and Haxe's JSON keeps them exactly.
    */
   static function encodeCacheFacts(): String {
     final files = [for (file in typedDigests.keys()) file];
@@ -1536,7 +1775,8 @@ class ModuleRequest {
       process: cacheFactsToken,
       typed: typed,
       typedAlone: typedAlone,
-      leftoverRoots: leftoverRoots
+      leftoverRoots: leftoverRoots,
+      deferred: deferredFiles
     }) + '\n';
   }
 
@@ -1560,10 +1800,12 @@ class ModuleRequest {
     final entries: Dynamic = Reflect.field(parsed, 'typed');
     final alone = stringsOf(Reflect.field(parsed, 'typedAlone'));
     final roots = stringsOf(Reflect.field(parsed, 'leftoverRoots'));
+    final deferred = stringsOf(Reflect.field(parsed, 'deferred'));
     if (!Std.isOfType(format, Int)
       || (format : Int) != CACHE_FACTS_FORMAT
         || !Std.isOfType(defines, String) || !Std.isOfType(process, String)
-        || !Std.isOfType(entries, Array) || alone == null || roots == null)
+        || !Std.isOfType(entries, Array) || alone == null || roots == null
+        || deferred == null)
       return null;
     final typed: Array<{file: String, content: SourceContent}> = [];
     for (entry in (entries : Array<Dynamic>)) {
@@ -1605,7 +1847,8 @@ class ModuleRequest {
       process: (process : String),
       typed: typed,
       typedAlone: alone,
-      leftoverRoots: roots
+      leftoverRoots: roots,
+      deferred: deferred
     };
   }
 
@@ -2238,6 +2481,9 @@ class ModuleRequest {
       case Full:
         if (descriptor.moduleRecords != true)
           return;
+        // The records that previews advanced, as text, before this request
+        // replaces them (`programCommitted` compares them; genes-f8vc.14.8).
+        snapshotAdvanced();
         // The content that Haxe typed for every source file, for the
         // records (`storedFiles`): the proven digest of each module file
         // (`typedDigests`, unknown for a module that Haxe kept from before
@@ -2263,10 +2509,10 @@ class ModuleRequest {
         // of its cached shape: Haxe typed it again, or the session key
         // changed (the cache is then empty). Modules of extern classes only
         // never get an output file and are left out.
-        if (storedKey == null || storedKey != GenerationChangeSet.sessionKey()) {
+        final sameKey = storedKey != null
+          && storedKey == GenerationChangeSet.sessionKey();
+        if (!sameKey)
           shapeCache = new Map();
-          profileCache = new Map();
-        }
         for (module => list in grouped) {
           final epochs = GenerationChangeSet.epochs(module);
           final cached = shapeCache.get(module);
@@ -2285,20 +2531,20 @@ class ModuleRequest {
         shapeSeconds += haxe.Timer.stamp() - started;
         // The `-dce std` facts of every module, for a later module request
         // (genes-f8vc.14.7). A module whose epochs did not change keeps the
-        // facts of its earlier reading.
+        // facts of the stored program (`profileCache`), which this request
+        // does not change: `programCommitted` replaces them after the
+        // commit, so a request that fails leaves the facts of the records
+        // (genes-f8vc.14.8).
         if (DceStdUses.stdProfile()) {
           final profileStart = haxe.Timer.stamp();
           for (module => list in grouped) {
             final epochs = GenerationChangeSet.epochs(module);
-            final cached = profileCache.get(module);
+            final cached = sameKey ? profileCache.get(module) : null;
             if (cached != null && epochs.length > 0 && cached.epochs == epochs) {
               requestProfiles.set(module, cached);
               continue;
             }
-            final profile = profileOf(module, list, epochs);
-            requestProfiles.set(module, profile);
-            if (epochs.length > 0)
-              profileCache.set(module, profile);
+            requestProfiles.set(module, profileOf(module, list, epochs));
           }
           profileSeconds += haxe.Timer.stamp() - profileStart;
         }
@@ -2420,39 +2666,89 @@ class ModuleRequest {
   }
 
   /**
-   * Makes the next request type each of `modules` again: each gets a
-   * dependency on `<descriptor>.module-dep`, which does not exist when Haxe
-   * notes its time and exists afterwards, and on
-   * `<descriptor>.module-dep-gone`, which exists then and is deleted
-   * afterwards. Deleting or writing one of them by hand still leaves the
-   * other changed. The server then finds
-   * the dependency changed and types the modules again, with the whole
-   * program in a full request. The dependency lives only on these typed
-   * module objects; the next typing drops it.
+   * Marks each of `modules`, which this module request typed alone, for a
+   * new typing: each gets a dependency on the two files of a mark,
+   * `<descriptor>.module-retype-<token>`, which does not exist when Haxe
+   * notes its time, and `<descriptor>.module-retype-gone-<token>`, which
+   * exists then. The mark fires when the first file appears and the second
+   * goes (`fireRetypeToken`). The server then finds the dependency changed
+   * and types the modules again, with the whole program in a full request.
+   * Deleting or writing one of the files by hand still leaves the other one
+   * changed. The dependency lives only on these typed module objects; the
+   * next typing drops it.
    *
-   * Why not `CompilationServer.invalidateFiles`: during a request it marks
-   * only the cached copy from before; the module typed in this request
-   * enters the cache when the request ends.
+   * When the mark fires (genes-f8vc.14.8):
+   *
+   * - for every module other than the requested one: at once, so that the
+   *   next request of any kind types it again, as before;
+   * - for the requested module: its own mark waits until the end of the
+   *   request (`settleRetypeMark`). When the request publishes a preview
+   *   and advances the module's records, it keeps waiting until the start of
+   *   the next request that is not a module request (`fireRetypeMark`), so
+   *   that later module requests reuse the module of the preview; that
+   *   request also makes Haxe parse the module's file again
+   *   (`deferredFiles`). Otherwise it fires at once. Until then the file is
+   *   in `typedAlone`, so a request that fails after this step leaves it to
+   *   the next request;
+   * - with an init macro that can type a module before
+   *   `genes.Generator.use()`: at once for every module, because such a macro
+   *   could load the module before `begin` fires a waiting mark.
+   *
+   * Why the requested module only: a module request types other modules
+   * only when its preview is refused (`other-modules-typed`), and a module
+   * that Haxe loads before any init macro (with the standard types) must be
+   * changed at the start of the next request; making Haxe parse its file
+   * again in `beginRequest` is then too late, and the full request would
+   * stop with `GENES-MODULE-REQUEST-003` (review of genes-ts #268).
+   *
+   * Why a new pair of files (a new token) for each mark: Haxe 4.3.7 keeps
+   * one fake module for each dependency file for the life of the server
+   * (`Typecore.create_fake_module`), with the file time of its first use,
+   * and forgets it only when a check finds it changed. A module that Haxe
+   * marks as changed for another reason is not checked, so a fake module can
+   * outlive the file state that it noted; a new mark on the same file would
+   * then fire at once.
+   *
+   * Why not `CompilationServer.invalidateFiles` only: during a request it
+   * marks only the cached copy from before; the module typed in this request
+   * enters the cache when the request ends. A mark also works in a request
+   * in which Genes reads no records.
+   *
+   * Limit: a waiting mark fires in `begin` of a request with the define. A
+   * request without the define has other defines, so it uses another cache
+   * of Haxe and never sees the module; a request that deletes the mark's
+   * files, or `<descriptor>.module-retype`, by hand stops a waiting mark, and
+   * then only `deferredFiles` makes the next full request type the module
+   * again.
    */
   static function retypeLater(modules: Array<String>,
       descriptorPath: String): Void {
     if (modules.length == 0)
       return;
-    // Two files, so that deleting or writing either one by hand cannot hide
-    // the change: Haxe notes `appears` while it is missing and `vanishes`
-    // while it exists, then Genes writes the first and deletes the second.
-    final appears = descriptorPath + '.module-dep';
-    final vanishes = descriptorPath + '.module-dep-gone';
+    final requested = target();
+    final waits = typingMacrosBeforeGenes().length == 0
+      && requested != null && modules.indexOf(requested) >= 0;
+    final others = [for (module in modules) if (!waits || module != requested) module];
     try {
-      if (FileSystem.exists(appears))
-        FileSystem.deleteFile(appears);
-      File.saveContent(vanishes, 'genes module request\n');
-      for (module in modules) {
-        Context.registerModuleDependency(module, appears);
-        Context.registerModuleDependency(module, vanishes);
+      // Two files, so that deleting or writing either one by hand cannot
+      // hide the change: Haxe notes `appears` while it is missing and
+      // `vanishes` while it exists, then `fireRetypeToken` writes the first
+      // and deletes the second.
+      if (others.length > 0) {
+        final token = armRetypeToken(descriptorPath);
+        registerRetype(others, descriptorPath, token);
+        fireRetypeToken(descriptorPath, token);
       }
-      File.saveContent(appears, 'genes module request\n');
-      FileSystem.deleteFile(vanishes);
+      if (waits && requested != null) {
+        final token = armRetypeToken(descriptorPath);
+        registerRetype([requested], descriptorPath, token);
+        final file = moduleFiles.get(requested);
+        pendingRetype = {token: token, file: file};
+        if (file != null && typedAlone.indexOf(file) < 0) {
+          typedAlone = typedAlone.concat([file]);
+          cacheFactsChanged = true;
+        }
+      }
     } catch (error:haxe.Exception) {
       // The request publishes nothing (`decide` refuses), and the next
       // request makes Haxe parse these files again before it types them.
@@ -2461,13 +2757,173 @@ class ModuleRequest {
         + '(${error.message})';
       for (module in modules) {
         final file = moduleFiles.get(module);
-        if (file != null) {
+        if (file != null && typedAlone.indexOf(file) < 0) {
           typedAlone = typedAlone.concat([file]);
           cacheFactsChanged = true;
         }
       }
       Context.warning(retypeFailure, Context.currentPos());
     }
+  }
+
+  /** Gives each of `modules` a dependency on both files of the mark `token`. */
+  static function registerRetype(modules: Array<String>,
+      descriptorPath: String, token: String): Void {
+    final appears = retypeFile(descriptorPath, RETYPE_APPEARS, token);
+    final vanishes = retypeFile(descriptorPath, RETYPE_VANISHES, token);
+    for (module in modules) {
+      Context.registerModuleDependency(module, appears);
+      Context.registerModuleDependency(module, vanishes);
+    }
+  }
+
+  /**
+   * Fires or keeps the mark of the requested module at the end of a module
+   * request (`retypeLater`, genes-f8vc.14.8): a preview that advanced the
+   * module's records keeps it waiting (its file is in `deferredFiles`); any
+   * other result fires it now and takes the file out of `typedAlone`, as
+   * before. `writeReport` calls it as the last step of every module request
+   * that reaches the generator.
+   */
+  static function settleRetypeMark(descriptorPath: String): Void {
+    final pending = pendingRetype;
+    pendingRetype = null;
+    if (pending == null || recordsResult == 'advanced')
+      return;
+    try {
+      fireRetypeToken(descriptorPath, pending.token);
+    } catch (error:haxe.Exception) {
+      // The file stays in `typedAlone`: the next request makes Haxe parse it.
+      Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot fire the mark '
+        + 'for a new typing of ${target() ?? 'the requested module'} '
+        +
+        '(${error.message}); the next request makes Haxe parse its file again.',
+        Context.currentPos());
+      return;
+    }
+    final file = pending.file;
+    if (file != null && typedAlone.indexOf(file) >= 0) {
+      typedAlone = [for (item in typedAlone) if (item != file) item];
+      cacheFactsChanged = true;
+      storeCacheFacts();
+    }
+  }
+
+  /** The suffix of the file that lists the marks of `retypeLater` (`retypeMarks`). */
+  static inline final RETYPE_STATE = '.module-retype';
+
+  /** The suffix of the file of a mark that must be missing while the mark waits. */
+  static inline final RETYPE_APPEARS = '.module-retype-';
+
+  /** The suffix of the file of a mark that must exist while the mark waits. */
+  static inline final RETYPE_VANISHES = '.module-retype-gone-';
+
+  /** Returns the path of one file of the mark `token`: the descriptor path, `suffix` and the token. */
+  static function retypeFile(descriptorPath: String, suffix: String,
+      token: String): String {
+    return descriptorPath + suffix + token;
+  }
+
+  /**
+   * Returns the marks that `<descriptor>.module-retype` lists, one line each:
+   * `wait <token>` for a mark that waits, `fired <token>` for a mark whose
+   * first file still exists. A line in another form is skipped.
+   */
+  static function retypeMarks(descriptorPath: String): Array<{
+    waits: Bool,
+    token: String
+  }> {
+    final text = try File.getContent(descriptorPath
+      + RETYPE_STATE) catch (_:haxe.Exception) '';
+    final marks = [];
+    for (line in text.split('\n')) {
+      final parts = StringTools.trim(line).split(' ');
+      if (parts.length == 2 && (parts[0] == 'wait' || parts[0] == 'fired')
+        && ~/^[0-9a-f]+$/.match(parts[1]))
+        marks.push({waits: parts[0] == 'wait', token: parts[1]});
+    }
+    return marks;
+  }
+
+  /** Writes `marks` to `<descriptor>.module-retype` (`retypeMarks`). Throws when it cannot. */
+  static function saveRetypeMarks(descriptorPath: String, marks: Array<{
+    waits: Bool,
+    token: String
+  }>): Void {
+    File.saveContent(descriptorPath + RETYPE_STATE, [
+      for (mark in marks)
+        '${mark.waits ? 'wait' : 'fired'} ${mark.token}\n'
+    ].join(''));
+  }
+
+  /**
+   * Starts a new mark and returns its token: deletes the first file of each
+   * fired mark (its second file stays missing, so its modules still find a
+   * changed dependency), writes the second file of the new mark and lists
+   * it as waiting. Throws when a file cannot be written.
+   */
+  static function armRetypeToken(descriptorPath: String): String {
+    final marks = [];
+    for (mark in retypeMarks(descriptorPath))
+      if (mark.waits)
+        marks.push(mark);
+      else {
+        final old = retypeFile(descriptorPath, RETYPE_APPEARS, mark.token);
+        if (FileSystem.exists(old))
+          FileSystem.deleteFile(old);
+      }
+    final token = haxe.crypto.Sha1.encode(Std.string(Sys.time())
+      + ':'
+      + Std.string(Std.random(0x3FFFFFFF))
+      + ':'
+      + Std.string(marks.length))
+      .substr(0, 16);
+    File.saveContent(retypeFile(descriptorPath, RETYPE_VANISHES, token),
+      'genes module request\n');
+    marks.push({waits: true, token: token});
+    saveRetypeMarks(descriptorPath, marks);
+    return token;
+  }
+
+  /**
+   * Fires the mark `token`: writes its first file, deletes its second file
+   * and lists it as fired. Throws when a file cannot be written:
+   * `retypeLater` then refuses the request (`retype-mark-failed`).
+   */
+  static function fireRetypeToken(descriptorPath: String, token: String): Void {
+    File.saveContent(retypeFile(descriptorPath, RETYPE_APPEARS, token),
+      'genes module request\n');
+    final vanishes = retypeFile(descriptorPath, RETYPE_VANISHES, token);
+    if (FileSystem.exists(vanishes))
+      FileSystem.deleteFile(vanishes);
+    saveRetypeMarks(descriptorPath, [
+      for (mark in retypeMarks(descriptorPath))
+        mark.token == token ? {waits: false, token: token} : mark
+    ]);
+  }
+
+  /**
+   * Fires every mark of `retypeLater` that waits (the marks of published
+   * previews), so that Haxe finds a changed dependency on each marked module
+   * and types it again in this request. `begin` calls it at the start of
+   * every request with the define that is not a module request
+   * (genes-f8vc.14.8).
+   *
+   * If a file cannot be written, Genes warns: a full request still makes
+   * Haxe parse the files of those modules again (`deferredFiles`).
+   */
+  static function fireRetypeMark(descriptorPath: String): Void {
+    for (mark in retypeMarks(descriptorPath))
+      if (mark.waits)
+        try {
+          fireRetypeToken(descriptorPath, mark.token);
+        } catch (error:haxe.Exception) {
+          Context.warning('[GENES-MODULE-REQUEST-002] Genes cannot fire the mark '
+            + 'for a new typing of the modules that previews typed alone '
+            + '(${error.message}); a full request makes Haxe parse their files '
+            + 'again instead.',
+            Context.currentPos());
+        }
   }
 
   /** The argument of the roots that Genes adds, so that it removes only its own. */
@@ -2605,6 +3061,13 @@ class ModuleRequest {
    * Haxe typed the module in this request, else from the earlier record with
    * the same epochs, else it is unknown and a module request for that module
    * is refused.
+   *
+   * An earlier record can be one that a preview advanced (genes-f8vc.14.8).
+   * Its references and positions are reused only when Haxe did not type the
+   * module again since that preview (equal epochs and kept lines): the
+   * record then describes the same typed module object. Haxe normally types
+   * such a module again here (`retypeLater`), and its records are then read
+   * again from its bodies.
    */
   public static function programCommitted(types: Array<Type>,
       main: Null<TypedExpr>, outputFile: String): Void {
@@ -2625,6 +3088,7 @@ class ModuleRequest {
     if (reason != null) {
       drop();
       writeRecordsReport(descriptor, false, reason, 0, 0, started);
+      writeRecordsText(descriptor);
       return;
     }
     final grouped = new Map<String, Array<Type>>();
@@ -2686,65 +3150,19 @@ class ModuleRequest {
         declarationFacts.set(module, known);
     }
     storedDeclarationFacts = declarationFacts;
-    commitProfiles();
-    final uses = new Map<String, Bool>();
-    for (record in made)
-      for (line in record.foreignRefs)
-        if (StringTools.startsWith(line, 'field '))
-          uses.set(line.substr('field '.length), true);
-    for (type in types)
-      switch type {
-        case TInst(reference, _):
-          final cls = reference.get();
-          var parent = cls.superClass;
-          while (parent != null) {
-            final base = parent.t.get();
-            if (base.module != cls.module)
-              uses.set('${TypeUtil.baseTypeFullName(base)} *', true);
-            parent = base.superClass;
-          }
-        default:
-      }
-    // A module that names a class, its package, a parent class or a field
-    // of one of them in `@:access` can reach private fields of the class, so
-    // all of them are visible (`visibleShape`, `accessReaches`). Example:
-    // `@:access(mr.Gadget) class GadgetUser`.
-    final accesses: Array<{path: String, module: String}> = [];
-    for (type in types)
-      switch type {
-        case TInst(reference, _):
-          final cls = reference.get();
-          final metas = [cls.meta];
-          for (field in cls.statics.get().concat(cls.fields.get()))
-            metas.push(field.meta);
-          final constructor = cls.constructor;
-          if (constructor != null)
-            metas.push(constructor.get().meta);
-          for (meta in metas)
-            for (entry in meta.extract(':access'))
-              for (param in (entry.params == null ? [] : entry.params))
-                accesses.push({
-                  path: haxe.macro.ExprTools.toString(param),
-                  module: cls.module
-                });
-        default:
-      }
-    if (accesses.length > 0)
-      for (type in types)
-        switch type {
-          case TInst(reference, _):
-            final cls = reference.get();
-            for (access in accesses)
-              if (access.module != cls.module
-                && accessReaches(access.path, cls))
-                uses.set('${TypeUtil.baseTypeFullName(cls)} *', true);
-          default:
-        }
-    externalUses = uses;
     // Proven typed content (`afterSave`): every source file, and every
     // `import.hx` that can apply to them (a missing one is `missing`, so a
     // new one counts as a change; an unproven one is `unknown`).
     storedFiles = requestDigests;
+    // The facts of every module that the indexes are made from
+    // (`deriveIndexes`): the `-dce std` facts and the class facts. An
+    // accepted preview replaces those of its module and makes the indexes
+    // again with the same code (genes-f8vc.14.8).
+    profileCache = requestProfiles.copy();
+    storedClassFacts = classFactsOf(types);
+    storedInitMacros = initMacros();
+    records = made;
+    deriveIndexes();
     storedMain = '';
     if (main != null) {
       function findMain(expression: TypedExpr): Void {
@@ -2759,67 +3177,373 @@ class ModuleRequest {
     }
     storedKey = key;
     storedOutputFolder = absoluteFolder(outputFile);
-    records = made;
-    writeRecordsReport(descriptor, true, null, walked, shapesComputed, started);
+    // The program request stays the authority (genes-f8vc.14.8): its records
+    // replace every advanced record. For the same sources they must be the
+    // advanced ones; a difference is a defect, not a reason to keep either.
+    final advanced = advancedModules.count();
+    final check = advancedCheck();
+    if (StringTools.startsWith(check, 'differs'))
+      Context.warning('[GENES-MODULE-REQUEST-005] The records that module '
+        +
+        'requests advanced for ${sortedKeys(advancedModules).slice(0, 5).join(', ')} '
+        + 'differ from the records of this full request for the same sources '
+        + '($check). This is a defect in Genes; the full request replaced '
+        + 'them, and its output does not depend on them.',
+        Context.currentPos());
+    advancedModules = new Map();
+    advancedSnapshot = null;
+    writeRecordsReport(descriptor, true, null, walked, shapesComputed,
+      started, advanced, check);
+    writeRecordsText(descriptor);
+  }
+
+  /**
+   * Reads the records that previews advanced as text (`advancedSnapshot`),
+   * before a full request with module records replaces them. `afterSave`
+   * calls it before the request changes any record. It reads nothing when
+   * no preview advanced a record since the last full request.
+   */
+  static function snapshotAdvanced(): Void {
+    advancedSnapshot = null;
+    if (!advancedModules.keys().hasNext() || storedKey == null
+      || storedKey != GenerationChangeSet.sessionKey())
+      return;
+    final files = new Map<String, String>();
+    for (file => content in storedFiles)
+      files.set(file, content.digest);
+    advancedSnapshot = {
+      files: files,
+      modules: [for (module in advancedModules.keys()) module => moduleText(module)],
+      indexes: indexesText()
+    };
+  }
+
+  /**
+   * Compares the advanced records (`advancedSnapshot`) with the records that
+   * this full request just made, and returns the result for the records
+   * report (`ModuleRecordsReport.advancedCheck`): `none` without advanced
+   * records, `key-changed` when the session key changed since they were
+   * made, `sources-changed` when a source file differs from the content
+   * that the advanced records name (a refused edit after the last preview,
+   * for example: the records then describe other sources), else `equal` or
+   * `differs: <module or indexes>: <first difference>`.
+   */
+  static function advancedCheck(): String {
+    if (!advancedModules.keys().hasNext())
+      return 'none';
+    final snapshot = advancedSnapshot;
+    if (snapshot == null)
+      return 'key-changed';
+    final keys = [for (file in storedFiles.keys()) file];
+    if (keys.length != [for (_ in snapshot.files.keys()) 1].length)
+      return 'sources-changed';
+    for (file in keys) {
+      final content = storedFiles.get(file);
+      if (content == null || snapshot.files.get(file) != content.digest)
+        return 'sources-changed';
+    }
+    for (module in sortedKeys([for (name in snapshot.modules.keys()) name => true])) {
+      final before = snapshot.modules.get(module) ?? '';
+      final now = moduleText(module);
+      if (before != now)
+        return 'differs: $module: ${firstDifference(before, now)}';
+    }
+    final indexes = indexesText();
+    if (snapshot.indexes != indexes)
+      return 'differs: indexes: ${firstDifference(snapshot.indexes, indexes)}';
+    return 'equal';
+  }
+
+  /**
+   * Advances the records of the module of a published preview to the
+   * records that a full request stores for these sources (genes-f8vc.14.8).
+   * The generator calls it after the preview's transaction committed, with
+   * the facts that `decide` accepted and the cache entry that the request
+   * made for the module (`IncrementalShadow.previewEntry`).
+   *
+   * What it replaces, each with the function that `programCommitted` and
+   * `afterSave` use for a full request: the module's `ModuleRecord` (kept
+   * lines, foreign references and use skeleton of its kept bodies, shape,
+   * imported positions), its stored epochs, its declaration facts, its
+   * proven file content, its shape, its `-dce std` facts and its class
+   * facts, and its generation cache entry (`GenerationCache.advance`). It
+   * then makes every index that reads several modules again
+   * (`deriveIndexes`), notes the module in `advancedModules`, and moves its
+   * file from `typedAlone` to `deferredFiles`, so that later module requests
+   * reuse the module that Haxe typed here.
+   *
+   * Why only this module: `decide` proved that every other module of the
+   * request is the module of the stored records and that a full build
+   * changes no output file of another module. A full request for these
+   * sources would store the same facts for every other module.
+   *
+   * When a fact cannot be read exactly (no cache entry, an unproven file
+   * content, missing `-dce std` facts, or a cache over its budget), it
+   * forgets every record instead (`drop`): the next module request is then
+   * refused (`no-records`) until a full request, which is always correct.
+   */
+  public static function previewCommitted(facts: ModuleRequestFacts,
+      entry: Null<CachedModule>): Void {
+    final module = facts.module;
+    // A full request gives the `main` function of its `--main` class
+    // `@:keep` (Haxe 4.3.7, `finalization.ml`), which a module request,
+    // which has no `--main`, cannot see: its shape and fingerprint would
+    // differ. Keep the records of the full request then, as before
+    // genes-f8vc.14.8: a later module request of another module is refused
+    // (`source-changed`) until the next full request, and one of this module
+    // is checked against the full request's records.
+    final dot = storedMain.lastIndexOf('.');
+    if (dot > 0 && storedMain.substr(0, dot) == module) {
+      recordsResult = 'kept: $module holds the --main class, whose main function '
+        + 'a full request marks @:keep';
+      return;
+    }
+    final file = moduleFiles.get(module);
+    final content = file == null ? null : typedDigests.get(file);
+    final profile = requestProfiles.get(module);
+    final shape = requestShape;
+    final proven = content != null && content.digest != UNKNOWN_DIGEST
+      && content.digest != MISSING_DIGEST;
+    var why: Null<String> = null;
+    if (entry == null)
+      why = 'the request made no cache entry for $module';
+    else if (file == null || !proven)
+      why = 'the content of the file of $module is not proven';
+    else if (shape == null)
+      why = 'the shape of $module is not known';
+    else if (DceStdUses.stdProfile() && profile == null)
+      why = 'the -dce std facts of $module are not known';
+    else if (!GenerationCache.advance(module, entry))
+      why = 'the generation cache cannot take the entry of $module';
+    if (why != null || file == null || content == null || shape == null) {
+      drop();
+      recordsResult = 'dropped: ${why ?? 'unknown'}';
+      return;
+    }
+    final epochs = GenerationChangeSet.epochs(module);
+    records.set(module, {
+      epochs: epochs,
+      kept: keptLines(facts.types),
+      foreignRefs: facts.references.foreign,
+      skeleton: facts.references.skeleton,
+      shape: shape,
+      positions: importedPositions(facts.types)
+    });
+    storedEpochs.set(module, epochs);
+    final targetFacts = requestFacts.get(module);
+    if (targetFacts == null)
+      storedTargetFacts.remove(module);
+    else
+      storedTargetFacts.set(module, targetFacts);
+    final declarationFacts = requestDeclarationFacts.get(module);
+    if (declarationFacts == null)
+      storedDeclarationFacts.remove(module);
+    else
+      storedDeclarationFacts.set(module, declarationFacts);
+    storedFiles.set(file, content);
+    shapeCache.set(module, {epochs: epochs, shape: shape});
+    if (profile != null && DceStdUses.stdProfile())
+      profileCache.set(module, profile);
+    final classes = classFactsOf(facts.types).get(module);
+    if (classes == null)
+      storedClassFacts.remove(module);
+    else
+      storedClassFacts.set(module, classes);
+    deriveIndexes();
+    advancedModules.set(module, true);
+    if (typedAlone.indexOf(file) >= 0) {
+      typedAlone = [for (item in typedAlone) if (item != file) item];
+      if (deferredFiles.indexOf(file) < 0)
+        deferredFiles = deferredFiles.concat([file]);
+      cacheFactsChanged = true;
+      storeCacheFacts();
+    }
+    recordsResult = 'advanced';
+  }
+
+  /**
+   * Makes every stored index that reads the facts of several modules again
+   * from the stored facts of each module: `externalUses` from the records
+   * and the class facts (`externalUsesOf`), and the `-dce std` indexes from
+   * the `-dce std` facts and the generation cache entries
+   * (`commitProfiles`). A full request calls it when it commits, and an
+   * accepted preview after it replaced the facts of its module
+   * (`previewCommitted`), so both make the indexes with the same code.
+   */
+  static function deriveIndexes(): Void {
+    externalUses = externalUsesOf();
+    commitProfiles(profileCache);
+  }
+
+  /**
+   * Returns the class facts (`ModuleClassFacts`) of each module of `types`,
+   * from its classes: the parent lines, the `@:access` paths and the names
+   * that `accessReaches` compares.
+   */
+  static function classFactsOf(types: Array<Type>): Map<String,
+    ModuleClassFacts> {
+    final parents = new Map<String, Map<String, Bool>>();
+    final accesses = new Map<String, Map<String, Bool>>();
+    final classes = new Map<String,
+      Array<{name: String, reach: Null<Array<String>>}>>();
+    for (type in types)
+      switch type {
+        case TInst(reference, _):
+          final cls = reference.get();
+          final module = cls.module;
+          if (!classes.exists(module)) {
+            parents.set(module, new Map());
+            accesses.set(module, new Map());
+            classes.set(module, []);
+          }
+          final ownParents = parents.get(module);
+          final ownAccesses = accesses.get(module);
+          final ownClasses = classes.get(module);
+          if (ownParents == null || ownAccesses == null || ownClasses == null)
+            continue;
+          var parent = cls.superClass;
+          while (parent != null) {
+            final base = parent.t.get();
+            if (base.module != module)
+              ownParents.set('${TypeUtil.baseTypeFullName(base)} *', true);
+            parent = base.superClass;
+          }
+          final metas = [cls.meta];
+          for (field in cls.statics.get().concat(cls.fields.get()))
+            metas.push(field.meta);
+          final constructor = cls.constructor;
+          if (constructor != null)
+            metas.push(constructor.get().meta);
+          for (meta in metas)
+            for (entry in meta.extract(':access'))
+              for (param in (entry.params == null ? [] : entry.params))
+                ownAccesses.set(haxe.macro.ExprTools.toString(param), true);
+          ownClasses.push({
+            name: TypeUtil.baseTypeFullName(cls),
+            reach: reachNamesOf(cls)
+          });
+        default:
+      }
+    final facts = new Map<String, ModuleClassFacts>();
+    for (module => list in classes) {
+      list.sort((left, right) -> compareStrings(left.name, right.name));
+      facts.set(module, {
+        parents: sortedKeys(parents.get(module) ?? new Map()),
+        accesses: sortedKeys(accesses.get(module) ?? new Map()),
+        classes: list
+      });
+    }
+    return facts;
+  }
+
+  /**
+   * Returns the private fields that other modules can see (`externalUses`),
+   * made from the stored records and class facts of every module:
+   *
+   * - `<type> <s|i>:<name>` for each `field` line of the foreign references
+   *   of a record;
+   * - `<type> *` for each class that a class of another module extends,
+   *   directly or through a parent (`ModuleClassFacts.parents`);
+   * - `<type> *` for each class that an `@:access` path of another module
+   *   reaches (`accessReaches`). Example: `@:access(mr.Gadget) class
+   *   GadgetUser`: every private field of `mr.Gadget` is visible
+   *   (`visibleShape`).
+   */
+  static function externalUsesOf(): Map<String, Bool> {
+    final uses = new Map<String, Bool>();
+    for (record in records)
+      for (line in record.foreignRefs)
+        if (StringTools.startsWith(line, 'field '))
+          uses.set(line.substr('field '.length), true);
+    final accesses: Array<{path: String, module: String}> = [];
+    for (module => facts in storedClassFacts) {
+      for (line in facts.parents)
+        uses.set(line, true);
+      for (path in facts.accesses)
+        accesses.push({path: path, module: module});
+    }
+    if (accesses.length > 0)
+      for (module => facts in storedClassFacts)
+        for (cls in facts.classes)
+          for (access in accesses)
+            if (access.module != module
+              && accessReaches(access.path, cls.reach))
+              uses.set('${cls.name} *', true);
+    return uses;
+  }
+
+  /**
+   * Returns the names of `cls` and of each of its parent classes that
+   * `accessReaches` compares with an `@:access` path: `<package>.<class>`
+   * (of the generic base of a generic instance), and for a private class
+   * also the path without its `_Module` part, as Haxe's `make_path` writes
+   * it. Returns `null` when the parent chain is longer than 64 classes:
+   * every path then counts as reaching it.
+   */
+  static function reachNamesOf(cls: ClassType): Null<Array<String>> {
+    final names = [];
+    var current: Null<ClassType> = cls;
+    var depth = 0;
+    while (current != null) {
+      if (depth++ > 64)
+        return null;
+      final named = switch current.kind {
+        case KGenericInstance(base, _): base.get();
+        default: current;
+      }
+      names.push(named.pack.concat([named.name]).join('.'));
+      if (named.isPrivate && named.pack.length > 0)
+        names.push(named.pack.slice(0, named.pack.length - 1)
+          .concat([named.name])
+          .join('.'));
+      final parent = current.superClass;
+      current = parent == null ? null : parent.t.get();
+    }
+    return names;
   }
 
   /**
    * Returns true when the `@:access` path `path` (as written, for example
-   * `mr.Gadget`) may let its module access a private field of `cls`, also a
-   * field that does not exist yet.
+   * `mr.Gadget`) may let its module access a private field of a class whose
+   * names (`reachNamesOf`) are `names`, also a field that does not exist yet.
    *
    * Why: Haxe 4.3.7's `can_access` (`typecore.ml`) compares the path with
    * `<package>.<class>.<field>` of the class and of each of its parent
    * classes, and accepts a path that starts that text. So `@:access(mr)`,
    * `@:access(mr.Base)` (a parent class) and `@:access(mr.Gadget.label)` (one
    * field) each reach a new private `label` of `mr.Gadget`. The test here is
-   * wider: a path that starts with the class path, or that the class path
-   * starts, matches; for a private class the path without its `_Module`
-   * part counts too, as Haxe writes it; and `std` matches a class in no
-   * package (`@:access(std)`). A parent chain longer than 64 classes
-   * matches.
+   * wider: a path that starts with a name, or that a name starts, matches;
+   * and `std` matches a class in no package (`@:access(std)`). `null` names
+   * (a parent chain longer than 64 classes) match every path.
    */
-  static function accessReaches(path: String, cls: ClassType): Bool {
-    function matches(candidate: String): Bool {
-      return candidate == path
+  static function accessReaches(path: String,
+      names: Null<Array<String>>): Bool {
+    if (names == null)
+      return true;
+    for (candidate in names)
+      if (candidate == path
         || StringTools.startsWith(candidate, path + '.')
         || StringTools.startsWith(path, candidate + '.')
-        || (path == 'std' && candidate.indexOf('.') < 0);
-    }
-    var current: Null<ClassType> = cls;
-    var depth = 0;
-    while (current != null) {
-      if (depth++ > 64)
+        || (path == 'std' && candidate.indexOf('.') < 0))
         return true;
-      final named = switch current.kind {
-        case KGenericInstance(base, _): base.get();
-        default: current;
-      }
-      if (matches(named.pack.concat([named.name]).join('.')))
-        return true;
-      // Haxe's `make_path` leaves out the `_Module` part of a private class.
-      final outer = named.pack.slice(0, named.pack.length - 1);
-      if (named.isPrivate && named.pack.length > 0
-        && matches(outer.concat([named.name]).join('.')))
-        return true;
-      final parent = current.superClass;
-      current = parent == null ? null : parent.t.get();
-    }
     return false;
   }
 
   /**
-   * Keeps the `-dce std` facts of this full request (`requestProfiles`) as
-   * the stored ones (`storedUses` and the maps beside it). Under another
+   * Makes the `-dce std` indexes (`storedUses` and the maps beside it) from
+   * `profiles`, the `-dce std` facts of every module of the stored program,
+   * and from the generation cache entries. A full request passes its own
+   * facts (`requestProfiles`); an accepted preview passes the stored facts
+   * with those of its module replaced (`deriveIndexes`). Under another
    * profile it keeps none, so a module request there takes the strict rule.
    */
-  static function commitProfiles(): Void {
+  static function commitProfiles(profiles: Map<String, ModuleProfile>): Void {
     final uses = new Map<String, Array<String>>();
     final dependencies = new Map<String, Array<String>>();
     final listeners = new Map<String, Array<String>>();
     final opaque = new Map<String, Bool>();
     if (DceStdUses.stdProfile())
-      for (module => profile in requestProfiles) {
+      for (module => profile in profiles) {
         final own = profile.uses;
         if (own != null)
           uses.set(module, own);
@@ -2842,13 +3566,13 @@ class ModuleRequest {
     storedOpaqueMacros = opaque;
     final bases = new Map<String, Bool>();
     if (DceStdUses.stdProfile())
-      for (_ => profile in requestProfiles)
+      for (_ => profile in profiles)
         for (base in profile.externBases)
           bases.set(base, true);
     storedExternBases = bases;
     final calls = new Map<String, Array<String>>();
     if (DceStdUses.stdProfile())
-      for (module => profile in requestProfiles)
+      for (module => profile in profiles)
         for (line in profile.extensionCalls) {
           final list = calls.get(line);
           if (list == null)
@@ -2864,7 +3588,7 @@ class ModuleRequest {
     final accessors = new Map<String, String>();
     final structures = new Map<String, Bool>();
     if (DceStdUses.stdProfile()) {
-      for (module => profile in requestProfiles) {
+      for (module => profile in profiles) {
         var reason = profile.privateReach;
         // A project macro can return private-access code from a file that
         // is not a module of the program, or read the fields of any class
@@ -2873,7 +3597,7 @@ class ModuleRequest {
           reason = 'defines a project macro function';
         if (reason == null)
           for (dependency in profile.dependencies) {
-            final loaded = requestProfiles.get(dependency);
+            final loaded = profiles.get(dependency);
             if (loaded != null && loaded.opaqueMacro) {
               reason = 'loads the project macro module $dependency';
               break;
@@ -2882,13 +3606,13 @@ class ModuleRequest {
         if (reason != null)
           accessors.set(module, reason);
       }
-      for (module => profile in requestProfiles)
+      for (module => profile in profiles)
         if (profile.privateStructure)
           structures.set(module, true);
       // An init macro other than Genes' own and the calls that only record a
       // define, metadata or a class path (`INIT_ONLY_CALLS`) can change the
       // code of a module without leaving metadata on it.
-      for (text in initMacros()) {
+      for (text in storedInitMacros) {
         final call = initMacroCall(text);
         if (call == null
           || (INIT_ONLY_CALLS.indexOf(call) < 0 && !genesFile(macroFile(call))))
@@ -2897,7 +3621,7 @@ class ModuleRequest {
       }
       // `import <Type>.*` in an `import.hx` applies to every module of its
       // folder, and their own text does not show it.
-      for (file => _ in requestDigests)
+      for (file => _ in storedFiles)
         if (Path.withoutDirectory(file) == 'import.hx') {
           final text = DceStdUses.sourceText(file);
           if (text != null && DceStdUses.importsTypeStatics(text))
@@ -3001,8 +3725,9 @@ class ModuleRequest {
   }
 
   /**
-   * Forgets every record of the last full request. It keeps the cache facts
-   * (`typedDigests`, `typedAlone`, `leftoverRoots`): they say what Haxe's
+   * Forgets every record of the last full request, and every record that a
+   * preview advanced since. It keeps the cache facts (`typedDigests`,
+   * `typedAlone`, `leftoverRoots`, `deferredFiles`): they say what Haxe's
    * cache holds, which does not depend on the records, and an empty
    * `typedDigests` would read as a cache that holds no module.
    */
@@ -3029,6 +3754,10 @@ class ModuleRequest {
     storedExtensionCalls = new Map();
     storedPrivateAccess = new Map();
     storedPrivateStructures = new Map();
+    storedClassFacts = new Map();
+    storedInitMacros = [];
+    advancedModules = new Map();
+    advancedSnapshot = null;
   }
 
   /**
@@ -3241,9 +3970,10 @@ class ModuleRequest {
     if (others.length > 0)
       return refuse('other-modules-typed',
         'Haxe typed other modules again: ' + others.slice(0, 5).join(', '));
-    // Every other module of this request must be the one of the stored full
-    // request: not typed in this request, and not in an earlier module
-    // request either (its stamp would then be newer).
+    // Every other module of this request must be the one of the stored
+    // records: not typed in this request, and not in an earlier module
+    // request either (its stamp would then be newer), unless a published
+    // preview of that request advanced its records (genes-f8vc.14.8).
     for (name in GenerationChangeSet.observedModules()) {
       if (name == module || redefined.exists(name))
         continue;
@@ -3251,7 +3981,7 @@ class ModuleRequest {
       if (stored == null || stored != GenerationChangeSet.epochs(name))
         return refuse('other-modules-changed',
           '$name is not the module of ' +
-          'the last full request (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
+          'the stored records (${stored == null ? 'it was not in that program' : 'Haxe typed it since'})');
     }
     // An after-typing macro can change the declarations of a module that
     // Haxe did not type again: their metadata, or their extern flag
@@ -3289,7 +4019,8 @@ class ModuleRequest {
     // file whose settled status did not change is not read (`holdsContent`).
     for (file => stored in storedFiles)
       if (file != ownFile && file != targetFile && !holdsContent(file, stored))
-        return refuse('source-changed', '$file changed since the full request');
+        return refuse('source-changed',
+          '$file changed since the stored records');
     final failures = GenerationChangeSet.sameObjectFailures();
     if (failures.length > 0)
       return refuse('same-object-failure',
@@ -4094,7 +4825,7 @@ class ModuleRequest {
     if (stored != null && stored == requestDeclarationFacts.get(module))
       return null;
     return 'an after-typing macro changed the metadata or the extern flag of '
-      + 'a declaration of $module since the full request';
+      + 'a declaration of $module since the stored records';
   }
 
   /**
@@ -4282,15 +5013,18 @@ class ModuleRequest {
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       hashedSources: hashed,
-      trustedSources: trustedSources
+      trustedSources: trustedSources,
+      records: recordsResult
     };
+    settleRetypeMark(descriptor.path);
     save(IncrementalRequest.generationReportPath(descriptor.path),
       Json.stringify(report, null, '  ') + '\n');
+    writeRecordsText(descriptor);
   }
 
   static function writeRecordsReport(descriptor: IncrementalDescriptor,
       stored: Bool, reason: Null<String>, walked: Int, shapeCount: Int,
-      started: Float): Void {
+      started: Float, advanced = 0, advancedCheck = 'none'): Void {
     final report: ModuleRecordsReport = {
       format: REPORT_FORMAT,
       stored: stored,
@@ -4302,10 +5036,185 @@ class ModuleRequest {
       recordMs: GenerationChangeSet.milliseconds(haxe.Timer.stamp() - started),
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       factsMs: GenerationChangeSet.milliseconds(factsSeconds),
-      profileMs: GenerationChangeSet.milliseconds(profileSeconds)
+      profileMs: GenerationChangeSet.milliseconds(profileSeconds),
+      advanced: advanced,
+      advancedCheck: advancedCheck
     };
     save(descriptor.path + '.module-records.json',
       Json.stringify(report, null, '  ') + '\n');
+  }
+
+  /** The suffix of the records text (`recordsText`), after the descriptor path. */
+  static inline final RECORDS_TEXT_SUFFIX = '.records.txt';
+
+  /**
+   * Writes the stored records as plain text (`recordsText`) beside the
+   * descriptor when the descriptor asks for it (`"recordsText": true`,
+   * genes-f8vc.14.8). A full request with module records and a module
+   * request call it at their end, after any change of the records.
+   */
+  static function writeRecordsText(descriptor: IncrementalDescriptor): Void {
+    if (descriptor.recordsText == true)
+      save(descriptor.path + RECORDS_TEXT_SUFFIX, recordsText());
+  }
+
+  /**
+   * Returns every record that a module request reads as one plain text,
+   * sorted, so that two requests can be compared line by line
+   * (genes-f8vc.14.8): the stored `--main` class, the generation cache
+   * outside its entries (`GenerationCache.cacheText`), the proven content of
+   * each source file, the text of each module of the stored program
+   * (`moduleText`) and the indexes (`indexesText`).
+   *
+   * Why: an accepted preview must leave the records that a full request
+   * stores for the same sources. Example: after a preview of `app.Card`, the
+   * text equals the text that a full request writes after the same edit, in
+   * the same server or in another one. Facts that name one typing of a
+   * module rather than its sources are left out: the stamps of the epochs
+   * (only the declaration keys stay), the variable ids of body facts, the
+   * file status beside a digest, the session key and the output folder.
+   * Bookkeeping that is not a record is left out too (`advancedModules`,
+   * the caches of `typedDigests`).
+   */
+  public static function recordsText(): String {
+    final buffer = new StringBuf();
+    buffer.add('records ${storedKey == null ? 'none' : 'stored'}\n');
+    buffer.add('main $storedMain\n');
+    for (text in storedInitMacros)
+      buffer.add('init-macro $text\n');
+    buffer.add(GenerationCache.cacheText());
+    for (file in sortedKeys([for (name in storedFiles.keys()) name => true])) {
+      final content = storedFiles.get(file);
+      buffer.add('file $file ${content == null ? '-' : content.digest}\n');
+    }
+    final names = new Map<String, Bool>();
+    for (name in records.keys())
+      names.set(name, true);
+    for (name in storedEpochs.keys())
+      names.set(name, true);
+    for (name in storedClassFacts.keys())
+      names.set(name, true);
+    for (name in profileCache.keys())
+      names.set(name, true);
+    for (name in GenerationCache.storedModules())
+      names.set(name, true);
+    for (name in sortedKeys(names))
+      buffer.add('module $name\n${moduleText(name)}');
+    buffer.add(indexesText());
+    return buffer.toString();
+  }
+
+  /**
+   * Returns the records of one module as plain text for `recordsText` and
+   * for the check of advanced records (`advancedCheck`): whether its epochs
+   * agree everywhere they are kept, its epochs without stamps, its
+   * `ModuleRecord`, its class facts, its `-dce std` facts, its declaration
+   * facts and its generation cache entry (`GenerationCache.entryText`).
+   */
+  static function moduleText(module: String): String {
+    final buffer = new StringBuf();
+    final epochs = storedEpochs.get(module);
+    final record = records.get(module);
+    final entry = GenerationCache.entry(module);
+    final profile = profileCache.get(module);
+    // Each copy of the epochs must name the module that Haxe holds now.
+    final copies = [
+      record == null ? null : record.epochs,
+      entry == null ? null : entry.epochs,
+      profile == null || profile.epochs.length == 0 ? null : profile.epochs
+    ];
+    final agree = epochs != null
+      && copies.foreach(copy -> copy == null || copy == epochs);
+    buffer.add('  epochs ${agree ? 'agree' : 'differ'} ${epochs == null ? '-' : GenerationCache.stampFree(epochs)}\n');
+    if (record != null) {
+      for (line in record.kept)
+        buffer.add('  kept $line\n');
+      for (line in record.foreignRefs)
+        buffer.add('  foreign $line\n');
+      buffer.add('  skeleton ${record.skeleton}\n');
+      final shape = record.shape;
+      if (shape == null)
+        buffer.add('  shape -\n');
+      else
+        for (line in shape.split('\n'))
+          buffer.add('  shape $line\n');
+      for (line in record.positions.split('\n'))
+        if (line.length > 0)
+          buffer.add('  position $line\n');
+    }
+    final classes = storedClassFacts.get(module);
+    if (classes != null) {
+      for (line in classes.parents)
+        buffer.add('  parent $line\n');
+      for (path in classes.accesses)
+        buffer.add('  access $path\n');
+      for (cls in classes.classes)
+        buffer.add('  class ${cls.name} ${cls.reach == null ? '*' : cls.reach.join(' ')}\n');
+    }
+    if (profile != null) {
+      final uses = profile.uses;
+      buffer.add('  uses ${uses == null ? '-' : ''}\n');
+      if (uses != null)
+        for (line in sortedCopy(uses))
+          buffer.add('    $line\n');
+      buffer.add('  dependencies ${sortedCopy(profile.dependencies).join(' ')}\n');
+      for (line in sortedCopy(profile.listeners))
+        buffer.add('  listener $line\n');
+      buffer.add('  opaque-macro ${profile.opaqueMacro ? 1 : 0}\n');
+      buffer.add('  extern-bases ${sortedCopy(profile.externBases).join(' ')}\n');
+      for (line in sortedCopy(profile.extensionCalls))
+        buffer.add('  extension-call $line\n');
+      buffer.add('  private-reach ${profile.privateReach ?? '-'}\n');
+      buffer.add('  private-structure ${profile.privateStructure ? 1 : 0}\n');
+    }
+    final targetFacts = storedTargetFacts.get(module);
+    if (targetFacts != null)
+      for (line in targetFacts.split('\n'))
+        buffer.add('  target $line\n');
+    final declarationFacts = storedDeclarationFacts.get(module);
+    if (declarationFacts != null)
+      for (line in declarationFacts.split('\n'))
+        buffer.add('  declaration $line\n');
+    buffer.add(GenerationCache.entryText(module));
+    return buffer.toString();
+  }
+
+  /**
+   * Returns the stored indexes that read several modules as plain text,
+   * sorted: `externalUses` and the `-dce std` indexes of `commitProfiles`.
+   */
+  static function indexesText(): String {
+    final buffer = new StringBuf();
+    for (line in sortedKeys(externalUses))
+      buffer.add('external-use $line\n');
+    for (name in sortedKeys([for (key in storedUses.keys()) key => true]))
+      buffer.add('index uses $name ${(storedUses.get(name) ?? []).join(' ')}\n');
+    for (name in sortedKeys([for (key in storedDependencies.keys()) key => true]))
+      buffer.add('index dependencies $name ${sortedCopy(storedDependencies.get(name) ?? []).join(' ')}\n');
+    for (name in sortedKeys([for (key in storedListeners.keys()) key => true]))
+      buffer.add('index listeners $name ${sortedCopy(storedListeners.get(name) ?? []).join(' | ')}\n');
+    buffer.add('index opaque-macros ${sortedKeys(storedOpaqueMacros).join(' ')}\n');
+    buffer.add('index extern-bases ${sortedKeys(storedExternBases).join(' ')}\n');
+    for (name in sortedKeys([for (key in storedExtensionCalls.keys()) key => true]))
+      buffer.add('index extension-calls $name ${sortedCopy(storedExtensionCalls.get(name) ?? []).join(' ')}\n');
+    for (name in sortedKeys([for (key in storedPrivateAccess.keys()) key => true]))
+      buffer.add('index private-access $name ${storedPrivateAccess.get(name)}\n');
+    buffer.add('index private-structures ${sortedKeys(storedPrivateStructures).join(' ')}\n');
+    for (name in sortedKeys([for (key in storedUseCounts.keys()) key => true]))
+      buffer.add('index use-count $name ${storedUseCounts.get(name)}\n');
+    for (name in sortedKeys([for (key in storedFeatureAnswers.keys()) key => true]))
+      buffer.add('index feature $name ${storedFeatureAnswers.get(name)}\n');
+    for (name in sortedKeys([for (key in storedReachers.keys()) key => true]))
+      buffer.add('index reachers $name ${sortedCopy(storedReachers.get(name) ?? []).join(' ')}\n');
+    buffer.add('index haxe-printer ${storedHaxePrinter ? 1 : 0}\n');
+    return buffer.toString();
+  }
+
+  /** Returns a sorted copy of `items`. */
+  static function sortedCopy(items: Array<String>): Array<String> {
+    final copy = items.copy();
+    copy.sort(compareStrings);
+    return copy;
   }
 
   static function save(file: String, text: String): Void {
@@ -4862,7 +5771,7 @@ class ModuleRequest {
     if (stored != null && stored == requestFacts.get(module))
       return null;
     return 'an after-typing macro changed the metadata or the extern flag of '
-      + 'a declaration of $module since the full request';
+      + 'a declaration of $module since the stored records';
   }
 
   /**

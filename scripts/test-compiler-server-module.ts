@@ -70,6 +70,16 @@
  * generated UI modules. `--observe` records results instead of failing on
  * them, for red evidence against another Genes source.
  *
+ * Records that match the sources (genes-f8vc.14.8): every request asks for
+ * the records text (`"recordsText": true`). After an accepted preview the
+ * text must equal the text of the full request after it, and that full
+ * request must find the advanced records equal to its own; after a refused
+ * module request the text must not change. The `chain-` groups make
+ * previews in a row without a full request between them, and `--chain`
+ * runs only `runChains`: 100 chains of five sweep edits each, checked
+ * against cold and against the records of a reference server's full
+ * request after every edit.
+ *
  * `--keep-control` also runs the older way to root a module request,
  * `--macro keep(<module>)`, and prints whether the next full request then
  * differs from cold (the measured cache pollution of genes-f8vc.14.1). It is
@@ -86,6 +96,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -156,6 +167,8 @@ const timeoutMs = 180_000;
 const keepControl = process.argv.includes("--keep-control");
 /** `--sweep` runs only the scripted structural sweep (`sweepGroup`). */
 const sweep = process.argv.includes("--sweep");
+/** `--chain` runs only the chains of previews without a full request between them (`runChains`, genes-f8vc.14.8). */
+const chainMode = process.argv.includes("--chain");
 /**
  * `--observe` records each step's result instead of failing on it, for red
  * evidence with `GENES_TEST_SOURCE` (an older or a changed Genes): a result
@@ -195,6 +208,12 @@ type ModuleReport = {
   readonly hashedSources?: ReadonlyArray<string>;
   /** Files of the stored program that the status rule trusted; absent before genes-f8vc.14.11. */
   readonly trustedSources?: number;
+  /**
+   * What the request did with the stored records (genes-f8vc.14.8):
+   * `advanced` after a preview, `kept` after a refusal, or `dropped: <why>`
+   * when a preview could not advance them exactly. Absent before.
+   */
+  readonly records?: string;
 };
 
 /** One scripted edit, the module that the session previews, and the expected answer. */
@@ -590,9 +609,12 @@ const baseSteps: ReadonlyArray<Step> = [
     id: "second preview after another module request",
     apply: () => edit("Button.hx", "return 'Hold';", "return 'Push';"),
     module: "mr.Button",
-    // The Theme request marked mr.Theme for a new typing, so Haxe types it
-    // again here; either way the request is refused.
-    expect: ["other-modules-typed", "other-modules-changed"]
+    // genes-f8vc.14.8: the accepted Theme preview advanced the records of
+    // mr.Theme, and Haxe keeps the mr.Theme of that preview until the next
+    // request that is not a module request. mr.Button imports mr.Theme
+    // directly, so this preview is checked against records that match the
+    // sources (before: `other-modules-typed`).
+    expect: "preview"
   },
   {
     id: "no edit after the full request",
@@ -2729,6 +2751,15 @@ function sweepModuleText(spec: SweepModule): string {
  * counted by code.
  */
 function sweepGroup(): Group {
+  const steps: Step[] = [];
+  for (const spec of sweepModules)
+    for (const edit of sweepEdits(spec))
+      steps.push({ id: edit.id, module: sweepModulePath(spec), expect: ["preview"], apply: edit.apply });
+  return { name: "sweep-ui", dce: "std", main: "ui.Main", files: sweepFiles(), steps };
+}
+
+/** The source files of the sweep program: the core modules, `ui.Main` and the 20 UI modules. */
+function sweepFiles(): Record<string, string> {
   const files: Record<string, string> = {
     "ui/Main.hx": `package ui;\n\nimport ui.app.App;\nimport ui.app.Shell;\nimport ui.core.Format;\n\n`
       + `class Main {\n  static function main() {\n    trace(App.summary());\n    trace(Shell.summary());\n`
@@ -2743,40 +2774,179 @@ function sweepGroup(): Group {
   };
   for (const spec of sweepModules)
     files[`ui/${spec.pack}/${spec.name}.hx`] = sweepModuleText(spec);
-  const steps: Step[] = [];
-  for (const spec of sweepModules) {
-    const relative = `ui/${spec.pack}/${spec.name}.hx`;
-    const module = `ui.${spec.pack}.${spec.name}`;
-    const anchor = "    // sweep-anchor\n";
-    const props = `${spec.name}Props`;
-    steps.push(
-      { id: `sweep ${spec.name}: new private function with a call`, module, expect: ["preview"], apply: () => {
-        editSource(relative, anchor, `    parts.push(note(props));\n${anchor}`);
-        editSource(relative, `  static function spare(`,
-          `  static function note(props: ${props}): String {\n    return 'note ' + props.count;\n  }\n\n`
-          + `  static function spare(`);
-      } },
-      { id: `sweep ${spec.name}: first use of an unused private function`, module, expect: ["preview"],
-        apply: () => editSource(relative, anchor, `    parts.push(spare(props));\n${anchor}`) },
-      { id: `sweep ${spec.name}: new import and use of another UI module`, module, expect: ["preview"], apply: () => {
-        // On the line of an existing import: a new line would move the
-        // class that other modules import, and their source maps name its
-        // position (`position-changed`; see the std-structural rows).
-        editSource(relative, "import ui.core.Kind;\n", `import ui.core.Kind; import ${spec.next};\n`);
-        editSource(relative, anchor, `    parts.push(${shortName(spec.next)}.summary());\n${anchor}`);
-      } },
-      { id: `sweep ${spec.name}: new local with a kept standard-library call`, module, expect: ["preview"],
-        apply: () => editSource(relative, anchor,
-          `    final shout = StringTools.trim(' ' + props.label + ' ');\n    parts.push(shout.toUpperCase());\n${anchor}`) },
-      { id: `sweep ${spec.name}: the call of a private function is removed`, module, expect: ["preview"],
-        apply: () => editSource(relative, "    parts.push(note(props));\n", "") }
-    );
-  }
-  return { name: "sweep-ui", dce: "std", main: "ui.Main", files, steps };
+  return files;
+}
+
+/** The module path of a sweep module: `ui.controls.Button`. */
+function sweepModulePath(spec: SweepModule): string {
+  return `ui.${spec.pack}.${spec.name}`;
+}
+
+/** The five structural edits of one sweep module, in the order that they must be made. */
+function sweepEdits(spec: SweepModule): ReadonlyArray<{ readonly id: string, readonly apply: () => void }> {
+  const relative = `ui/${spec.pack}/${spec.name}.hx`;
+  const anchor = "    // sweep-anchor\n";
+  const props = `${spec.name}Props`;
+  return [
+    { id: `sweep ${spec.name}: new private function with a call`, apply: () => {
+      editSource(relative, anchor, `    parts.push(note(props));\n${anchor}`);
+      editSource(relative, `  static function spare(`,
+        `  static function note(props: ${props}): String {\n    return 'note ' + props.count;\n  }\n\n`
+        + `  static function spare(`);
+    } },
+    { id: `sweep ${spec.name}: first use of an unused private function`,
+      apply: () => editSource(relative, anchor, `    parts.push(spare(props));\n${anchor}`) },
+    { id: `sweep ${spec.name}: new import and use of another UI module`, apply: () => {
+      // On the line of an existing import: a new line would move the
+      // class that other modules import, and their source maps name its
+      // position (`position-changed`; see the std-structural rows).
+      editSource(relative, "import ui.core.Kind;\n", `import ui.core.Kind; import ${spec.next};\n`);
+      editSource(relative, anchor, `    parts.push(${shortName(spec.next)}.summary());\n${anchor}`);
+    } },
+    { id: `sweep ${spec.name}: new local with a kept standard-library call`,
+      apply: () => editSource(relative, anchor,
+        `    final shout = StringTools.trim(' ' + props.label + ' ');\n    parts.push(shout.toUpperCase());\n${anchor}`) },
+    { id: `sweep ${spec.name}: the call of a private function is removed`,
+      apply: () => editSource(relative, "    parts.push(note(props));\n", "") }
+  ];
+}
+
+/**
+ * Previews in a row without a full request between them (genes-f8vc.14.8).
+ * An accepted preview advances the records of its module, so the next
+ * module request compares with records that match the sources; a refused
+ * one leaves them as they are (`runGroup` compares the records text after
+ * each module request and each full request).
+ *
+ * - `chain-unrelated-and-transitive` (`-dce full`): a preview of `mr.Leaf`
+ *   after a preview of `mr.Theme` (before: `source-changed`), then a
+ *   preview of `mr.Panel`, whose program holds `mr.Button`: Haxe types the
+ *   `mr.Button` of the last full request again, because it depends on the
+ *   `mr.Theme` that the first preview replaced, so the request is refused
+ *   (`other-modules-typed`, the limit of the rule).
+ * - `chain-refused` (`-dce std`): a structural preview of `mr.Card`, a
+ *   refused edit of it, a preview of it that is checked against the records
+ *   of the first preview, and a preview of `mr.CardUser`, which imports
+ *   `mr.Card`.
+ * - the rows of the review of genes-ts #268: `chain-type-only-target`,
+ *   `chain-global-build-refused` and `chain-new-process-module-first` (see
+ *   each group).
+ */
+function chainGroups(): ReadonlyArray<Group> {
+  const card = (from: string, to: string) => () => edit("Card.hx", from, to);
+  // `mr.Ext` names `haxe.ds.List`, which dead-code elimination removes, only
+  // inside a structure type (review of genes-ts #268).
+  const extTypeOnly = `package mr;\n\nimport haxe.ds.List;\n\nclass Ext {\n  public static function value(): Int {\n`
+    + `    return 1;\n  }\n\n  public static function size(options: {final list: Null<List<Int>>;}): Int {\n`
+    + `    return 2;\n  }\n}\n\nprivate extern class ExtNative {\n  static function a(): Int;\n}\n`;
+  return [
+    {
+      // Must-fix 1 of the review of genes-ts #268: the walk of a full
+      // request stores the second name of the step to `haxe.ds.List` or not
+      // by the order of its walk, so the records text leaves it out (before:
+      // `advancedCheck: differs` and GENES-MODULE-REQUEST-005).
+      name: "chain-type-only-target",
+      dce: "std",
+      files: { ...stdFiles, "mr/Ext.hx": extTypeOnly },
+      steps: [
+        { id: "chain: literal edit of a module that names a removed class only in a structure type",
+          apply: () => edit("Ext.hx", "return 1;", "return 3;"), module: "mr.Ext", expect: "preview" }
+      ]
+    },
+    {
+      // Must-fix 2 of the review of genes-ts #268, case A: with a global build
+      // macro that types `mr.Fresh`, Haxe loads `mr.Fresh` with the standard
+      // types before any init macro. A refused module request must fire the
+      // mark of every module that it typed at once, so the full request
+      // after it is not refused (before: GENES-MODULE-REQUEST-003 in every
+      // cycle).
+      name: "chain-global-build-refused",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/EarlyBuild.hx": earlyBuildMacro
+      },
+      extraArgs: ["--macro", "addGlobalMetadata('', '@:build(mr.EarlyBuild.build())')"],
+      steps: [
+        { id: "chain: Fresh literal edit, a refused module request, then the full request",
+          apply: () => edit("Fresh.hx", "return 'one';", "return 'two';"),
+          module: "mr.Fresh", expect: "other-modules-typed" },
+        // On c1befe06 too, this program's second module request finds no
+        // records (`no-records`); the claim of the row is that no full
+        // request is refused.
+        { id: "chain: a second cycle of the same",
+          apply: () => edit("Fresh.hx", "return 'two';", "return 'three';"),
+          module: "mr.Fresh", expect: ["other-modules-typed", "no-records"] }
+      ]
+    },
+    {
+      // Must-fix 2, case B: the first request of a new server process is a
+      // module request. It types every module and is refused; the full
+      // request after it is not refused (before: GENES-MODULE-REQUEST-003).
+      // A client sends a full request first in a new process.
+      name: "chain-new-process-module-first",
+      steps: [
+        { id: "chain: preview of mr.Theme", apply: () => edit("Theme.hx", "return 'blue';", "return 'navy';"),
+          module: "mr.Theme", expect: "preview", skipProgram: true },
+        { id: "chain: a new server whose first request is a module request, then the full request",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+          restartServer: true, module: "mr.Button", expect: "no-records" }
+      ]
+    },
+    {
+      name: "chain-unrelated-and-transitive",
+      steps: [
+        { id: "chain: preview of mr.Theme", apply: () => edit("Theme.hx", "return 'blue';", "return 'navy';"),
+          module: "mr.Theme", expect: "preview", skipProgram: true },
+        { id: "chain: preview of a module that does not load mr.Theme",
+          apply: () => edit("Leaf.hx", "case Small: 'small';", "case Small: 'tiny';"),
+          module: "mr.Leaf", expect: "preview", skipProgram: true },
+        { id: "chain: a module whose program holds a module that imports mr.Theme (other-modules-typed)",
+          apply: () => edit("Panel.hx", "return 'panel ' + name", "return 'panel: ' + name"),
+          module: "mr.Panel", expect: "other-modules-typed" },
+        { id: "chain: no edit after the full request", apply: () => {}, module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      name: "chain-importer",
+      steps: [
+        { id: "chain: preview of mr.Theme", apply: () => edit("Theme.hx", "return 'blue';", "return 'navy';"),
+          module: "mr.Theme", expect: "preview", skipProgram: true },
+        { id: "chain: preview of mr.Button, which imports mr.Theme",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Store';"),
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    {
+      name: "chain-refused",
+      dce: "std",
+      files: stdFiles,
+      steps: [
+        { id: "chain: structural preview of mr.Card", apply: () => {
+          edit("Card.hx", "return title() + ' ' + Theme.color();",
+            "return title() + ' ' + Theme.color() + subtitle();");
+          edit("Card.hx", "  static function unusedHelper(): String {",
+            "  static function subtitle(): String {\n    return 'sub';\n  }\n\n"
+            + "  static function unusedHelper(): String {");
+        }, module: "mr.Card", expect: "preview", skipProgram: true },
+        { id: "chain: a refused edit leaves the advanced records (dce-use-added)",
+          apply: card("+ subtitle();", "+ subtitle() + StringTools.lpad('c', '-', 3);"),
+          module: "mr.Card", expect: "dce-use-added", skipProgram: true },
+        { id: "chain: a preview of the same module after the refusal", apply: () => {
+          edit("Card.hx", "+ subtitle() + StringTools.lpad('c', '-', 3);", "+ subtitle();");
+          edit("Card.hx", "return 'Card';", "return 'Card!';");
+        }, module: "mr.Card", expect: "preview", skipProgram: true },
+        { id: "chain: a preview of a module that imports mr.Card",
+          apply: () => edit("CardUser.hx", "return 'user';", "return 'user!';"),
+          module: "mr.CardUser", expect: "preview" }
+      ]
+    }
+  ];
 }
 
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
+  ...chainGroups(),
   ...stdGroups(),
   ...privateAccessGroups(),
   {
@@ -2907,7 +3077,11 @@ const groups: ReadonlyArray<Group> = [
         id: "Theme edit while Button (which imports Theme) is dirty",
         apply: () => edit("Theme.hx", "return 'blue';", "return 'green';"),
         module: "mr.Theme",
-        expect: "source-changed"
+        // genes-f8vc.14.8: the previews of mr.Button advanced its records,
+        // so its saved file is the stored one (before: `source-changed`).
+        // mr.Theme's program does not hold mr.Button, and a literal edit
+        // keeps the shape that mr.Button types against.
+        expect: "preview"
       }
     ]
   },
@@ -3323,7 +3497,9 @@ const groups: ReadonlyArray<Group> = [
     ]
   },
   {
-    // r05 B: the module dependency file is deleted before the full request.
+    // r05 B: the files of the mark for a new typing are deleted before the
+    // full request; the full request still makes Haxe type the module again
+    // (it also makes Haxe parse the files that a module request typed alone).
     name: "r05-module-dep",
     files: {
       "mr/Main.hx": mainWith(["Registry.items.push('first');",
@@ -3335,12 +3511,16 @@ const groups: ReadonlyArray<Group> = [
     },
     steps: [
       {
-        id: "Registry edit, then the .module-dep file is deleted",
+        id: "Registry edit, then the files of the mark for a new typing are deleted",
         apply: () => edit("Registry.hx", "return 'registry ' + items.length;",
           "return 'registry! ' + items.length;"),
         module: "mr.Registry",
         expect: "public-shape-changed",
-        afterModule: () => rmSync(`${descriptorFile}.module-dep`, { force: true })
+        afterModule: () => {
+          for (const entry of readdirSync(tempRoot))
+            if (entry.startsWith(`${path.basename(descriptorFile)}.module-retype`))
+              rmSync(path.join(tempRoot, entry), { force: true });
+        }
       },
       {
         id: "a second full request, no edit",
@@ -3428,18 +3608,72 @@ function programDigest(): string {
     .digest("hex");
 }
 
-function writeDescriptor(fields: Record<string, unknown>): void {
-  writeFileSync(descriptorFile, JSON.stringify({
+/**
+ * Writes the request descriptor. Every request asks for the records text
+ * (`"recordsText": true`, genes-f8vc.14.8): Genes then writes the stored
+ * records as plain text beside the descriptor, and the gate compares them.
+ */
+function writeDescriptor(fields: Record<string, unknown>, file = descriptorFile): void {
+  writeFileSync(file, JSON.stringify({
     format: 1,
     programDigest: programDigest(),
     afterTyping: "reuse",
     generation: "reuse",
+    recordsText: true,
     ...fields
   }));
 }
 
-function incremental(args: string[]): string[] {
-  return [...args, "-D", `genes.dev_incremental=${descriptorFile}`];
+function incremental(args: string[], file = descriptorFile): string[] {
+  return [...args, "-D", `genes.dev_incremental=${file}`];
+}
+
+/** The records text that the last request beside `file` wrote, or `null` (genes-f8vc.14.8). */
+function readRecordsText(file = descriptorFile): string | null {
+  const text = `${file}.records.txt`;
+  return existsSync(text) ? readFileSync(text, "utf8") : null;
+}
+
+/** Deletes the records text beside `file`, so that a request that writes none leaves none. */
+function clearRecordsText(file = descriptorFile): void {
+  rmSync(`${file}.records.txt`, { force: true });
+}
+
+/**
+ * Fails when two records texts differ, with the first differing lines.
+ * `left` and `right` name the two requests in the message.
+ */
+function sameRecords(actual: string | null, expected: string | null, label: string,
+    left: string, right: string): void {
+  ok(actual !== null, `${label}: the ${left} wrote no records text`);
+  ok(expected !== null, `${label}: the ${right} wrote no records text`);
+  if (actual === expected)
+    return;
+  // The lines that only one side has (each line counted as often as it
+  // occurs), with the module line above each, so that one extra line does
+  // not show as a shift of every line after it.
+  function only(lines: ReadonlyArray<string>, other: ReadonlyArray<string>): string[] {
+    const counts = new Map<string, number>();
+    for (const line of other)
+      counts.set(line, (counts.get(line) ?? 0) + 1);
+    const found: string[] = [];
+    let module = "";
+    for (const line of lines) {
+      if (line.startsWith("module "))
+        module = line;
+      const count = counts.get(line) ?? 0;
+      if (count > 0)
+        counts.set(line, count - 1);
+      else if (found.length < 20)
+        found.push(`${module} | ${line}`);
+    }
+    return found;
+  }
+  const a = actual.split("\n");
+  const b = expected.split("\n");
+  ok(false, `${label}: the records after the ${left} differ from the records after the ${right}:\n`
+    + `only after the ${left}:\n  ${only(a, b).join("\n  ")}\n`
+    + `only after the ${right}:\n  ${only(b, a).join("\n  ")}`);
 }
 
 function describe(result: ProcessResult): string {
@@ -3571,6 +3805,7 @@ async function programRequest(server: OwnedHaxeCompilerServer,
     writeFileSync(raceFlag, race);
   writeDescriptor({ kind: "full", moduleRecords: true });
   rmSync(`${descriptorFile}.module-records.json`, { force: true });
+  clearRecordsText();
   const before = existsSync(folder("program")) ? hashTree(folder("program")) : [];
   const started = performance.now();
   let result = await server.compile(incremental(programArguments(folder("program"))),
@@ -3635,16 +3870,18 @@ function readAfterTypingReport(): { readonly typedAgainModules: ReadonlyArray<st
 }
 
 /** The parts of the records report of the last full request that this gate reads. */
-function readRecordsReport(): {
+type RecordsReport = {
   readonly stored: boolean,
   readonly reason: string | null,
-  readonly shapes: number
-} {
-  return JSON.parse(readFileSync(`${descriptorFile}.module-records.json`, "utf8")) as {
-    readonly stored: boolean,
-    readonly reason: string | null,
-    readonly shapes: number
-  };
+  readonly shapes: number,
+  /** Modules whose records an accepted preview advanced since the full request before (genes-f8vc.14.8). */
+  readonly advanced?: number,
+  /** `none`, `equal`, `sources-changed`, or `differs: <first difference>` (genes-f8vc.14.8). */
+  readonly advancedCheck?: string
+};
+
+function readRecordsReport(file = descriptorFile): RecordsReport {
+  return JSON.parse(readFileSync(`${file}.module-records.json`, "utf8")) as RecordsReport;
 }
 
 /** Resolves after `ms` milliseconds. */
@@ -3685,7 +3922,7 @@ function prepare(group: Group): void {
 /** Runs the module request of one step and checks its output; returns the outcome. */
 async function moduleStep(server: OwnedHaxeCompilerServer,
     compiler: ReturnType<typeof selectedHaxeCompiler>, step: Step,
-    label: string): Promise<{
+    label: string, base: ReadonlyArray<TreeEntry>): Promise<{
       outcome: string,
       ms: number,
       report: ModuleReport | null,
@@ -3698,6 +3935,7 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
   if (step.sameFolder !== true && step.keepFolder !== true)
     rmSync(previewFolder, { recursive: true, force: true });
   rmSync(reportFile, { force: true });
+  clearRecordsText();
   await invalidate(server, label);
   if (step.race === "full-descriptor") {
     // S2: the session wrote the full descriptor before this module request ran.
@@ -3786,11 +4024,12 @@ async function moduleStep(server: OwnedHaxeCompilerServer,
       }
     }
     // The tree check (review of genes-ts #250): an accepted preview is the
-    // only change that the edit makes. Cold must differ from the last full
-    // tree only in the module's own files (and their maps); a change of any
-    // other file means that the published tree goes stale until the next
-    // full request.
-    const others = treeDifference(programBefore, coldTree)
+    // only change that the edit makes. Cold must differ from the tree of the
+    // sources before the edit (`base`: the last full tree, or after previews
+    // in a row the cold tree of the step before, genes-f8vc.14.8) only in
+    // the module's own files (and their maps); a change of any other file
+    // means that the published tree goes stale until the next full request.
+    const others = treeDifference(base, coldTree)
       .filter((file) => !file.startsWith(".genes-output-"))
       .filter((file) => !(file === `${prefix}.ts` || file.startsWith(`${prefix}.`)));
     if (observe && (stale.length > 0 || others.length > 0))
@@ -3819,11 +4058,23 @@ async function runGroup(group: Group,
   let refusals = 0;
   try {
     await programRequest(server, `${group.name} first`);
+    // The records text after the last request (genes-f8vc.14.8): a refused
+    // module request must leave it as it is, and the records that a preview
+    // advanced must equal the records of the full request after it.
+    let records = readRecordsText();
+    ok(observe || records !== null, `${group.name}: the first full request wrote no records text`);
+    // The tree that a session shows before the next step: the last full
+    // tree and every preview accepted since, that is the cold tree of the
+    // last accepted preview (previews in a row, genes-f8vc.14.8). A refused
+    // step shows nothing, so it leaves this tree as it is.
+    let base: ReadonlyArray<TreeEntry> = hashTree(folder("program"));
     for (const [index, step] of group.steps.entries()) {
       const label = `[${group.name} ${index + 1}/${group.steps.length}] ${step.id}`;
       if (step.restartServer === true) {
         await server.stop();
         server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+        // A new process holds no records.
+        records = null;
       }
       if (step.display?.when === "before-save")
         await displayRequest(server, step.display.form, label);
@@ -3843,8 +4094,11 @@ async function runGroup(group: Group,
       let moduleMs = 0;
       let report: ModuleReport | null = null;
       let previewCold: ReadonlyArray<TreeEntry> | undefined;
+      /** The records text after this step's accepted preview (genes-f8vc.14.8). */
+      let advancedRecords: string | null = null;
       if (step.module !== undefined) {
-        let done = await moduleStep(server, compiler, step, label);
+        const before = base;
+        let done = await moduleStep(server, compiler, step, label, before);
         const moduleRefusal = step.initRefusal === "module" || step.initRefusal === "both";
         strictEqual(done.outcome === initMacroRefusal, moduleRefusal, moduleRefusal
           ? `${label}: the init macro rule did not refuse the module request (got ${done.outcome})`
@@ -3854,7 +4108,7 @@ async function runGroup(group: Group,
           // The refused request published nothing (`moduleStep`); a session
           // sends it again.
           initRefusals++;
-          done = await moduleStep(server, compiler, step, `${label} (sent again)`);
+          done = await moduleStep(server, compiler, step, `${label} (sent again)`, before);
         }
         outcome = done.outcome;
         moduleMs = done.ms;
@@ -3873,8 +4127,35 @@ async function runGroup(group: Group,
           previews++;
         else
           refusals++;
+        if (!observe && report !== null) {
+          const after = readRecordsText();
+          if (report.result === "preview" && report.records !== "advanced") {
+            // The module of the `--main` class keeps the records of the full
+            // request (a full request marks its main function `@:keep`).
+            ok(String(report.records).startsWith("kept: "),
+              `${label}: an accepted preview must advance the records (${String(report.records)})`);
+            if (records !== null)
+              sameRecords(after, records, label, "preview that keeps the records", "request before it");
+          } else if (report.result === "preview") {
+            advancedRecords = after;
+          } else if (report.refusal === "no-records") {
+            // This macro state holds no records (a new server, or Haxe typed
+            // the macro classes of Genes again): nothing to keep.
+            ok(after === null || after.startsWith("records none"),
+              `${label}: a request refused with no-records wrote records`);
+          } else if (records !== null) {
+            // A refused preview leaves no advanced record.
+            strictEqual(report.records, "kept",
+              `${label}: a refused module request must keep the records (${String(report.records)})`);
+            sameRecords(after, records, label, "refused module request", "request before it");
+          }
+          if (after !== null)
+            records = after;
+        }
       }
       step.afterModule?.();
+      if (previewCold !== undefined)
+        base = previewCold;
       let programMs = 0;
       if (step.skipProgram !== true && (step.typeError === true || step.programFails === true)) {
         programMs = await failingProgramRequest(server, compiler, label);
@@ -3892,6 +4173,22 @@ async function runGroup(group: Group,
           + difference.join("\n"));
         ok(program.refused || !fullRefusal,
           `${label}: the init macro rule did not refuse the full request`);
+        base = hashTree(folder("program"));
+        if (!observe) {
+          // The program request stays the authority: its records replace the
+          // advanced ones, and for the same sources they must be equal
+          // (genes-f8vc.14.8), in its own check and in the plain text.
+          const full = readRecordsText();
+          const check = readRecordsReport().advancedCheck ?? "<absent>";
+          if (advancedRecords !== null && step.afterModule === undefined && step.raceOnFull === undefined) {
+            sameRecords(advancedRecords, full, label, "preview", "full request");
+            strictEqual(check, "equal",
+              `${label}: the full request after a preview must check the advanced records`);
+          }
+          ok(!check.startsWith("differs"), `${label}: the full request found advanced records that `
+            + `differ from its own: ${check}`);
+          records = full;
+        }
         if (step.fullTypedAgain !== undefined)
           strictEqual(readRecordsReport().shapes, step.fullTypedAgain,
             `${label}: Haxe typed another number of modules again in the full request`);
@@ -3919,11 +4216,334 @@ async function runGroup(group: Group,
   return { previews, refusals };
 }
 
+/** The number of rounds of `--chain`; each round makes 20 chains of five edits from a new copy of the sweep program. */
+const CHAIN_ROUNDS = 5;
+const CHAINS_PER_ROUND = 20;
+const CHAIN_LENGTH = 5;
+
+/**
+ * `--chain-rounds=<n>` and `--chain-limit=<n>` run only the first rounds and
+ * the first chains of each round (diagnostic, for example red evidence with
+ * `--observe`); the gate runs every round and chain.
+ */
+function chainOption(name: string, fallback: number): number {
+  const text = process.argv.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
+  const value = text === undefined ? fallback : Number.parseInt(text, 10);
+  ok(Number.isInteger(value) && value > 0, `--${name} needs a positive whole number`);
+  return value;
+}
+
+/** A deterministic generator of numbers in [0, 1) (mulberry32), so that a plan never depends on the run. */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * The plan of one round of `--chain`: 20 chains of five sweep modules; the
+ * edits of each module are made in order (`sweepEdits`). `kinds` counts the
+ * steps by kind: `same` (the module of the step before), `importer` (the
+ * module imports a module that the chain edited before) and `other`.
+ * `blocked` counts the candidates that the planner skipped because their
+ * program holds a module that Haxe must type again (see `chainPreviews`).
+ */
+type ChainPlan = {
+  readonly chains: ReadonlyArray<ReadonlyArray<SweepModule>>,
+  /** The counts of each chain, in the order of `chains`. */
+  readonly counts: ReadonlyArray<Readonly<Record<"same" | "importer" | "other" | "blocked", number>>>
+};
+
+/** The sweep modules that `spec` imports after `applied` of its edits (the third edit adds `next`). */
+function sweepImports(spec: SweepModule, applied: number): ReadonlyArray<string> {
+  const known = new Set(sweepModules.map(sweepModulePath));
+  return [...spec.uses, ...(applied >= 3 ? [spec.next] : [])].filter((name) => known.has(name));
+}
+
+/**
+ * Returns true when the module request after the next edit of `spec` can
+ * preview inside a chain, as Haxe 4.3.7's module cache decides it
+ * (`check_module` in `server.ml`, genes-f8vc.14.8). Haxe keeps a cached
+ * module only when every module that it depends on is the one it was typed
+ * against and is clean itself; a module that an accepted preview typed stays
+ * clean until the next request that is not a module request. `typedAt` holds
+ * the step at which a preview of the chain typed each module; a module that
+ * the chain did not edit has -1 (the full request before the chain). A
+ * module whose import was typed later than itself is typed again by Haxe,
+ * and the request is refused (`other-modules-typed`): the limit of the rule.
+ */
+function chainPreviews(spec: SweepModule, applied: ReadonlyMap<string, number>,
+    typedAt: ReadonlyMap<string, number>): boolean {
+  const byPath = new Map(sweepModules.map((item) => [sweepModulePath(item), item]));
+  function clean(name: string): boolean {
+    const item = byPath.get(name);
+    if (item === undefined)
+      return true;
+    const at = typedAt.get(name) ?? -1;
+    return sweepImports(item, applied.get(name) ?? 0)
+      .every((dependency) => (typedAt.get(dependency) ?? -1) <= at && clean(dependency));
+  }
+  return sweepImports(spec, (applied.get(sweepModulePath(spec)) ?? 0) + 1).every(clean);
+}
+
+/**
+ * Plans one round of `--chain`. Round 0 edits one module five times in each
+ * chain. The other rounds mix modules: at each step the planner takes, in a
+ * seeded random order with the modules that have the most edits left first,
+ * the first module whose request can preview (`chainPreviews`); it tries
+ * other seeds until all 100 edits fit in 20 chains of five.
+ */
+function planChainRound(round: number): ChainPlan {
+  if (round === 0)
+    return {
+      chains: sweepModules.map((spec) => Array.from({ length: CHAIN_LENGTH }, () => spec)),
+      counts: sweepModules.map(() => ({ same: CHAIN_LENGTH - 1, importer: 0, other: 1, blocked: 0 }))
+    };
+  for (let attempt = 0; attempt < 5_000; attempt++) {
+    const random = seededRandom(round * 100_003 + attempt);
+    const applied = new Map<string, number>();
+    const chains: SweepModule[][] = [];
+    const counts: Array<Record<"same" | "importer" | "other" | "blocked", number>> = [];
+    let complete = true;
+    for (let index = 0; index < CHAINS_PER_ROUND && complete; index++) {
+      const typedAt = new Map<string, number>();
+      const chain: SweepModule[] = [];
+      const kinds = { same: 0, importer: 0, other: 0, blocked: 0 };
+      for (let step = 0; step < CHAIN_LENGTH; step++) {
+        const left = (spec: SweepModule) => sweepEdits(spec).length - (applied.get(sweepModulePath(spec)) ?? 0);
+        const order = sweepModules.filter((spec) => left(spec) > 0)
+          .map((spec) => ({ spec, key: random() }))
+          .sort((a, b) => left(b.spec) - left(a.spec) || a.key - b.key)
+          .map((item) => item.spec);
+        const picked = order.find((spec) => chainPreviews(spec, applied, typedAt));
+        kinds.blocked += picked === undefined ? order.length : order.indexOf(picked);
+        if (picked === undefined) {
+          complete = false;
+          break;
+        }
+        const name = sweepModulePath(picked);
+        const previous = chain[chain.length - 1];
+        if (previous === picked)
+          kinds.same++;
+        else if (sweepImports(picked, (applied.get(name) ?? 0) + 1).some((dependency) => typedAt.has(dependency)))
+          kinds.importer++;
+        else
+          kinds.other++;
+        chain.push(picked);
+        applied.set(name, (applied.get(name) ?? 0) + 1);
+        typedAt.set(name, step);
+      }
+      chains.push(chain);
+      counts.push(kinds);
+    }
+    if (complete)
+      return { chains, counts };
+  }
+  throw new Error(`--chain: no plan for round ${round}`);
+}
+
+/** Sends `server/invalidate` for each of `files` to one server. */
+async function invalidateFiles(server: OwnedHaxeCompilerServer, files: ReadonlyArray<string>,
+    label: string): Promise<void> {
+  for (const file of files) {
+    const result = await server.compile(["--display", JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "server/invalidate", params: { file }
+    })], `Invalidate ${path.basename(file)} ${label}`, timeoutMs, workspace);
+    ok(result.code === 0, `${label}: server/invalidate failed\n${describe(result)}`);
+  }
+}
+
+/**
+ * The full request of the reference server of `--chain`: a second warm
+ * server with its own descriptor and its own output folder at the same
+ * depth, which runs a full request after every edit. Its records are the
+ * records that a full request writes for the sources of that moment.
+ */
+async function referenceRequest(server: OwnedHaxeCompilerServer, files: ReadonlyArray<string>,
+    label: string): Promise<{ readonly tree: ReadonlyArray<TreeEntry>, readonly records: string | null }> {
+  const descriptor = path.join(tempRoot, "reference.json");
+  await invalidateFiles(server, files, label);
+  writeDescriptor({ kind: "full", moduleRecords: true }, descriptor);
+  clearRecordsText(descriptor);
+  const result = await server.compile(incremental(programArguments(folder("reference")), descriptor),
+    `Reference ${label}`, timeoutMs, workspace);
+  ok(result.code === 0, `${label}: the reference full request failed\n${describe(result)}`);
+  strictEqual(readRecordsReport(descriptor).stored, true, `${label}: the reference full request stored no records`);
+  return { tree: hashTree(folder("reference")), records: readRecordsText(descriptor) };
+}
+
+/**
+ * `--chain` (genes-f8vc.14.8): 100 chains of five structural edits of the
+ * sweep program (`-dce std`), with no full request inside a chain.
+ *
+ * Why: a development session sends a module request for each save, and the
+ * full request only after a quiet time. Without records that advance, the
+ * second save of a chain was compared with the records of the last full
+ * request and refused (`source-changed`, `other-modules-typed`).
+ *
+ * How: each round starts from a new copy of the sweep program with two warm
+ * servers: the chain server and a reference server. After each edit the
+ * chain server runs the module request, and a cold build and a full request
+ * of the reference server run at the same time. Each step must preview, as
+ * `chainPreviews` plans it; the preview's files must be byte-identical to
+ * cold, cold must change no other file than the module's own since the step
+ * before, the reference tree must equal cold, and the records text that the
+ * module request wrote must equal the records text of the reference full
+ * request. After each chain the chain server runs a full request, which must
+ * equal cold, find the advanced records equal to its own
+ * (`advancedCheck: equal`) and write the reference's records text.
+ */
+async function runChains(compiler: ReturnType<typeof selectedHaxeCompiler>): Promise<void> {
+  const rounds = chainOption("chain-rounds", CHAIN_ROUNDS);
+  const limit = chainOption("chain-limit", CHAINS_PER_ROUND);
+  const moduleTimes: number[] = [];
+  let previews = 0;
+  let chains = 0;
+  const totals = { same: 0, importer: 0, other: 0 };
+  let blocked = 0;
+  /** `--observe`: the result of each step, by step number in its chain. */
+  const observed = new Map<string, number>();
+  for (let round = 0; round < rounds; round++) {
+    const plan = planChainRound(round);
+    // Only the chains that run count (`--chain-limit`).
+    for (const counts of plan.counts.slice(0, limit)) {
+      totals.same += counts.same;
+      totals.importer += counts.importer;
+      totals.other += counts.other;
+      blocked += counts.blocked;
+    }
+    prepare({ name: `chain-${round}`, dce: "std", main: "ui.Main", files: sweepFiles(), steps: [] });
+    const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+    const reference = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+    try {
+      await programRequest(server, `chain ${round} first`);
+      const first = await referenceRequest(reference, [], `chain ${round} first`);
+      if (!observe)
+        sameRecords(readRecordsText(), first.records, `chain ${round} first`, "full request", "reference full request");
+      // The tree that the sources of the last step give (cold).
+      let expected = await coldBuild(compiler, `chain ${round} first`);
+      deepStrictEqual(treeDifference(hashTree(folder("program")), expected), [],
+        `chain ${round}: the first full request differs from cold`);
+      const applied = new Map<string, number>();
+      for (const [index, chain] of plan.chains.slice(0, limit).entries()) {
+        chains++;
+        const edited = new Set<string>();
+        let last: { readonly tree: ReadonlyArray<TreeEntry>, readonly records: string | null } = first;
+        for (const [step, spec] of chain.entries()) {
+          const name = sweepModulePath(spec);
+          const count = applied.get(name) ?? 0;
+          const edit = sweepEdits(spec)[count];
+          ok(edit !== undefined, `chain ${round}.${index + 1}: ${name} has no edit left`);
+          const label = `[chain ${round}.${index + 1} ${step + 1}/${chain.length}] ${edit.id}`;
+          edit.apply();
+          applied.set(name, count + 1);
+          edited.add(name);
+          const files = [...saved];
+          rmSync(folder("preview"), { recursive: true, force: true });
+          rmSync(reportFile, { force: true });
+          clearRecordsText();
+          await invalidate(server, label);
+          writeDescriptor({ kind: "module", module: name });
+          const started = performance.now();
+          const result = await server.compile(incremental(moduleArguments(name, folder("preview"))),
+            `Module ${label}`, timeoutMs, workspace);
+          moduleTimes.push(performance.now() - started);
+          ok(result.code === 0, `${label}: module request failed\n${describe(result)}`);
+          const report = readReport();
+          const records = readRecordsText();
+          const [cold, referenced] = await Promise.all([
+            coldBuild(compiler, label),
+            referenceRequest(reference, files, label)
+          ]);
+          const outcome = report.result === "preview" ? "preview" : String(report.refusal);
+          if (observe) {
+            const key = `step ${step + 1}: ${outcome}`;
+            observed.set(key, (observed.get(key) ?? 0) + 1);
+            process.stdout.write(`${label} | ${outcome} | ${String(report.reason)}\n`);
+            if (outcome !== "preview") {
+              expected = cold;
+              last = referenced;
+              continue;
+            }
+          }
+          strictEqual(outcome, "preview",
+            `${label}: a module request inside a chain must preview (${String(report.reason)})`);
+          if (!observe)
+            strictEqual(report.records, "advanced", `${label}: the preview did not advance the records`);
+          const prefix = name.split(".").join("/");
+          const published = publishedFiles(folder("preview"));
+          deepStrictEqual(published, [...report.files].sort(),
+            `${label}: the preview folder holds other files than the report names`);
+          ok(published.length > 0, `${label}: the preview published no file`);
+          for (const file of published) {
+            ok(file === `${prefix}.ts` || file.startsWith(`${prefix}.`), `${label}: ${file} is not a file of ${name}`);
+            const coldFile = path.join(folder("cold"), file);
+            ok(existsSync(coldFile) && readFileSync(path.join(folder("preview"), file)).equals(readFileSync(coldFile)),
+              `${label}: ${file} of the preview differs from the cold build`);
+          }
+          const others = treeDifference(expected, cold)
+            .filter((file) => !file.startsWith(".genes-output-"))
+            .filter((file) => !(file === `${prefix}.ts` || file.startsWith(`${prefix}.`)));
+          deepStrictEqual(others, [], `${label}: cold also changes other files than those of ${name}:\n`
+            + others.join("\n"));
+          deepStrictEqual(treeDifference(referenced.tree, cold), [],
+            `${label}: the reference full request differs from cold`);
+          if (!observe)
+            sameRecords(records, referenced.records, label, "preview", "reference full request");
+          expected = cold;
+          last = referenced;
+          previews++;
+          treeChecks++;
+        }
+        // The program request stays the authority (genes-f8vc.14.8).
+        const label = `[chain ${round}.${index + 1}] full request after the chain`;
+        await programRequest(server, label);
+        deepStrictEqual(treeDifference(hashTree(folder("program")), expected), [],
+          `${label}: the full request after the chain differs from cold`);
+        if (!observe) {
+          const report = readRecordsReport();
+          strictEqual(report.advancedCheck, "equal", `${label}: the advanced records differ from the full request's`);
+          strictEqual(report.advanced, edited.size,
+            `${label}: the full request found another number of advanced modules`);
+          sameRecords(readRecordsText(), last.records, label, "full request", "reference full request");
+        }
+      }
+    } finally {
+      await server.stop();
+      await reference.stop();
+    }
+  }
+  if (observe) {
+    process.stdout.write(`compiler-server-module:chain-observe (${chains} chains; results by step: `
+      + `${[...observed.entries()].sort().map(([key, count]) => `${key} ${count}`).join(", ")})\n`);
+    return;
+  }
+  process.stdout.write(`chain steps: ${totals.same} the same module as the step before, ${totals.importer} `
+    + `a module that imports a module that the chain edited before, ${totals.other} other; the planner `
+    + `skipped ${blocked} candidates whose program holds a module that Haxe must type again\n`);
+  process.stdout.write(`chain module requests: median ${median(moduleTimes).toFixed(0)} ms over ${moduleTimes.length} `
+    + `(diagnostic)\n`);
+  process.stdout.write(`compiler-server-module:${chains === CHAIN_ROUNDS * CHAINS_PER_ROUND ? "chain" : "chain-partial"} `
+    + `(Haxe ${compiler.version}; ${chains} chains `
+    + `of ${CHAIN_LENGTH} edits with no full request inside a chain; ${previews} previews byte-identical to cold, `
+    + `each with records equal to the records of a full request for the same sources; every full request after a `
+    + `chain equal to cold and to the advanced records)\n`);
+}
+
 async function main(): Promise<void> {
   const compiler = selectedHaxeCompiler(repoRoot);
   const rows: Row[] = [];
   let previews = 0;
   let refusals = 0;
+  if (chainMode) {
+    await runChains(compiler);
+    return;
+  }
   const selectedGroups = sweep ? [sweepGroup()] : groups.filter((group) => only === undefined
     || group.name.includes(only));
   for (const group of selectedGroups) {

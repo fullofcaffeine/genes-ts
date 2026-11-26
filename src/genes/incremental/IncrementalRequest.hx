@@ -194,6 +194,17 @@ typedef IncrementalDescriptor = {
   @:optional final moduleRecords: Bool;
 
   /**
+   * `"recordsText": true` (genes-f8vc.14.8): after a full request with
+   * module records, and after a module request, Genes also writes the
+   * stored records as plain text beside the descriptor
+   * (`<descriptor>.records.txt`, `ModuleRequest.recordsText`), so that a
+   * test can compare the records that a preview advanced with the records of
+   * a full request for the same sources. Absent means false. It is a
+   * diagnostic: it costs one pass over every record.
+   */
+  @:optional final recordsText: Bool;
+
+  /**
    * The rolling replay audit of a `"generation": "reuse"` request
    * (`ReplayAudit`). The decoder fills in the default when the field is
    * absent; read it through `IncrementalRequest.auditSettings`, which also
@@ -530,6 +541,10 @@ class IncrementalRequest {
     if (records != null && !Std.isOfType(records, Bool))
       return Left('the moduleRecords value of the request descriptor is not '
         + 'true or false');
+    final recordsText: Dynamic = Reflect.field(parsed, 'recordsText');
+    if (recordsText != null && !Std.isOfType(recordsText, Bool))
+      return Left('the recordsText value of the request descriptor is not '
+        + 'true or false');
     final audit = switch decodeAudit(Reflect.field(parsed, 'audit')) {
       case Left(reason): return Left(reason);
       case Right(settings): settings;
@@ -541,6 +556,7 @@ class IncrementalRequest {
       afterTyping: afterTyping,
       generation: generation,
       moduleRecords: records == true,
+      recordsText: recordsText == true,
       audit: audit
     });
   }
