@@ -149,6 +149,8 @@ type AfterTypingReport = {
   readonly sessionKeyMs: number;
   readonly memberListMs: number;
   readonly walkMs: number;
+  /** Typed bodies that the walk copied from classes that Haxe kept (format 3). */
+  readonly keptBodyReads: number;
   readonly passesComplete: boolean;
   readonly passes: ReadonlyArray<PassReport>;
 };
@@ -259,6 +261,8 @@ const measurements: Array<Measurement> = [];
 let requestCount = 0;
 let coldCount = 0;
 let offRequests = 0;
+/** `reuse` requests with no edit whose `keptBodyReads` had to be 0 (genes-gz0l). */
+let keptBodyChecks = 0;
 let clock = Math.floor(Date.now() / 1000);
 
 /** The mutable state of one fixture while its steps run. */
@@ -642,6 +646,22 @@ function assertReport(
     strictEqual(audit.kept, report.classes, `${where}: not every class record was kept`);
     if (mode === "reuse") {
       ok(audit.skipped > 0, `${where}: the gate would pass empty: no audit was skipped`);
+      // genes-gz0l: when every record and bucket is kept, no pass reads a
+      // typed body of a kept class, and `PublicSurface` reads a body only
+      // when a printer asks for it. A declaration without a bucket (the
+      // depth limit of row "no edit with the deep type") makes
+      // `SignatureCache` work on it, and that work reads its bodies.
+      if (passOf(report, "signatureCache", where).worked === 0) {
+        keptBodyChecks += 1;
+        strictEqual(report.keptBodyReads, 0,
+          `${where}: the walk copied ${report.keptBodyReads} typed bodies of `
+          + "classes that Haxe kept");
+      }
+    } else {
+      // `measure` and `compare` read every class, so the count is not 0:
+      // the assertion above cannot pass because nothing is counted.
+      ok(report.keptBodyReads > 0,
+        `${where}: the gate would pass empty: no body read of a kept class was counted`);
     }
   }
   if (step.typesAgain !== undefined) {
@@ -1462,6 +1482,15 @@ async function main(): Promise<void> {
     `after-typing | checks | ${keepRule} | @:rtti requests that left the `
     + `incremental path: ${offRequests} | a report that cannot be written `
     + "gives a warning in the off and the on mode, never a failed build\n"
+  );
+  if (warmModes.includes("reuse")) {
+    ok(keptBodyChecks > 0,
+      "the keptBodyReads rule would pass empty: no reuse request with no "
+      + "edit had every SignatureCache bucket kept");
+  }
+  process.stdout.write(
+    `after-typing | checks | keptBodyReads was 0 in ${keptBodyChecks} reuse `
+    + "requests with no edit and every bucket kept\n"
   );
   const load = loadavg()[0] ?? 0;
   process.stdout.write(

@@ -62,7 +62,27 @@ export const GENERATION_REPORT_FILE = `${INCREMENTAL_DESCRIPTOR_FILE}.report.jso
  */
 export type IncrementalBinding =
   | { readonly kind: "measure" }
-  | { readonly kind: "reuse"; readonly auditModules: number }
+  | {
+      readonly kind: "reuse";
+      readonly auditModules: number;
+      /**
+       * True when the session also sends module requests
+       * (`GenesDevelopmentOptions.modulePreview`): the program request then
+       * asks Genes to keep the facts that a module request checks
+       * (`"moduleRecords": true`).
+       */
+      readonly moduleRecords?: boolean;
+    }
+  | {
+      /**
+       * A module request (G3): the edited module is the only root, and Genes
+       * prints only that module when it can prove that a program request
+       * prints the same files (`genes.incremental.ModuleRequest`).
+       */
+      readonly kind: "module";
+      /** The Haxe module path, for example `ui.controls.Button`. */
+      readonly module: string;
+    }
   | { readonly kind: "none" };
 
 const MEASURE_ONLY: IncrementalBinding = Object.freeze({ kind: "measure" });
@@ -100,9 +120,91 @@ export function incrementalDescriptorText(
         kind: "full",
         afterTyping: "reuse",
         generation: "reuse",
+        ...(binding.moduleRecords === true ? { moduleRecords: true } : {}),
         audit: { modules: binding.auditModules, seed: 0 },
       })}\n`;
+    case "module":
+      // `programDigest` is the digest of the program that the module request
+      // previews, not of its own argument list: Genes compares it with the
+      // stored records of that program.
+      return `${JSON.stringify({
+        format: 1,
+        programDigest,
+        kind: "module",
+        module: binding.module,
+        afterTyping: "reuse",
+        generation: "reuse",
+      })}\n`;
   }
+}
+
+/** The Haxe 4.3.7 options that name the main class, a root of the program. */
+const MAIN_OPTIONS = new Set(["-m", "--main", "-main"]);
+
+/**
+ * Matches the value of a `--macro` option that adds roots: Haxe's
+ * `include(...)` macro (`haxe.macro.Compiler.include`), which types every
+ * module of a package.
+ */
+const INCLUDE_MACRO = /^\s*(?:haxe\.macro\.Compiler\.)?include\s*\(/u;
+
+/**
+ * Returns the arguments of a module request: the program's effective
+ * arguments with every root removed, and the edited module as the only
+ * root.
+ *
+ * Why: a module request types only the edited module and loads the rest of
+ * the program from the warm compiler-server cache. Each other root would
+ * make Haxe type more modules, and Genes then refuses the preview
+ * (`other-modules-typed`). The roots of Haxe 4.3.7 are the main class
+ * (`-m`, `--main`, `-main`), each class name given as a plain argument, and
+ * each `--macro include(...)`. Every other argument stays, in its order,
+ * because a define, class path or macro that differs from the program
+ * request makes Haxe select another cache, or makes Genes print other
+ * bytes.
+ *
+ * Example: `["-cp", "src", "-main", "Main", "--macro", "include('ui')",
+ * "ui.Card", "-dce", "std"]` with `ui.Button` gives `["-cp", "src", "-dce",
+ * "std", "ui.Button"]`.
+ *
+ * Limits: a plain argument that ends in `.hxml` is a private file of the
+ * session (`BoundHaxeInvocation.privateArgumentFiles`), not a class name,
+ * and stays. An option that Haxe 4.3.7 does not know counts as an option
+ * without a value; the session's argument policy rejects such options in
+ * authored HXML.
+ */
+export function moduleRequestArguments(
+  effectiveArguments: readonly string[],
+  module: string,
+): readonly string[] {
+  const kept: string[] = [];
+  for (let index = 0; index < effectiveArguments.length; index += 1) {
+    const argument = effectiveArguments[index]!;
+    if (!argument.startsWith("-")) {
+      // A plain argument: a class name (a root), or a private HXML file.
+      if (argument.endsWith(".hxml")) kept.push(argument);
+      continue;
+    }
+    const equals = argument.indexOf("=");
+    const option = equals > 0 ? argument.slice(0, equals) : argument;
+    if (equals > 0 && MAIN_OPTIONS.has(option)) continue;
+    const arity = HAXE_4_3_7_OPTION_ARITY[argument] ?? 0;
+    if (arity === 0) {
+      kept.push(argument);
+      continue;
+    }
+    const value = effectiveArguments[index + 1];
+    index += 1;
+    if (value === undefined) {
+      kept.push(argument);
+      continue;
+    }
+    if (MAIN_OPTIONS.has(argument)) continue;
+    if (argument === "--macro" && INCLUDE_MACRO.test(value)) continue;
+    kept.push(argument, value);
+  }
+  kept.push(module);
+  return Object.freeze(kept);
 }
 
 const OUTPUT_DESCRIPTOR_HEADER = "genes.output-descriptor-v1";
@@ -353,7 +455,9 @@ export async function buildEffectiveHaxeInvocationPlan<
  * `.genes/dev/candidates/revision-3-ab/output/index.tsx` in build 3.
  *
  * `incremental` selects the descriptor (`IncrementalBinding`); `none` leaves
- * out the incremental define and its file.
+ * out the incremental define and its file. `module` also replaces the roots
+ * of the program by the module (`moduleRequestArguments`); the defines stay
+ * the same, so a module request uses the cache of the program requests.
  */
 export function bindHaxeInvocation(
   plan: EffectiveHaxeInvocationPlan,
@@ -377,7 +481,7 @@ export function bindHaxeInvocation(
     readonly path: string;
     readonly contents: string;
   }[] = [];
-  const checkedArguments = plan.inventory.effectiveArguments.map(
+  const bridgedArguments = plan.inventory.effectiveArguments.map(
     (argument, index) => {
       if (!isHaxe437OrdinaryInlineHxmlOption(argument)) {
         return argument;
@@ -406,6 +510,11 @@ export function bindHaxeInvocation(
       return bridge;
     },
   );
+  // The roots are removed after the bridge, so that each private file and
+  // environment key keeps the index of the program request.
+  const checkedArguments = incremental.kind === "module"
+    ? moduleRequestArguments(bridgedArguments, incremental.module)
+    : bridgedArguments;
   return Object.freeze({
     sourceInvocation: plan.invocation,
     executable: plan.invocation.executable,
