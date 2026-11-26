@@ -5163,7 +5163,12 @@ class ModuleRequest {
         line: String, into: Map<String, Array<{at: Int, line: String}>>): Bool {
       if (answer.kind != 'anonTs' && answer.kind != 'anonSource')
         return false;
-      final parts = answer.name.split(':');
+      // A key that names a typedef's copy of a field ends with
+      // `@<typedef>` (`SignatureCache.copyKey`, genes-f8vc.14.31).
+      final mark = answer.name.indexOf('@');
+      final position = mark < 0 ? answer.name : answer.name.substr(0, mark);
+      final copy = mark < 0 ? '' : answer.name.substr(mark);
+      final parts = position.split(':');
       if (parts.length < 3)
         return false;
       final file = parts.slice(0, parts.length - 2).join(':');
@@ -5171,7 +5176,7 @@ class ModuleRequest {
         return false;
       final at = Std.parseInt(parts[parts.length - 2]);
       final list = into.get(answer.kind);
-      final item = {at: at == null ? 0 : at, line: answer.answer};
+      final item = {at: at == null ? 0 : at, line: copy + ' ' + answer.answer};
       if (list == null)
         into.set(answer.kind, [item]);
       else
@@ -5194,8 +5199,21 @@ class ModuleRequest {
       final current = nowMoved.get(kind);
       final left = before == null ? [] : before;
       final right = current == null ? after : current;
-      left.sort((a, b) -> a.at - b.at);
-      right.sort((a, b) -> a.at - b.at);
+      // Grouped by the typedef copy that a key names (`@<typedef>`, empty
+      // for a field's own declaration), each group in source order: an edit
+      // that makes a typedef copy other fields of the module's own file
+      // moves its keys, but the answers of each copy keep their order
+      // (genes-f8vc.14.31).
+      function byPosition(a: {at: Int, line: String},
+          b: {at: Int, line: String}): Int {
+        final copyA = a.line.substr(0, a.line.indexOf(' '));
+        final copyB = b.line.substr(0, b.line.indexOf(' '));
+        return copyA != copyB ? compareStrings(copyA,
+          copyB) : a.at != b.at ? a.at
+          - b.at : compareStrings(a.line, b.line);
+      }
+      left.sort(byPosition);
+      right.sort(byPosition);
       final leftText = [for (item in left) item.line].join(', ');
       final rightText = [for (item in right) item.line].join(', ');
       if (leftText != rightText)
@@ -6271,6 +6289,14 @@ class ModuleRequest {
    * `class Card` moves the class one line down, and the map of every module
    * that imports `Card` changes in a full build, although no other output
    * text does.
+   *
+   * Also each field of an anonymous structure that a typedef body holds and
+   * that a file of the module declares, by the typedef and its field path
+   * (genes-f8vc.14.31). A typedef of another module that copies these fields
+   * (`typedef Use = {> First<Tone>, ...}`) prints them with these
+   * positions in its map. Example: `typedef First<X> = {> S<X>, extra:
+   * Int}` becomes `{> S2<X>, extra: Int}`; the field `First.value` now has
+   * the position of `S2.value`, and the map of the module of `Use` changes.
    */
   static function importedPositions(types: Array<Type>): String {
     if (!Context.defined('debug') && !Context.defined('js_source_map'))
@@ -6300,6 +6326,43 @@ class ModuleRequest {
           add(TypeUtil.baseTypeFullName(base), base.pos);
       }
     }
+    final ownFiles = new Map<String, Bool>();
+    for (type in types) {
+      final pos = positionOf(type);
+      if (pos != null)
+        ownFiles.set(Context.getPosInfos(pos).file, true);
+    }
+    function addFields(label: String, type: Type, depth: Int): Void {
+      if (depth > 64)
+        return;
+      switch type {
+        case TLazy(force):
+          addFields(label, force(), depth + 1);
+        case TAnonymous(_.get() => anonymous):
+          for (field in anonymous.fields) {
+            final path = '$label.${field.name}';
+            if (ownFiles.exists(Context.getPosInfos(field.pos).file))
+              add('field $path', field.pos);
+            addFields(path, field.type, depth + 1);
+          }
+        case TInst(_, params) | TEnum(_, params) | TAbstract(_, params) |
+          TType(_, params):
+          for (param in params)
+            addFields(label, param, depth + 1);
+        case TFun(args, ret):
+          for (arg in args)
+            addFields(label, arg.t, depth + 1);
+          addFields(label, ret, depth + 1);
+        default:
+      }
+    }
+    for (type in types)
+      switch type {
+        case TType(reference, _):
+          final definition = reference.get();
+          addFields(TypeUtil.baseTypeFullName(definition), definition.type, 0);
+        default:
+      }
     lines.sort(compareStrings);
     return lines.join('\n');
   }

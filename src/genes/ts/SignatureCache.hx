@@ -31,6 +31,17 @@ typedef CachedSig = {
 
 #if macro
 /**
+ * The typedef whose body `SignatureCache.captureAnonFieldTypes` reads: its
+ * `typedefKey` and the source range of its whole declaration.
+ */
+typedef AnonOwner = {
+  final key: String;
+  final file: String;
+  final min: Int;
+  final max: Int;
+}
+
+/**
  * Saves source-level TypeScript typing facts before Haxe simplifies them for
  * JavaScript runtime output.
  *
@@ -150,6 +161,14 @@ class SignatureCache {
 
   /** The module and the file of the typedef that `readDeclaration` captures now, or `null`. */
   static var anonWriter: Null<{module: String, file: String}> = null;
+
+  /**
+   * The `typedefKey` of the typedef whose body a printer or the dependency
+   * plan reads now (`readingTypedefBody`), or `null`. An anonymous-field
+   * fact read meanwhile first takes the fact of a field that this typedef
+   * copies (`copyKey`), then the fact of the field's own declaration.
+   */
+  static var readingTypedef: Null<String> = null;
 
   /**
    * Request-local answers to "does the own body of this abstract or typedef
@@ -572,13 +591,14 @@ class SignatureCache {
    * Following their shared body here could let one concrete use overwrite the
    * declaration used by every other type argument.
    */
-  static function captureAnonFieldTypes(type: Type, depth = 0): Void {
+  static function captureAnonFieldTypes(type: Type, owner: AnonOwner,
+      depth = 0): Void {
     if (depth > 64)
       return;
     switch unlazy(type) {
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
         TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        captureAnonFieldTypes(inner, depth + 1);
+        captureAnonFieldTypes(inner, owner, depth + 1);
       case TAnonymous(_.get() => anon):
         for (field in anon.fields) {
           // `@:ts.optional` means TS callers see omission/undefined, not null.
@@ -587,11 +607,17 @@ class SignatureCache {
           final fieldType = NullishContract.forField(field).emittedType;
           final sourceType = sourceTypeWithEnumAbstract(fieldType);
           final tsType = literalUnionAfterWalk(fieldType, sourceType);
+          // A field that this typedef copies from another structure
+          // (`{> Frame<Tone>, ...}`) keeps the position of its declaration.
+          // Its facts name the copy, so that they never change how the
+          // declaration prints (genes-f8vc.14.31).
+          final key = declares(owner,
+            field.pos) ? posKey(field.pos) : copyKey(field.pos, owner.key);
           if (tsType != null)
-            put(AnonFieldTsType(posKey(field.pos), tsType));
+            put(AnonFieldTsType(key, tsType));
           if (sourceType != null)
-            put(AnonFieldSourceType(posKey(field.pos), sourceType));
-          captureAnonFieldTypes(field.type, depth + 1);
+            put(AnonFieldSourceType(key, sourceType));
+          captureAnonFieldTypes(field.type, owner, depth + 1);
         }
       case TInst(_, params) | TEnum(_, params) | TAbstract(_, params) |
         TType(_, params):
@@ -599,17 +625,106 @@ class SignatureCache {
         // would overwrite its generic declaration fields with one concrete use
         // (for example, turning `Envelope<Value>` into `Envelope<Phase>`).
         for (param in params)
-          captureAnonFieldTypes(param, depth + 1);
+          captureAnonFieldTypes(param, owner, depth + 1);
       case TFun(args, ret):
         for (arg in args)
-          captureAnonFieldTypes(arg.t, depth + 1);
-        captureAnonFieldTypes(ret, depth + 1);
+          captureAnonFieldTypes(arg.t, owner, depth + 1);
+        captureAnonFieldTypes(ret, owner, depth + 1);
       case TDynamic(inner) if (inner != null):
-        captureAnonFieldTypes(inner, depth + 1);
+        captureAnonFieldTypes(inner, owner, depth + 1);
       case TMono(reference) if (reference.get() != null):
-        captureAnonFieldTypes(reference.get(), depth + 1);
+        captureAnonFieldTypes(reference.get(), owner, depth + 1);
       default:
     }
+  }
+
+  /**
+   * Returns the typedef whose body `captureAnonFieldTypes` reads: its
+   * `typedefKey` and the source range of its declaration.
+   */
+  static function ownerOf(definition: DefType): AnonOwner {
+    final info = Context.getPosInfos(definition.pos);
+    return {
+      key: typedefKey(definition),
+      file: info.file,
+      min: info.min,
+      max: info.max
+    };
+  }
+
+  /**
+   * True when the field at `pos` is declared inside the declaration of
+   * `owner`, false for a field that `owner` copies from another structure.
+   * Haxe gives a typedef the range of its whole declaration, and a copied
+   * field keeps the position of the field that it copies. Example: in
+   * `typedef Writer = {> S<Tone>, w: Int}`, `w` is declared by `Writer`, and
+   * `value` (from `typedef S<X> = {value: X}`) is copied.
+   */
+  static function declares(owner: AnonOwner, pos: Position): Bool {
+    final info = Context.getPosInfos(pos);
+    return info.file == owner.file && info.min >= owner.min
+      && info.max <= owner.max;
+  }
+
+  /**
+   * Returns the key of the facts of a field that the typedef `owner` (a
+   * `typedefKey`) copies: `<file>:<min>:<max>@<owner>`. The position part
+   * names the declaration of the field, and `@<owner>` the copy.
+   */
+  static inline function copyKey(pos: Position, owner: String): String
+    return posKey(pos) + COPY_MARK + owner;
+
+  /** The separator of a `copyKey`; a `typedefKey` holds no `@`. */
+  static inline final COPY_MARK = '@';
+
+  /**
+   * Reads the body of the typedef `definition` with `read` and returns its
+   * result. Meanwhile an anonymous-field fact first takes the fact of a
+   * field that `definition` copies, then the fact of the field's own
+   * declaration (`anonFact`). The printer of a typedef declaration and the
+   * dependency plan of its module call it (genes-f8vc.14.31).
+   *
+   * Why: a typedef that copies the fields of a generic typedef
+   * (`typedef Writer = {> S<Tone>, w: Int}`) has facts that hold `Tone`.
+   * Under the position of the field alone they replaced the facts of the
+   * declaration, so `typedef S<X> = {value: X}` printed `value: "cold" |
+   * "warm"`, and with two copies of different arguments the output depended
+   * on the order of the modules.
+   */
+  public static function readingTypedefBody<T>(definition: DefType,
+      read: Void->T): T {
+    final before = readingTypedef;
+    readingTypedef = typedefKey(definition);
+    final result = try read() catch (error:haxe.Exception) {
+      readingTypedef = before;
+      throw error;
+    }
+    readingTypedef = before;
+    return result;
+  }
+
+  /**
+   * Returns the key under which a reader looks up the facts of the field at
+   * `pos`: `copyKey` with the typedef `owner`, or else with the typedef
+   * whose body is read now (`readingTypedefBody`), or else the position
+   * alone.
+   */
+  static function anonReadKey(pos: Position, owner: Null<DefType>): String {
+    final copy = owner != null ? typedefKey(owner) : readingTypedef;
+    return copy == null ? posKey(pos) : copyKey(pos, copy);
+  }
+
+  /**
+   * Returns the fact of `map` for a reader key (`anonReadKey`): for a
+   * `copyKey`, the fact of the copy, or else the fact of the field's own
+   * declaration; for a position key, the fact of the declaration only.
+   */
+  static function anonFact<V>(map: Map<String, V>, key: String): Null<V> {
+    final copied = map.get(key);
+    if (copied != null)
+      return copied;
+    final mark = key.indexOf(COPY_MARK);
+    return mark < 0 ? null : map.get(key.substr(0, mark));
   }
 
   /** Retains the declared domain, including for later assignments checked by Haxe. */
@@ -785,7 +900,7 @@ class SignatureCache {
         // anonymous body owned directly by this typedef and can inspect
         // anonymous types supplied as its own type arguments.
         anonWriter = writerOf(definition);
-        captureAnonFieldTypes(definition.type);
+        captureAnonFieldTypes(definition.type, ownerOf(definition));
         anonWriter = null;
       case TAbstract(ref):
         captureEnumAbstract(ref);
@@ -988,6 +1103,7 @@ class SignatureCache {
     requestLists = [];
     foreignAnonFacts = new Map();
     anonWriter = null;
+    readingTypedef = null;
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
@@ -1039,13 +1155,21 @@ class SignatureCache {
     return answer;
   }
 
-  public static function getAnonFieldTsType(pos: Position): Null<String> {
-    final key = posKey(pos);
-    final answer = facts.anonFieldTsTypes.get(key);
+  /**
+   * Returns the literal TypeScript spelling captured for the field of an
+   * anonymous structure at `pos`, or `null`. `owner` is the typedef whose
+   * copy of the field the caller reads, when it knows it (for example the
+   * typedef type of a field access's receiver); without it the typedef of
+   * `readingTypedefBody` counts (genes-f8vc.14.31).
+   */
+  public static function getAnonFieldTsType(pos: Position,
+      ?owner: DefType): Null<String> {
+    final key = anonReadKey(pos, owner);
+    final answer = anonFact(facts.anonFieldTsTypes, key);
     final check = comparison;
     if (check != null)
       check.texts('anonFieldTsType', key,
-        check.kept.anonFieldTsTypes.get(key), answer);
+        anonFact(check.kept.anonFieldTsTypes, key), answer);
     // The capture of another declaration can write this fact; see
     // `IncrementalShadow.recordFact`. Without it this does nothing.
     if (genes.incremental.IncrementalShadow.recording())
@@ -1065,13 +1189,15 @@ class SignatureCache {
     return answer;
   }
 
-  public static function getAnonFieldSourceType(pos: Position): Null<Type> {
-    final key = posKey(pos);
-    final answer = facts.anonFieldSourceTypes.get(key);
+  /** As `getAnonFieldTsType`, for the captured source type of the field. */
+  public static function getAnonFieldSourceType(pos: Position,
+      ?owner: DefType): Null<Type> {
+    final key = anonReadKey(pos, owner);
+    final answer = anonFact(facts.anonFieldSourceTypes, key);
     final check = comparison;
     if (check != null)
       check.types('anonFieldSourceType', key,
-        check.kept.anonFieldSourceTypes.get(key), answer);
+        anonFact(check.kept.anonFieldSourceTypes, key), answer);
     if (genes.incremental.IncrementalShadow.recording())
       genes.incremental.IncrementalShadow.recordFact(ANON_SOURCE, key,
         factAnswer(ANON_SOURCE, key));
@@ -1139,7 +1265,9 @@ class SignatureCache {
   }
 
   /** Returns the file of a `posKey` (`<file>:<min>:<max>`). */
-  static function keyFile(key: String): String {
+  static function keyFile(fullKey: String): String {
+    final mark = fullKey.indexOf(COPY_MARK);
+    final key = mark < 0 ? fullKey : fullKey.substr(0, mark);
     final last = key.lastIndexOf(':');
     final middle = last <= 0 ? -1 : key.lastIndexOf(':', last - 1);
     return middle < 0 ? key : key.substr(0, middle);
@@ -1182,10 +1310,10 @@ class SignatureCache {
   public static function factAnswer(kind: String, key: String): String {
     switch kind {
       case ANON_TS:
-        final text = facts.anonFieldTsTypes.get(key);
+        final text = anonFact(facts.anonFieldTsTypes, key);
         return text == null ? '-' : '+' + text;
       case ANON_SOURCE:
-        final type = facts.anonFieldSourceTypes.get(key);
+        final type = anonFact(facts.anonFieldSourceTypes, key);
         return type == null ? '-' : '+' + haxe.macro.TypeTools.toString(type);
       case BODY_PARAMS | BODY_TYPE:
         final split = key.lastIndexOf('#');

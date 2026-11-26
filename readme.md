@@ -506,6 +506,11 @@ the fields of other files that its typedefs copy must stay the same, also
 without a fact (`foreign-fields-changed`): a module that extends such a
 typedef writes its facts there.
 
+A typedef that copies the fields of a generic typedef (`typedef Writer =
+{> Frame<Tone>, w: Int}`) no longer changes how that typedef prints: the
+generic declaration prints with its own type parameters (`value: T`), and
+the copy prints its own field types (genes-f8vc.14.31).
+
 ## Async/await sugar (optional)
 
 genes-ts includes an `@:async` + `await(...)` macro that emits native

@@ -754,8 +754,11 @@ class DependencyPlanBuilder {
         case MType(definition, params):
           collector.collectParams(params, true, '$kind.typedef-parameters',
             definition.pos);
-          collector.collect(definition.type, '$kind.typedef-body',
-            definition.pos);
+          // As the printer, read the facts of the fields that this typedef
+          // copies under its own name (genes-f8vc.14.31).
+          genes.ts.SignatureCache.readingTypedefBody(definition,
+            () -> collector.collect(definition.type, '$kind.typedef-body',
+              definition.pos));
       }
     }
   }

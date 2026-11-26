@@ -750,8 +750,13 @@ class TypeEmitter {
           // from every emitted annotation. Follow its applied body here as
           // well as omitting its own declaration; otherwise a consumer field
           // or local could import a type that intentionally has no output.
-          emitType(writer, dt.type.applyTypeParameters(dt.params, params),
-            wrap);
+          // The body is this alias's own (genes-f8vc.14.31).
+          final body = dt.type.applyTypeParameters(dt.params, params);
+          if (Context.defined('genes.ts'))
+            genes.ts.SignatureCache.readingTypedefBody(dt,
+              () -> emitType(writer, body, wrap));
+          else
+            emitType(writer, body, wrap);
         } else
           switch [dt, params] {
             case [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"}, [elemT]]:

@@ -1371,9 +1371,11 @@ const edits: ReadonlyArray<Edit> = [
   },
   {
     // M2 of the review of #244: the capture of a typedef in `inc.Leaf2`
-    // writes a SignatureCache fact for the source position of the field
-    // `value` of `inc.Env.Envelope`, and the print of `inc.Env` reads that
-    // fact. `inc.Env` is not typed again.
+    // writes a SignatureCache fact for the field `value` that it copies from
+    // `inc.Env.Envelope`. Before genes-f8vc.14.31 the print of `inc.Env`
+    // read that fact (it printed the values of `inc.Color` for `Envelope<T>`);
+    // now the fact names the copy, and `inc.Env` prints `value: T`. `inc.Env`
+    // is not typed again.
     id: "another module extends a generic structure with an enum abstract argument",
     apply: () => {
       edit("inc/Leaf2.hx", "/*LEAF2_IMPORT*/",

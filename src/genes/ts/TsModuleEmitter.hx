@@ -3014,7 +3014,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         // nominal source leaf; use the frozen enum values before falling back
         // to a declaration-position lookup.
         final explicit = explicitFieldTsType(field);
-        final cached = SignatureCache.getAnonFieldTsType(field.pos);
+        final cached = SignatureCache.getAnonFieldTsType(field.pos,
+          receiverTypedef(receiver.t));
         final direct = SignatureCache.enumAbstractLiteralUnionTsType(field.type);
         if (explicit != null) explicit; else
           if (receiverHasEmittedTypeOverride(receiver)) null; else
@@ -3023,6 +3024,27 @@ class TsModuleEmitter extends JsModuleEmitter {
                 if (cached == expectedTsType) cached; else cached ?? direct;
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
         cachedFieldValueTsType(inner, expectedTsType);
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Returns the typedef of a field access's receiver type (through `Null`
+   * and lazy types), or `null` when the receiver has no typedef type. Its
+   * copy of an anonymous field has its own facts (genes-f8vc.14.31).
+   * Example: for `writer.value` with `writer: Writer` and `typedef Writer =
+   * {> S<Tone>, w: Int}`, the facts of `Writer`'s copy of `S.value`.
+   */
+  static function receiverTypedef(type: Type): Null<DefType> {
+    return switch type {
+      case TLazy(resolve):
+        receiverTypedef(resolve());
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        receiverTypedef(inner);
+      case TType(reference, _):
+        reference.get();
       default:
         null;
     }
@@ -5271,12 +5293,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (typeOverride != null)
       write(typeOverride);
     else {
-      final capturedSourceType = SignatureCache.getTypedefSourceType(def,
-        params);
-      if (capturedSourceType != null)
-        TypeEmitter.emitCapturedSourceType(this, capturedSourceType);
-      else
-        emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
+      // The fields that this typedef copies from another structure print
+      // with the facts of the copy (genes-f8vc.14.31).
+      SignatureCache.readingTypedefBody(def, () -> {
+        final capturedSourceType = SignatureCache.getTypedefSourceType(def,
+          params);
+        if (capturedSourceType != null)
+          TypeEmitter.emitCapturedSourceType(this, capturedSourceType);
+        else
+          emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
+      });
     }
     writeNewline();
   }

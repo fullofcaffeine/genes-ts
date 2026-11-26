@@ -944,12 +944,13 @@ class IncrementalShadow {
    * - `anonTs`, `anonSource` (`getAnonFieldTsType`, `getAnonFieldSourceType`):
    *   `key` is the source position of an anonymous-structure field, and
    *   `answer` the text of the fact, or `-` when there is none. Why (review
-   *   of #244, M2): the capture of one declaration writes such a fact for
-   *   every field position that its type reaches, also for a field of
-   *   another module. Example: a typedef `{ > inc.Env.Envelope<inc.Color>,
-   *   ... }` in `inc.Leaf2` writes the fact of the field `value` of
-   *   `inc.Env.Envelope`, and the print of `inc.Env` reads it. `inc.Env` is
-   *   not typed again, so no other clean rule sees the change.
+   *   of #244, M2): the facts at a field can come from the capture of
+   *   another declaration than the reader's. Since genes-f8vc.14.31 a
+   *   typedef that copies a field (`{ > inc.Env.Envelope<inc.Color>, ... }`
+   *   in `inc.Leaf2`) writes under a key that names the copy
+   *   (`SignatureCache.copyKey`), so the print of `inc.Env` no longer reads
+   *   it; the answer is still recorded, because a key names a position, and
+   *   no other clean rule sees a change of the facts there.
    * - `bodyParams`, `bodyType` (`localTypeParameters`, `localDeclaredType`;
    *   genes-f8vc.9.27): `key` is `<owner class>#<variable id>`, and `answer`
    *   the metadata text of a holder that only a typed body declares or

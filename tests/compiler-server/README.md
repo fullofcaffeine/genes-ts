@@ -978,6 +978,55 @@ Haxe's declaration list, which a module request does not prove.
 An `answers-changed` reason now lists every difference (at most 40), each
 with the stored answer or "not asked".
 
+Copied fields have their own facts (genes-f8vc.14.31). The three stale
+shapes above have one root cause: a field that a typedef copies from a
+generic typedef (`{> Frame<Tone>, ...}`) kept the position of its
+declaration, and its facts took the key of that declaration. So cold
+printed `typedef Frame<T> = {value: "cold" | "warm"}`, and with two copies
+the bytes depended on the order of the modules. Now
+`SignatureCache.captureAnonFieldTypes` keys the facts of a copied field as
+`<position>@<typedef>` (`copyKey`), and the printer and the dependency plan
+of a typedef body, and a field access whose receiver has a typedef type,
+first take the copy's fact, then the declaration's
+(`readingTypedefBody`). A generic typedef then prints `value: T` in every
+build. The groups:
+
+- `anon-own-file-origin` (round 3 of the review of #273, row of Fable):
+  `mr.Card` has `S<X> = {value: X, a: Int}`, `S2<X>`, `First<X> = {> S<X>,
+  extra: Int}`, `Writer = {> S<Tone>, w: Int}` and a private `Second<X> = {>
+  Frame2<X>, other: Int}`; `mr.User` has `Use = {> First<Tone>, more:
+  Int}`. A literal edit previews. Then `First` extends `S2<X>`: on ad63a932
+  and on 906e4b35 the module request previewed (`STALE mr/Card.ts
+  mr/Card.ts.map mr/User.ts.map`), because `Writer`'s write at `S.value`
+  hid the missing write of `mr.User`. With the copy keys `mr/Card.ts` equals
+  cold, but cold still changes `mr/User.ts.map`: `mr.User` prints the
+  copied field `First.value` with its position, which is now the one of
+  `S2.value`. So the imported positions of a module (`importedPositions`,
+  `position-changed`) now also hold the position of each field that its
+  typedef bodies hold from its own files, by typedef and field path. A
+  literal edit after it previews;
+- `anon-copy-order-ab` and `anon-copy-order-ba`: `mr.ExtA` and `mr.ExtB`
+  extend `Frame<T>` with `Tone` (strings) and `Mode` (integers); `ba`
+  swaps the arguments. The second step records `mr/Frame.ts` of the full
+  request (equal to cold) and requires `value: T` and the same bytes in both
+  orders. On ad63a932 and on 906e4b35 the file printed `value: 1 | 2` in one
+  order and `value: "cold" | "warm"` in the other (`--observe` prints
+  `COPY-ORDER`).
+
+The row `anon-generic-importer` changes too: its literal edit of `mr.Card`
+was refused on 906e4b35 (`answers-changed`, because `mr.Card` printed
+`First` with the fact that only `mr.User` wrote); now it previews, equal to
+cold. The guard rows keep their bodies on their own lines, so that their
+edits move no field position of the module's own file.
+
+The two guards `foreign-facts-changed` and `foreign-fields-changed` stay.
+With the copy keys they are no longer needed by these rows: with both
+guards disabled (a scratch copy of the source), the edits of
+`anon-foreign-facts`, `anon-foreign-facts-stale` and
+`anon-generic-importer` are refused by `answers-changed` (the module's own
+questions now name its copies), and no preview is stale. The full gate has
+not run without them, so they are kept.
+
 The `roots-` groups (genes-f8vc.14.12) give the full requests roots beside
 `--main`; the module requests leave them out, as the development session
 does. Before the fix Genes knew only the `--main` root, so a module that

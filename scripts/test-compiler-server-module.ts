@@ -3645,7 +3645,7 @@ function anonFactGroups(): ReadonlyArray<Group> {
         "mr/Main.hx": mainWith(["trace(mr.Card.label());"]),
         "mr/Frame.hx": frame,
         "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
-          + `private typedef Unused = {> Frame<Tone>, extra: Int}\n\n`
+          + `private typedef Unused = {\n  > Frame<Tone>,\n  extra: Int\n}\n\n`
           + `class Card {\n  public static function label(): String {\n`
           + `    final one: Frame<Int> = {value: 1};\n    final two: Frame2<Int> = {value: 2};\n`
           + `    return 'card ' + FrameTools.describe(one) + FrameTools.describe2(two);\n  }\n}\n`
@@ -3657,12 +3657,16 @@ function anonFactGroups(): ReadonlyArray<Group> {
         { id: "anon: a second literal edit (the stored facts come from a kept bucket)",
           apply: () => edit("Card.hx", "'card! '", "'card!! '"),
           module: "mr.Card", expect: "preview" },
+        // The body is on its own lines, so the edit moves no field of the
+        // module's own file (`position-changed` would refuse first).
         { id: "anon: the typedef extends another typedef with the same fields (foreign-facts-changed)",
-          apply: () => edit("Card.hx", "{> Frame<Tone>, extra: Int}", "{> Frame2<Tone>, extra: Int}"),
+          apply: () => edit("Card.hx", "  > Frame<Tone>,", "  > Frame2<Tone>,"),
           module: "mr.Card", expect: "foreign-facts-changed" },
-        { id: "anon: the typedef declares the field itself (foreign-facts-changed)",
-          apply: () => edit("Card.hx", "{> Frame2<Tone>, extra: Int}", "{value: Tone, extra: Int}"),
-          module: "mr.Card", expect: "foreign-facts-changed" }
+        // A field that the typedef now declares itself is a new position that
+        // a module that copies the typedef would name in its map.
+        { id: "anon: the typedef declares the field itself (position-changed)",
+          apply: () => edit("Card.hx", "  > Frame2<Tone>,", "  value: Tone,"),
+          module: "mr.Card", expect: "position-changed" }
       ]
     },
     {
@@ -3680,7 +3684,7 @@ function anonFactGroups(): ReadonlyArray<Group> {
         "mr/Main.hx": mainWith(["trace(mr.Card.label());"]),
         "mr/Frame.hx": frame,
         "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
-          + `private typedef First = {> Frame<Tone>, extra: Int}\n\n`
+          + `private typedef First = {\n  > Frame<Tone>,\n  extra: Int\n}\n\n`
           + `private typedef Second = {> Frame2<Tone>, other: Int}\n\n`
           + `class Card {\n  public static function label(): String {\n`
           + `    final two: Frame2<Int> = {value: 2};\n`
@@ -3691,7 +3695,7 @@ function anonFactGroups(): ReadonlyArray<Group> {
           apply: () => edit("Card.hx", "'card '", "'card! '"),
           module: "mr.Card", expect: "preview" },
         { id: "anon: the only typedef that writes the facts of Frame.value extends Frame2 instead (foreign-facts-changed)",
-          apply: () => edit("Card.hx", "First = {> Frame<Tone>, extra: Int}", "First = {> Frame2<Tone>, extra: Int}"),
+          apply: () => edit("Card.hx", "  > Frame<Tone>,\n  extra", "  > Frame2<Tone>,\n  extra"),
           module: "mr.Card", expect: "foreign-facts-changed" }
       ]
     },
@@ -3712,7 +3716,7 @@ function anonFactGroups(): ReadonlyArray<Group> {
         "mr/Main.hx": mainWith(["trace(mr.Card.label());", "trace(mr.User.make().more);"]),
         "mr/Frame.hx": frame,
         "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
-          + `typedef First<X> = {> Frame<X>, extra: Int}\n\n`
+          + `typedef First<X> = {\n  > Frame<X>,\n  extra: Int\n}\n\n`
           + `private typedef Second<X> = {> Frame2<X>, other: Int}\n\n`
           + `class Card {\n  public static function label(): String {\n`
           + `    final two: Frame2<Int> = {value: 2};\n`
@@ -3723,19 +3727,123 @@ function anonFactGroups(): ReadonlyArray<Group> {
           + `    return {value: Warm, extra: 1, more: 2};\n  }\n}\n`
       },
       steps: [
-        // Refused: `mr.Card` prints `First`, which reads the fact at
-        // `Frame.value` that only `mr.User` writes, and `mr.User` is not in
-        // the module request, so the request has no fact there while the
-        // full request has the one of `mr.User`.
-        { id: "anon: literal edit of a module whose generic typedef an importer extends (answers-changed)",
+        // On 906e4b35 this edit was refused (`answers-changed`): `mr.Card`
+        // printed `First` with the fact that only `mr.User` wrote at
+        // `Frame.value`, and `mr.User` is not in the module request. Since
+        // genes-f8vc.14.31 that fact names the copy of `mr.User`, so
+        // `First` prints `value: X` in every build, and the edit previews.
+        { id: "anon: literal edit of a module whose generic typedef an importer extends",
           apply: () => edit("Card.hx", "'card '", "'card! '"),
-          module: "mr.Card", expect: "answers-changed" },
+          module: "mr.Card", expect: "preview" },
         { id: "anon: the generic typedef copies the fields of another typedef (foreign-fields-changed)",
-          apply: () => edit("Card.hx", "First<X> = {> Frame<X>, extra: Int}", "First<X> = {> Frame2<X>, extra: Int}"),
+          apply: () => edit("Card.hx", "  > Frame<X>,", "  > Frame2<X>,"),
           module: "mr.Card", expect: "foreign-fields-changed" }
       ]
-    }
+    },
+    {
+      // Review round 3 of genes-ts #273 (row of Fable), genes-f8vc.14.31:
+      // `Writer = {> S<Tone>, w: Int}` copies `S.value` in the edited
+      // module's own file. Before genes-f8vc.14.31 its fact took the key of
+      // the declaration `S.value`, so it hid the missing write of `mr.User`
+      // (outside the module request) when `First` moved from `S` to `S2`,
+      // and the preview printed a stale `mr/Card.ts`. Now a copy's facts
+      // name the copy: `S<X>`, `S2<X>` and `First<X>` print `value: X`
+      // in every build.
+      name: "anon-own-file-origin",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.Card.label());", "trace(mr.User.make().more);"]),
+        "mr/Frame.hx": frame,
+        "mr/Card.hx": `package mr;\n\nimport mr.Frame;\n\n`
+          + `typedef S<X> = {value: X, a: Int}\n\n`
+          + `typedef S2<X> = {value: X, a: Int}\n\n`
+          + `typedef First<X> = {> S<X>, extra: Int}\n\n`
+          + `typedef Writer = {> S<Tone>, w: Int}\n\n`
+          + `private typedef Second<X> = {> Frame2<X>, other: Int}\n\n`
+          + `class Card {\n  public static function label(): String {\n`
+          + `    final two: Frame2<Int> = {value: 2};\n`
+          + `    return 'card ' + FrameTools.describe2(two);\n  }\n}\n`,
+        "mr/User.hx": `package mr;\n\nimport mr.Card;\nimport mr.Frame;\n\n`
+          + `typedef Use = {> First<Tone>, more: Int}\n\n`
+          + `class User {\n  public static function make(): Use {\n`
+          + `    return {value: Warm, a: 0, extra: 1, more: 2};\n  }\n}\n`
+      },
+      steps: [
+        { id: "anon: literal edit; a typedef of the module copies the field that an importer's copy also holds",
+          apply: () => edit("Card.hx", "'card '", "'card! '"),
+          module: "mr.Card", expect: "preview" },
+        // The facts are right now, and `mr/Card.ts` equals cold. But
+        // `mr.User` copies `First.value`, whose position is now the one of
+        // `S2.value`, and its source map names it: cold changes
+        // `mr/User.ts.map` (`position-changed`).
+        { id: "anon: the generic typedef copies another typedef of the same file (position-changed)",
+          apply: () => edit("Card.hx", "First<X> = {> S<X>, extra: Int}", "First<X> = {> S2<X>, extra: Int}"),
+          module: "mr.Card", expect: "position-changed" },
+        { id: "anon: literal edit after the copy changed",
+          apply: () => edit("Card.hx", "'card! '", "'card!! '"),
+          module: "mr.Card", expect: "preview" }
+      ]
+    },
+    ...(["ab", "ba"] as const).map((order): Group => {
+      // genes-f8vc.14.31: two modules extend the generic `Frame<T>` with
+      // different arguments (`Tone`, a string enum abstract, and `Mode`, an
+      // integer one). Before the fix, `mr/Frame.ts` printed the field
+      // `value` with the facts of the copy that Haxe handled last, so the
+      // order of the modules changed the bytes. Haxe handles `mr.ExtA`
+      // before `mr.ExtB`, so the order `ba` swaps the arguments between the
+      // two modules. The second step records `mr/Frame.ts` of the full
+      // request (which the driver found equal to cold) in both orders.
+      const [first, second] = order === "ab" ? ["Tone", "Mode"] : ["Mode", "Tone"];
+      const value = (type: string) => type === "Tone" ? "Warm" : "One";
+      const ext = (name: string, type: string, field: string) => `package mr;\n\nimport mr.Frame;\n\n`
+        + `typedef ${name}Shape = {> Frame<${type}>, ${field}: Int}\n\n`
+        + `class Ext${name} {\n  public static function make(): ${name}Shape {\n`
+        + `    return {value: ${value(type)}, ${field}: 1};\n  }\n}\n`;
+      return {
+        name: `anon-copy-order-${order}`,
+        dce: "std",
+        files: {
+          "mr/Main.hx": mainWith(["trace(mr.ExtA.make().a);", "trace(mr.ExtB.make().b);"]),
+          "mr/Frame.hx": frame.replace("class FrameTools {",
+            "enum abstract Mode(Int) {\n  var One = 1;\n  var Two = 2;\n}\n\nclass FrameTools {"),
+          "mr/ExtA.hx": ext("A", first, "a"),
+          "mr/ExtB.hx": ext("B", second, "b")
+        },
+        steps: [
+          { id: `anon: two modules extend the generic typedef with other arguments (${order})`,
+            apply: () => {} },
+          { id: `anon: the bytes of mr/Frame.ts do not depend on the module order (${order})`,
+            apply: () => recordCopyOrder(order) }
+        ]
+      };
+    })
   ];
+}
+
+/** `mr/Frame.ts` of the full request of each `anon-copy-order-` group (genes-f8vc.14.31). */
+const copyOrderFrames = new Map<string, string>();
+
+/**
+ * Records `mr/Frame.ts` of the last full request (which the driver found
+ * equal to cold) for the module order `order`, and requires that the
+ * generic `Frame<T>` prints `value: T` and the same bytes in both orders.
+ * With `--observe` it prints a difference instead of failing.
+ */
+function recordCopyOrder(order: string): void {
+  const text = readFileSync(path.join(folder("program"), "mr/Frame.ts"), "utf8");
+  copyOrderFrames.set(order, text);
+  const problems: string[] = [];
+  if (!/export type Frame<T> = \{\s*value: T\s*\}/.test(text))
+    problems.push(`mr/Frame.ts does not print Frame<T> with value: T (${order})`);
+  const other = copyOrderFrames.get(order === "ab" ? "ba" : "ab");
+  if (other !== undefined && other !== text)
+    problems.push("mr/Frame.ts differs between the module orders ab and ba");
+  for (const problem of problems) {
+    if (observe)
+      process.stdout.write(`COPY-ORDER ${problem}\n${text}\n`);
+    else
+      ok(false, problem);
+  }
 }
 
 function caffeineShapedGroup(): Group {
