@@ -33,6 +33,13 @@ class Imports {
   public static inline final HOLDER_DEFINER_META = ':genes.importDefiner';
 
   /**
+   * The dotted package of every holder class that `importImpl` defines.
+   * `genes.incremental.HaxeDependencies` counts only classes in this package
+   * as holders, so both sides read this one constant.
+   */
+  public static inline final HOLDER_PACKAGE = 'genes.ts.imports';
+
+  /**
    * Import a module's default export.
    *
    * Example:
@@ -455,7 +462,7 @@ class Imports {
       + (spec.importAttributeType != null ? spec.importAttributeType : '');
 
     final hash = Md5.encode(key).substr(0, 12);
-    final pack = ['genes', 'ts', 'imports'];
+    final pack = HOLDER_PACKAGE.split('.');
     final name = 'Import_${hash}';
     final fullName = pack.join('.') + '.' + name;
 

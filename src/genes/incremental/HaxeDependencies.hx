@@ -381,7 +381,7 @@ class HaxeDependencies {
    * (`probe9-hand-written-definer-metadata`).
    */
   static function holderDefiner(cls: ClassType): Null<String> {
-    if (cls.pack.join('.') != 'genes.ts.imports')
+    if (cls.pack.join('.') != genes.ts.Imports.HOLDER_PACKAGE)
       return null;
     final entries = cls.meta.extract(genes.ts.Imports.HOLDER_DEFINER_META);
     if (entries.length != 1)
