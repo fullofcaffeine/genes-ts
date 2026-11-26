@@ -3736,17 +3736,24 @@ function inlineReachGroups(): ReadonlyArray<Group> {
  * of the program's list. Each last row is `module-may-leave`.
  */
 function reviewBuildGroups(): ReadonlyArray<Group> {
-  const variants: ReadonlyArray<{ readonly name: string, readonly build: string }> = [
+  const variants: ReadonlyArray<{ readonly name: string, readonly build: string, readonly session?: boolean }> = [
     { name: "review-plain-build", build: "" },
     { name: "review-build-removes-meta",
       build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n" },
     { name: "review-build-registers-own-file",
       build: "    haxe.macro.Context.registerModuleDependency(haxe.macro.Context.getLocalModule(),\n"
-        + "      haxe.macro.Context.resolvePath('mr/reach/Model.hx'));\n" }
+        + "      haxe.macro.Context.resolvePath('mr/reach/Model.hx'));\n" },
+    // The same as `review-build-removes-meta` with the `dump-path` that the
+    // Genes development session gives (round 2 of the review): both of
+    // Haxe's lists go to that folder, and no `dump` folder is made in the
+    // working folder.
+    { name: "review-build-removes-meta-session",
+      build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n", session: true }
   ];
-  return variants.map((variant) => ({
+  const buildGroups: ReadonlyArray<Group> = variants.map((variant) => ({
     name: variant.name,
     dce: "std",
+    ...(variant.session === true ? { extraArgs: SESSION_DUMP_PATH } : {}),
     files: {
       "mr/Main.hx": mainWith(["trace(mr.reach.Built.text());", "trace(mr.reach.User.text());"]),
       "mr/reach/Model.hx": "package mr.reach;\n\nclass Model {\n"
@@ -3761,13 +3768,51 @@ function reviewBuildGroups(): ReadonlyArray<Group> {
     steps: [
       { id: `${variant.name}: literal edit of a module beside the build macro`,
         apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
-        module: "mr.Button", expect: "preview" },
+        module: "mr.Button", expect: "preview",
+        check: variant.session === true ? sessionDumpFolderOnly : sharedMacroFilesDeleted },
       { id: `${variant.name}: the only call of Model.label() is removed (module-may-leave)`,
         apply: () => editSource("mr/reach/User.hx", "Model.label()", "'model'"),
         module: "mr.reach.User", expect: "module-may-leave",
         check: reasonNames("mr.reach.Model") }
     ]
   }));
+  return buildGroups;
+}
+
+/**
+ * The `dump-path` that the Genes development session gives every build with
+ * the incremental define (`HAXE_DEPENDENCIES_FOLDER` of
+ * `tooling/src/session/effective-invocation.ts`), here a folder beside the
+ * workspace.
+ */
+const SESSION_DUMP_PATH: ReadonlyArray<string> = ["-D", "dump-path=../session-dump"];
+
+/**
+ * A `check` for a request with `SESSION_DUMP_PATH`: Haxe wrote both lists
+ * into that folder, Genes deleted nothing there, and no `dump` folder was
+ * made in the working folder.
+ */
+function sessionDumpFolderOnly(_report: ModuleReport, label: string): void {
+  const folderPath = path.join(workspace, "..", "session-dump");
+  ok(existsSync(path.join(folderPath, "js", "dependencies.dump")),
+    `${label}: the program's list must stay in the session folder`);
+  ok(existsSync(path.join(folderPath, "macro", "dependencies.dump")),
+    `${label}: the macro context's list must be in the session folder`);
+  ok(!existsSync(path.join(workspace, "dump")),
+    `${label}: no dump folder may be made in the working folder`);
+}
+
+/**
+ * A `check` for a request without a session `dump-path`: Genes deleted the
+ * two files of the shared `dump/macro` of the working folder, and left the
+ * folder, so another process that writes there never loses it.
+ */
+function sharedMacroFilesDeleted(_report: ModuleReport, label: string): void {
+  const macroFolder = path.join(workspace, "dump", "macro");
+  ok(existsSync(macroFolder), `${label}: the shared dump/macro folder must stay`);
+  ok(!existsSync(path.join(macroFolder, "dependencies.dump"))
+    && !existsSync(path.join(macroFolder, "dependants.dump")),
+    `${label}: Genes must delete the two files of the shared dump/macro folder`);
 }
 
 const groups: ReadonlyArray<Group> = [

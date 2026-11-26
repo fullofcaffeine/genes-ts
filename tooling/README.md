@@ -735,7 +735,12 @@ is emitted. A host must ignore an event kind that it does not know.
   (`-D genes.dev_incremental`, mode `measure`, or `reuse` with
   `generationReuse`; see above) and the compiler-data
   descriptor are also fixed files in `haxe-request/` that the session
-  rewrites before each request. Only a content edit of an existing `.hx` file on a
+  rewrites before each request. With the incremental descriptor the session
+  also gives `-D dump-path=<stateDirectory>/haxe-request/haxe-dependencies`,
+  the folder where Haxe writes the module dependency lists that Genes reads
+  (`genes.incremental.HaxeDependencies`); on the command line the define
+  reaches Haxe's macro context too, so no list goes to `dump/` of the working
+  folder. Cold builds have neither define. Only a content edit of an existing `.hx` file on a
   class path keeps the warm cache; a `.hx` file in another declared input is
   an ordinary input. When the edit's whole-second file time may equal the one
   Haxe recorded (it is not after the end of the last request, not after the

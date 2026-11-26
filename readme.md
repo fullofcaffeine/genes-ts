@@ -488,13 +488,16 @@ Under `-dce std` a preview is refused when a full build may drop a module's
 file (`module-may-leave`). To know which modules stay, Genes also reads
 Haxe's own list of the modules that each module loads, because the typed
 code no longer names the class of an inline function, an inline constant or
-a macro that it calls. For this, a session request sets `-D dump-dependencies`
-and `-D dump-path=<descriptor>.haxe-dependencies/<name>` (one name for each
-Haxe process). Haxe writes the list of its macro context into `dump/macro`
-of the working folder, because that context keeps the defines of the command
-line. Genes deletes these files after it reads them. A session that sets
-`dump-path` or `dump-dependencies` itself keeps its own folder, and Genes does
-not delete its files. See `genes.incremental.HaxeDependencies`.
+a macro that it calls. Haxe writes these lists when `-D dump-dependencies`
+is set, and Genes sets it in the requests that need them. The development
+session gives `-D dump-path=<request folder>/haxe-dependencies`, so Haxe
+writes both lists, the program's and its macro context's, into that folder,
+and Genes deletes nothing there. A hand-run request without that define gets
+a `dump-path` beside the request descriptor for the program's list, and the
+macro context's list goes to `dump/macro` of the working folder (Haxe copies
+the defines into its macro context before Genes runs); Genes deletes those
+two files after it reads them and leaves the folders. See
+`genes.incremental.HaxeDependencies`.
 
 Genes reads the Haxe arguments with the Haxe 4.3.7 option table
 (`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as

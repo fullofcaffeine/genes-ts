@@ -1086,6 +1086,19 @@ no module of the macro context in the request that typed the dependent,
 twice only when the module has a macro function, and never when the file is
 a second entry of the program's list.
 
+Round 2 of that review added `review-build-removes-meta-session`: the same
+build macro with `-D dump-path=../session-dump`, the define that the Genes
+development session gives (`HAXE_DEPENDENCIES_FOLDER`). Its first row checks
+that Haxe wrote both lists into that folder, that Genes deleted nothing
+there, and that no `dump` folder was made in the working folder. The first
+row of each group without that define checks that Genes deleted the two
+files of the shared `dump/macro` folder of the working folder and left the
+folder (on 4cf8ed42 Genes also deleted the empty folders, which another
+process could be writing into). A row for a module whose program part has
+only typedefs could not be built: Genes prints such a module only for a
+signature that names the typedef, and removing that name is refused before
+the `module-may-leave` check (`public-shape-changed`).
+
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
 literal arguments); every other macro that adds modules must stay in it.

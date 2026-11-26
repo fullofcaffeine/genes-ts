@@ -37,13 +37,18 @@ import genes.util.PathUtil;
  * (`add_modules` in `server.ml`), so such a module stays loaded while its
  * dependent does. Haxe 4.3.7 gives macros no call that reads the list, but
  * `-D dump-dependencies` writes it before Haxe calls the generator
- * (`generate.ml`): `<dump-path>/js/dependencies.dump` for the program and a
- * `macro/dependencies.dump` for Haxe's macro context. Only `dump-path` is
- * part of the compilation signature; `prepare` keeps it the same for every
- * request of one process, so the module cache stays shared. Haxe copies the
- * defines into its macro context before any init macro runs, so the macro
- * list goes to the `dump-path` of the command line, else to `dump` in the
- * working folder, which Genes then reads and deletes.
+ * (`generate.ml`): `<dump-path>/js/dependencies.dump` for the program and
+ * `<dump-path>/macro/dependencies.dump` for Haxe's macro context. Haxe
+ * copies the defines into its macro context before any init macro runs
+ * (`Common.clone`), so the macro list goes to the `dump-path` of the command
+ * line. The Genes development session gives one
+ * (`<request folder>/haxe-dependencies`, `bindHaxeInvocation`), so both
+ * lists go to that folder and Genes deletes nothing there. Without it (a
+ * hand-run request), Genes sets its own `dump-path` for the program's list,
+ * and the macro list goes to `dump/macro` of the working folder; Genes then
+ * deletes those two files after it reads them and leaves the folders. Only
+ * `dump-path` is part of the compilation signature, and it stays the same
+ * for every request of one process, so the module cache stays shared.
  *
  * How: `prepare` sets the defines; `noteModules` reads, before dead-code
  * elimination, which modules have a macro function; `edges` reads both
@@ -67,19 +72,42 @@ import genes.util.PathUtil;
  * - and either `X` has a macro function and `F` is listed at least twice
  *   for `A` (a macro module and `X` itself: a macro call also resolves the
  *   class of `X` in the program), or `X` has no macro function and `F` was
- *   not a module of Haxe's macro context in the request that typed `A`.
- *   Haxe loads each macro module of `A` in the request that types `A` and
- *   adds its types to the macro interpreter (`flush_macro_context`), which
- *   keeps them while it lives. So `F` counts as a macro module when a class
- *   or enum of `X` is known to the interpreter (`Type.resolveClass`), or
- *   when `F` is an entry of the macro list (which can only add files, also
- *   when another process wrote that shared file). Genes keeps this fact for each
- *   module by the digest of its epochs (`GenerationChangeSet.epochs`), also
- *   in a file beside the descriptor that outlives a new macro state of
- *   Genes, because a later request reuses `A` from Haxe's cache without
- *   loading its macro modules again. When the fact is not known (Haxe typed
- *   `A` in a request without the list, such as an editor request), the line
- *   does not count.
+ *   not a module of Haxe's macro context when Haxe typed `A` (the macro
+ *   fact below).
+ *
+ * The macro fact. Haxe loads each macro module of `A` while it types `A`,
+ * and adds its types to the macro interpreter (`flush_macro_context`),
+ * which keeps them while it lives. So for a module that Haxe typed in this
+ * request, `F` is a macro module when `F` is an entry of this request's
+ * macro list, or when a class or enum of `X` is known to the interpreter
+ * (`Type.resolveClass`; a module whose program part has only typedefs is
+ * found only by the list). When the macro list cannot be read, the fact is
+ * unknown. Genes keeps the fact of each module by the digest of its epochs
+ * (`GenerationChangeSet.epochs`), also in a file beside the descriptor that
+ * outlives a new macro state of Genes, because a later request reuses the
+ * module from Haxe's cache without loading its macro modules again. An
+ * unknown fact counts no line listed once.
+ *
+ * The assumption: a module that arrives without a Genes stamp
+ * (`GenerationChangeSet.retypedModules`) was typed in this request, so its
+ * lines are judged against this request's interpreter and macro list. It
+ * can be wrong: a request that Genes does not stamp (an editor request
+ * with the session's defines, which shares the module cache because Haxe
+ * leaves `display` out of the signature) can type a module, and a module
+ * that a macro types after the after-typing step is saved without a stamp
+ * too. Such a module arrives unstamped in each later request. Its macro
+ * modules were loaded into the interpreter of that earlier request, and an
+ * interpreter keeps them, so the judgement holds while the interpreter is
+ * the same. Genes marks each macro state with a name, keeps the first name
+ * of the process in the process environment, and trusts the assumption
+ * only while every request of the process ran in that macro state. After a
+ * new macro state (a macro error, a changed macro module), the fact of a
+ * module that arrives unstamped is unknown for the rest of the process;
+ * kept facts of modules that keep their stamps still count. Example: an
+ * editor request types `mr.reach.Built`, whose build macro loads
+ * `mr.reach.Model` in the macro context; a macro error starts a new
+ * interpreter; the next full request reuses `mr.reach.Built` unstamped, and
+ * its line `mr/reach/Model.hx` does not count.
  *
  * Example: `genes/ts/Json.hx` lists `genes/ts/JsonCodec.hx` once;
  * `genes.ts.JsonCodec` has no macro function and was no macro module when
@@ -96,42 +124,38 @@ import genes.util.PathUtil;
  * above is a program module that Haxe loads with its dependent. A line
  * that does not pass is dropped, which can only refuse a preview.
  *
- * Limits: when the session sets `dump-path` or `dump-dependencies` itself,
- * Genes reads that folder and leaves its files; two Haxe processes that
- * build with that same folder at the same time can then read each other's
- * program list. Haxe also writes `dependants.dump` for both contexts, which
- * Genes does not read; Haxe 4.3.7 has no define that leaves it out. Without
- * a session `dump-path`, Haxe writes the macro list into `dump/macro` of the
- * working folder; Genes deletes those files and the folders when empty, and
- * a second Genes process of the same folder that writes at that moment can
- * fail its request (no wrong output). A module that Haxe typed in a request
- * without the list (an editor request) counts no single line until Haxe
- * types it again in a request with the list.
+ * Limits: a session `dump-path` folder that two Haxe processes share at the
+ * same time can give one of them the other's lists (the development session
+ * runs one server for its folder). Haxe also writes `dependants.dump` for
+ * both contexts, which Genes does not read; Haxe 4.3.7 has no define that
+ * leaves it out. A hand-run request without a session `dump-path` reads the
+ * shared `dump/macro` list of the working folder, which can hold another
+ * process's list; that only adds suspects.
  */
 class HaxeDependencies {
-  /** The start of the environment variable that holds this process's dump folder name (`prepare`). */
-  static inline final FOLDER_VARIABLE = 'GENES_HAXE_DEPENDENCIES_';
+  /** The start of the environment variables of this class (`prepare`). */
+  static inline final VARIABLE_PREFIX = 'GENES_HAXE_DEPENDENCIES_';
 
   /** Folders and files of other processes beside the descriptor that are older than this are deleted (`removeStale`). */
   static inline final STALE_SECONDS = 3600.0;
 
-  /** The folder of this request's dump, or `null` when no list is read. */
+  /** The folder of this request's program list, or `null` when no list is read. */
   static var folder: Null<String> = null;
 
-  /** True when Genes chose `folder` and may delete its files after reading them. */
+  /** True when Genes chose `folder` and deletes its files after reading them. */
   static var owned = false;
+
+  /** The folder of the macro context's list (see the class comment), or `null`. */
+  static var macroFolder: Null<String> = null;
+
+  /** True when the macro list is the shared `dump/macro` of the working folder, whose two files Genes deletes. */
+  static var macroShared = false;
 
   /** The file that keeps `macroFiles` for this process, or `null` (`prepare`). */
   static var factsFile: Null<String> = null;
 
-  /**
-   * The folder where Haxe writes the macro context's list: the `dump-path`
-   * of the command line, else `dump` in the working folder. Haxe copies
-   * the defines into its macro context before any init macro runs
-   * (`Common.clone`), so the `dump-path` that `prepare` sets reaches only
-   * the program's list.
-   */
-  static var macroFolder: Null<String> = null;
+  /** True when every request of this process ran in this macro state (the assumption of the class comment). */
+  static var sameMacroState = false;
 
   /** The full paths of the classes and enums of each module of this request (`noteModules`). */
   static var typeNames: Map<String, Array<String>> = new Map();
@@ -141,6 +165,9 @@ class HaxeDependencies {
 
   /** Time spent reading and parsing Haxe's lists in this request, in seconds. */
   public static var seconds(default, null) = 0.0;
+
+  /** A name for this macro state of Genes, made on first use (`prepare`). */
+  @:persistent static var macroState: Null<String> = null;
 
   /**
    * Whether each module has a macro function, by module, with the epochs
@@ -153,8 +180,8 @@ class HaxeDependencies {
   /**
    * For each module, the digest of its epochs when Haxe typed it in a
    * request with the lists, and its lines that were modules of Haxe's macro
-   * context in that request. `null` until `loadFacts` read the file of this
-   * process (a new macro state of Genes starts without it).
+   * context then. `null` until `loadFacts` read the file of this process (a
+   * new macro state of Genes starts without it).
    */
   @:persistent static var macroFiles: Null<Map<String,
     {epochs: String, files: Array<String>}>> = null;
@@ -171,23 +198,23 @@ class HaxeDependencies {
   /**
    * Makes Haxe write its dependency lists for this request when `wanted`
    * (a `-dce std` full request with module records, or a `-dce std` module
-   * request), and deletes the lists of an earlier request.
+   * request), and deletes Genes' own lists of an earlier request.
    * `ModuleRequest.begin` calls it in every request with the incremental
    * define, before Genes reads the defines (`ModuleRequest.definesKey`).
    *
-   * The folder is `<descriptor>.haxe-dependencies/<name>`, beside the
-   * descriptor and never in the output tree. `dump-path` is part of
-   * Haxe's compilation signature, so it is set in every request with the
-   * define, also when no list is wanted, and `<name>` is kept in the process
-   * environment: it stays the same for the life of one Haxe process, so
-   * every request of a session shares one module cache, and another process
-   * with the same descriptor (a cold build) writes into its own folder. The
-   * first request of a process deletes the folders and files of other
-   * processes that did not change for an hour (`removeStale`).
-   *
-   * When the session sets `dump-path` or `dump-dependencies` itself, Genes
-   * changes neither of them, only adds `dump-dependencies` when it wants
-   * the lists, and never deletes the files.
+   * With a session `dump-path` (or `dump-dependencies`), Genes changes
+   * neither define, only adds `dump-dependencies` when it wants the lists,
+   * and never deletes the files. Without one, Genes sets `dump-path` to
+   * `<descriptor>.haxe-dependencies/<name>`, beside the descriptor and never
+   * in the output tree. `dump-path` is part of Haxe's compilation
+   * signature, so Genes sets it in every request with the define, also when
+   * no list is wanted, and the process environment keeps `<name>` for the
+   * life of one Haxe process: every request of a session shares one module
+   * cache, and another process with the same descriptor (a cold build)
+   * writes into its own folder. The first request of a process deletes the
+   * folders and files of other processes there that did not change for an
+   * hour (`removeStale`). `<name>.macro-files` keeps the macro facts in both
+   * cases.
    */
   public static function prepare(descriptorPath: String, wanted: Bool): Void {
     read = null;
@@ -197,8 +224,31 @@ class HaxeDependencies {
     typeNames = new Map();
     folder = null;
     owned = false;
-    factsFile = null;
     macroFolder = null;
+    macroShared = false;
+    final parent = '$descriptorPath.haxe-dependencies';
+    final key = haxe.crypto.Sha1.encode(descriptorPath).substr(0, 16);
+    final nameVariable = VARIABLE_PREFIX + key;
+    var name = Sys.getEnv(nameVariable);
+    if (name == null || name.length == 0) {
+      name = randomName();
+      Sys.putEnv(nameVariable, name);
+      removeStale(parent);
+    }
+    factsFile = '$parent/$name.macro-files';
+    // The first macro state of the process, or `*` once another one ran.
+    var state = macroState;
+    if (state == null) {
+      state = randomName();
+      macroState = state;
+    }
+    final stateVariable = VARIABLE_PREFIX + 'STATE_' + key;
+    final first = Sys.getEnv(stateVariable);
+    if (first == null || first.length == 0)
+      Sys.putEnv(stateVariable, state);
+    else if (first != state && first != '*')
+      Sys.putEnv(stateVariable, '*');
+    sameMacroState = Sys.getEnv(stateVariable) == state;
     if (Context.defined('dump-path') || Context.defined('dump-dependencies')) {
       if (!wanted)
         return;
@@ -208,29 +258,16 @@ class HaxeDependencies {
       macroFolder = folder;
       return;
     }
-    macroFolder = 'dump';
-    final parent = '$descriptorPath.haxe-dependencies';
-    final variable = FOLDER_VARIABLE
-      + haxe.crypto.Sha1.encode(descriptorPath).substr(0, 16);
-    var name = Sys.getEnv(variable);
-    if (name == null || name.length == 0) {
-      name = haxe.crypto.Sha1.encode(Std.string(Sys.time())
-        + ':'
-        + Std.string(Std.random(0x3FFFFFFF))
-        + ':'
-        + Std.string(Std.random(0x3FFFFFFF)))
-        .substr(0, 16);
-      Sys.putEnv(variable, name);
-      removeStale(parent);
-    }
     final chosen = '$parent/$name';
     Compiler.define('dump-path', chosen);
     folder = chosen;
     owned = true;
-    factsFile = '$chosen.macro-files';
+    macroFolder = 'dump';
+    macroShared = true;
     removeFiles();
     if (!wanted) {
       folder = null;
+      macroFolder = null;
       return;
     }
     Compiler.define('dump-dependencies');
@@ -241,12 +278,22 @@ class HaxeDependencies {
     catch (_:haxe.Exception) {}
   }
 
+  /** Returns a new random name of 16 hexadecimal digits. */
+  static function randomName(): String {
+    return haxe.crypto.Sha1.encode(Std.string(Sys.time())
+      + ':'
+      + Std.string(Std.random(0x3FFFFFFF))
+      + ':'
+      + Std.string(Std.random(0x3FFFFFFF)))
+      .substr(0, 16);
+  }
+
   /**
-   * Notes the modules of this request with their files, and whether each
-   * one has a macro function. `grouped` holds every declaration by module,
-   * before dead-code elimination (which can remove a macro function);
-   * `moduleFiles` holds each module's file. `ModuleRequest.afterSaveSteps`
-   * calls it.
+   * Notes the modules of this request with their files, the full paths of
+   * their classes and enums, and whether each one has a macro function.
+   * `grouped` holds every declaration by module, before dead-code
+   * elimination (which can remove a macro function); `moduleFiles` holds
+   * each module's file. `ModuleRequest.afterSaveSteps` calls it.
    */
   public static function noteModules(grouped: Map<String, Array<Type>>,
       moduleFiles: Map<String, String>): Void {
@@ -312,7 +359,7 @@ class HaxeDependencies {
    * and Genes then reads only that module's entry of the program's list.
    * Empty when Haxe wrote no list (the request did not generate, or the file
    * cannot be read). Reads the files once per request, in the generator,
-   * after Haxe wrote them, and deletes Genes' own files.
+   * after Haxe wrote them, and deletes the files that Genes owns.
    *
    * Example: `edges.get("genes.ts.Json")` holds `"genes.ts.JsonCodec"`.
    */
@@ -327,12 +374,11 @@ class HaxeDependencies {
     };
     read = result;
     final base = folder;
-    if (base != null) {
+    final macroBase = macroFolder;
+    if (base != null && macroBase != null) {
       final main = readText(Path.join([base, 'js', 'dependencies.dump']));
-      final macroBase = macroFolder ?? base;
       final macroList = readText(Path.join([macroBase, 'macro', 'dependencies.dump']));
-      if (owned)
-        removeFiles();
+      removeFiles();
       if (main != null)
         collect(result, main, macroList, only);
     }
@@ -346,9 +392,50 @@ class HaxeDependencies {
   }
 
   /**
+   * One pass over a dependency list: how often each file is an entry (a
+   * line `<file>:`), and, when `wanted` is not `null`, the lines of the
+   * entries whose file is in `wanted`. It allocates one string per entry
+   * line and per kept line, and none for the other lines.
+   */
+  static function scan(text: String, wanted: Null<Map<String, Bool>>): {
+    entries: Map<String, Int>,
+    blocks: Array<{file: String, lines: Array<String>}>
+  } {
+    final entries = new Map<String, Int>();
+    final blocks = [];
+    var lines: Null<Array<String>> = null;
+    var at = 0;
+    final length = text.length;
+    while (at < length) {
+      var end = text.indexOf('\n', at);
+      if (end < 0)
+        end = length;
+      if (end > at) {
+        if (StringTools.fastCodeAt(text, at) == '\t'.code) {
+          if (lines != null)
+            lines.push(text.substring(at + 1, end));
+        } else if (StringTools.fastCodeAt(text, end - 1) == ':'.code) {
+          final file = text.substring(at, end - 1);
+          entries.set(file, (entries.get(file) ?? 0) + 1);
+          lines = null;
+          if (wanted == null || wanted.exists(file)) {
+            final kept = [];
+            blocks.push({file: file, lines: kept});
+            lines = kept;
+          }
+        } else {
+          lines = null;
+        }
+      }
+      at = end + 1;
+    }
+    return {entries: entries, blocks: blocks};
+  }
+
+  /**
    * Fills `result` from the program's list `main` and the macro context's
-   * list `macroList` (`null` when Haxe wrote none), for `only` or for every
-   * module (see `edges`).
+   * list `macroList` (`null` when it cannot be read), for `only` or for
+   * every module (see `edges`).
    */
   static function collect(result: HaxeDependencyEdges, main: String,
       macroList: Null<String>, only: Null<String>): Void {
@@ -373,20 +460,14 @@ class HaxeDependencies {
     }
     for (full in shared.keys())
       byFile.remove(full);
-    // The files that were modules of Haxe's macro context in this request.
-    final macroKeys: Null<Map<String,
-      Bool>> = macroList == null ? null : entriesOf(macroList.split('\n'));
-    // A module of the macro context: a file of the macro context's list (a
-    // shared folder when Genes chose the program's folder, so it can hold
-    // another process's list, which only adds files), or a module of the
-    // program whose class or enum the macro interpreter knows. Haxe adds
-    // the types of each module that it loads in the macro context to the
-    // interpreter (`flush_macro_context`), and the interpreter keeps them
-    // while it lives, so a module that the macro context loaded in this
-    // request is always found.
+    // The files that were modules of Haxe's macro context in this request,
+    // or `null` when the macro list cannot be read (then no fact of this
+    // request is known).
+    final macroKeys = macroList == null ? null : scan(macroList,
+      new Map()).entries;
     final loadedInMacro = new Map<String, Bool>();
-    function macroModule(file: String): Bool {
-      if (macroKeys != null && macroKeys.exists(file))
+    function macroModule(keys: Map<String, Int>, file: String): Bool {
+      if (keys.exists(file))
         return true;
       final module = byFile.get(file);
       if (module == null)
@@ -406,38 +487,44 @@ class HaxeDependencies {
       retyped.set(module, true);
     var factsChanged = loadFacts();
     final facts = macroFiles;
-    // How often each file is an entry of the program's list: once for a
-    // program module, more when a module that `registerModuleDependency`
-    // or a macro-defined type made has the same file.
-    var entryCounts: Null<Map<String, Int>> = null;
-    function entryCount(file: String): Int {
-      final counts = entryCounts;
-      if (counts != null)
-        return counts.get(file) ?? 0;
-      var count = StringTools.startsWith(main, '$file:\n') ? 1 : 0;
-      var at = main.indexOf('\n$file:\n');
-      while (at >= 0) {
-        count++;
-        at = main.indexOf('\n$file:\n', at + 1);
-      }
-      return count;
+    var wanted: Null<Map<String, Bool>> = null;
+    if (only != null) {
+      final source = files.get(only);
+      final file = source == null ? null : fullPath(source);
+      wanted = new Map();
+      if (file != null && byFile.get(file) == only)
+        wanted.set(file, true);
     }
-    function block(module: String, lines: Array<String>): Void {
+    final scanned = scan(main, wanted);
+    final entries = scanned.entries;
+    for (block in scanned.blocks) {
+      final module = byFile.get(block.file);
+      if (module == null)
+        continue;
       final counts = new Map<String, Int>();
-      for (line in lines)
+      for (line in block.lines)
         if (byFile.exists(line))
           counts.set(line, (counts.get(line) ?? 0) + 1);
-      // The lines that were modules of the macro context in the request
-      // that typed `module`: this request when Haxe typed it now, else the
-      // kept fact for its epochs, else unknown (`null`).
+      // The macro fact of `module` (see the class comment): this request's
+      // when Haxe typed it now, the macro list was read and every request of
+      // the process ran in this macro state; else the kept fact for its
+      // epochs; else unknown (`null`).
       final epochs = Context.signature(GenerationChangeSet.epochs(module));
       var suspects: Null<Map<String, Bool>> = null;
       if (retyped.exists(module)) {
-        final found = [for (line in counts.keys()) if (macroModule(line)) line];
-        found.sort(compareStrings);
-        suspects = [for (line in found) line => true];
-        if (facts != null) {
-          facts.set(module, {epochs: epochs, files: found});
+        if (macroKeys != null && sameMacroState) {
+          final found = [
+            for (line in counts.keys())
+              if (macroModule(macroKeys, line)) line
+          ];
+          found.sort(compareStrings);
+          suspects = [for (line in found) line => true];
+          if (facts != null) {
+            facts.set(module, {epochs: epochs, files: found});
+            factsChanged = true;
+          }
+        } else if (facts != null && facts.exists(module)) {
+          facts.remove(module);
           factsChanged = true;
         }
       } else if (facts != null) {
@@ -449,7 +536,8 @@ class HaxeDependencies {
       final macros = [];
       for (line => count in counts) {
         final dependency = byFile.get(line);
-        if (dependency == null || dependency == module || entryCount(line) != 1)
+        if (dependency == null || dependency == module
+          || (entries.get(line) ?? 0) != 1)
           continue;
         if (macroFunctions.get(dependency) == true) {
           macros.push(dependency);
@@ -464,81 +552,15 @@ class HaxeDependencies {
       result.edges.set(module, found);
       result.macroModules.set(module, macros);
     }
-    if (only != null) {
-      // A module request: read only the requested module's entry.
-      final source = files.get(only);
-      final file = source == null ? null : fullPath(source);
-      if (file != null && byFile.get(file) == only) {
-        var start = -1;
-        if (StringTools.startsWith(main, '$file:\n'))
-          start = file.length + 2;
-        else {
-          final at = main.indexOf('\n$file:\n');
-          if (at >= 0)
-            start = at + file.length + 3;
+    // Forget the facts of modules that are no longer in the program.
+    if (only == null && facts != null)
+      for (module in [for (key in facts.keys()) key])
+        if (!files.exists(module)) {
+          facts.remove(module);
+          factsChanged = true;
         }
-        if (start >= 0) {
-          final lines = [];
-          var at = start;
-          while (at < main.length
-            && StringTools.fastCodeAt(main, at) == '\t'.code) {
-            var end = main.indexOf('\n', at);
-            if (end < 0)
-              end = main.length;
-            lines.push(main.substring(at + 1, end));
-            at = end + 1;
-          }
-          block(only, lines);
-        }
-      }
-    } else {
-      final all = main.split('\n');
-      final counts = new Map<String, Int>();
-      for (line in all)
-        if (line.length > 1 && StringTools.fastCodeAt(line, 0) != '\t'.code
-          && StringTools.endsWith(line, ':')) {
-          final file = line.substr(0, line.length - 1);
-          counts.set(file, (counts.get(file) ?? 0) + 1);
-        }
-      entryCounts = counts;
-      var current: Null<String> = null;
-      var lines = [];
-      for (line in all) {
-        if (line.length == 0)
-          continue;
-        if (StringTools.fastCodeAt(line, 0) == '\t'.code) {
-          if (current != null)
-            lines.push(line.substr(1));
-          continue;
-        }
-        if (current != null)
-          block(current, lines);
-        lines = [];
-        current = StringTools.endsWith(line,
-          ':') ? byFile.get(line.substr(0, line.length - 1)) : null;
-      }
-      if (current != null)
-        block(current, lines);
-      // Forget the facts of modules that are no longer in the program.
-      if (facts != null)
-        for (module in [for (key in facts.keys()) key])
-          if (!files.exists(module)) {
-            facts.remove(module);
-            factsChanged = true;
-          }
-    }
     if (factsChanged)
       storeFacts();
-  }
-
-  /** Returns the files that are entries (`<file>:` lines) of a dependency list. */
-  static function entriesOf(lines: Array<String>): Map<String, Bool> {
-    final result = new Map<String, Bool>();
-    for (line in lines)
-      if (line.length > 1 && StringTools.fastCodeAt(line, 0) != '\t'.code
-        && StringTools.endsWith(line, ':'))
-        result.set(line.substr(0, line.length - 1), true);
-    return result;
   }
 
   /**
@@ -621,29 +643,34 @@ class HaxeDependencies {
   }
 
   /**
-   * Deletes the files that Haxe writes into Genes' own dump folder, and the
-   * empty folders, so an old list is never read and no large file stays
-   * beside the descriptor.
+   * Deletes the files that Genes owns: its own dump folder of the program's
+   * list (the files and the folders), and, without a session `dump-path`,
+   * the two files of the shared `dump/macro` of the working folder, whose
+   * folders stay, so another process that writes there at the same time
+   * never loses a folder. An old list is never read and no large file stays.
    */
   static function removeFiles(): Void {
     final base = folder;
-    if (base == null || !owned)
-      return;
-    removeDump(base);
-    // Haxe writes the macro context's list into `dump` in the working
-    // folder (`macroFolder`); delete those two files, and the folders only
-    // when they are empty.
+    if (base != null && owned)
+      removeDump(base);
     final shared = macroFolder;
-    if (shared != null)
-      removeDump(shared, ['macro']);
+    if (shared != null && macroShared)
+      for (name in ['dependencies.dump', 'dependants.dump']) {
+        final file = Path.join([shared, 'macro', name]);
+        try {
+          if (FileSystem.exists(file))
+            FileSystem.deleteFile(file);
+        } catch (_:haxe.Exception) {}
+      }
   }
 
   /**
-   * Deletes the two files that Haxe writes into each folder of `targets`
-   * below `base`, then each folder and `base`, each only when it is empty.
+   * Deletes the two files that Haxe writes into each of the folders `js` and
+   * `macro` of Genes' own dump folder `base`, then those folders and `base`,
+   * each only when it is empty.
    */
-  static function removeDump(base: String, ?targets: Array<String>): Void {
-    for (target in targets ?? ['js', 'macro']) {
+  static function removeDump(base: String): Void {
+    for (target in ['js', 'macro']) {
       final dir = Path.join([base, target]);
       for (name in ['dependencies.dump', 'dependants.dump']) {
         final file = Path.join([dir, name]);
