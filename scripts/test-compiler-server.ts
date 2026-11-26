@@ -1081,6 +1081,75 @@ async function assertSourcePropsServerIsolation(
 }
 
 /**
+ * Proves that an edit of an intrinsic provider reaches every module that
+ * uses one of its tags on a warm server (genes-gz0l).
+ *
+ * Why: `JsxContext` shares the contract of one intrinsic tag between the
+ * modules of a compilation. The lookup also makes the module that Haxe is
+ * typing depend on the provider's module (`Context.getType`). When only the
+ * first module made that call, the server kept the second module after an
+ * edit of the provider, and its callback kept the old payload type.
+ *
+ * What: `IntrinsicCompA` and `IntrinsicCompB` both use `x-box` of
+ * `IntrinsicProvider`. After one request, the test changes the payload of
+ * `onPing` from `PingA` to `PingB` and compiles again. Both trees must equal
+ * cold, and both modules must name `PingB` only. Before the genes-gz0l fix,
+ * `IntrinsicCompB.tsx` kept `PingA`.
+ */
+async function assertIntrinsicProviderEditServerIsolation(
+  compiler: ReturnType<typeof selectedHaxeCompiler>,
+  server: OwnedHaxeCompilerServer,
+  timeoutMs: number
+): Promise<void> {
+  const scenario: Scenario = {
+    id: "a-intrinsic-provider-edit",
+    project: "project-a",
+    profile: tsxProfile,
+    defines: [
+      "server_intrinsic_provider",
+      "genes.react.jsx_intrinsic_providers="
+        + "genes.react.IntrinsicElements,servercase.IntrinsicProvider"
+    ]
+  };
+  const component = (mode: Mode, name: string): string =>
+    path.join(scenarioRoot(mode, scenario), "servercase", `${name}.tsx`);
+  const provider = path.join(workspace("project-a"), "src", "servercase",
+    "IntrinsicProvider.hx");
+  const touch = (file: string): void => {
+    // Haxe 4.3.7 compares file times at one-second precision.
+    const next = Math.max(
+      Math.floor(Date.now() / 1000),
+      Math.floor(statSync(file).mtimeMs / 1000)
+    ) + 2;
+    utimesSync(file, next, next);
+  };
+  await compilePair(compiler, server, scenario, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    for (const name of ["IntrinsicCompA", "IntrinsicCompB"]) {
+      assertContains(component(mode, name), "PingA");
+      assertNotContains(component(mode, name), "PingB");
+    }
+  }
+  replaceInFile(provider, "var onPing: PingA->Void",
+    "var onPing: PingB->Void");
+  touch(provider);
+  try {
+    // `compilePair` requires the warm tree to equal the cold tree.
+    await compilePair(compiler, server, scenario, timeoutMs);
+    for (const mode of ["cold", "warm"] as const) {
+      for (const name of ["IntrinsicCompA", "IntrinsicCompB"]) {
+        assertContains(component(mode, name), "PingB");
+        assertNotContains(component(mode, name), "PingA");
+      }
+    }
+  } finally {
+    replaceInFile(provider, "var onPing: PingB->Void",
+      "var onPing: PingA->Void");
+    touch(provider);
+  }
+}
+
+/**
  * Proves that an `@:rtti` class gets the same bytes on a warm server as in a
  * cold build.
  *
@@ -1765,6 +1834,8 @@ async function main(): Promise<void> {
     await compilePair(compiler, server, tsx, timeoutMs);
     ok(existsSync(moduleFile("cold", tsx)), "TSX request emitted no .tsx module");
     await assertSourcePropsServerIsolation(compiler, server, timeoutMs);
+    await assertIntrinsicProviderEditServerIsolation(compiler, server,
+      timeoutMs);
     await assertRttiServerIsolation(compiler, server, timeoutMs);
     await assertReactStateProjectionServerIsolation(compiler, server,
       timeoutMs);
