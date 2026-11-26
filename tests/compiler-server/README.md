@@ -1099,18 +1099,31 @@ only typedefs could not be built: Genes prints such a module only for a
 signature that names the typedef, and removing that name is refused before
 the `module-may-leave` check (`public-shape-changed`).
 
-The review of #272 round 3 (genes-f8vc.14.35) hardened the rule without
-new gate rows, because neither case can be built so that it gives a
-different result here. A line listed once no longer counts for a module
-without a class or enum in the program: such a module (typedefs and a
-macro-only class) gets a file only through a signature that names the
-typedef, and removing that name is refused first (`public-shape-changed`).
-A block whose own file is an entry more than once is skipped: Haxe sorts the
-list by module path, so a module that `registerModuleDependency` made
-(`$DEP`) comes before a module in a package, and after one only in the root
-package, where its empty block took the real module's lines away (more
-refusals, never a stale file). `yarn test` checks the reader of Haxe's
-list, also its Windows form (`tests/haxedependencies/HaxeDependenciesProbe.hx`).
+The review of #272 round 3 (genes-f8vc.14.35) hardened the rule. A line
+listed once no longer counts for a module without a class or enum in the
+program. No row shows it: such a module (typedefs and a macro-only class)
+gets a file only through a reference to the typedef, and removing that
+reference is refused before the `module-may-leave` check, by
+`public-shape-changed` for a public signature, or by `walkTargetFailure`
+(`walk-target-removed`) for a private signature or a body.
+
+The blocks of a file that is an entry of Haxe's list more than once count
+together only when each entry is a module of the request with that file,
+and else not at all (a `registerModuleDependency` module, `$DEP`, can be
+among them). The review of #274 (round 1) found the common case:
+`genes.ts.Imports.namedImport` makes its holder class with
+`Context.defineType`, and Haxe gives it the file of the module being typed.
+In `probe5-inline-and-import-holder`, `mr.reach.ViaBoth` calls the inline
+`Codec.assume` and owns such a holder. On def4b46f, which skipped every
+block of such a file, the literal edit of `mr.Button` was
+`module-may-leave`. On da5b15e7 the order of the list decided: it previewed
+for `mr.reach`, which sorts after `genes.ts.imports`, and was refused in
+`probe5-inline-and-import-holder-a-package`, whose package `a.reach` sorts
+before it (16 Caffeine files use `genes.ts.Imports`, in packages that sort
+before it too). Now the edit previews in both groups, the literal edit of
+`ViaBoth` previews, and removing the only inline call is still refused.
+`yarn test` checks the reader of Haxe's list, also its Windows form
+(`tests/haxedependencies/HaxeDependenciesProbe.hx`).
 
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with

@@ -250,11 +250,12 @@ typedef ModuleRequestReport = {
   final dependencyListMs: Float;
 
   /**
-   * The modules that Haxe typed again in this request and whose lines
-   * listed once in Haxe's list did not count, only because the Haxe process
-   * ran in another macro state of Genes before
-   * (`HaxeDependencies.newMacroStateModules`). Above 0, previews can be
-   * refused with `module-may-leave` until the server restarts.
+   * The modules typed again with an unknown macro fact: modules that Haxe
+   * typed again in this request while the Haxe process had already run in
+   * another macro state of Genes (`HaxeDependencies.newMacroStateModules`).
+   * Lines listed once in Haxe's list do not count for them, so above 0,
+   * previews can be refused with `module-may-leave` until the server
+   * restarts.
    */
   final newMacroStateModules: Int;
 
@@ -391,11 +392,12 @@ typedef ModuleRecordsReport = {
   final dependencyListMs: Float;
 
   /**
-   * The modules that Haxe typed again in this request and whose lines
-   * listed once in Haxe's list did not count, only because the Haxe process
-   * ran in another macro state of Genes before
-   * (`HaxeDependencies.newMacroStateModules`). Above 0, previews can be
-   * refused with `module-may-leave` until the server restarts.
+   * The modules typed again with an unknown macro fact: modules that Haxe
+   * typed again in this request while the Haxe process had already run in
+   * another macro state of Genes (`HaxeDependencies.newMacroStateModules`).
+   * Lines listed once in Haxe's list do not count for them, so above 0,
+   * previews can be refused with `module-may-leave` until the server
+   * restarts.
    */
   final newMacroStateModules: Int;
 

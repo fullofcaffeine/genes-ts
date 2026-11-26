@@ -69,9 +69,12 @@ import genes.util.PathUtil;
  * - `F` is the file of exactly one module `X` of the program, `F` ends with
  *   that module's path, `X` is not in Haxe's standard library (see
  *   `collect`), and `F` is an entry of the program's list exactly once;
- *   the file of `A` must be an entry exactly once too, so a block of a
- *   module that `registerModuleDependency` or a macro made with that file
- *   is never taken for `A`'s, whatever the order of the list;
+ *   when the file of `A` is an entry more than once, each entry must be a
+ *   module of the request with that file (a type that a macro defined while
+ *   Haxe typed `A`, such as the holder of `genes.ts.Imports`), and then
+ *   the blocks count together for `A`; else, when a `registerModuleDependency`
+ *   module (`$DEP`) can be among them, no block counts, whatever the order
+ *   of the list;
  * - and either `X` has a macro function and `F` is listed at least twice
  *   for `A` (a macro module and `X` itself: a macro call also resolves the
  *   class of `X` in the program), or `X` has no macro function, has a
@@ -178,11 +181,13 @@ class HaxeDependencies {
   public static var seconds(default, null) = 0.0;
 
   /**
-   * The modules of this request that Haxe typed again and whose macro fact
-   * is unknown only because the process ran in another macro state before
-   * (the limit of the class comment): their lines listed once do not count.
-   * Both reports give it (`newMacroStateModules`), so a measurement shows
-   * whether that limit happens.
+   * The modules typed again with an unknown macro fact: modules of this
+   * request with an entry in Haxe's list that Haxe typed again, while the
+   * process had already run in another macro state (the limit of the class
+   * comment). A line listed once does not count for them; a module that
+   * lists no such line counts too. Both reports give it
+   * (`newMacroStateModules`), so a measurement shows whether that limit
+   * happens.
    */
   public static var newMacroStateModules(default, null) = 0;
 
@@ -484,8 +489,13 @@ class HaxeDependencies {
     // has a file.
     final byFile = new Map<String, String>();
     final shared = new Map<String, Bool>();
+    // How many modules of this request have each file, also those that fail
+    // the path check below (a type that a macro defined with the position of
+    // the module that it typed).
+    final modulesOfFile = new Map<String, Int>();
     for (module => source in files) {
       final full = fullPath(source);
+      modulesOfFile.set(full, (modulesOfFile.get(full) ?? 0) + 1);
       if (DceStdUses.isStdPath(full)
         || !StringTools.endsWith(full,
           '/' + module.split('.').join('/') + '.hx'))
@@ -533,18 +543,50 @@ class HaxeDependencies {
     }
     final scanned = scan(main, wanted, WINDOWS);
     final entries = scanned.entries;
+    // The blocks of each file, in the order of the list.
+    final blocksOfFile = new Map<String, Array<Array<String>>>();
+    final order = [];
     for (block in scanned.blocks) {
-      // A file that is an entry more than once also names a module that
-      // `registerModuleDependency` or a macro-defined type made with it, so
-      // a block of that file can be the other module's: skip them all,
-      // rather than rely on the order of Haxe's list (`sort_types`).
-      final module = byFile.get(block.file);
-      if (module == null || (entries.get(block.file) ?? 0) != 1)
+      final known = blocksOfFile.get(block.file);
+      if (known == null) {
+        blocksOfFile.set(block.file, [block.lines]);
+        order.push(block.file);
+      } else {
+        known.push(block.lines);
+      }
+    }
+    for (file in order) {
+      final module = byFile.get(file);
+      final blocks = blocksOfFile.get(file);
+      if (module == null || blocks == null)
         continue;
+      // A file that is an entry more than once also names another module:
+      // a type that a macro defined while Haxe typed `module`
+      // (`Context.defineType` takes the file of the module being typed; for
+      // example the holder class of `genes.ts.Imports`), or a module that
+      // `registerModuleDependency` made (`$DEP`, no type of the program).
+      // When each entry is a module of this request with that file, no
+      // `$DEP` module is among them, and the blocks together are what Haxe
+      // loads with `module`: a cold build types `module`, which makes the
+      // other types and loads their dependencies. Otherwise skip them all,
+      // rather than rely on the order of the list (`sort_types`).
+      final entryCount = entries.get(file) ?? 0;
+      if (entryCount != blocks.length
+        || (entryCount != 1 && modulesOfFile.get(file) != entryCount))
+        continue;
+      // `counts` holds the most times that one block lists a line: "listed
+      // twice" means twice for one module (a macro module and the module
+      // itself), never once in each of two blocks.
       final counts = new Map<String, Int>();
-      for (line in block.lines)
-        if (byFile.exists(line))
-          counts.set(line, (counts.get(line) ?? 0) + 1);
+      for (lines in blocks) {
+        final own = new Map<String, Int>();
+        for (line in lines)
+          if (byFile.exists(line))
+            own.set(line, (own.get(line) ?? 0) + 1);
+        for (line => count in own)
+          if (count > (counts.get(line) ?? 0))
+            counts.set(line, count);
+      }
       // The macro fact of `module` (see the class comment): this request's
       // when Haxe typed it now, the macro list was read and every request of
       // the process ran in this macro state; else the kept fact for its

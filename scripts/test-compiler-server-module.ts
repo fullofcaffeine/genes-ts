@@ -3815,6 +3815,55 @@ function sharedMacroFilesDeleted(_report: ModuleReport, label: string): void {
     `${label}: Genes must delete the two files of the shared dump/macro folder`);
 }
 
+/**
+ * A module that reaches another only through an inline call and also owns a
+ * `genes.ts.Imports` holder (review of genes-ts #274, round 1).
+ * `Imports.namedImport` makes its holder class with `Context.defineType`,
+ * and Haxe 4.3.7 gives that new module the file of the module being typed,
+ * so the file of `<pack>.ViaBoth` is an entry of Haxe's list twice. On
+ * def4b46f Genes skipped both blocks, so the inline edge to `<pack>.Codec`
+ * was lost and the literal edit of `mr.Button` was `module-may-leave`. On
+ * da5b15e7 the order of the list decided: the package `mr.reach` sorts after
+ * `genes.ts.imports`, so the real block came last and the edit previewed,
+ * while the package `a.reach` sorts before it, so the holder's block came
+ * last and the edge was lost there too. Now the blocks of a file count
+ * together when each entry is a module of the request with that file. The
+ * last row removes the only inline call and must still be refused.
+ */
+function importHolderGroups(): ReadonlyArray<Group> {
+  return [
+    { name: "probe5-inline-and-import-holder", pack: "mr.reach" },
+    { name: "probe5-inline-and-import-holder-a-package", pack: "a.reach" }
+  ].map(({ name, pack }) => {
+    const folderName = pack.split(".").join("/");
+    return {
+      name,
+      dce: "std" as const,
+      files: {
+        "mr/Main.hx": mainWith([`trace(${pack}.ViaBoth.text());`]),
+        [`${folderName}/Codec.hx`]: `package ${pack};\n\nclass Codec {\n`
+          + "  public static inline function assume<T>(value: T): T {\n    return value;\n  }\n}\n",
+        [`${folderName}/ViaBoth.hx`]: `package ${pack};\n\nclass ViaBoth {\n`
+          + "  public static function text(): String {\n"
+          + "    final join: (String, String) -> String = genes.ts.Imports.namedImport('node:path', 'join');\n"
+          + "    return 'both ' + Codec.assume('value') + ' ' + join('a', 'b');\n  }\n}\n"
+      },
+      steps: [
+        { id: `${name}: literal edit of a module beside the holder`,
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: `${name}: literal edit of the module with the holder`,
+          apply: () => editSource(`${folderName}/ViaBoth.hx`, "'both '", "'both! '"),
+          module: `${pack}.ViaBoth`, expect: "preview" },
+        { id: `${name}: the only inline call is removed (module-may-leave)`,
+          apply: () => editSource(`${folderName}/ViaBoth.hx`, "Codec.assume('value')", "'value'"),
+          module: `${pack}.ViaBoth`, expect: "module-may-leave",
+          check: reasonNames(`${pack}.Codec`) }
+      ]
+    };
+  });
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
@@ -3822,6 +3871,7 @@ const groups: ReadonlyArray<Group> = [
   ...extraRootGroups(),
   ...inlineReachGroups(),
   ...reviewBuildGroups(),
+  ...importHolderGroups(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
