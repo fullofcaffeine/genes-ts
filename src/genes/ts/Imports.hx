@@ -33,7 +33,8 @@ class Imports {
   public static inline final HOLDER_DEFINER_META = ':genes.importDefiner';
 
   /**
-   * The dotted package of every holder class that `importImpl` defines.
+   * The dotted package of every holder class that `ensureExternImportType`
+   * (called by `importImpl`) defines.
    * `genes.incremental.HaxeDependencies` counts only classes in this package
    * as holders, so both sides read this one constant.
    */
