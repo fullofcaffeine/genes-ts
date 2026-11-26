@@ -874,7 +874,7 @@ class GenerationCache {
    * in an earlier compilation; the full request after it did not.
    * `SignatureCache.localDeclaredType` prints the variable's own type, so
    * such an answer changes no output. A module request does not compare
-   * these answers (`ModuleRequest.wrongAnswer`), and only a replay of a
+   * these answers (`ModuleRequest.wrongAnswers`), and only a replay of a
    * module that Haxe did not type again reads them.
    */
   static function answerLinesText(lines: Array<String>): Array<String> {

@@ -633,6 +633,13 @@ class IncrementalShadow {
   final stageSeconds = new Map<String, Map<String, Float>>();
 
   var owner: Null<String> = null;
+
+  /**
+   * The module whose dependency plan is built now (`planOf`), or `null`.
+   * While it is set, `recordFact` records for it.
+   */
+  var planModule: Null<String> = null;
+
   var clockModule: Null<String> = null;
   var clockPhase: IncrementalPhase = Inventory;
   var clockStart = 0.0;
@@ -867,11 +874,67 @@ class IncrementalShadow {
   }
 
   /**
+   * Builds the dependency plan of `module` with `build` and returns it.
+   * The `SignatureCache` facts that the build reads are recorded for
+   * `module` (`recordFact`), not for the module whose clock runs. Without
+   * an active shadow this only calls `build`.
+   *
+   * Why (genes-f8vc.14.27): a plan reads facts of its own module's
+   * declarations, so its answers belong to that module, in whatever order
+   * the plans are built. A cold full request builds the plan of each
+   * module in its own visit of the reachability walk. A module request
+   * walks only the requested module, and a warm full request can take the
+   * stored steps of a module without its plan, so there the plan of an
+   * import is built later: for example when the module that prints asks
+   * for the React Fast Refresh split of the import. Before, its answers
+   * were recorded for the module that printed. A module request was then
+   * refused (`answers-changed`), because the stored entry of that module
+   * never asked them, and the entry that a preview stored differed from
+   * the entry of the next full request. Example: `ContentCreationPreview`
+   * printed, and the plan of `ContentTimelinePreview` read the field
+   * `scene` of its private typedef `SampleClip`.
+   *
+   * The module that prints still records what it reads from that plan (the
+   * split, `refreshSplit`; an import cycle, `cycle`). In a module request,
+   * `ModuleRequest.decide` checks the answers of such a plan against the
+   * stored full request (`ModuleRequest.planFactAnswers`).
+   */
+  public static function planOf<T>(module: String, build: Void->T): T {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return build();
+    final before = shadow.planModule;
+    shadow.planModule = module;
+    final plan = build();
+    shadow.planModule = before;
+    return plan;
+  }
+
+  /**
+   * Returns the modules other than `except` for which this request
+   * recorded at least one answer, sorted. Without an active shadow it
+   * returns an empty list. `ModuleRequest.planFactAnswers` reads it.
+   */
+  public static function answeredModules(except: String): Array<String> {
+    final shadow = current;
+    if (shadow == null || !shadow.active)
+      return [];
+    final names = [
+      for (name in shadow.answers.keys())
+        if (name != except && name != '') name
+    ];
+    names.sort(compareStrings);
+    return names;
+  }
+
+  /**
    * Records one answer of a `SignatureCache` fact (`SignatureCache
    * .factAnswer` gives the same text again in `planReplay`). The answer
    * belongs to the module whose clock runs (its planning or printing reads
    * it); outside any clock it belongs to the request
-   * (`GenerationCache.globalAnswers`). The kinds:
+   * (`GenerationCache.globalAnswers`). An answer that the dependency plan
+   * of a module reads belongs to that module (`planOf`, genes-f8vc.14.27).
+   * The kinds:
    *
    * - `anonTs`, `anonSource` (`getAnonFieldTsType`, `getAnonFieldSourceType`):
    *   `key` is the source position of an anonymous-structure field, and
@@ -895,7 +958,7 @@ class IncrementalShadow {
     final shadow = current;
     if (shadow == null || !shadow.active)
       return;
-    final module = shadow.clockModule;
+    final module = shadow.planModule ?? shadow.clockModule;
     addLine(shadow.answers, module == null ? '' : module,
       GenerationCache.answerLine(kind, key, answer));
   }

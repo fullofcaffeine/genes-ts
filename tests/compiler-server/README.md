@@ -888,6 +888,44 @@ which keeps the strict rule (`signature-changed`). On Genes before the rule
 `signature-changed` or `uses-changed`, and so does every row with a new
 code except `public-shape-changed` and the two `other-modules-typed` rows.
 
+The `anon-` groups (genes-f8vc.14.27) are React Fast Refresh programs
+shaped like the Caffeine components that a module request refused on
+2026-11-25 (`-D genes.react_refresh_modules`, with Genes' `InlineMarkup`
+and `ReactDiagnosticsMacro`, as in Caffeine). When the edited component
+prints an import of a component module, it asks whether Genes splits that
+module. A module request builds the dependency plan of the import late to
+answer, and the plan reads the anonymous-field facts (`anonTs`,
+`anonSource`) of the fields of its typedefs. Before the fix those answers
+were recorded for the edited module, whose stored entry never asked them,
+so the request was refused (`answers-changed`). Now
+`IncrementalShadow.planOf` records them for the module whose plan reads
+them, and `ModuleRequest.planFactAnswers` requires that each one equals the
+answer of the stored full request:
+
+- `anon-private-typedef`: `mr.Creation` renders `mr.Timeline`, whose
+  private typedef `SampleClip` has the field `scene: Int`. On ad63a932 the
+  first literal edit of `mr.Creation` gave `answers-changed`. With only the
+  report change, the reason lists three differences, each "full request:
+  not asked": `anonTs mr/Timeline.hx:72:89` (`scene`), `:90:107` (`start`)
+  and `:134:154` (`selected` of `TimelineProps`). Now it previews, equal to
+  cold. The second edit
+  and an edit of `mr.Timeline` preview on both. The second edit previewed
+  on ad63a932 too, because its full request takes the stored walk steps
+  of `mr.Timeline` and so built that plan during the print of
+  `mr.Creation`. For the same reason the entry that a preview stored
+  differed from the entry of the next full request before `planOf` held in
+  every request;
+- `anon-transitive`: `mr.Idea` renders `mr.Draft`, whose class reads
+  `result.history` of the typedef `HistTransition` of `mr.Hist`; `mr.Idea`
+  names nothing of `mr.Hist`. On ad63a932: `answers-changed`. With only the
+  report change, the reason lists the three differences: `anonTs
+  mr/Draft.hx:506:525`, `mr/Hist.hx:91:111` (`history`) and
+  `mr/Hist.hx:114:134` (`label`), each "full request: not asked". Now it
+  previews, equal to cold.
+
+An `answers-changed` reason now lists every difference (at most 40), each
+with the stored answer or "not asked".
+
 The `roots-` groups (genes-f8vc.14.12) give the full requests roots beside
 `--main`; the module requests leave them out, as the development session
 does. Before the fix Genes knew only the `--main` root, so a module that

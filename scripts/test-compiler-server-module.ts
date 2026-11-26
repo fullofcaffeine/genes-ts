@@ -3532,6 +3532,103 @@ function earlyMacroRestoreGroup(name: string, via: "module" | "display"): Group 
  * into the program. The second class path is relative (`lib`), so the
  * listing of `include('canvas', false)` resolves it as Haxe does.
  */
+/**
+ * The groups of genes-f8vc.14.27, shaped like the Caffeine components that
+ * were refused on 2026-11-25. Each program is a React Fast Refresh program
+ * (`-D genes.react_refresh_modules` with Genes' React macros, as in
+ * Caffeine). When the edited component prints an import of a component
+ * module, it asks whether Genes splits that module for Fast Refresh. To
+ * answer, a module request builds the dependency plan of the imported
+ * module late, and the plan reads the anonymous-field facts (`anonTs`,
+ * `anonSource` of `genes.ts.SignatureCache`) of the fields of its typedefs.
+ * Before the fix those answers were recorded for the edited module, whose
+ * stored entry never asked them, so the module request was refused
+ * (`answers-changed`). Now they belong to the imported module and must
+ * equal the answers of the stored full request
+ * (`ModuleRequest.planFactAnswers`):
+ *
+ * - `anon-private-typedef`: `mr.Creation` renders `mr.Timeline`, whose
+ *   private typedef `SampleClip` has the field `scene: Int`
+ *   (Caffeine: `ContentCreationPreview` and `ContentTimelinePreview`);
+ * - `anon-transitive`: `mr.Idea` renders `mr.Draft`, whose class reads
+ *   `result.history` of the typedef `HistTransition` of `mr.Hist`. `mr.Idea`
+ *   names nothing of `mr.Hist` (Caffeine: `ContentIdeaPreview`,
+ *   `ContentDraftPreview` and `CaptureHistoryTransition.history`).
+ *
+ * A literal edit of the edited component must preview, equal to cold.
+ */
+function anonFactGroups(): ReadonlyArray<Group> {
+  const react = ["-D", "genes.react_refresh_modules", "-D", "genes.ts.jsx_import_source=react",
+    "--macro", "genes.react.InlineMarkup.enable()", "--macro", "genes.react.ReactDiagnosticsMacro.install()"];
+  const timeline = `package mr;\n\nimport genes.react.Element;\n\n`
+    + `private typedef SampleClip = {final scene: Int; final start: Int;}\n`
+    + `typedef TimelineProps = {final selected: Int;}\n\n`
+    + `@:genes.reactComponent\nfunction Timeline(props: TimelineProps): Element {\n`
+    + `  final clips: Array<SampleClip> = [{scene: props.selected, start: 0}];\n`
+    + `  return <p>{'timeline ' + first(clips)}</p>;\n}\n\n`
+    + `private function first(clips: Array<SampleClip>): Int {\n  return clips[0].scene;\n}\n`;
+  const creation = `package mr;\n\nimport genes.react.Element;\nimport mr.Timeline.Timeline;\n\n`
+    + `@:genes.reactComponent\nfunction Creation(): Element {\n`
+    + `  return <div>{'creation '}<Timeline selected={1} /></div>;\n}\n`;
+  const hist = `package mr;\n\ntypedef Hist = {\n  final past: Array<String>;\n}\n\n`
+    + `typedef HistTransition = {\n  final history: Hist;\n  final label: String;\n}\n\n`
+    + `function emptyHist(): Hist\n  return {past: []};\n\n`
+    + `function undo(value: Hist): Null<HistTransition>\n`
+    + `  return value.past.length == 0 ? null : {history: {past: value.past.slice(1)}, label: value.past[0]};\n\n`
+    + `function redo(value: Hist): Null<HistTransition>\n  return {history: value, label: 'redo'};\n`;
+  const draft = `package mr;\n\nimport genes.react.Element;\nimport mr.Hist;\n\n`
+    + `class Draft {\n  public var history(default, null): Hist;\n  public var label(default, null): String;\n\n`
+    + `  public function new(label: String) {\n    this.label = label;\n    history = emptyHist();\n  }\n\n`
+    + `  public function replay(again: Bool): String {\n    final result = again ? redo(history) : undo(history);\n`
+    + `    if (result != null) {\n      history = result.history;\n      label = result.label;\n    }\n`
+    + `    return label;\n  }\n}\n\ntypedef DraftViewProps = {\n  final draft: Draft;\n}\n\n`
+    + `@:genes.reactComponent\nfunction DraftView(props: DraftViewProps): Element {\n`
+    + `  return <p>{props.draft.replay(false)}</p>;\n}\n`;
+  const idea = `package mr;\n\nimport genes.react.Element;\nimport genes.react.React.useState;\n`
+    + `import mr.Draft.DraftView;\nimport mr.Draft.Draft;\n\n@:genes.reactComponent\nfunction Idea(): Element {\n`
+    + `  final draft = useState(new Draft('idea'));\n`
+    + `  return <div>{'idea '}<DraftView draft={draft.value} /></div>;\n}\n`;
+  return [
+    {
+      name: "anon-private-typedef",
+      dce: "std",
+      extraArgs: react,
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.Creation.Creation);"]),
+        "mr/Timeline.hx": timeline,
+        "mr/Creation.hx": creation
+      },
+      steps: [
+        { id: "anon: literal edit of a component that renders a component with a private typedef",
+          apply: () => edit("Creation.hx", "'creation '", "'creation! '"),
+          module: "mr.Creation", expect: "preview" },
+        { id: "anon: a second literal edit of the same component",
+          apply: () => edit("Creation.hx", "'creation! '", "'creation!! '"),
+          module: "mr.Creation", expect: "preview" },
+        { id: "anon: literal edit of the rendered component itself",
+          apply: () => edit("Timeline.hx", "'timeline '", "'timeline! '"),
+          module: "mr.Timeline", expect: "preview" }
+      ]
+    },
+    {
+      name: "anon-transitive",
+      dce: "std",
+      extraArgs: react,
+      files: {
+        "mr/Main.hx": mainWith(["trace(mr.Idea.Idea);"]),
+        "mr/Hist.hx": hist,
+        "mr/Draft.hx": draft,
+        "mr/Idea.hx": idea
+      },
+      steps: [
+        { id: "anon: literal edit of a component whose import reads a field of a module it does not name",
+          apply: () => edit("Idea.hx", "'idea '", "'idea! '"),
+          module: "mr.Idea", expect: "preview" }
+      ]
+    }
+  ];
+}
+
 function caffeineShapedGroup(): Group {
   return {
     name: "roots-caffeine-shaped",
@@ -3587,6 +3684,7 @@ const groups: ReadonlyArray<Group> = [
   ...stdGroups(),
   ...extraRootGroups(),
   ...privateAccessGroups(),
+  ...anonFactGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
     name: "s02-enum-by-param-type",

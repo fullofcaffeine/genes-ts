@@ -139,6 +139,19 @@ class SignatureCache {
   static var requestLists: Array<Array<ModuleType>> = [];
 
   /**
+   * Only with `-D genes.dev_incremental`: for each module, the
+   * anonymous-field facts that the capture of one of its typedefs wrote at
+   * a field declared in another file, as `<kind> <key> <answer>` lines
+   * (`foreignAnonFactsOf`). Example: `typedef Props = { > ui.Base.BaseProps,
+   * tone: Tone }` in `ui.Card` writes the facts of the fields of
+   * `BaseProps`, which `ui/Base.hx` declares. Built again in every request.
+   */
+  static var foreignAnonFacts: Map<String, Array<String>> = new Map();
+
+  /** The module and the file of the typedef that `readDeclaration` captures now, or `null`. */
+  static var anonWriter: Null<{module: String, file: String}> = null;
+
+  /**
    * Request-local answers to "does the own body of this abstract or typedef
    * contain an enum abstract?".
    *
@@ -771,7 +784,9 @@ class SignatureCache {
         // `Envelope<ReviewState>`. The collector can still enter an
         // anonymous body owned directly by this typedef and can inspect
         // anonymous types supplied as its own type arguments.
+        anonWriter = writerOf(definition);
         captureAnonFieldTypes(definition.type);
+        anonWriter = null;
       case TAbstract(ref):
         captureEnumAbstract(ref);
       case TClassDecl(_):
@@ -784,6 +799,9 @@ class SignatureCache {
    */
   static function put(fact: SignatureFact): Void {
     facts.put(fact);
+    final writer = anonWriter;
+    if (writer != null)
+      noteForeignFact(writer, fact);
     final log = recording;
     if (log != null)
       log.push(fact);
@@ -838,8 +856,21 @@ class SignatureCache {
     final started = haxe.Timer.stamp();
     if (found != null) {
       if (mode == Reuse) {
-        for (fact in found.value)
+        var writer: Null<{module: String, file: String}> = null;
+        for (fact in found.value) {
           facts.put(fact);
+          switch fact {
+            case AnonFieldTsType(_, _) | AnonFieldSourceType(_, _):
+              if (writer == null)
+                writer = switch declaration {
+                  case TTypeDecl(ref): writerOf(ref.get());
+                  default: null;
+                };
+              if (writer != null)
+                noteForeignFact(writer, fact);
+            default:
+          }
+        }
         replayed++;
         counts.countSkipped();
         counts.countReplay(haxe.Timer.stamp() - started);
@@ -907,6 +938,7 @@ class SignatureCache {
   static function captureEverything(): Void {
     fullCapture = true;
     facts = new SignatureFacts();
+    foreignAnonFacts = new Map();
     declarationAnswers = new Map();
     for (types in requestLists) {
       for (type in types)
@@ -954,6 +986,8 @@ class SignatureCache {
     fullCapture = false;
     usedBuckets = false;
     requestLists = [];
+    foreignAnonFacts = new Map();
+    anonWriter = null;
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
@@ -1042,6 +1076,70 @@ class SignatureCache {
       genes.incremental.IncrementalShadow.recordFact(ANON_SOURCE, key,
         factAnswer(ANON_SOURCE, key));
     return answer;
+  }
+
+  /**
+   * Returns the anonymous-field facts that the typedefs of `module` wrote
+   * in this request at a field declared in another file, sorted, each line
+   * once: `anonTs <key> +<text>` or `anonSource <key> +<type>` (the answer
+   * text of `factAnswer`). Empty without `-D genes.dev_incremental`.
+   *
+   * Why (genes-f8vc.14.27): a module request reads the facts of other
+   * modules from the stored full request only when the requested module
+   * wrote the same such facts there (`ModuleRecord.foreignFacts`). Else its
+   * edit can change what another module reads at one of those fields.
+   */
+  public static function foreignAnonFactsOf(module: String): Array<String> {
+    final lines = foreignAnonFacts.get(module);
+    if (lines == null)
+      return [];
+    final unique = new Map<String, Bool>();
+    for (line in lines)
+      unique.set(line, true);
+    final sorted = [for (line in unique.keys()) line];
+    sorted.sort((left, right) -> left < right ? -1 : left > right ? 1 : 0);
+    return sorted;
+  }
+
+  /** Returns the module and the source file of a typedef, for `noteForeignFact`. */
+  static function writerOf(definition: DefType): {module: String, file: String} {
+    return {
+      module: definition.module,
+      file: Context.getPosInfos(definition.pos).file
+    };
+  }
+
+  /**
+   * Notes one fact of the typedef `writer` in `foreignAnonFacts` when it is
+   * an anonymous-field fact at a field of another file. Only with
+   * `-D genes.dev_incremental`.
+   */
+  static function noteForeignFact(writer: {module: String, file: String},
+      fact: SignatureFact): Void {
+    if (!keepBodyHolders)
+      return;
+    final line = switch fact {
+      case AnonFieldTsType(key, text) if (keyFile(key) != writer.file):
+        '$ANON_TS $key +$text';
+      case AnonFieldSourceType(key, type) if (keyFile(key) != writer.file):
+        '$ANON_SOURCE $key +${haxe.macro.TypeTools.toString(type)}';
+      default:
+        null;
+    }
+    if (line == null)
+      return;
+    final lines = foreignAnonFacts.get(writer.module);
+    if (lines == null)
+      foreignAnonFacts.set(writer.module, [line]);
+    else
+      lines.push(line);
+  }
+
+  /** Returns the file of a `posKey` (`<file>:<min>:<max>`). */
+  static function keyFile(key: String): String {
+    final last = key.lastIndexOf(':');
+    final middle = last <= 0 ? -1 : key.lastIndexOf(':', last - 1);
+    return middle < 0 ? key : key.substr(0, middle);
   }
 
   /** The answer kind of `getAnonFieldTsType` for the incremental generator. */

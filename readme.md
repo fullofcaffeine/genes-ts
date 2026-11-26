@@ -492,6 +492,16 @@ the first request once, and the client sends it again. Give
 `--macro genes.Generator.use()` first to avoid this extra request. An
 argument that Genes cannot read counts as such an init macro.
 
+A module request also compares what the plans of other modules read. With
+React Fast Refresh, the edited component asks whether each imported
+component module is split, and Genes builds the plan of that module to
+answer. The facts that this plan reads (for example the field types of a
+private typedef of the import) belong to the imported module, and each one
+must equal the answer of the last full request. A typedef of the edited
+module that writes facts at fields of another file, such as
+`{ > Base.BaseProps, ... }`, must write the same facts as in the full
+request (`foreign-facts-changed` otherwise).
+
 ## Async/await sugar (optional)
 
 genes-ts includes an `@:async` + `await(...)` macro that emits native

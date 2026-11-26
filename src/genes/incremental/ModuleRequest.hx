@@ -66,6 +66,15 @@ typedef ModuleRecord = {
    * source maps.
    */
   final positions: String;
+
+  /**
+   * The anonymous-field facts that the module's typedefs wrote at fields
+   * of other files (`genes.ts.SignatureCache.foreignAnonFactsOf`), sorted.
+   * Example: `anonTs src/ui/Base.hx:120:140 +"a" | "b"` for `typedef Props =
+   * { > ui.Base.BaseProps, ... }`. Usually empty. `decide` refuses a
+   * request in which they differ (`foreign-facts-changed`, genes-f8vc.14.27).
+   */
+  final foreignFacts: Array<String>;
 }
 
 /**
@@ -636,8 +645,14 @@ typedef ModuleRecordsReport = {
  *   private typedef below it that another module imports;
  * - every question that planning and printing of the module asked
  *   (features, module map, import cycles, signature facts) got the answer
- *   of a full build (`featureAnswer`, `wrongAnswer`), and no question names
+ *   of a full build (`featureAnswer`, `wrongAnswers`), and no question names
  *   a feature that emission of another module can add;
+ * - each signature fact that the dependency plan of another module read
+ *   in this request (for example the plan of an imported component module,
+ *   built to answer its React Fast Refresh split) has the answer of the
+ *   stored full request (`planFactAnswers`, `answers-changed`), and the
+ *   module's typedefs write the same facts at fields of other files as
+ *   there (`foreign-facts-changed`, genes-f8vc.14.27);
  * - Haxe's own printer was not used, nothing was looked up by name outside
  *   the inventory, the output folder is not the program's, and no source of
  *   its maps is inside a folder where the program and preview output paths
@@ -3294,7 +3309,8 @@ class ModuleRequest {
         foreignRefs: references.foreign,
         skeleton: references.skeleton,
         shape: shapes.get(module),
-        positions: reuse ? earlier.positions : importedPositions(own)
+        positions: reuse ? earlier.positions : importedPositions(own),
+        foreignFacts: genes.ts.SignatureCache.foreignAnonFactsOf(module)
       });
     }
     final seen = new Map<String, String>();
@@ -3493,7 +3509,8 @@ class ModuleRequest {
       foreignRefs: facts.references.foreign,
       skeleton: facts.references.skeleton,
       shape: shape,
-      positions: importedPositions(facts.types)
+      positions: importedPositions(facts.types),
+      foreignFacts: genes.ts.SignatureCache.foreignAnonFactsOf(module)
     });
     storedEpochs.set(module, epochs);
     final targetFacts = requestFacts.get(module);
@@ -4338,12 +4355,22 @@ class ModuleRequest {
     // After a structural edit the module can ask whether a module that it
     // imports now reaches it (`cycle`); `structuralRefusal` proved from the
     // stored runtime requests that none does.
-    final wrong = wrongAnswer(recorded.answers, entry.answers, ownFiles,
-      structural ? test -> !reachesAtRuntime(test, module) : null);
-    if (wrong != null)
-      return refuse('answers-changed',
-        'an answer that $module asked may ' +
-        'differ in a full build: ${GenerationCache.answerText(wrong)}');
+    // The facts that the module's typedefs write at fields of other files:
+    // with the same ones, every such fact of a full build after the edit is
+    // the stored one, because every other module is the stored one (checked
+    // above). `planFactAnswers` relies on it.
+    final foreignFacts = genes.ts.SignatureCache.foreignAnonFactsOf(module);
+    if (foreignFacts.join('\n') != record.foreignFacts.join('\n'))
+      return refuse('foreign-facts-changed',
+        'a typedef of $module writes other facts at fields of other files ' +
+        'than in the full request, which other modules read: ' +
+        firstDifference(record.foreignFacts.join('\n'),
+          foreignFacts.join('\n')));
+    final wrong = wrongAnswers(recorded.answers, entry.answers, ownFiles,
+      structural ? test -> !reachesAtRuntime(test,
+        module) : null).concat(planFactAnswers(module));
+    if (wrong.length > 0)
+      return refuse('answers-changed', answersChangedReason(module, wrong));
     if (entry.usedHaxePrinter || genes.HaxePrinterUse.used(module))
       return refuse('haxe-printer', '$module used Haxe\'s own printer');
     final lookups = TypedModuleInventory.fallbackLookups();
@@ -5059,8 +5086,11 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the first answer of the requested module that can differ from
-   * the answer of a full build, or `null` when none can.
+   * Returns every answer of the requested module that can differ from the
+   * answer of a full build, as `GenerationCache.answerText` with the stored
+   * answer after it (`answersChangedReason` prints them), or an empty list
+   * when none can. All of them, not only the first: one refusal then shows
+   * the whole set (genes-f8vc.14.27).
    *
    * - `feature`: `featureAnswer` gave the full build's answer, unless it
    *   kept a "no" against a stored "yes".
@@ -5089,8 +5119,14 @@ class ModuleRequest {
    * `cycle` question that the stored request did not ask, answered "no",
    * then holds.
    */
-  static function wrongAnswer(now: Array<String>, stored: Array<String>,
-      ownFiles: Map<String, Bool>, ?noCycle: String->Bool): Null<String> {
+  static function wrongAnswers(now: Array<String>, stored: Array<String>,
+      ownFiles: Map<String, Bool>, ?noCycle: String->Bool): Array<String> {
+    final wrong: Array<String> = [];
+    function differs(line: String, before: Null<String>): Void
+      wrong.push(GenerationCache.answerText(line)
+        + ' (full request: '
+        + (before == null ? 'not asked' : before)
+        + ')');
     final storedAnswers = new Map<String, String>();
     final storedMoved = new Map<String, Array<{at: Int, line: String}>>();
     final nowMoved = new Map<String, Array<{at: Int, line: String}>>();
@@ -5131,9 +5167,11 @@ class ModuleRequest {
       final right = current == null ? after : current;
       left.sort((a, b) -> a.at - b.at);
       right.sort((a, b) -> a.at - b.at);
-      if ([for (item in left) item.line].join('\n') != [for (item in right) item.line].join('\n'))
-        return GenerationCache.answerLine(kind,
-          'facts in the source of the module', 'differ after the edit');
+      final leftText = [for (item in left) item.line].join(', ');
+      final rightText = [for (item in right) item.line].join(', ');
+      if (leftText != rightText)
+        wrong.push('$kind facts in the source of the module differ after '
+          + 'the edit: now [$rightText] (full request: [$leftText])');
     }
     for (line in now) {
       final answer = GenerationCache.parseAnswer(line);
@@ -5149,16 +5187,124 @@ class ModuleRequest {
           // A new question of a structural edit: the full build answers "no"
           // too when the named module does not reach this one.
           if (!noCycle(answer.name))
-            return line;
+            differs(line, before);
         case 'feature' | 'module' | 'cycle':
           if (before == null ? answer.answer != '1' : before != answer.answer)
-            return line;
+            differs(line, before);
         default:
           if (before != answer.answer)
-            return line;
+            differs(line, before);
       }
     }
-    return null;
+    return wrong;
+  }
+
+  /**
+   * Returns each `SignatureCache` fact that the dependency plan of another
+   * module read in this request (`IncrementalShadow.planOf`) and that can
+   * differ from the stored full request, in the form of `wrongAnswers`.
+   * Empty when each such answer equals the answer of the stored full
+   * request for the same key.
+   *
+   * Why: the requested module's output depends on these plans, for example
+   * through the React Fast Refresh split of an import, whose plan reads the
+   * fields of the import's private typedefs. Such a plan belongs to a
+   * module that Haxe did not type again, so its answers are not the
+   * requested module's own (the stored entry of that module never asked
+   * them, genes-f8vc.14.27).
+   *
+   * Why an equal stored answer cannot be stale: a fact at a field is
+   * written by the captures of typedefs. Every module other than the
+   * requested one is the stored one (`decide` checked its epochs and that
+   * Haxe did not type it again), so its captures are the stored ones. The
+   * requested module writes the same facts at fields of other files as in
+   * the full request (`foreign-facts-changed`, checked before). So a full
+   * build after the edit has the stored answer at each such field. A fact
+   * that the stored full request never read, or read with another answer,
+   * is a refusal.
+   *
+   * The stored answer of a key is the same in each stored entry: the facts
+   * are fixed after typing, and a replayed entry keeps answers that its
+   * replay found equal (`planReplay`). A key with two stored answers is
+   * treated as unknown.
+   */
+  static function planFactAnswers(module: String): Array<String> {
+    final wrong: Array<String> = [];
+    var stored: Null<Map<String, String>> = null;
+    for (other in IncrementalShadow.answeredModules(module))
+      for (line in IncrementalShadow.recordedModule(other).answers) {
+        final answer = GenerationCache.parseAnswer(line);
+        if (!isFactKind(answer.kind))
+          continue;
+        final known = stored == null ? (stored = storedFactAnswers()) : stored;
+        final before = known.get('${answer.kind}\x01${answer.name}');
+        if (before != answer.answer)
+          wrong.push(GenerationCache.answerText(line)
+            + ' (read by the plan of '
+            + '$other; full request: '
+            +
+            (before == null ? 'not asked' : before == CONFLICTING_ANSWERS ? 'two answers' : before)
+            + ')');
+      }
+    return wrong;
+  }
+
+  /** The stored answer of a key that two stored entries answered differently; no answer equals it. */
+  static inline final CONFLICTING_ANSWERS = '\x00two answers';
+
+  /** True for the answer kinds that `IncrementalShadow.recordFact` records. */
+  static function isFactKind(kind: String): Bool {
+    return kind == genes.ts.SignatureCache.ANON_TS
+      || kind == genes.ts.SignatureCache.ANON_SOURCE
+      || kind == genes.ts.SignatureCache.BODY_PARAMS
+      || kind == genes.ts.SignatureCache.BODY_TYPE;
+  }
+
+  /**
+   * Returns the answers of the `SignatureCache` facts of the stored full
+   * request, keyed by `<kind>\x01<key>`: from the entry of each stored
+   * module and from the request-wide answers.
+   */
+  static function storedFactAnswers(): Map<String, String> {
+    final known = new Map<String, String>();
+    function add(line: String): Void {
+      final answer = GenerationCache.parseAnswer(line);
+      if (!isFactKind(answer.kind))
+        return;
+      final key = '${answer.kind}\x01${answer.name}';
+      final before = known.get(key);
+      known.set(key, before == null || before == answer.answer ? answer.answer : CONFLICTING_ANSWERS);
+    }
+    for (name in GenerationCache.storedModules()) {
+      final entry = GenerationCache.entry(name);
+      if (entry != null)
+        for (line in entry.answers)
+          add(line);
+    }
+    for (line in GenerationCache.globalAnswers())
+      add(line);
+    return known;
+  }
+
+  /** The most differences that the reason of `answers-changed` names. */
+  static inline final MAX_NAMED_ANSWERS = 40;
+
+  /**
+   * Returns the reason of an `answers-changed` refusal: how many answers
+   * may differ, then each of them (at most `MAX_NAMED_ANSWERS`), with the
+   * answer of the stored full request. Example:
+   * `2 answers that app.Card asked may differ in a full build: anonTs
+   * src/app/Clip.hx:116:132 = - (full request: +number); ...`.
+   */
+  static function answersChangedReason(module: String,
+      wrong: Array<String>): String {
+    final named = wrong.slice(0, MAX_NAMED_ANSWERS);
+    final rest = wrong.length - named.length;
+    return
+      (wrong.length == 1 ? 'an answer that $module asked may differ' : '${wrong.length} answers that $module asked may differ')
+      + ' in a full build: '
+      + named.join('; ')
+      + (rest > 0 ? '; and $rest more' : '');
   }
 
   /**
@@ -5325,6 +5471,8 @@ class ModuleRequest {
       for (line in record.positions.split('\n'))
         if (line.length > 0)
           buffer.add('  position $line\n');
+      for (line in record.foreignFacts)
+        buffer.add('  foreign-fact $line\n');
     }
     final classes = storedClassFacts.get(module);
     if (classes != null) {

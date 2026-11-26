@@ -239,8 +239,13 @@ class Module {
   }
 
   function get_dependencyPlan(): DependencyPlan {
+    // The plan of a module can be built late, while another module prints
+    // (for example when it asks for the React Fast Refresh split of this
+    // one). The facts that the plan reads belong to this module, not to the
+    // printing one (`IncrementalShadow.planOf`, genes-f8vc.14.27).
     if (dependencyPlan == null)
-      dependencyPlan = DependencyPlanBuilder.build(this);
+      dependencyPlan = genes.incremental.IncrementalShadow.planOf(module,
+        () -> DependencyPlanBuilder.build(this));
     return dependencyPlan;
   }
 
