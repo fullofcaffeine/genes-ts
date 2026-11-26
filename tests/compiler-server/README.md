@@ -1402,15 +1402,35 @@ instructions and CPU time it prints the median pair ratio (B1 + B2) /
 (A1 + A2), its order-statistic 95% interval (the 6th to the 15th of 20
 sorted ratios), and the lowest and highest. B differs from A only when the
 interval leaves out 1. Wall time is a report line. Beside words it prints
-the minor collections of A and B; when the two sides of a pair collected a
-different number of times, it prints "collection counts differ; words not
-compared" instead, because one collection moves words by up to one minor
-heap (about 1.2% of a fixture module request).
+the minor collections of A and B. When the two sides of a pair collected a
+different number of times, the words line says "uncertain: collection counts
+differ" and gives the uncertainty: up to one minor heap (262,144 words with
+Haxe's default, about 1.2% of a fixture module request) for each collection
+of difference in a pair. The interval rule does not apply to that line.
 
-Each measured module request repeats a request with no change: Haxe types
-nothing again and every kept bucket of Genes hits. Such numbers compare A
-with B on a no-edit request; they are not the cost of a save. An edit mode
-comes in genes-f8vc.14.40.
+Without `--edit`, each measured module request repeats a request with no
+change: Haxe types nothing again and every kept bucket of Genes hits. Such
+numbers compare A with B on a no-edit request; they are not the cost of a
+save. `--edit=literal` (genes-f8vc.14.40) changes the string literal
+`return 'Save';` of the requested module to `return 'Sava';` and back before
+each measured request, and sends `server/invalidate` for the file to each
+server, so that Haxe types the module again (`typedAgainModules:
+["mr.Button"]`) and Genes reads it anew. Both sides make the same edit, so
+each pair stays equal in work. The runner stops when such a request gives
+no preview. Example: `nice -n 10 yarn compiler-server:pair
+--define-b=genes.pair_probe --edit=literal --pairs=20` (a same-source run;
+give `--b=<src>` to compare another Genes source).
+
+Haxe 4.3.7 queues a full collection after every tenth connection to a
+server (`Ring.create 10` in `server.ml`) and runs it right after it closes
+that connection, when the client has its answer already. Without care, a
+measured request near a tenth connection pays for part of it: up to 344 ms
+of CPU time before Genes when it comes right after one, or 26 ms after the
+report when it is the tenth itself. The runner counts the connections of
+each server and sends cheap `-version` requests until the measured request
+is neither a tenth connection nor the one right after it; a request after a
+collection waits for it to end. It prints, for each side, the samples with
+more than 30 ms of CPU time outside Genes; both counts should be 0.
 
 Spread of the runner with the same source on both sides (B with an unused
 define, 20 pairs, load 25 to 41), instructions:

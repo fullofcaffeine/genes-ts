@@ -30,9 +30,19 @@
  * repeat and the spread of each unit: the exit check of genes-f8vc.14.33
  * wants equal counts, words within 0.5% and instructions within 3%.
  *
- * Each measured module request repeats a request with no change, so Haxe
- * types nothing again: the numbers compare A with B on a no-edit request,
- * not the cost of a save. An edit mode comes in genes-f8vc.14.40.
+ * Without `--edit` each measured module request repeats a request with no
+ * change, so Haxe types nothing again: the numbers compare A with B on a
+ * no-edit request, not the cost of a save. `--edit=literal` edits one
+ * string literal of the requested module before each measured request.
+ *
+ * Haxe's periodic collection (genes-f8vc.14.40): Haxe 4.3.7 queues a full
+ * collection (`Tasks.gc_task`) after every tenth connection to a server
+ * and runs it right after it closes that connection. A measured request
+ * near a tenth connection paid for part of it (up to 344 ms of CPU time
+ * before Genes, or 26 ms after the report). The runner counts the
+ * connections of each server and sends cheap `-version` requests until a
+ * measured request is neither a tenth connection nor the one right after
+ * it. Both modes do this.
  *
  * Retired instructions need `node --experimental-ffi` on macOS (the yarn
  * script passes it) and a built `tooling/dist`; otherwise they are printed
@@ -72,6 +82,22 @@ const target = option("module", "mr.Button");
 const warmupPairs = Number(option("warmup-pairs", "1"));
 /** `--measure-off-b`: side B asks for no request measure, to measure the cost of the measure. */
 const measureOffB = process.argv.includes("--measure-off-b");
+/**
+ * `--edit=literal`: before each measured module request, change one string
+ * literal of the requested module's source to the other of two values of
+ * the same length, and send Haxe's `server/invalidate` for the file to each
+ * server, so that Haxe types the module again and Genes reads it anew, as
+ * after a save. Every sample makes the same edit, so A and B do equal work.
+ */
+const edit = option("edit", "");
+if (edit !== "" && edit !== "literal") throw new Error("--edit is literal");
+if (edit !== "" && option("kind", "module") !== "module") throw new Error("--edit needs --kind=module");
+/** The two values of `--edit=literal` in `mr/Button.hx` of the fixture. */
+const EDIT_VALUES = ["return 'Save';", "return 'Sava';"] as const;
+/** Haxe 4.3.7 queues a full collection after every this many connections (`Ring.create 10` in `server.ml`). */
+const HAXE_COLLECTION_PERIOD = 10;
+/** The default minor heap of Haxe 4.3.7 in words, for the uncertainty of `words`. */
+const MINOR_HEAP_WORDS = 262_144;
 const servers = Number(option("servers", "2"));
 if (!Number.isInteger(warmupPairs) || warmupPairs < 0) throw new Error("--warmup-pairs needs a whole number");
 if (servers !== 1 && servers !== 2) throw new Error("--servers is 1 or 2");
@@ -131,6 +157,8 @@ interface Sample {
   /** Process CPU time before the measure began and after the report (`haxe.before-genes`, `haxe.after-genes`). */
   readonly beforeGenesMs: number | null;
   readonly afterGenesMs: number | null;
+  /** The connections that the server had answered before this request (`connections`). */
+  readonly connectionsBefore: number;
   /** Resident memory of the server after the request (`ps -o rss`), in MB; a report line. */
   readonly serverRssMb: number | null;
   readonly load: number;
@@ -252,18 +280,60 @@ async function main(): Promise<void> {
     if (value !== null && value.unavailable !== null) unavailable = value.unavailable;
     return value;
   };
-  const send = async (s: Side, args: string[], label: string): Promise<void> => {
-    const server = serverOf(s);
+  // The connections that each server has answered, as Haxe counts them for
+  // its periodic collection: every `--connect` request, of any kind.
+  const connections = new Map<OwnedHaxeCompilerServer, number>([[serverA, 0], [serverB, 0]]);
+  const sendTo = async (server: OwnedHaxeCompilerServer, args: string[], label: string): Promise<void> => {
     const result = await server.compile(args, label, timeoutMs, workspace);
+    connections.set(server, connections.get(server)! + 1);
     if (result.code !== 0) {
       throw new Error(`${label} failed\n${result.stdout}\n${result.stderr}\n${server.logs}`);
     }
+  };
+  const send = async (s: Side, args: string[], label: string): Promise<void> =>
+    await sendTo(serverOf(s), args, label);
+  /**
+   * Keeps Haxe's periodic full collection out of the next measured request.
+   * Haxe 4.3.7 runs it right after it closes every tenth connection, while
+   * the client has its answer already. A measured request that is a tenth
+   * connection would count part of it after its answer, and one sent right
+   * after a tenth connection would count the rest of it before its own
+   * work. So this sends cheap `-version` requests until neither holds; a
+   * request that comes after a collection waits for it to end.
+   */
+  const absorb = async (s: Side): Promise<void> => {
+    const server = serverOf(s);
+    const tenth = (count: number): boolean => count % HAXE_COLLECTION_PERIOD === 0;
+    while (tenth(connections.get(server)!) || tenth(connections.get(server)! + 1))
+      await sendTo(server, ["-version"], `${s.name} absorb collection`);
   };
   const prime = async (s: Side): Promise<void> => {
     descriptor(s, { kind: "full", moduleRecords: true });
     await send(s, programArgs(s), `${s.name} full request`);
   };
+  // `--edit=literal`: the file of the requested module and the next value.
+  const editedFile = path.join(workspace, "src", ...target.split(".")) + ".hx";
+  let edits = 0;
+  const applyEdit = async (): Promise<void> => {
+    const text = readFileSync(editedFile, "utf8");
+    const from = EDIT_VALUES[edits % 2]!;
+    const to = EDIT_VALUES[(edits + 1) % 2]!;
+    if (!text.includes(from)) throw new Error(`--edit=literal: ${editedFile} has no ${from}`);
+    writeFileSync(editedFile, text.replace(from, to));
+    edits += 1;
+    // Haxe 4.3.7 compares file times in whole seconds; a session sends
+    // this for each saved file before the next request. Both servers read
+    // the shared workspace, so both must forget the old text.
+    for (const server of serverA === serverB ? [serverA] : [serverA, serverB]) {
+      await sendTo(server, ["--display", JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "server/invalidate", params: { file: editedFile }
+      })], "invalidate");
+    }
+  };
   const measured = async (s: Side): Promise<Sample> => {
+    if (edit === "literal") await applyEdit();
+    await absorb(s);
+    const connectionsBefore = connections.get(serverOf(s))!;
     const args = kind === "program" ? programArgs(s) : moduleArgs(s);
     // The rolling replay audit prints other modules in each request; off,
     // so that equal program requests do equal work.
@@ -277,6 +347,8 @@ async function main(): Promise<void> {
     const wallMs = performance.now() - started;
     const after = await read(s);
     const { result, measure } = readMeasure(s, kind);
+    if (edit === "literal" && result !== "preview")
+      throw new Error(`--edit=literal: the ${s.name} module request gave ${result}, not a preview`);
     const instructions = before?.instructions == null || after?.instructions == null
       ? null : after.instructions - before.instructions;
     const cpuMs = before?.cpuNs == null || after?.cpuNs == null
@@ -299,6 +371,7 @@ async function main(): Promise<void> {
       named: cpuMs === null || cpuMs <= 0 || namedMs === null ? null : namedMs / cpuMs,
       beforeGenesMs,
       afterGenesMs,
+      connectionsBefore,
       serverRssMb: residentMb(serverOf(s).process.pid),
       load
     };
@@ -338,6 +411,7 @@ async function main(): Promise<void> {
       b: sourceB,
       defineB,
       kind,
+      edit,
       module: target,
       servers: serverA === serverB ? 1 : 2,
       warmupPairs,
@@ -448,6 +522,7 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   // Words move in steps of up to one minor heap per minor collection, so
   // they compare only when both sides of every pair collected equally often.
   let collectionsDiffer = false;
+  let collectionGap = 0;
   const collectionsA: number[] = [];
   const collectionsB: number[] = [];
   for (let index = 0; index + 3 < samples.length; index += 4) {
@@ -463,7 +538,9 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
     if ([a1, a2, b1, b2].every((sample) => minorOf(sample) !== null)) {
       collectionsA.push(minorOf(a1)!, minorOf(a2)!);
       collectionsB.push(minorOf(b1)!, minorOf(b2)!);
-      if (minorOf(a1)! + minorOf(a2)! !== minorOf(b1)! + minorOf(b2)!) collectionsDiffer = true;
+      const gap = Math.abs(minorOf(a1)! + minorOf(a2)! - minorOf(b1)! - minorOf(b2)!);
+      if (gap > 0) collectionsDiffer = true;
+      collectionGap = Math.max(collectionGap, gap);
     }
     const instructions = ratio((sample) => sample.instructions);
     const cpu = ratio((sample) => sample.cpuMs);
@@ -488,13 +565,36 @@ function printPairs(samples: ReadonlyArray<Sample>, unavailable: string | null):
   const span = (values: number[]): string =>
     values.length === 0 ? "n/a" : `${Math.min(...values)} to ${Math.max(...values)}`;
   const collections = `minor collections A ${span(collectionsA)}, B ${span(collectionsB)}`;
-  if (collectionsDiffer)
-    process.stdout.write(`words: collection counts differ; words not compared (${collections})\n`);
-  else
+  if (collectionsDiffer) {
+    // One collection moves words by up to one minor heap, so the ratio is
+    // uncertain by that much for each collection of difference in a pair.
+    const pairWords = samples.length === 0 ? 0 : 2 * median(samples.flatMap((sample) =>
+      sample.measure === null ? [] : [sample.measure.words]));
+    const uncertainty = pairWords <= 0 ? null : (collectionGap * MINOR_HEAP_WORDS) / pairWords;
+    line("words (uncertain: collection counts differ)", ratios.words, ` (${collections}; up to ${collectionGap} `
+      + `collections of difference in a pair, so uncertain by up to `
+      + `${uncertainty === null ? "n/a" : `${(uncertainty * 100).toFixed(1)}%`} with Haxe's default minor heap; `
+      + `the interval rule does not apply)`);
+  } else {
     line("words", ratios.words, ` (${collections})`);
+  }
   line("instructions", ratios.instructions, unavailable === null ? "" : ` (${unavailable})`);
   line("cpu", ratios.cpu);
   line("wall (report line, not a gate)", ratios.wall);
+  // A request that pays for a Haxe collection shows it outside Genes: before
+  // the init macro or after the report.
+  const outside = (sample: Sample): number | null =>
+    sample.beforeGenesMs === null || sample.afterGenesMs === null
+      ? null : sample.beforeGenesMs + sample.afterGenesMs;
+  const hits = (side: "A" | "B"): number => samples.filter((sample) => sample.side === side
+    && (outside(sample) ?? 0) > 30).length;
+  const most = (side: "A" | "B"): string => {
+    const values = samples.filter((sample) => sample.side === side && outside(sample) !== null)
+      .map((sample) => outside(sample)!);
+    return values.length === 0 ? "n/a" : `${Math.max(...values).toFixed(1)} ms`;
+  };
+  process.stdout.write(`samples with more than 30 ms of CPU outside Genes: A ${hits("A")}, B ${hits("B")} `
+    + `(highest A ${most("A")}, B ${most("B")})\n`);
   const memory = samples.map((sample) => sample.serverRssMb).filter((value): value is number => value !== null);
   if (memory.length > 0)
     process.stdout.write(`server resident memory: first ${memory[0]} MB, last ${memory[memory.length - 1]} MB, `
