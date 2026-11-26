@@ -877,7 +877,11 @@ Round 3 of Fable on 58bff340 added three groups:
   calls that only record a define, metadata or a class path
   (`--macro mr.Spy.install()`) makes every private field count, because it
   can change code without leaving metadata. This one does nothing, so the
-  row previewed on 58bff340; it guards the rule.
+  row previewed on 58bff340; it guards the rule;
+- `std-private-init-macro-inline` (genes-f8vc.14.22): the same macro
+  written as one argument, `--macro=mr.Spy.install()`. On d1f7735f Genes
+  did not see it, and the private method previewed; now the module request
+  is refused (`public-shape-changed`) with the same reason.
 
 Each refused row's `check` names the module and the reason of the refusal.
 `std-private-access` also has a private static extension that takes a call
@@ -968,8 +972,8 @@ The review of #269 added these groups:
   (`include-changed`); on d8b4b5ad the full request after it kept Haxe's old
   parse of the file and differed from cold (`mr/Button.ts`,
   `mr/inc/Late.ts`), and the next preview was stale. Now the full request
-  makes Haxe parse every included file that Genes has not proven again, so
-  it equals cold and the next edit previews;
+  makes Haxe parse again every included file whose content Genes has not
+  proven, so it equals cold and the next edit previews;
 - `roots-include-ignore-wildcard` (`['mr.inc.sub*']`: a new file in the
   ignored folder previews, one in the included folder is refused) and
   `roots-include-class-paths` (`classPaths` given);
@@ -990,16 +994,192 @@ read the roots: an option that it does not know, `--next`, `--each` or
 that was not in the stored program and whose file changed while the full
 request ran.
 
-Known gap (review round 3 of #269, tracked as genes-f8vc.14.24): a listed
-file that had a class can lose its declarations between the first walk of
-the include folders and Haxe's own walk, and then be saved back inside the
-same whole second, without `server/invalidate` for the second save. That
-needs two saves inside one whole second around the start of a full request.
-Haxe then keeps a parse that Genes never noted, and the old digest stays
-proven, so a later full request differs from cold and a preview after it is
-stale. No row covers it yet. The development session sends
-`server/invalidate` for each changed file that it sees, which makes Haxe
-parse the file again.
+A listed file without a declaration (genes-f8vc.14.24, review round 3 of
+#269): after typing, the full request notes what Haxe parsed for each listed
+file whose module has no declaration in the program: the content of the
+first walk when the file did not change since, else `unknown`, which makes
+the next full request parse the file again. With an init macro before
+`genes.Generator.use()` that can type a module, such a file is `unknown`,
+and the roots are unknown, when Genes had not proven its content at the
+first walk. The rows:
+
+- `roots-declarationless-race` (`-dce full`): `mr/inc/Late.hx` holds a
+  `@:keep` class that calls `mr.Button.unused()`. In step 2 `mr.Strip`, an
+  init macro given after `genes.Generator.use()`, removes the class after
+  Genes walked the folder and before Haxe's walk, and puts it back after
+  typing with the same modification time (`touch -r`); the session
+  invalidates only `mr/Button.hx`. The cold build of the step sees the same
+  save, so both are equal. Step 3: the module request is refused
+  (`include-changed`, the file changed while the request ran); on 339b4855
+  its full request kept Haxe's parse without the class and differed from
+  cold (`mr/Button.ts`, `mr/inc/Late.ts`). Now it equals cold, and step 4
+  previews;
+- `roots-declarationless-race-root-class-path`: the same race in the folder
+  of the request (the class path that Haxe has without `-cp`), where the
+  walk spells the file `./rootinc/Late.hx` and Haxe's positions spell it
+  `rootinc/Late.hx`. A fix that looks up only the walk's spelling still
+  differed from cold in step 3;
+- `roots-declarationless-early-macro` (`noInvalidate`): an init macro before
+  `genes.Generator.use()` loads `mr.inc.Late`, which is all inside
+  `#if macro`. The first module request is refused (`include-changed`: Genes
+  has not proven the file) and the full request is refused once
+  (`GENES-MODULE-REQUEST-003`); then a module request previews. In step 3 a
+  module request parses the file, and a save in the same second turns
+  `#if macro` into `#if !acro`. On 339b4855 the full request kept the old
+  parse and differed from cold (`mr/Button.ts`, `mr/inc/Late.ts`); now it is
+  refused once and then equals cold;
+- `roots-early-macro-module-restore` (`noInvalidate`, review of #270 on
+  4c78e5d2): an init macro before `genes.Generator.use()` loads
+  `mr.inc.Late` in every request, and only a full request with records
+  notes what Haxe parsed. In step 3 a save removes the `@:keep` class, the
+  module request parses the file (`source-changed`), and a second save in
+  the same whole second puts the class back. On 4c78e5d2 the full request
+  was refused once and then differed from cold (`mr/Button.ts`,
+  `mr/inc/Late.ts`): the digest was the noted one and only the file status
+  differed, so nothing made Haxe parse the file again. Now a full request
+  also parses again a file whose status differs from the noted one;
+- `roots-early-macro-display-restore`: the same with an editor request with
+  the session's defines (`json-session`) in place of the module request.
+  It was equal to cold on 4c78e5d2 too (Genes also runs in that request);
+  the row guards that route. Its full request is refused once;
+- `roots-empty-order` (`-dce std`): seven files that are all `#if macro`.
+  The `root empty` lines of the records text are sorted by module; on
+  339b4855 they followed the order of the folder listing (APFS:
+  `mr.inc.Zeta` before `mr.inc.Beta`). The gate checks this order after
+  every full request.
+
+The `std-inline-reach` groups (genes-f8vc.14.26) hold modules that only an
+inline call or a macro call brings into the program. Haxe types such a call
+in the caller and leaves no reference to the callee's class in the typed
+body, but it still loads the callee's module, and a full build writes its
+file. Before the fix `DceStdUses.dependenciesOf` read only typed bodies and
+import lines, so no module that stays was known to load the callee, and
+every `-dce std` module request was refused (`module-may-leave`; measured on
+Caffeine, 0 of 18 edits previewed). Now Genes also reads Haxe's own list of
+the modules that each module loads (`HaxeDependencies`, written with
+`-D dump-dependencies` beside the descriptor):
+
+- `std-inline-reach`: `mr.reach.ViaInline` calls the inline
+  `Codec.assume`, `mr.reach.ViaFinal` reads the inline constant
+  `Names.CITATION`, and `mr.reach.ViaMacro` calls the project macro
+  `Twice.twice`. A literal edit of `mr.Button` and of each of the three
+  modules previews, byte-identical to cold (each was `module-may-leave` on
+  ad63a932, run with `--observe` and `GENES_TEST_SOURCE`). Removing the
+  only call is still refused (`module-may-leave`, the reason names the
+  callee): a full build then drops its file;
+- `std-inline-reach-caffeine-shaped`: Caffeine's three shapes.
+  `app.read.ReadModel` calls `genes.ts.Json.value`, whose
+  `Json.checkedValue` reaches `genes.ts.JsonCodec` only through the inline
+  `unsafeAssumeJson`, and reads `app.graph.ReferenceCard.CitationProperty`,
+  a `public static inline final` of another package. `app.read.Typed`, which
+  an `include` line adds, calls the Genes macro `genes.ts.TypeArguments.call`.
+  `--macro genes.js.Async.enable()` gives every class a global build
+  macro, as in Caffeine's development build. Literal edits of `mr.Button`,
+  `app.read.ReadModel` and `app.read.Typed` and a structural edit of
+  `app.read.Typed` preview (each was `module-may-leave` on ad63a932; on
+  d64d0ee2, which distrusted every line of Haxe's list that is listed once
+  for a module that ran any build macro, all but the `app.read.ReadModel`
+  row still were); removing the only read of the constant is refused
+  (`module-may-leave`, naming `app.graph.ReferenceCard`).
+
+The `review-` groups come from the review of genes-ts #272 (round 1, on
+7447d44d). `mr.reach.Built` has `@:build(mr.reach.Model.build())`;
+`mr.reach.Model` has a runtime `label()` and, inside `#if macro`, the static
+`build()`, so Haxe's list of `mr.reach.Built` names `mr/reach/Model.hx` for
+a module of its macro context. `mr.reach.User` is the only module that calls
+`Model.label()`, and the last row removes that call:
+
+- `review-plain-build`: the build macro does nothing (a control,
+  `module-may-leave` on 7447d44d too);
+- `review-build-removes-meta`: the build macro removes its own `@:build`
+  metadata. On 7447d44d the line counted and the preview kept
+  `mr/reach/Model.ts` (`STALE` with `--observe` and `GENES_TEST_SOURCE`);
+- `review-build-registers-own-file`: the build macro registers
+  `mr/reach/Model.hx` with `registerModuleDependency`, so the line is listed
+  twice. On 7447d44d "listed twice" counted, and the preview was `STALE`.
+
+Each first row (a literal edit of `mr.Button`) previews, and each last row
+is now `module-may-leave`: a line listed once counts only when its file was
+no module of the macro context in the request that typed the dependent,
+twice only when the module has a macro function, and never when the file is
+a second entry of the program's list.
+
+Round 2 of that review added `review-build-removes-meta-session`: the same
+build macro with `-D dump-path=../session-dump`, the define that the Genes
+development session gives (`HAXE_DEPENDENCIES_FOLDER`). Its first row checks
+that Haxe wrote both lists into that folder, that Genes deleted nothing
+there, and that no `dump` folder was made in the working folder. The first
+row of each group without that define checks that Genes deleted the two
+files of the shared `dump/macro` folder of the working folder and left the
+folder (on 4cf8ed42 Genes also deleted the empty folders, which another
+process could be writing into). A row for a module whose program part has
+only typedefs could not be built: Genes prints such a module only for a
+signature that names the typedef, and removing that name is refused before
+the `module-may-leave` check (`public-shape-changed`).
+
+The review of #272 round 3 (genes-f8vc.14.35) hardened the rule. A line
+listed once no longer counts for a module without a class or enum in the
+program. No row shows it: such a module (typedefs and a macro-only class)
+gets a file only through a reference to the typedef, and removing that
+reference is refused before the `module-may-leave` check, by
+`public-shape-changed` for a public signature, or by `walkTargetFailure`
+(`walk-target-removed`) for a private signature or a body.
+
+The blocks of a file that is an entry of Haxe's list more than once count
+together only when every other entry is a `genes.ts.Imports` holder that
+the file's own module made (genes-f8vc.14.41). Such a file also holds a
+type that a macro defined (`Context.defineType` takes the file of the
+module being typed, or of the module that its `moduleDependency` names).
+`Imports.hx` records the module whose typing made each holder
+(`@:genes.importDefiner`), and Haxe gives the holder that module's file, so
+Genes compares the entry count with one more than the holders that name the
+module; positions play no part, and only a class of the package
+`genes.ts.imports` counts as a holder (`probe9-hand-written-definer-metadata`
+writes the same metadata on a project macro's type: it does not balance the
+extra entry, and the row is refused). A holder is shared by name: a second
+module that imports the same thing reuses it, its own file has one entry,
+and its block counts as before. Any other macro-defined type with that file
+adds an entry, and then no block counts: a module with such a type in its
+file carries no edge from Haxe's list. Two merges tried in the review of
+#274 (by position, 979f8a64 and 932c1823) each gave a stale preview, and
+a51bf6b6 counted no block of such a file. The rows:
+
+- `probe5-inline-and-import-holder` and
+  `probe5-inline-and-import-holder-a-package`: `<pack>.ViaBoth` calls the
+  inline `Codec.assume` and owns a holder of
+  `genes.ts.Imports.namedImport`. The literal edit of `mr.Button` previews
+  (it previewed for `mr.reach` only on da5b15e7, where the order of the list
+  decided, and was `module-may-leave` on def4b46f and a51bf6b6, which
+  counted no block of such a file). The literal edit of `ViaBoth` previews,
+  and removing the only inline call is refused. 16 Caffeine files use
+  `genes.ts.Imports`;
+- `probe7-explicit-module-dependency`: the project macro
+  `Gen.companion('on')`, called by `mr.reach.Definer`, defines the extern
+  class `mr.reach.OwnerCompanion` with
+  `Context.defineType(def, 'mr.reach.Owner')`, a position in `Owner.hx`
+  and a field of type `mr.reach.Hidden`, which nothing else names. When
+  `Definer` stops making the companion (`'on'` to `'of'`, no other typed
+  change), cold drops `mr/reach/Hidden.ts`: the row was `STALE` on
+  da5b15e7 and on 979f8a64 and is `module-may-leave` now. The first row is
+  a literal edit of `Definer` (a preview on every commit), not of
+  `mr.Button`: after an edit of `mr.Button`, Haxe reuses `Definer` from its
+  cache without running the macro, so the warm full request has no
+  companion and no `Hidden` while a cold build has both, a difference of
+  Haxe itself (genes-f8vc.14.39);
+- `probe8-displaced-holder-and-module-dependency` (Fable on 932c1823): the
+  same with the companion positioned in `Definer.hx`, `mr.reach.Other`
+  calling a project macro that returns a `namedImport` call positioned in
+  `Owner.hx` (a holder positioned there but made while Haxe typed `Other`),
+  and `mr.reach.Normal` calling `namedImport` the ordinary way. 932c1823,
+  which merged a file's blocks when every other module positioned there was
+  a holder, gave the companion's lines to `Owner`: the second row was
+  `STALE mr/reach/Hidden.ts` there and on da5b15e7, and is
+  `module-may-leave` now (also on def4b46f and a51bf6b6): the holder names
+  `Other` and has `Other`'s file, so `Owner.hx` has one entry (the
+  companion) more than `Owner` and its holders.
+
+`yarn test` checks the reader of Haxe's list, also its Windows form
+(`tests/haxedependencies/HaxeDependenciesProbe.hx`).
 
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
@@ -1174,6 +1354,17 @@ sent:
   the module request once, and it previews when sent again;
 - `early-init-same-second`: a save that moves the modification time inside
   the same whole second;
+- `early-init-inline-macro` (genes-f8vc.14.22): the same init macro written
+  as one argument, `--macro=mr.Early.install()`, which Haxe 4.3.7 accepts
+  and keeps as one argument in `Compiler.getConfiguration().args`. Genes
+  reads the init macros with `HaxeArguments.read` (`initMacros`), so this
+  spelling counts like `--macro mr.Early.install()`, and an argument that
+  Genes cannot read counts as an init macro that can type. A save that
+  keeps the modification time refuses the full request once; a second one
+  refuses the module request of `mr.Fresh` once, and it previews when sent
+  again. On d1f7735f, where Genes looked only for `--macro` as an argument
+  of its own, the module request was not refused by this rule
+  (`stale-source` instead);
 - `early-init-dependency-changed`: `mr.Fresh` reads `mr.Theme`, and a save
   of `mr/Theme.hx` that Haxe sees comes with the save of `mr/Fresh.hx`, so
   Haxe types `mr.Fresh` again in the init macro from its old text. The

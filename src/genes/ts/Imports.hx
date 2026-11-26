@@ -27,6 +27,20 @@ using haxe.macro.TypeTools;
  */
 class Imports {
   /**
+   * The metadata on each holder class that names the module whose typing
+   * made it (`importImpl`). `genes.incremental.HaxeDependencies` reads it.
+   */
+  public static inline final HOLDER_DEFINER_META = ':genes.importDefiner';
+
+  /**
+   * The dotted package of every holder class that `ensureExternImportType`
+   * (called by `importImpl`) defines.
+   * `genes.incremental.HaxeDependencies` counts only classes in this package
+   * as holders, so both sides read this one constant.
+   */
+  public static inline final HOLDER_PACKAGE = 'genes.ts.imports';
+
+  /**
    * Import a module's default export.
    *
    * Example:
@@ -449,7 +463,7 @@ class Imports {
       + (spec.importAttributeType != null ? spec.importAttributeType : '');
 
     final hash = Md5.encode(key).substr(0, 12);
-    final pack = ['genes', 'ts', 'imports'];
+    final pack = HOLDER_PACKAGE.split('.');
     final name = 'Import_${hash}';
     final fullName = pack.join('.') + '.' + name;
 
@@ -486,6 +500,17 @@ class Imports {
     meta.push({
       name: ':genes.importAlias',
       params: [macro $v{spec.importAlias}],
+      pos: spec.pos
+    });
+
+    // The module that Haxe is typing, which makes this holder: Haxe gives
+    // the holder that module's file (`define_type` in `macroContext.ml`), so
+    // `genes.incremental.HaxeDependencies` can count the holder's entry of
+    // Haxe's dependency list with that module (genes-f8vc.14.41). Example:
+    // `@:genes.importDefiner("app.ui.Card")`.
+    meta.push({
+      name: HOLDER_DEFINER_META,
+      params: [macro $v{Context.getLocalModule()}],
       pos: spec.pos
     });
 

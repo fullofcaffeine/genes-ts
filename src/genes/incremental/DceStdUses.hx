@@ -76,7 +76,10 @@ using haxe.macro.TypeTools;
  * Limits: the port follows Haxe 4.3.7 (`IncrementalRequest` limits the
  * incremental path to that version). The dependency list is a lower bound
  * of what Haxe loads: it does not see a module that a macro loads by name or
- * an import inside `#if`. The rule only uses it to prove that a module
+ * an import inside `#if`, and the typed bodies no longer name the class of
+ * an inline function or an inline constant that they call, or of a macro.
+ * `ModuleRequest` adds Haxe's own list for those (`HaxeDependencies`,
+ * genes-f8vc.14.26). The rule only uses the list to prove that a module
  * stays loaded, so a missing entry can refuse a preview but never admit a
  * wrong one.
  */
@@ -142,14 +145,22 @@ class DceStdUses {
     final known = stdFiles.get(file);
     if (known != null)
       return known;
-    final absolute = PathUtil.normalize(FileSystem.absolutePath(file))
-      .toLowerCase();
-    var found = false;
-    for (folder in stdFolders())
-      if (StringTools.startsWith(absolute, folder))
-        found = true;
+    final found = isStdPath(PathUtil.normalize(FileSystem.absolutePath(file)));
     stdFiles.set(file, found);
     return found;
+  }
+
+  /**
+   * Returns true when `absolute`, an absolute and normalized file path, is
+   * in a standard-library folder. `HaxeDependencies` calls it with paths
+   * that it keeps between requests.
+   */
+  public static function isStdPath(absolute: String): Bool {
+    final lower = absolute.toLowerCase();
+    for (folder in stdFolders())
+      if (StringTools.startsWith(lower, folder))
+        return true;
+    return false;
   }
 
   /**
@@ -670,7 +681,9 @@ class DceStdUses {
    *
    * The list is a lower bound (see the class comment): an unknown kind of
    * reference adds nothing, so a dropped reference can only make the rule
-   * refuse.
+   * refuse. Example of a gap: `JsonCodec.unsafeAssumeJson(value)` is inline,
+   * so the typed body holds only `value`; `HaxeDependencies` adds such
+   * modules from Haxe's own list.
    */
   public static function dependenciesOf(module: String, types: Array<Type>,
       text: Null<String>): Array<String> {

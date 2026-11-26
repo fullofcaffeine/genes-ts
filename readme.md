@@ -484,6 +484,29 @@ and `--macro include(...)` lines with literal arguments. Every other macro
 that adds modules to the program must stay in the module request. See
 `genes.incremental.ProgramRoots` and `tooling/README.md`.
 
+Under `-dce std` a preview is refused when a full build may drop a module's
+file (`module-may-leave`). To know which modules stay, Genes also reads
+Haxe's own list of the modules that each module loads, because the typed
+code no longer names the class of an inline function, an inline constant or
+a macro that it calls. Haxe writes these lists when `-D dump-dependencies`
+is set, and Genes sets it in the requests that need them. The development
+session gives `-D dump-path=<request folder>/haxe-dependencies`, so Haxe
+writes both lists, the program's and its macro context's, into that folder,
+and Genes deletes nothing there. A hand-run request without that define gets
+a `dump-path` beside the request descriptor for the program's list, and the
+macro context's list goes to `dump/macro` of the working folder (Haxe copies
+the defines into its macro context before Genes runs); Genes deletes those
+two files after it reads them and leaves the folders. See
+`genes.incremental.HaxeDependencies`.
+
+Genes reads the Haxe arguments with the Haxe 4.3.7 option table
+(`genes.incremental.HaxeArguments`), so `--macro=x` counts the same as
+`--macro x`. An init macro given before `--macro genes.Generator.use()` can
+make Haxe type a module from old text, so after a file change Genes refuses
+the first request once, and the client sends it again. Give
+`--macro genes.Generator.use()` first to avoid this extra request. An
+argument that Genes cannot read counts as such an init macro.
+
 ## Async/await sugar (optional)
 
 genes-ts includes an `@:async` + `await(...)` macro that emits native

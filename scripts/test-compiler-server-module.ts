@@ -163,6 +163,31 @@ const raceMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Race {\n`
   + `      sys.io.File.saveContent(file, StringTools.replace(sys.io.File.getContent(file), parts[1], parts[2]));\n`
   + `    });\n  }\n}\n`;
 const raceArgs = ["--macro", `mr.Race.install(${JSON.stringify(raceFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
+
+/**
+ * A test double for an editor that saves a file twice inside one whole
+ * second while Haxe runs a full request (genes-f8vc.14.24): `mr.Strip`, an
+ * init macro given after `genes.Generator.use()` (so after Genes walked the
+ * included folders), replaces a text in the file that `strip.flag` names,
+ * before Haxe's own `include` walk parses the file, and puts the old content
+ * back in `onAfterTyping` with the modification time of the first save
+ * (`touch -r`), so Haxe's file-time check cannot see the second save. It
+ * runs only in a request with `--main` (a cold build or a full request), so
+ * the module request of a step never takes the flag.
+ */
+const stripMacro = `package mr;\n\nimport haxe.macro.Context;\n\nclass Strip {\n`
+  + `  public static function install(flag: String, sources: String): Void {\n`
+  + `    if (!sys.FileSystem.exists(flag)\n`
+  + `      || haxe.macro.Compiler.getConfiguration().args.indexOf('--main') < 0)\n      return;\n`
+  + `    final parts = sys.io.File.getContent(flag).split('|');\n`
+  + `    sys.FileSystem.deleteFile(flag);\n    final file = sources + '/' + parts[0];\n`
+  + `    final original = sys.io.File.getContent(file);\n`
+  + `    sys.io.File.saveContent(file, StringTools.replace(original, parts[1], parts[2]));\n`
+  + `    Sys.command('touch', ['-r', file, flag + '.time']);\n`
+  + `    Context.onAfterTyping(_ -> {\n      sys.io.File.saveContent(file, original);\n`
+  + `      Sys.command('touch', ['-r', flag + '.time', file]);\n    });\n  }\n}\n`;
+const stripFlag = path.join(tempRoot, "strip.flag");
+const stripArgs = ["--macro", `mr.Strip.install(${JSON.stringify(stripFlag)}, ${JSON.stringify(path.join(workspace, "src"))})`];
 const timeoutMs = 180_000;
 const keepControl = process.argv.includes("--keep-control");
 /** `--sweep` runs only the scripted structural sweep (`sweepGroup`). */
@@ -245,6 +270,15 @@ type Step = {
   readonly raceOnModule?: string;
   /** A save (`file|from|to`) that lands while Haxe types the full request. */
   readonly raceOnFull?: string;
+  /**
+   * A save (`file|from|to`, under `src/`) that lands after Genes walked the
+   * included folders and before Haxe's own `include` walk, and a second
+   * save that puts the file back in the same whole second (`mr.Strip`), in
+   * the cold build and in the full request of the step. Both see the first
+   * save, so they must still be equal. Only for a step without a module
+   * request: the cold build of a preview would take the flag.
+   */
+  readonly stripOnFull?: string;
   /**
    * A save (`file|from|to`, under `src/`) after Genes read the file and before
    * Haxe parses it, reverted after typing (`mr.Flip`), in the module request.
@@ -1342,6 +1376,37 @@ function earlyInitMacroGroups(): ReadonlyArray<Group> {
           id: "Fresh saved in the same whole second",
           apply: () => editInSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
           initRefusal: "full"
+        }
+      ]
+    },
+    {
+      // The same init macro written as one argument, `--macro=<call>`, as
+      // Haxe 4.3.7 accepts it and keeps it in
+      // `Compiler.getConfiguration().args` (genes-f8vc.14.22). Before the
+      // fix, Genes looked only for `--macro` as an argument of its own, so
+      // the init-macro rule missed this macro: the full request of step 1
+      // was refused only by the kept-stale check, and the module request of
+      // step 2 was refused as `stale-source` instead of by this rule.
+      name: "early-init-inline-macro",
+      files: {
+        "mr/Main.hx": mainWith(["trace(Fresh.run());"]),
+        "mr/Fresh.hx": freshWith("one"),
+        "mr/Early.hx": earlyMacro
+      },
+      argsBeforeGenes: ["--macro=mr.Early.install()"],
+      noInvalidate: true,
+      steps: [
+        {
+          id: "Fresh saved with its modification time kept (inline --macro=)",
+          apply: () => editSameSecond("Fresh.hx", "return 'one';", "return 'two';"),
+          initRefusal: "full"
+        },
+        {
+          id: "Fresh saved again with its modification time kept, preview of Fresh (inline --macro=)",
+          apply: () => editSameSecond("Fresh.hx", "return 'two';", "return 'six';"),
+          module: "mr.Fresh",
+          initRefusal: "module",
+          expect: "preview"
         }
       ]
     },
@@ -2642,6 +2707,28 @@ function privateReachGroups(): ReadonlyArray<Group> {
       ]
     },
     {
+      // The same project init macro written as one argument,
+      // `--macro=<call>` (genes-f8vc.14.22). Before the fix, Genes did not
+      // see it, so the private method previewed.
+      name: "std-private-init-macro-inline",
+      dce: "std",
+      extraArgs: ["--macro=mr.Spy.install()"],
+      files: {
+        ...ownMain(["Pod"]),
+        "mr/Spy.hx": "package mr;\n\nclass Spy {\n  public static function install(): Void {}\n}\n",
+        ...extensionCallFiles("Pod", {
+          user: "  public static function show(): String {\n    return new Pod().title();\n  }\n"
+        })
+      },
+      steps: [
+        { id: "std: a private method with a fresh name in a program with an inline --macro= project init macro (public-shape-changed)",
+          apply: () => edit("Pod.hx", "  public function title(): String {",
+            "  function spare(): String {\n    return 'spare';\n  }\n\n  public function title(): String {"),
+          module: "mr.Pod", expect: "public-shape-changed",
+          check: reasonNames("--macro mr.Spy.install() is an init macro outside Genes") }
+      ]
+    },
+    {
       // The two project-macro rows of `std-structural` (genes-f8vc.14.7), in
       // a program of their own: a project macro makes every private field of
       // the program visible, so the private-function previews of
@@ -3185,6 +3272,74 @@ function extraRootGroups(): ReadonlyArray<Group> {
           module: "mr.Button", expect: "preview" }
       ]
     },
+    declarationlessRaceGroup("roots-declarationless-race", "mr/inc", "mr.inc"),
+    // The same race on the class path that Haxe gives without `-cp`: the
+    // folder of the request, which the walk spells `./rootinc/Late.hx` and
+    // Haxe's positions spell `rootinc/Late.hx` (genes-f8vc.14.24).
+    declarationlessRaceGroup("roots-declarationless-race-root-class-path", "../rootinc", "rootinc"),
+    {
+      // genes-f8vc.14.24: an init macro given before Genes that loads an
+      // included module by name can make Haxe use its old parse of a file
+      // without a declaration before Genes walks the folder. On 339b4855
+      // Genes noted no content of such a file, so the init macro rule did
+      // not see its change: when the file was saved in the same second after
+      // a module request had parsed it (no server/invalidate), the full
+      // request kept the old parse and differed from cold. Now the full
+      // request notes what Haxe parsed for each such file: the first time it
+      // cannot prove it (the roots are unknown, and the next full request is
+      // refused once), and a change of the file is refused once
+      // (`GENES-MODULE-REQUEST-003`).
+      name: "roots-declarationless-early-macro",
+      noInvalidate: true,
+      files: {
+        "mr/EarlyInclude.hx": `package mr;\n\n#if macro\nclass EarlyInclude {\n`
+          + `  public static function install(): Void {\n`
+          + `    haxe.macro.Context.getModule('mr.inc.Late');\n  }\n}\n#end\n`,
+        "mr/inc/Card.hx": `package mr.inc;\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+          + `    return 'card ' + mr.Theme.color();\n  }\n}\n`,
+        "mr/inc/Late.hx": `package mr.inc;\n\n#if macro\n@:keep\nclass Late {\n`
+          + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+      },
+      argsBeforeGenes: ["--macro", "mr.EarlyInclude.install()"],
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        // No step edits `mr/Button.hx`: the init macro rule would refuse
+        // each module request of a changed file once, which is not what
+        // these steps show.
+        { id: "early macro: Genes has not proven the file without a declaration (include-changed)",
+          apply: () => {}, module: "mr.Button", expect: "include-changed", initRefusal: "full" },
+        { id: "early macro: module request after the full request proved the file",
+          apply: () => {}, module: "mr.Button", expect: "preview" },
+        // The module request runs the early macro too, so Haxe holds a parse
+        // of the file without the class when the save lands after it.
+        { id: "early macro: only the file without a declaration gets a class, in the same second",
+          apply: () => {}, module: "mr.Button", expect: "preview",
+          afterModule: () => editSameSecond("inc/Late.hx", "#if macro", "#if !acro"),
+          initRefusal: "full" },
+        { id: "early macro: module request after the full request built the class",
+          apply: () => {},
+          module: "mr.Button", expect: "preview" }
+      ]
+    },
+    earlyMacroRestoreGroup("roots-early-macro-module-restore", "module"),
+    earlyMacroRestoreGroup("roots-early-macro-display-restore", "display"),
+    {
+      // genes-f8vc.14.24: the `root empty` lines of the records text follow
+      // the module names, not the order in which the file system lists the
+      // folder (APFS lists these files in another order).
+      name: "roots-empty-order",
+      dce: "std",
+      files: {
+        ...includeFiles,
+        ...Object.fromEntries(["Zeta", "Alpha", "Mid", "Beta", "Omega", "Kappa", "Delta"].map((name) =>
+          [`mr/inc/${name}.hx`, `package mr.inc;\n\n#if macro\nclass ${name} {}\n#end\n`]))
+      },
+      programRoots: ["--macro", "include('mr.inc', false)"],
+      steps: [
+        { id: "empty order: literal edit beside seven files without a declaration",
+          apply: button("return 'Save';", "return 'Save!';"), module: "mr.Button", expect: "preview" }
+      ]
+    },
     {
       name: "roots-include-ignore-wildcard",
       dce: "std",
@@ -3280,6 +3435,95 @@ function dceFullIncludeGroup(name: string, extraArgs: ReadonlyArray<string>,
 }
 
 /**
+ * A listed file that loses its class while a full request runs
+ * (genes-f8vc.14.24, review round 3 of #269). Under `-dce full`,
+ * `include('<pack>', false)` adds `Late`, a `@:keep` class that keeps the
+ * private `mr.Button.unused`. In step 2, `mr.Strip` removes the class after
+ * Genes walked the folder and before Haxe's walk, and puts it back after
+ * typing with the same modification time; the session invalidates only
+ * `mr/Button.hx`. Haxe keeps the parse without the class. On 339b4855 Genes
+ * kept the old digest of the file as proven, so the full request of step 3
+ * kept that parse and differed from cold (`mr/Button.ts`, `<folder>/Late.ts`),
+ * and step 4 published a stale preview. `folder` is the included folder
+ * relative to `src/`.
+ */
+function declarationlessRaceGroup(name: string, folder: string, pack: string): Group {
+  return {
+    name,
+    files: {
+      "mr/Strip.hx": stripMacro,
+      [`${folder}/Card.hx`]: `package ${pack};\n\n@:keep\nclass Card {\n  public static function text(): String {\n`
+        + `    return 'card ' + mr.Theme.color();\n  }\n}\n`,
+      [`${folder}/Late.hx`]: `package ${pack};\n\n#if !acro\n@:keep\nclass Late {\n`
+        + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+    },
+    extraArgs: stripArgs,
+    programRoots: ["--macro", `include('${pack}', false)`],
+    steps: [
+      { id: `${name}: literal edit beside the kept class`, apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview" },
+      { id: `${name}: the class goes and comes back in one second while the full request runs`,
+        apply: () => edit("Button.hx", "return 'Save!';", "return 'Save';"),
+        stripOnFull: `${folder}/Late.hx|#if !acro|#if macro` },
+      // The second walk saw the file change while the request ran, so the
+      // roots are unknown until the next full request.
+      { id: `${name}: module request after the race (include-changed)`,
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "include-changed" },
+      { id: `${name}: literal edit after the full request parsed the class again`,
+        apply: () => edit("Button.hx", "return 'Save!';", "return 'Save';"),
+        module: "mr.Button", expect: "preview" }
+    ]
+  };
+}
+
+/**
+ * Another request makes Haxe parse an included file without its class, and
+ * a save puts the class back in the same whole second (genes-f8vc.14.24,
+ * review of #270 on 4c78e5d2). `mr.EarlyInclude`, an init macro given
+ * before `genes.Generator.use()`, loads `mr.inc.Late` in every request, also
+ * in a module request (`via: "module"`) and in an editor request with the
+ * session's defines (`via: "display"`), where Genes notes no content of the
+ * file. In step 3 a save removes the `@:keep` class of `mr/inc/Late.hx`, that
+ * request parses the file, and a second save in the same whole second puts
+ * the class back; no server/invalidate is sent. On 4c78e5d2 the next full
+ * request was refused once (`GENES-MODULE-REQUEST-003`): the digest was the
+ * proven one, only the file status differed, so Genes did not make Haxe
+ * parse the file again, and the request sent again differed from cold
+ * (`mr/Button.ts`, `mr/inc/Late.ts`); the previews after it were stale. Now
+ * a file whose status differs from the noted one is parsed again too.
+ */
+function earlyMacroRestoreGroup(name: string, via: "module" | "display"): Group {
+  const restore = () => editSameSecond("inc/Late.hx", "#if macro", "#if !acro");
+  return {
+    name,
+    noInvalidate: true,
+    files: {
+      "mr/EarlyInclude.hx": `package mr;\n\n#if macro\nclass EarlyInclude {\n`
+        + `  public static function install(): Void {\n`
+        + `    haxe.macro.Context.getModule('mr.inc.Late');\n  }\n}\n#end\n`,
+      "mr/inc/Late.hx": `package mr.inc;\n\n#if !acro\n@:keep\nclass Late {\n`
+        + `  public static function text(): String {\n    return @:privateAccess mr.Button.unused();\n  }\n}\n#end\n`
+    },
+    argsBeforeGenes: ["--macro", "mr.EarlyInclude.install()"],
+    programRoots: ["--macro", "include('mr.inc', false)"],
+    steps: [
+      { id: `${name}: module request without an edit`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      { id: `${name}: second module request without an edit`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      via === "module"
+        ? { id: `${name}: a module request parses the file without its class, which comes back in the same second`,
+            apply: () => editSource("mr/inc/Late.hx", "#if !acro", "#if macro"),
+            module: "mr.Button", expect: "source-changed", afterModule: restore, initRefusal: "full" }
+        : { id: `${name}: an editor request parses the file without its class, which comes back in the same second`,
+            apply: () => editSource("mr/inc/Late.hx", "#if !acro", "#if macro"),
+            display: { when: "after-save", form: "json-session" }, afterModule: restore, initRefusal: "full" },
+      { id: `${name}: module request after the full request`, apply: () => {}, module: "mr.Button", expect: "preview" },
+      { id: `${name}: another module request`, apply: () => {}, module: "mr.Button", expect: "preview" }
+    ]
+  };
+}
+
+/**
  * A program shaped like Caffeine's development build (`development.hxml`
  * over `web.hxml`): `--main`, four non-recursive includes (two packages of
  * one domain tree, a UI package and a package on a second class path), and
@@ -3337,11 +3581,442 @@ function caffeineShapedGroup(): Group {
   };
 }
 
+/** A class `mr.reach.<name>` whose `text()` returns `'<word> ' + <use>`. */
+function reachUser(name: string, word: string, use: string): string {
+  return `package mr.reach;\n\nclass ${name} {\n  public static function text(): String {\n`
+    + `    return '${word} ' + ${use};\n  }\n}\n`;
+}
+
+/**
+ * Modules that only an inline call or a macro call brings into the program
+ * (genes-f8vc.14.26). Haxe types each of these calls in the caller and
+ * leaves no reference to the callee's class in the typed body: an inline
+ * function's body or an inline constant's value replaces the call, and a
+ * macro returns other code. Haxe still loads the callee's module, and a
+ * full build writes its file. Before the fix, `DceStdUses.dependenciesOf`
+ * read only typed bodies, so no module that stays was known to load the
+ * callee, and every `-dce std` module request was refused with
+ * `module-may-leave` (measured on Caffeine: 0 of 18 edits previewed). Now
+ * Genes also reads Haxe's own list of the modules that each module loads
+ * (`HaxeDependencies`). The last rows remove the only call: a full build
+ * then drops the callee's file, and the request must still be refused.
+ */
+function inlineReachGroups(): ReadonlyArray<Group> {
+  return [
+    {
+      name: "std-inline-reach",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith([
+          "trace(mr.reach.ViaInline.text());",
+          "trace(mr.reach.ViaFinal.text());",
+          "trace(mr.reach.ViaMacro.text());"
+        ]),
+        "mr/reach/Codec.hx": "package mr.reach;\n\nclass Codec {\n"
+          + "  public static inline function assume<T>(value: T): T {\n    return value;\n  }\n}\n",
+        "mr/reach/Names.hx": "package mr.reach;\n\nclass Names {\n"
+          + "  public static inline final CITATION = 'citation';\n}\n",
+        "mr/reach/Twice.hx": "package mr.reach;\n\nclass Twice {\n"
+          + "  public static macro function twice(value: haxe.macro.Expr): haxe.macro.Expr {\n"
+          + "    return macro $value * 2;\n  }\n}\n",
+        "mr/reach/ViaInline.hx": reachUser("ViaInline", "inline", "Codec.assume('value')"),
+        "mr/reach/ViaFinal.hx": reachUser("ViaFinal", "final", "Names.CITATION"),
+        "mr/reach/ViaMacro.hx": reachUser("ViaMacro", "macro", "Twice.twice(2)")
+      },
+      steps: [
+        { id: "reach: literal edit of a module beside the inline and macro calls",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "reach: literal edit of the module with the inline function call",
+          apply: () => editSource("mr/reach/ViaInline.hx", "'inline '", "'inline! '"),
+          module: "mr.reach.ViaInline", expect: "preview" },
+        { id: "reach: literal edit of the module with the inline constant",
+          apply: () => editSource("mr/reach/ViaFinal.hx", "'final '", "'final! '"),
+          module: "mr.reach.ViaFinal", expect: "preview" },
+        { id: "reach: literal edit of the module with the macro call",
+          apply: () => editSource("mr/reach/ViaMacro.hx", "'macro '", "'macro! '"),
+          module: "mr.reach.ViaMacro", expect: "preview" },
+        { id: "reach: the only inline function call is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaInline.hx", "Codec.assume('value')", "'value'"),
+          module: "mr.reach.ViaInline", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Codec") },
+        { id: "reach: the only inline constant is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaFinal.hx", "Names.CITATION", "'citation'"),
+          module: "mr.reach.ViaFinal", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Names") },
+        { id: "reach: the only macro call is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaMacro.hx", "Twice.twice(2)", "4"),
+          module: "mr.reach.ViaMacro", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Twice") }
+      ]
+    },
+    {
+      // Caffeine's shapes: `genes.ts.Json.value` returns a call of
+      // `Json.checkedValue`, which reaches `genes.ts.JsonCodec` only through
+      // the inline `unsafeAssumeJson`; a module of another package reads a
+      // `public static inline final` (as Caffeine's CmlGraphReadModel reads
+      // `GraphReferenceCard.CitationProperty`); and a Genes macro call
+      // (`genes.ts.TypeArguments.call`) loads its macro class, which
+      // nothing else names. Each one made every request `module-may-leave`.
+      // `genes.js.Async.enable()` gives every class a global build macro, as
+      // Caffeine's development build does. On d64d0ee2, which distrusted
+      // every single line of Haxe's list for a module that ran any build
+      // macro, each preview row here was still `module-may-leave`.
+      name: "std-inline-reach-caffeine-shaped",
+      dce: "std",
+      extraArgs: ["--macro", "genes.js.Async.enable()"],
+      files: {
+        "mr/Main.hx": mainWith(["trace(app.read.ReadModel.text());"]),
+        "app/graph/ReferenceCard.hx": "package app.graph;\n\nclass ReferenceCard {\n"
+          + "  public static inline final CitationProperty = 'citation';\n}\n",
+        // No import line: Haxe loads an imported module with its importer,
+        // so the last row would then keep `app.graph.ReferenceCard`.
+        "app/read/ReadModel.hx": "package app.read;\n\n"
+          + "class ReadModel {\n  public static function text(): String {\n"
+          + "    final value = genes.ts.Json.value({kind: 'note'});\n"
+          + "    return 'read ' + app.graph.ReferenceCard.CitationProperty + ' ' + (value == null ? 'none' : 'json');\n"
+          + "  }\n}\n",
+        "app/read/Typed.hx": "package app.read;\n\nclass Typed {\n"
+          + "  @:ts.explicitTypeArguments\n"
+          + "  static function same<T>(value: T): T {\n    return value;\n  }\n\n"
+          + "  public static function text(): String {\n"
+          + "    return 'typed ' + genes.ts.TypeArguments.call(same('x'), 'w');\n  }\n}\n"
+      },
+      programRoots: ["--macro", "include('app.read', false)"],
+      steps: [
+        { id: "caffeine reach: literal edit of a module of --main",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "caffeine reach: literal edit of the module with Json.value and the inline constant",
+          apply: () => editSource("app/read/ReadModel.hx", "'read '", "'read! '"),
+          module: "app.read.ReadModel", expect: "preview" },
+        { id: "caffeine reach: literal edit of the module with the Genes macro call",
+          apply: () => editSource("app/read/Typed.hx", "'typed '", "'typed! '"),
+          module: "app.read.Typed", expect: "preview" },
+        { id: "caffeine reach: structural edit of the module with the Genes macro call",
+          apply: () => {
+            editSource("app/read/Typed.hx", "    return 'typed! ' +",
+              "    return extra() + 'typed! ' +");
+            editSource("app/read/Typed.hx", "  public static function text(): String {",
+              "  static function extra(): String {\n    return '+';\n  }\n\n"
+              + "  public static function text(): String {");
+          },
+          module: "app.read.Typed", expect: "preview" },
+        { id: "caffeine reach: the only read of the inline constant is removed (module-may-leave)",
+          apply: () => editSource("app/read/ReadModel.hx", "app.graph.ReferenceCard.CitationProperty", "'citation'"),
+          module: "app.read.ReadModel", expect: "module-may-leave",
+          check: reasonNames("app.graph.ReferenceCard") }
+      ]
+    }
+  ];
+}
+
+/**
+ * The review rows of genes-ts #272 round 1 (Fable on 7447d44d). `mr.reach.Built`
+ * has `@:build(mr.reach.Model.build())`, and `mr.reach.Model` has a runtime
+ * `label()` and, inside `#if macro`, the static `build()`. So Haxe's list of
+ * `mr.reach.Built` names `mr/reach/Model.hx` for a module of Haxe's macro
+ * context. `mr.reach.User` is the only module that calls `Model.label()`;
+ * the last row removes that call, and a full build then drops
+ * `mr/reach/Model.ts`. `build` is the line that the build macro runs first:
+ *
+ * - `review-plain-build`: nothing (a control; `module-may-leave` on
+ *   7447d44d too, because the metadata named the macro class);
+ * - `review-build-removes-meta`: it removes its own `@:build` metadata, so
+ *   no metadata names the macro class. On 7447d44d the line counted, and
+ *   the preview kept `mr/reach/Model.ts` (`STALE`);
+ * - `review-build-registers-own-file`: it registers `mr/reach/Model.hx` as a
+ *   file that `mr.reach.Built` depends on, so the line is listed twice (a
+ *   macro module and a module that `registerModuleDependency` made). On
+ *   7447d44d "listed twice" counted, and the preview was `STALE` too.
+ *
+ * Now a line counts once only when its file was no module of the macro
+ * context in the request that typed the dependent, twice only when the
+ * module has a macro function, and never when the file is a second entry
+ * of the program's list. Each last row is `module-may-leave`.
+ */
+function reviewBuildGroups(): ReadonlyArray<Group> {
+  const variants: ReadonlyArray<{ readonly name: string, readonly build: string, readonly session?: boolean }> = [
+    { name: "review-plain-build", build: "" },
+    { name: "review-build-removes-meta",
+      build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n" },
+    { name: "review-build-registers-own-file",
+      build: "    haxe.macro.Context.registerModuleDependency(haxe.macro.Context.getLocalModule(),\n"
+        + "      haxe.macro.Context.resolvePath('mr/reach/Model.hx'));\n" },
+    // The same as `review-build-removes-meta` with the `dump-path` that the
+    // Genes development session gives (round 2 of the review): both of
+    // Haxe's lists go to that folder, and no `dump` folder is made in the
+    // working folder.
+    { name: "review-build-removes-meta-session",
+      build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n", session: true }
+  ];
+  const buildGroups: ReadonlyArray<Group> = variants.map((variant) => ({
+    name: variant.name,
+    dce: "std",
+    ...(variant.session === true ? { extraArgs: SESSION_DUMP_PATH } : {}),
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Built.text());", "trace(mr.reach.User.text());"]),
+      "mr/reach/Model.hx": "package mr.reach;\n\nclass Model {\n"
+        + "  public static function label(): String {\n    return 'model';\n  }\n\n"
+        + "  #if macro\n  public static function build(): Array<haxe.macro.Expr.Field> {\n"
+        + variant.build
+        + "    return haxe.macro.Context.getBuildFields();\n  }\n  #end\n}\n",
+      "mr/reach/Built.hx": "package mr.reach;\n\n@:build(mr.reach.Model.build())\nclass Built {\n"
+        + "  public static function text(): String {\n    return 'built';\n  }\n}\n",
+      "mr/reach/User.hx": reachUser("User", "user", "Model.label()")
+    },
+    steps: [
+      { id: `${variant.name}: literal edit of a module beside the build macro`,
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview",
+        check: variant.session === true ? sessionDumpFolderOnly : sharedMacroFilesDeleted },
+      { id: `${variant.name}: the only call of Model.label() is removed (module-may-leave)`,
+        apply: () => editSource("mr/reach/User.hx", "Model.label()", "'model'"),
+        module: "mr.reach.User", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Model") }
+    ]
+  }));
+  return buildGroups;
+}
+
+/**
+ * The `dump-path` that the Genes development session gives every build with
+ * the incremental define (`HAXE_DEPENDENCIES_FOLDER` of
+ * `tooling/src/session/effective-invocation.ts`), here a folder beside the
+ * workspace.
+ */
+const SESSION_DUMP_PATH: ReadonlyArray<string> = ["-D", "dump-path=../session-dump"];
+
+/**
+ * A `check` for a request with `SESSION_DUMP_PATH`: Haxe wrote both lists
+ * into that folder, Genes deleted nothing there, and no `dump` folder was
+ * made in the working folder.
+ */
+function sessionDumpFolderOnly(_report: ModuleReport, label: string): void {
+  const folderPath = path.join(workspace, "..", "session-dump");
+  ok(existsSync(path.join(folderPath, "js", "dependencies.dump")),
+    `${label}: the program's list must stay in the session folder`);
+  ok(existsSync(path.join(folderPath, "macro", "dependencies.dump")),
+    `${label}: the macro context's list must be in the session folder`);
+  ok(!existsSync(path.join(workspace, "dump")),
+    `${label}: no dump folder may be made in the working folder`);
+}
+
+/**
+ * A `check` for a request without a session `dump-path`: Genes deleted the
+ * two files of the shared `dump/macro` of the working folder, and left the
+ * folder, so another process that writes there never loses it.
+ */
+function sharedMacroFilesDeleted(_report: ModuleReport, label: string): void {
+  const macroFolder = path.join(workspace, "dump", "macro");
+  ok(existsSync(macroFolder), `${label}: the shared dump/macro folder must stay`);
+  ok(!existsSync(path.join(macroFolder, "dependencies.dump"))
+    && !existsSync(path.join(macroFolder, "dependants.dump")),
+    `${label}: Genes must delete the two files of the shared dump/macro folder`);
+}
+
+/**
+ * A module that reaches another only through an inline call and also owns a
+ * `genes.ts.Imports` holder (review of genes-ts #274, round 1).
+ * `Imports.namedImport` makes its holder class with `Context.defineType`,
+ * and Haxe 4.3.7 gives that new module the file of the module being typed,
+ * so the file of `<pack>.ViaBoth` is an entry of Haxe's list twice. On
+ * def4b46f Genes skipped both blocks, so the inline edge to `<pack>.Codec`
+ * was lost and the literal edit of `mr.Button` was `module-may-leave`. On
+ * da5b15e7 the order of the list decided: the package `mr.reach` sorts after
+ * `genes.ts.imports`, so the real block came last and the edit previewed,
+ * while the package `a.reach` sorts before it, so the holder's block came
+ * last and the edge was lost there too. 979f8a64 and 932c1823 merged the
+ * holder's block into `ViaBoth`, and the edit previewed in both packages,
+ * but a merge can take another module's lines (`probe7`, `probe8`), so
+ * a51bf6b6 counted no block of such a file, and the literal edit of
+ * `mr.Button` was `module-may-leave`. genes-f8vc.14.41: `Imports.hx` now
+ * records the module whose typing made each holder, and the blocks of a
+ * file count together only when every other entry is a holder that names
+ * that module, so the edit previews again in both packages. The literal
+ * edit of `ViaBoth` previews, and removing the only inline call is refused.
+ */
+function importHolderGroups(): ReadonlyArray<Group> {
+  return [
+    { name: "probe5-inline-and-import-holder", pack: "mr.reach" },
+    { name: "probe5-inline-and-import-holder-a-package", pack: "a.reach" }
+  ].map(({ name, pack }) => {
+    const folderName = pack.split(".").join("/");
+    return {
+      name,
+      dce: "std" as const,
+      files: {
+        "mr/Main.hx": mainWith([`trace(${pack}.ViaBoth.text());`]),
+        [`${folderName}/Codec.hx`]: `package ${pack};\n\nclass Codec {\n`
+          + "  public static inline function assume<T>(value: T): T {\n    return value;\n  }\n}\n",
+        [`${folderName}/ViaBoth.hx`]: `package ${pack};\n\nclass ViaBoth {\n`
+          + "  public static function text(): String {\n"
+          + "    final join: (String, String) -> String = genes.ts.Imports.namedImport('node:path', 'join');\n"
+          + "    return 'both ' + Codec.assume('value') + ' ' + join('a', 'b');\n  }\n}\n"
+      },
+      steps: [
+        // genes-f8vc.14.41: `module-may-leave` on a51bf6b6, a preview now
+        // that Genes merges the holders that `ViaBoth`'s typing made.
+        { id: `${name}: literal edit of a module beside the holder`,
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: `${name}: literal edit of the module with the holder`,
+          apply: () => editSource(`${folderName}/ViaBoth.hx`, "'both '", "'both! '"),
+          module: `${pack}.ViaBoth`, expect: "preview" },
+        { id: `${name}: the only inline call is removed (module-may-leave)`,
+          apply: () => editSource(`${folderName}/ViaBoth.hx`, "Codec.assume('value')", "'value'"),
+          module: `${pack}.ViaBoth`, expect: "module-may-leave",
+          check: reasonNames(`${pack}.Codec`) }
+      ]
+    };
+  });
+}
+
+/**
+ * A type that a project macro defines with an explicit `moduleDependency`
+ * (review of genes-ts #274, round 2). `mr.reach.Definer` calls
+ * `Gen.companion('on')`, which defines the extern class
+ * `mr.reach.OwnerCompanion` with `Context.defineType(def, 'mr.reach.Owner')`,
+ * a position in `Owner.hx`, and a field of type `mr.reach.Hidden`. Nothing
+ * else names `Hidden`. The macro always returns `'gen'`, so the edit `'on'`
+ * to `'of'` changes no typed code of `Definer`, but a cold build no longer
+ * makes the companion and drops `mr/reach/Hidden.ts`.
+ *
+ * The first row edits `Definer` and keeps the companion: its module request
+ * types `Definer`, so the companion and `Hidden` are loaded and it previews
+ * on every commit. The second row is the case.
+ *
+ * The companion has the file of `mr.reach.Owner`, so that file is an entry
+ * of Haxe's list twice, and the module request counts equal the entries.
+ * On da5b15e7 and on 979f8a64 Genes gave the companion's lines to `Owner`
+ * (`Owner` loads `Hidden`), so the second row previewed
+ * `STALE mr/reach/Hidden.ts`. The true chain is `Definer`, the companion,
+ * `Hidden`. The companion is no `genes.ts.Imports` holder that `Owner`
+ * made, so no block of `Owner.hx` counts, and the second row is
+ * `module-may-leave` (also with genes-f8vc.14.41, which merges only such
+ * holders).
+ */
+function explicitModuleDependencyGroup(variant: "plain" | "hand-written-definer" = "plain"): Group {
+  // `probe9-hand-written-definer-metadata` (review of genes-ts #278): the
+  // companion also carries `@:genes.importDefiner('mr.reach.Owner')`, the
+  // metadata of a `genes.ts.Imports` holder. On 28666732 it balanced the
+  // companion's extra entry, so Genes merged its block into `Owner` and the
+  // second row was `STALE mr/reach/Hidden.ts`; only a class of the package
+  // `genes.ts.imports` counts as a holder now, and the row is refused.
+  const forged = variant === "hand-written-definer";
+  const meta = forged ? "meta: [{name: ':genes.importDefiner', params: [macro 'mr.reach.Owner'], pos: pos}],\n      " : "";
+  return {
+    name: forged ? "probe9-hand-written-definer-metadata" : "probe7-explicit-module-dependency",
+    dce: "std",
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Owner.text());", "trace(mr.reach.Definer.text());"]),
+      "mr/reach/Owner.hx": reachUser("Owner", "owner", "'.'"),
+      "mr/reach/Hidden.hx": "package mr.reach;\n\nclass Hidden {\n  public function new() {}\n}\n",
+      "mr/reach/Definer.hx": reachUser("Definer", "definer", "Gen.companion('on')"),
+      "mr/reach/Gen.hx": "package mr.reach;\n\n#if macro\nimport haxe.macro.Context;\nimport haxe.macro.Expr;\n#end\n\n"
+        + "class Gen {\n"
+        + "  public static macro function companion(flag: haxe.macro.Expr): haxe.macro.Expr {\n"
+        + "    switch flag.expr {\n"
+        + "      case EConst(CString('on', _)):\n        define();\n"
+        + "      default:\n    }\n"
+        + "    return macro 'gen';\n  }\n\n"
+        + "  #if macro\n  static function define(): Void {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Owner.hx'), min: 0, max: 1});\n"
+        + "    Context.defineType({pack: ['mr', 'reach'], name: 'OwnerCompanion', pos: pos, isExtern: true,\n"
+        + `      ${meta}kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n`
+        + "      kind: FVar(macro : mr.reach.Hidden)}]}, 'mr.reach.Owner');\n"
+        + "  }\n  #end\n}\n"
+    },
+    steps: [
+      // Not a literal edit of `mr.Button`: Haxe then reuses `Definer` from
+      // its cache without running the macro again, so the warm full request
+      // has no companion and no `Hidden` while a cold build has both (a
+      // difference of Haxe itself, whatever Genes does). An edit of
+      // `Definer` makes both builds run the macro.
+      { id: `${forged ? "probe9" : "probe7"}: literal edit of Definer, which still makes the companion`,
+        apply: () => editSource("mr/reach/Definer.hx", "'definer '", "'definer! '"),
+        module: "mr.reach.Definer", expect: "preview" },
+      { id: `${forged ? "probe9" : "probe7"}: Definer no longer makes the companion (module-may-leave)`,
+        apply: () => editSource("mr/reach/Definer.hx", "Gen.companion('on')", "Gen.companion('of')"),
+        module: "mr.reach.Definer", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Hidden") }
+    ]
+  };
+}
+
+/**
+ * `probe7` with a displaced holder (review of genes-ts #274, round 3, Fable
+ * on 932c1823). `mr.reach.OwnerCompanion` keeps the `moduleDependency`
+ * `mr.reach.Owner`, but its position is in `Definer.hx`. `mr.reach.Other`
+ * calls the project macro `Gen.joinFromOwner()`, which returns a
+ * `genes.ts.Imports.namedImport` call positioned in `Owner.hx`, so the
+ * holder has its position in `Owner.hx` but Haxe made it while it typed
+ * `Other`. `mr.reach.Normal` calls `namedImport` the ordinary way.
+ * `Owner.hx` is then an entry twice (`Owner` and the companion), and the
+ * modules with a position in it are `Owner` and the holder, so 932c1823
+ * merged the companion's block into `Owner`, and the second row was
+ * `STALE mr/reach/Hidden.ts`. Now the row is `module-may-leave`: with
+ * genes-f8vc.14.41 the holder records `Other` as the module that made it,
+ * and Haxe gave it `Other`'s file, so `Owner.hx` has one entry more (the
+ * companion) than `Owner` and its holders, and no block of it counts.
+ */
+function displacedHolderGroup(): Group {
+  return {
+    name: "probe8-displaced-holder-and-module-dependency",
+    dce: "std",
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Owner.text());", "trace(mr.reach.Definer.text());",
+        "trace(mr.reach.Other.text());", "trace(mr.reach.Normal.text());"]),
+      "mr/reach/Owner.hx": reachUser("Owner", "owner", "'.'"),
+      "mr/reach/Hidden.hx": "package mr.reach;\n\nclass Hidden {\n  public function new() {}\n}\n",
+      "mr/reach/Definer.hx": reachUser("Definer", "definer", "Gen.companion('on')"),
+      "mr/reach/Other.hx": "package mr.reach;\n\nclass Other {\n  public static function text(): String {\n"
+        + "    final join: (String, String) -> String = Gen.joinFromOwner();\n"
+        + "    return 'other ' + join('a', 'b');\n  }\n}\n",
+      "mr/reach/Normal.hx": "package mr.reach;\n\nclass Normal {\n  public static function text(): String {\n"
+        + "    final join: (String, String) -> String = genes.ts.Imports.namedImport('node:path', 'join');\n"
+        + "    return 'normal ' + join('a', 'b');\n  }\n}\n",
+      "mr/reach/Gen.hx": "package mr.reach;\n\n#if macro\nimport haxe.macro.Context;\nimport haxe.macro.Expr;\n#end\n\n"
+        + "class Gen {\n"
+        + "  public static macro function companion(flag: haxe.macro.Expr): haxe.macro.Expr {\n"
+        + "    switch flag.expr {\n"
+        + "      case EConst(CString('on', _)):\n        define();\n"
+        + "      default:\n    }\n"
+        + "    return macro 'gen';\n  }\n\n"
+        + "  public static macro function joinFromOwner(): haxe.macro.Expr {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Owner.hx'), min: 0, max: 1});\n"
+        + "    return {expr: ECall(macro genes.ts.Imports.namedImport, [{expr: EConst(CString('node:path', DoubleQuotes)), pos: pos},\n"
+        + "      {expr: EConst(CString('join', DoubleQuotes)), pos: pos}]), pos: pos};\n  }\n\n"
+        + "  #if macro\n  static function define(): Void {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Definer.hx'), min: 0, max: 1});\n"
+        + "    Context.defineType({pack: ['mr', 'reach'], name: 'OwnerCompanion', pos: pos, isExtern: true,\n"
+        + "      kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n"
+        + "      kind: FVar(macro : mr.reach.Hidden)}]}, 'mr.reach.Owner');\n"
+        + "  }\n  #end\n}\n"
+    },
+    steps: [
+      { id: "probe8: literal edit of Definer, which still makes the companion",
+        apply: () => editSource("mr/reach/Definer.hx", "'definer '", "'definer! '"),
+        module: "mr.reach.Definer", expect: "preview" },
+      { id: "probe8: Definer no longer makes the companion (module-may-leave)",
+        apply: () => editSource("mr/reach/Definer.hx", "Gen.companion('on')", "Gen.companion('of')"),
+        module: "mr.reach.Definer", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Hidden") }
+    ]
+  };
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
   ...stdGroups(),
   ...extraRootGroups(),
+  ...inlineReachGroups(),
+  ...reviewBuildGroups(),
+  ...importHolderGroups(),
+  explicitModuleDependencyGroup(),
+  explicitModuleDependencyGroup("hand-written-definer"),
+  displacedHolderGroup(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
@@ -4037,6 +4712,25 @@ function readRecordsText(file = descriptorFile): string | null {
   return existsSync(text) ? readFileSync(text, "utf8") : null;
 }
 
+/**
+ * Fails when the `root empty` lines of one `include` line in a records text
+ * are not sorted by module (genes-f8vc.14.24). Their order must not depend
+ * on the order in which the file system lists a folder.
+ */
+function rootEmptyInOrder(records: string | null, label: string): void {
+  let previous: string | null = null;
+  for (const line of (records ?? "").split("\n")) {
+    if (!line.startsWith("root empty ")) {
+      previous = null;
+      continue;
+    }
+    const module = line.split(" ")[2] ?? "";
+    ok(previous === null || previous < module,
+      `${label}: the root empty lines must be sorted by module (${previous ?? ""} before ${module})`);
+    previous = module;
+  }
+}
+
 /** Deletes the records text beside `file`, so that a request that writes none leaves none. */
 function clearRecordsText(file = descriptorFile): void {
   rmSync(`${file}.records.txt`, { force: true });
@@ -4567,16 +5261,31 @@ async function runGroup(group: Group,
       } else if (step.skipProgram !== true) {
         // The cold build of the preview check holds the same sources, unless
         // the step changes a file after the module request.
+        const strip = step.stripOnFull;
+        if (strip !== undefined) {
+          ok(step.module === undefined, `${label}: stripOnFull needs a step without a module request`);
+          writeFileSync(stripFlag, strip);
+        }
         const coldTree = previewCold !== undefined && step.afterModule === undefined
           ? previewCold : await coldBuild(compiler, label);
+        if (strip !== undefined) {
+          ok(!existsSync(stripFlag), `${label}: mr.Strip did not run in the cold build`);
+          writeFileSync(stripFlag, strip);
+        }
         const fullRefusal = step.initRefusal === "full" || step.initRefusal === "both";
         const program = await programRequest(server, label, step.raceOnFull, fullRefusal);
+        if (strip !== undefined) {
+          const [file, from] = strip.split("|");
+          ok(!existsSync(stripFlag), `${label}: mr.Strip did not run in the full request`);
+          ok(readFileSync(path.join(workspace, "src", file ?? ""), "utf8").includes(from ?? "|"),
+            `${label}: mr.Strip did not put the file back`);
+        }
         programMs = program.ms;
         const difference = treeDifference(hashTree(folder("program")), coldTree);
         deepStrictEqual(difference, [],
           `${label}: the full request after the step differs from the cold build:\n`
           + difference.join("\n"));
-        ok(program.refused || !fullRefusal,
+        ok(observe || program.refused || !fullRefusal,
           `${label}: the init macro rule did not refuse the full request`);
         base = hashTree(folder("program"));
         if (!observe) {
@@ -4584,6 +5293,7 @@ async function runGroup(group: Group,
           // advanced ones, and for the same sources they must be equal
           // (genes-f8vc.14.8), in its own check and in the plain text.
           const full = readRecordsText();
+          rootEmptyInOrder(full, label);
           const check = readRecordsReport().advancedCheck ?? "<absent>";
           if (advancedRecords !== null && step.afterModule === undefined && step.raceOnFull === undefined) {
             sameRecords(advancedRecords, full, label, "preview", "full request");

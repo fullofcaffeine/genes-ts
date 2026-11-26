@@ -11,6 +11,7 @@ import sys.FileSystem;
 import sys.io.File;
 import genes.AfterTypingPasses.AfterTypingClass;
 import genes.incremental.GenerationCache.CachedModule;
+import genes.incremental.HaxeArguments.HaxeArgument;
 import genes.incremental.IncrementalRequest;
 import genes.incremental.ProgramRoots.ProgramRootsFacts;
 import genes.util.PathUtil;
@@ -243,6 +244,22 @@ typedef ModuleRequestReport = {
   final profileMs: Float;
 
   /**
+   * Time spent reading and parsing Haxe's own dependency lists
+   * (`HaxeDependencies.edges`) in this request.
+   */
+  final dependencyListMs: Float;
+
+  /**
+   * The modules typed again with an unknown macro fact: modules that Haxe
+   * typed again in this request while the Haxe process had already run in
+   * another macro state of Genes (`HaxeDependencies.newMacroStateModules`).
+   * Lines listed once in Haxe's list do not count for them, so above 0,
+   * previews can be refused with `module-may-leave` until the server
+   * restarts.
+   */
+  final newMacroStateModules: Int;
+
+  /**
    * Time spent reading, hashing and reading the status of source files in
    * this request.
    */
@@ -367,6 +384,22 @@ typedef ModuleRecordsReport = {
 
   /** Time of the `-dce std` facts (`DceStdUses`) in this request (format 2). */
   final profileMs: Float;
+
+  /**
+   * Time spent reading and parsing Haxe's own dependency lists
+   * (`HaxeDependencies.edges`) in this request.
+   */
+  final dependencyListMs: Float;
+
+  /**
+   * The modules typed again with an unknown macro fact: modules that Haxe
+   * typed again in this request while the Haxe process had already run in
+   * another macro state of Genes (`HaxeDependencies.newMacroStateModules`).
+   * Lines listed once in Haxe's list do not count for them, so above 0,
+   * previews can be refused with `module-may-leave` until the server
+   * restarts.
+   */
+  final newMacroStateModules: Int;
 
   /**
    * The modules whose records an accepted preview advanced since the full
@@ -712,7 +745,9 @@ typedef ModuleRecordsReport = {
  * - `module-may-leave` (every `-dce std` request, also a literal edit):
  *   every module with an output file stays loaded. Haxe loads a module with
  *   each module that names it (`DceStdUses.dependenciesOf`: typed references
- *   and import lines), and the request's own modules surely stay, and so do
+ *   and import lines; and Haxe's own list, `HaxeDependencies`, for a class
+ *   that only an inline function, an inline constant or a macro call
+ *   names, genes-f8vc.14.26), and the request's own modules surely stay, and so do
  *   the module of the stored `--main` class, each class-name argument and
  *   each module that an `include` line adds (`ProgramRoots`,
  *   genes-f8vc.14.12). Example: an edit removes the only
@@ -941,8 +976,9 @@ class ModuleRequest {
    * may hold content that Haxe's own check missed: Haxe keeps file times in
    * whole seconds, so a second save in the same second looks unchanged.
    * `beginRequest` makes Haxe parse such a file again. A full request reads
-   * every file here before typing and keeps the newer status when the digest
-   * is the same; a deleted file keeps the digest `missing`. A file that
+   * every file here before typing and makes Haxe parse again each file whose
+   * digest or status differs; it keeps the newer status when the digest is
+   * the same, and a deleted file keeps the digest `missing`. A file that
    * `beginRequest` makes Haxe parse again is `unknown` until `afterSave`
    * proves it (`unproveParsed`), so a request that fails with a type error
    * leaves it `unknown`. A cache fact:
@@ -1054,6 +1090,14 @@ class ModuleRequest {
   static var shapeSeconds = 0.0;
   static var rootSeconds = 0.0;
   static var requestShape: Null<String> = null;
+
+  /**
+   * The modules with a macro function, outside Haxe's standard library and
+   * Genes' own folder, that Haxe's list names for the requested module of
+   * a module request (`addHaxeDependencies`); `structuralRefusal` refuses
+   * them as opaque macro modules.
+   */
+  static var requestMacroModules: Array<String> = [];
 
   /** `targetFactsOf` of each module of this request, read in `afterSave`. */
   static var requestFacts: Map<String, String> = new Map();
@@ -1255,7 +1299,9 @@ class ModuleRequest {
    * (`invalidate`): their content differs from what Haxe last typed, or an
    * earlier module request typed their module alone. A module of one of them
    * that arrives as an object of an earlier request was typed from old text
-   * (`keptStaleModules`).
+   * (`keptStaleModules`). The keys are written by `Path.normalize`, so that
+   * the walk of an `include` line on the class path of the request's folder
+   * (`./mr/A.hx`) and Haxe's positions (`mr/A.hx`) name one file.
    */
   static var invalidatedFiles: Map<String, Bool> = new Map();
 
@@ -1280,6 +1326,7 @@ class ModuleRequest {
     requestFacts = new Map();
     requestDeclarationFacts = new Map();
     requestProfiles = new Map();
+    requestMacroModules = [];
     requestDeclared = null;
     profileSeconds = 0.0;
     DceStdUses.reset();
@@ -1306,6 +1353,12 @@ class ModuleRequest {
     pendingRetype = null;
     if (!Context.defined(IncrementalRequest.DEFINE))
       return;
+    // Before any define is read (`definesKey`): Haxe's own dependency list
+    // for the `module-may-leave` rule, which only `-dce std` has
+    // (genes-f8vc.14.26).
+    final listed = IncrementalRequest.descriptor();
+    HaxeDependencies.prepare(Context.definedValue(IncrementalRequest.DEFINE), listed != null && DceStdUses.stdProfile() && (listed.moduleRecords == true
+      || listed.kind.match(Module(_))));
     // Every request with the define that is not a module request fires the
     // mark of the modules that module requests typed alone, also a request
     // that left the incremental path (an editor request, an unreadable
@@ -1348,10 +1401,11 @@ class ModuleRequest {
   /**
    * Runs before Haxe types the program (`Generator.use()` is an init
    * macro): makes Haxe parse again each file whose content is not the
-   * content that Haxe last typed (`typedDigests`), each file of a module that
-   * an earlier module request typed alone (`typedAlone`), and, in a request
-   * that is not a module request, each file of a module that a published
-   * preview typed alone (`deferredFiles`, genes-f8vc.14.8).
+   * content that Haxe last typed (`typedDigests`; in a full request, also a
+   * file with the same digest and another file status), each file of a
+   * module that an earlier module request typed alone (`typedAlone`), and,
+   * in a request that is not a module request, each file of a module that
+   * a published preview typed alone (`deferredFiles`, genes-f8vc.14.8).
    *
    * Why: Haxe's compilation server compares file times in whole seconds.
    * Two saves of one file in the same second look like one, and the second
@@ -1373,6 +1427,18 @@ class ModuleRequest {
    * not change, and the digest `missing` for a deleted file, so that the
    * next full request does not make Haxe parse it (or the folder of a
    * deleted `import.hx`) again.
+   *
+   * A full request also makes Haxe parse again a file whose digest is the
+   * noted one but whose status is not (genes-f8vc.14.24, review of #270).
+   * Why: Genes notes content only in a full request with module records,
+   * but a module request or an editor request can make Haxe parse a file
+   * too. Example: with an init macro before Genes that loads
+   * `mr.inc.Late`, a save removes the class of `mr/inc/Late.hx`, a module
+   * request parses the file, and a second save in the same whole second
+   * puts the class back. The digest is the noted one, but Haxe holds the
+   * parse without the class; only the status shows the change. Cost: a
+   * save that keeps the content (or a `touch`) makes Haxe parse that file
+   * again once.
    *
    * The init macro rule (genes-v54c): this step runs inside
    * `Generator.use()`, so an init macro given before it has already run. If
@@ -1502,14 +1568,16 @@ class ModuleRequest {
           for (file => typed in typedDigests) {
             final now = readSource(file);
             preDigests.set(file, now);
-            if (!sameSinceRead(typed, now))
+            final same = sameSinceRead(typed, now);
+            if (!same)
               changed.push({file: file, content: now});
-            if (now.digest == typed.digest) {
+            if (now.digest == typed.digest || now.digest == MISSING_DIGEST)
               newer.push({file: file, content: now});
+            // The same digest with another status is a change too: the file
+            // changed and came back, and a request between may have made
+            // Haxe parse the other content (genes-f8vc.14.24).
+            if (same)
               continue;
-            }
-            if (now.digest == MISSING_DIGEST)
-              newer.push({file: file, content: now});
             stale.push(file);
             // A changed `import.hx` changes how every module of its folder
             // and the folders below is typed.
@@ -1542,6 +1610,77 @@ class ModuleRequest {
     unproveParsed([for (file in stale) if (noted.indexOf(file) < 0) file]);
     invalidate(stale);
     storeCacheFacts();
+  }
+
+  /**
+   * Notes in `typedDigests` what Haxe parsed for each file that the `include`
+   * lines listed and whose module has no declaration in the program
+   * (`ProgramRoots.declarationless`): the content read when
+   * `genes.Generator.use()` ran when it is proven (`provenSource`: the file
+   * did not change since), and `unknown` otherwise. Only a full request
+   * with module records calls it, after typing and before the kept-module
+   * stop: a module request, an editor request and a full request without
+   * module records note nothing. When one of them makes Haxe parse such a
+   * file, the next full request sees the file status change and makes Haxe
+   * parse the file again (`beginRequest`).
+   *
+   * Why (genes-f8vc.14.24, review round 3 of #269): no module file names
+   * such a file, so nothing else notes it. Example: `mr/inc/Late.hx` holds a
+   * `@:keep` class, and its proven digest is the one with the class. A save
+   * removes the class after Genes read the file and before Haxe's own walk
+   * parses it, and a second save in the same whole second, without
+   * `server/invalidate`, puts it back. Haxe keeps the parse without the
+   * class. Before, the digest with the class stayed proven, so the next
+   * full request did not make Haxe parse the file again and differed from
+   * cold until the file changed again. Now the change time of the second
+   * save makes the content `unknown`, and the next full request makes Haxe
+   * parse the file again. A file that stays without a declaration gets a
+   * proven digest, so the next full request makes Haxe parse it again only
+   * when it changed, and the init macro rule of `beginRequest` sees its
+   * change.
+   *
+   * With an init macro before `genes.Generator.use()` that can type a
+   * module (`typingMacrosBeforeGenes`), a file whose content Genes had not
+   * proven when that ran is `unknown`: the macro can have loaded the module
+   * from an old parse before Genes made Haxe parse the file again
+   * (`ProgramRoots.read` then makes the roots unknown too).
+   *
+   * The entry is written under each spelling that `typedDigests` already
+   * has for the file (`Path.normalize` compares them), or else under the
+   * path that `Context.resolvePath` gives for the module, which is how
+   * Haxe's positions spell it. A file that Haxe would find elsewhere is not
+   * noted, so the next full request makes Haxe parse it again
+   * (`ProgramRoots.beginRequest`).
+   */
+  static function noteDeclarationless(): Void {
+    final files = ProgramRoots.declarationless(GenerationChangeSet.observedModules());
+    if (files.length == 0)
+      return;
+    final early = typingMacrosBeforeGenes().length > 0;
+    final spellings = new Map<String, Array<String>>();
+    for (file in typedDigests.keys()) {
+      final key = Path.normalize(file);
+      final known = spellings.get(key);
+      if (known == null)
+        spellings.set(key, [file]);
+      else
+        known.push(file);
+    }
+    for (item in files) {
+      final content = early
+        && item.again ? unknownSource() : provenSource(item.file);
+      final known = spellings.get(Path.normalize(item.file));
+      if (known != null) {
+        for (file in known)
+          noteTyped(file, content);
+        continue;
+      }
+      final resolved = try Context.resolvePath(item.module.split('.').join('/')
+        + '.hx') catch (_:haxe.Exception) null;
+      if (resolved != null
+        && Path.normalize(resolved) == Path.normalize(item.file))
+        noteTyped(resolved, content);
+    }
   }
 
   /**
@@ -1579,7 +1718,7 @@ class ModuleRequest {
    */
   static function invalidate(files: Array<String>): Void {
     for (file in files)
-      invalidatedFiles.set(file, true);
+      invalidatedFiles.set(Path.normalize(file), true);
     if (files.length > 0)
       haxe.macro.CompilationServer.invalidateFiles([
         for (file in files)
@@ -1961,22 +2100,15 @@ class ModuleRequest {
    * called it). So does a macro whose text has conditional compilation
    * (`#`): Haxe parsed it with the defines of its own moment, and Genes would
    * parse it with the defines of a later moment, which an init macro between
-   * them can change (`initMacroCall`).
+   * them can change (`initMacroCall`). The init macros are read by
+   * `initMacros`, so `--macro=mr.Early.install()` counts like
+   * `--macro mr.Early.install()`, and an argument that Genes cannot read
+   * counts as a macro that can type (genes-f8vc.14.22).
    */
+  @:allow(genes.incremental.ProgramRoots)
   static function typingMacrosBeforeGenes(): Array<String> {
-    final configuration = haxe.macro.Compiler.getConfiguration();
-    if (configuration == null)
-      return ['(the compiler arguments are not known)'];
-    final args = configuration.args;
     final found = [];
-    var index = 0;
-    while (index + 1 < args.length) {
-      if (args[index] != '--macro') {
-        index++;
-        continue;
-      }
-      final text = args[index + 1];
-      index += 2;
+    for (text in initMacros()) {
       final call = initMacroCall(text);
       if (call == GENES_USE_CALL)
         return found;
@@ -1987,20 +2119,42 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the text of every init macro of this request (each argument
-   * after `--macro`), in order, or one text that no call matches when the
-   * arguments are not known. Example: `--macro include('app') --macro
-   * genes.Generator.use()` gives `include('app')` and `genes.Generator.use()`.
+   * Returns the text of every init macro of this request, in order: the
+   * value of each `--macro` option, written as two arguments
+   * (`--macro include('app')`) or as one (`--macro=include('app')`). Example:
+   * `--macro include('app') --macro=genes.Generator.use()` gives
+   * `include('app')` and `genes.Generator.use()`.
+   *
+   * Why: Haxe 4.3.7 accepts both spellings and keeps the second one as one
+   * argument in `Compiler.getConfiguration().args`. A reader that looks
+   * only for `--macro` as an argument of its own misses
+   * `--macro=mr.Early.install()`, so the init-macro-before-Genes rule
+   * (`typingMacrosBeforeGenes`) and the private-field rule of `-dce std`
+   * (`deriveIndexes`) would not see it (genes-f8vc.14.22).
+   * `HaxeArguments.read` splits the arguments with the Haxe 4.3.7 option
+   * table.
+   *
+   * The safe direction: when the arguments are not known, and for each
+   * argument that `HaxeArguments` cannot read (`Unreadable`, which could
+   * hide an init macro), the list holds a text in parentheses. Such a text
+   * is not a call of a dotted path, so `initMacroCall` gives `null` for it,
+   * and both rules count it as an init macro that can type a module or
+   * change code.
    */
   static function initMacros(): Array<String> {
     final configuration = haxe.macro.Compiler.getConfiguration();
     if (configuration == null)
       return ['(the compiler arguments are not known)'];
-    final args = configuration.args;
-    return [
-      for (index in 0...args.length - 1)
-        if (args[index] == '--macro') args[index + 1]
-    ];
+    final found = [];
+    for (argument in HaxeArguments.read(configuration.args))
+      switch argument {
+        case Option('--macro', text) if (text != null):
+          found.push(text);
+        case Unreadable(text, reason):
+          found.push('(Genes cannot read the argument `$text`: $reason)');
+        case Option(_, _) | Plain(_):
+      }
+    return found;
   }
 
   /**
@@ -2083,7 +2237,8 @@ class ModuleRequest {
   static function keptStaleModules(): Array<String> {
     return [
       for (module in GenerationChangeSet.keptModules())
-        if (invalidatedFiles.exists(moduleFiles.get(module) ?? '')) module
+        if (invalidatedFiles.exists(Path.normalize(moduleFiles.get(module) ?? '')))
+          module
     ];
   }
 
@@ -2460,6 +2615,11 @@ class ModuleRequest {
         list.push(type);
       }
     }
+    // What tells whether a line of Haxe's dependency list can be trusted,
+    // read before dead-code elimination (genes-f8vc.14.26).
+    if (DceStdUses.stdProfile()
+      && (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true))
+      HaxeDependencies.noteModules(grouped, moduleFiles);
     // The declaration facts of every module (`targetFactsOf`): after every
     // after-typing macro, before dead-code elimination and before the roots.
     if (descriptor.kind.match(Module(_)) || descriptor.moduleRecords == true) {
@@ -2478,6 +2638,8 @@ class ModuleRequest {
     // or notes any digest. A module request refuses such a target with
     // `stale-source` and such another module with `source-changed`.
     if (descriptor.kind.match(Full) && descriptor.moduleRecords == true) {
+      // Before the stop below, which stores the cache facts.
+      noteDeclarationless();
       final kept = keptStaleModules();
       if (kept.length > 0) {
         final reason = keptStaleReason(kept);
@@ -3215,6 +3377,7 @@ class ModuleRequest {
     // (`deriveIndexes`): the `-dce std` facts and the class facts. An
     // accepted preview replaces those of its module and makes the indexes
     // again with the same code (genes-f8vc.14.8).
+    addHaxeDependencies(null);
     profileCache = requestProfiles.copy();
     storedClassFacts = classFactsOf(types);
     storedInitMacros = initMacros();
@@ -4121,6 +4284,7 @@ class ModuleRequest {
     // only removes an unused import can drop a module's file
     // (genes-f8vc.14.7). This holds for a literal edit too.
     if (DceStdUses.stdProfile()) {
+      addHaxeDependencies(module);
       final profile = requestProfiles.get(module);
       if (profile == null || !storedDependencies.exists(module))
         return refuse('no-record',
@@ -4341,6 +4505,12 @@ class ModuleRequest {
           'Genes cannot see into'
         };
     }
+    for (dependency in requestMacroModules)
+      return {
+        code: 'opaque-macro',
+        reason: '$module loads $dependency, which has a macro function that ' +
+        'Genes cannot see into'
+      };
     for (dependency in oldDependencies)
       if (storedOpaqueMacros.exists(dependency))
         return {
@@ -4516,6 +4686,74 @@ class ModuleRequest {
   }
 
   /**
+   * Adds Haxe's own dependency list (`HaxeDependencies.edges`) to the
+   * dependencies of the `-dce std` facts of this request
+   * (`ModuleProfile.dependencies`): of every module in a full request
+   * (`programCommitted`), of the requested module in a module request
+   * (`decide`). Each added module is one that Haxe loads with its
+   * dependent, also when the typed bodies no longer name it.
+   *
+   * Example: `genes.ts.Json` calls the inline `JsonCodec.unsafeAssumeJson`,
+   * so its typed bodies name no declaration of `genes.ts.JsonCodec`; Haxe's
+   * list adds that module, and a full request's chain from the module that
+   * calls `Json.value` reaches it (`modulesThatMayLeave`).
+   *
+   * In a module request, a module that only Haxe's list names gets the
+   * `opaqueMacro` fact that `afterSave` gives the modules that the typed
+   * bodies name (`opaqueMacroModule`), and each listed module outside
+   * Haxe's standard library and Genes' own folder that has a macro function
+   * counts as an opaque macro module even when it is no edge
+   * (`requestMacroModules`). So a new call of a project macro is refused
+   * also when no import line names its class (`opaque-macro`).
+   */
+  static function addHaxeDependencies(only: Null<String>): Void {
+    final listed = HaxeDependencies.edges(only);
+    final newcomers = [];
+    for (module => profile in requestProfiles) {
+      if (only != null && module != only)
+        continue;
+      final extra = listed.edges.get(module);
+      if (extra == null || extra.length == 0)
+        continue;
+      final known = new Map<String, Bool>();
+      for (dependency in profile.dependencies)
+        known.set(dependency, true);
+      var added = false;
+      for (dependency in extra) {
+        if (known.exists(dependency))
+          continue;
+        profile.dependencies.push(dependency);
+        added = true;
+        if (only != null && !requestProfiles.exists(dependency))
+          newcomers.push(dependency);
+      }
+      if (added)
+        profile.dependencies.sort(compareStrings);
+    }
+    for (dependency in newcomers)
+      requestProfiles.set(dependency, {
+        epochs: '',
+        uses: null,
+        dependencies: [],
+        listeners: [],
+        opaqueMacro: HaxeDependencies.hasMacroFunction(dependency)
+        && !transparentFile(moduleFiles.get(dependency)),
+        externBases: [],
+        extensionCalls: [],
+        privateReach: null,
+        privateStructure: false
+      });
+    // A listed module with a macro function that is no edge (listed once:
+    // an instance macro, or a macro through `@:using`) can still be the
+    // project macro that the module calls (`structuralRefusal`).
+    if (only != null)
+      requestMacroModules = [
+        for (dependency in listed.macroModules.get(only) ?? [])
+          if (!transparentFile(moduleFiles.get(dependency))) dependency
+      ];
+  }
+
+  /**
    * Returns the stored modules with an output file that a full build after
    * the edit may no longer load, sorted: those that no chain of
    * `DceStdUses.dependenciesOf` reaches from a module that surely stays.
@@ -4530,8 +4768,11 @@ class ModuleRequest {
    *
    * Why it is safe: each dependency is a module that Haxe loads with its
    * dependent, so every module that a chain reaches is loaded. A module that
-   * Haxe loads only for a reason that the list does not hold (a macro that
-   * loads it by name) is not reached, and the edit is refused.
+   * Haxe loads only for a reason that the list does not hold (an init macro
+   * that loads it by name, which Haxe's own list gives no dependent) is not
+   * reached, and the edit is refused. A module that only an inline call, an
+   * inline constant or a macro call names is reached through Haxe's own list
+   * (`addHaxeDependencies`, genes-f8vc.14.26).
    *
    * Example: `mr.Card` drops `import mr.OnlyHere;` and nothing else loads
    * `mr.OnlyHere`: it is returned, because a full build drops
@@ -5083,6 +5324,8 @@ class ModuleRequest {
       checkMs: GenerationChangeSet.milliseconds(checkSeconds),
       rootMs: GenerationChangeSet.milliseconds(shapeSeconds + rootSeconds),
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
+      dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
+      newMacroStateModules: HaxeDependencies.newMacroStateModules,
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       hashedSources: hashed,
       trustedSources: trustedSources,
@@ -5109,6 +5352,8 @@ class ModuleRequest {
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       factsMs: GenerationChangeSet.milliseconds(factsSeconds),
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
+      dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
+      newMacroStateModules: HaxeDependencies.newMacroStateModules,
       advanced: advanced,
       advancedCheck: advancedCheck
     };
