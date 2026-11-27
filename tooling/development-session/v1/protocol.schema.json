@@ -302,6 +302,35 @@
         }
       ]
     },
+    "moduleName": {
+      "type": "string",
+      "description": "A Haxe module path, for example ui.Button.",
+      "minLength": 1,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    },
+    "previewFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "sizeBytes"],
+      "properties": {
+        "path": { "$ref": "#/$defs/publishedPath" },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "sizeBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "modulePreviewSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["differences", "stoppedModules"],
+      "properties": {
+        "differences": { "type": "integer", "minimum": 0 },
+        "stoppedModules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/moduleName" }
+        }
+      }
+    },
     "developmentSnapshot": {
       "type": "object",
       "additionalProperties": false,
@@ -333,7 +362,8 @@
             { "$ref": "#/$defs/compilerLifecycle" },
             { "type": "null" }
           ]
-        }
+        },
+        "modulePreview": { "$ref": "#/$defs/modulePreviewSnapshot" }
       }
     },
     "eventBody": {
@@ -425,6 +455,70 @@
           "properties": {
             "kind": { "const": "output-check" },
             "outputCheck": { "$ref": "#/$defs/outputCheck" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "revision", "module", "files"],
+          "properties": {
+            "kind": { "const": "preview-generated" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "module": { "$ref": "#/$defs/moduleName" },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/previewFile" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "revision", "module", "source", "code"],
+          "properties": {
+            "kind": { "const": "preview-refused" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "module": {
+              "oneOf": [{ "$ref": "#/$defs/moduleName" }, { "type": "null" }]
+            },
+            "source": { "enum": ["genes", "session"] },
+            "code": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "revision", "module", "generation", "paths"],
+          "properties": {
+            "kind": { "const": "preview-confirmed" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "module": { "$ref": "#/$defs/moduleName" },
+            "generation": { "$ref": "#/$defs/positiveInteger" },
+            "paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/publishedPath" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "revision", "module", "generation", "paths", "cause"],
+          "properties": {
+            "kind": { "const": "preview-corrected" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "module": { "$ref": "#/$defs/moduleName" },
+            "generation": { "$ref": "#/$defs/positiveInteger" },
+            "paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/publishedPath" }
+            },
+            "cause": { "enum": ["differs", "newer-revision"] }
           }
         },
         {

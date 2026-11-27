@@ -139,6 +139,9 @@ class AfterTypingClass {
    * and the field name are an exact identity inside one class, because Haxe
    * does not permit two fields with one name. An overload signature shares the
    * name of its field: read it with `signature.expr()` instead.
+   *
+   * On the incremental path, a copy from a class that arrived `Kept` is
+   * counted for the report (`GenerationChangeSet.recordKeptBodyRead`).
    */
   public function body(field: ClassField, isStatic: Bool): Null<TypedExpr> {
     var known = bodies;
@@ -147,6 +150,9 @@ class AfterTypingClass {
     final key = (isStatic ? 'S:' : 'I:') + field.name;
     if (known.exists(key))
       return known.get(key);
+    final arrived = stamp;
+    if (arrived != null && arrived.arrival == Kept)
+      GenerationChangeSet.recordKeptBodyRead();
     final body = field.expr();
     known.set(key, body);
     return body;

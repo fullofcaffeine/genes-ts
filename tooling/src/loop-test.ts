@@ -183,6 +183,45 @@ async function main(): Promise<void> {
   );
   await delayLoop.close();
 
+  // `followUpDelayMs` chooses the quiet time of a follow-up by its pending
+  // cause: a cheap first step ("preview") starts at once, another cause
+  // keeps `debounceMs`.
+  const hookTimes: Array<{ readonly cause: string; readonly at: number }> = [];
+  let releaseHookFirst!: () => void;
+  const hookFirstRunning = new Promise<void>((resolve) => {
+    releaseHookFirst = resolve;
+  });
+  let hookFirstStarted!: () => void;
+  const hookFirstStartedPromise = new Promise<void>((resolve) => {
+    hookFirstStarted = resolve;
+  });
+  const hookLoop = new SerializedDirtyLoop<string>({
+    debounceMs: 600,
+    startDelayMs: 5,
+    followUpDelayMs: (cause) => (cause === "preview" ? 5 : 600),
+    merge: (_left, right) => right,
+    run: async (cause) => {
+      hookTimes.push({ cause, at: performance.now() });
+      if (cause === "first") {
+        hookFirstStarted();
+        await hookFirstRunning;
+      }
+    },
+    onError: () => {},
+  });
+  hookLoop.request("first");
+  await hookFirstStartedPromise;
+  hookLoop.request("preview");
+  const previewRequestedAt = performance.now();
+  releaseHookFirst();
+  await hookLoop.waitForIdle();
+  assert.deepEqual(hookTimes.map((entry) => entry.cause), ["first", "preview"]);
+  assert.ok(
+    hookTimes[1]!.at - previewRequestedAt < 300,
+    `a follow-up whose cause asks for a short delay must not wait the quiet time (${hookTimes[1]!.at - previewRequestedAt} ms)`,
+  );
+  await hookLoop.close();
+
   await loop.close();
   console.log("genes tooling serialized dirty loop: ok");
 }
