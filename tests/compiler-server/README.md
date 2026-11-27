@@ -877,7 +877,11 @@ Round 3 of Fable on 58bff340 added three groups:
   calls that only record a define, metadata or a class path
   (`--macro mr.Spy.install()`) makes every private field count, because it
   can change code without leaving metadata. This one does nothing, so the
-  row previewed on 58bff340; it guards the rule.
+  row previewed on 58bff340; it guards the rule;
+- `std-private-init-macro-inline` (genes-f8vc.14.22): the same macro
+  written as one argument, `--macro=mr.Spy.install()`. On d1f7735f Genes
+  did not see it, and the private method previewed; now the module request
+  is refused (`public-shape-changed`) with the same reason.
 
 Each refused row's `check` names the module and the reason of the refusal.
 `std-private-access` also has a private static extension that takes a call
@@ -1217,6 +1221,17 @@ sent:
   the module request once, and it previews when sent again;
 - `early-init-same-second`: a save that moves the modification time inside
   the same whole second;
+- `early-init-inline-macro` (genes-f8vc.14.22): the same init macro written
+  as one argument, `--macro=mr.Early.install()`, which Haxe 4.3.7 accepts
+  and keeps as one argument in `Compiler.getConfiguration().args`. Genes
+  reads the init macros with `HaxeArguments.read` (`initMacros`), so this
+  spelling counts like `--macro mr.Early.install()`, and an argument that
+  Genes cannot read counts as an init macro that can type. A save that
+  keeps the modification time refuses the full request once; a second one
+  refuses the module request of `mr.Fresh` once, and it previews when sent
+  again. On d1f7735f, where Genes looked only for `--macro` as an argument
+  of its own, the module request was not refused by this rule
+  (`stale-source` instead);
 - `early-init-dependency-changed`: `mr.Fresh` reads `mr.Theme`, and a save
   of `mr/Theme.hx` that Haxe sees comes with the save of `mr/Fresh.hx`, so
   Haxe types `mr.Fresh` again in the init macro from its old text. The

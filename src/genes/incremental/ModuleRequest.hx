@@ -11,6 +11,7 @@ import sys.FileSystem;
 import sys.io.File;
 import genes.AfterTypingPasses.AfterTypingClass;
 import genes.incremental.GenerationCache.CachedModule;
+import genes.incremental.HaxeArguments.HaxeArgument;
 import genes.incremental.IncrementalRequest;
 import genes.incremental.ProgramRoots.ProgramRootsFacts;
 import genes.util.PathUtil;
@@ -2050,23 +2051,15 @@ class ModuleRequest {
    * called it). So does a macro whose text has conditional compilation
    * (`#`): Haxe parsed it with the defines of its own moment, and Genes would
    * parse it with the defines of a later moment, which an init macro between
-   * them can change (`initMacroCall`).
+   * them can change (`initMacroCall`). The init macros are read by
+   * `initMacros`, so `--macro=mr.Early.install()` counts like
+   * `--macro mr.Early.install()`, and an argument that Genes cannot read
+   * counts as a macro that can type (genes-f8vc.14.22).
    */
   @:allow(genes.incremental.ProgramRoots)
   static function typingMacrosBeforeGenes(): Array<String> {
-    final configuration = haxe.macro.Compiler.getConfiguration();
-    if (configuration == null)
-      return ['(the compiler arguments are not known)'];
-    final args = configuration.args;
     final found = [];
-    var index = 0;
-    while (index + 1 < args.length) {
-      if (args[index] != '--macro') {
-        index++;
-        continue;
-      }
-      final text = args[index + 1];
-      index += 2;
+    for (text in initMacros()) {
       final call = initMacroCall(text);
       if (call == GENES_USE_CALL)
         return found;
@@ -2077,20 +2070,42 @@ class ModuleRequest {
   }
 
   /**
-   * Returns the text of every init macro of this request (each argument
-   * after `--macro`), in order, or one text that no call matches when the
-   * arguments are not known. Example: `--macro include('app') --macro
-   * genes.Generator.use()` gives `include('app')` and `genes.Generator.use()`.
+   * Returns the text of every init macro of this request, in order: the
+   * value of each `--macro` option, written as two arguments
+   * (`--macro include('app')`) or as one (`--macro=include('app')`). Example:
+   * `--macro include('app') --macro=genes.Generator.use()` gives
+   * `include('app')` and `genes.Generator.use()`.
+   *
+   * Why: Haxe 4.3.7 accepts both spellings and keeps the second one as one
+   * argument in `Compiler.getConfiguration().args`. A reader that looks
+   * only for `--macro` as an argument of its own misses
+   * `--macro=mr.Early.install()`, so the init-macro-before-Genes rule
+   * (`typingMacrosBeforeGenes`) and the private-field rule of `-dce std`
+   * (`deriveIndexes`) would not see it (genes-f8vc.14.22).
+   * `HaxeArguments.read` splits the arguments with the Haxe 4.3.7 option
+   * table.
+   *
+   * The safe direction: when the arguments are not known, and for each
+   * argument that `HaxeArguments` cannot read (`Unreadable`, which could
+   * hide an init macro), the list holds a text in parentheses. Such a text
+   * is not a call of a dotted path, so `initMacroCall` gives `null` for it,
+   * and both rules count it as an init macro that can type a module or
+   * change code.
    */
   static function initMacros(): Array<String> {
     final configuration = haxe.macro.Compiler.getConfiguration();
     if (configuration == null)
       return ['(the compiler arguments are not known)'];
-    final args = configuration.args;
-    return [
-      for (index in 0...args.length - 1)
-        if (args[index] == '--macro') args[index + 1]
-    ];
+    final found = [];
+    for (argument in HaxeArguments.read(configuration.args))
+      switch argument {
+        case Option('--macro', text) if (text != null):
+          found.push(text);
+        case Unreadable(text, reason):
+          found.push('(Genes cannot read the argument `$text`: $reason)');
+        case Option(_, _) | Plain(_):
+      }
+    return found;
   }
 
   /**
