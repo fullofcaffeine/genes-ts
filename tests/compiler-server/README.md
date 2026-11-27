@@ -1117,6 +1117,59 @@ only typedefs could not be built: Genes prints such a module only for a
 signature that names the typedef, and removing that name is refused before
 the `module-may-leave` check (`public-shape-changed`).
 
+The review of #272 round 3 (genes-f8vc.14.35) hardened the rule. A line
+listed once no longer counts for a module without a class or enum in the
+program. No row shows it: such a module (typedefs and a macro-only class)
+gets a file only through a reference to the typedef, and removing that
+reference is refused before the `module-may-leave` check, by
+`public-shape-changed` for a public signature, or by `walkTargetFailure`
+(`walk-target-removed`) for a private signature or a body.
+
+No block of a file that is an entry of Haxe's list more than once counts:
+such a file also holds a type that a macro defined (`Context.defineType`
+takes the file of the module being typed, or of the module that its
+`moduleDependency` names), and Genes cannot yet tell whose block is whose.
+Two merges were tried in the review of #274 and each gave a stale preview,
+so until genes-f8vc.14.41 (record the module that made each
+`genes.ts.Imports` holder) a module with a holder or any other
+macro-defined type in its file carries no edge from Haxe's list, and
+previews refuse more often. The rows:
+
+- `probe5-inline-and-import-holder` and
+  `probe5-inline-and-import-holder-a-package`: `<pack>.ViaBoth` calls the
+  inline `Codec.assume` and owns a holder of
+  `genes.ts.Imports.namedImport`. The literal edit of `mr.Button` is
+  `module-may-leave` (it previewed for `mr.reach` on da5b15e7, where the
+  order of the list decided, and in both packages on 979f8a64 and 932c1823,
+  which merged the holder). The literal edit of `ViaBoth` previews, because
+  its own request loads `Codec`, and removing the only inline call is
+  refused. 16 Caffeine files use `genes.ts.Imports`;
+- `probe7-explicit-module-dependency`: the project macro
+  `Gen.companion('on')`, called by `mr.reach.Definer`, defines the extern
+  class `mr.reach.OwnerCompanion` with
+  `Context.defineType(def, 'mr.reach.Owner')`, a position in `Owner.hx`
+  and a field of type `mr.reach.Hidden`, which nothing else names. When
+  `Definer` stops making the companion (`'on'` to `'of'`, no other typed
+  change), cold drops `mr/reach/Hidden.ts`: the row was `STALE` on
+  da5b15e7 and on 979f8a64 and is `module-may-leave` now. The first row is
+  a literal edit of `Definer` (a preview on every commit), not of
+  `mr.Button`: after an edit of `mr.Button`, Haxe reuses `Definer` from its
+  cache without running the macro, so the warm full request has no
+  companion and no `Hidden` while a cold build has both, a difference of
+  Haxe itself (genes-f8vc.14.39);
+- `probe8-displaced-holder-and-module-dependency` (Fable on 932c1823): the
+  same with the companion positioned in `Definer.hx`, `mr.reach.Other`
+  calling a project macro that returns a `namedImport` call positioned in
+  `Owner.hx` (a holder positioned there but made while Haxe typed `Other`),
+  and `mr.reach.Normal` calling `namedImport` the ordinary way. 932c1823,
+  which merged a file's blocks when every other module positioned there was
+  a holder, gave the companion's lines to `Owner`: the second row was
+  `STALE mr/reach/Hidden.ts` there and on da5b15e7, and is
+  `module-may-leave` now (also on def4b46f).
+
+`yarn test` checks the reader of Haxe's list, also its Windows form
+(`tests/haxedependencies/HaxeDependenciesProbe.hx`).
+
 The contract with a client: a module request may leave out only what Genes
 reads (`--main`, class-name arguments and `--macro include(...)` lines with
 literal arguments); every other macro that adds modules must stay in it.

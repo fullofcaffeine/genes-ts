@@ -3815,6 +3815,185 @@ function sharedMacroFilesDeleted(_report: ModuleReport, label: string): void {
     `${label}: Genes must delete the two files of the shared dump/macro folder`);
 }
 
+/**
+ * A module that reaches another only through an inline call and also owns a
+ * `genes.ts.Imports` holder (review of genes-ts #274, round 1).
+ * `Imports.namedImport` makes its holder class with `Context.defineType`,
+ * and Haxe 4.3.7 gives that new module the file of the module being typed,
+ * so the file of `<pack>.ViaBoth` is an entry of Haxe's list twice. On
+ * def4b46f Genes skipped both blocks, so the inline edge to `<pack>.Codec`
+ * was lost and the literal edit of `mr.Button` was `module-may-leave`. On
+ * da5b15e7 the order of the list decided: the package `mr.reach` sorts after
+ * `genes.ts.imports`, so the real block came last and the edit previewed,
+ * while the package `a.reach` sorts before it, so the holder's block came
+ * last and the edge was lost there too. 979f8a64 and 932c1823 merged the
+ * holder's block into `ViaBoth`, and the edit previewed in both packages,
+ * but a merge can take another module's lines (`probe7`, `probe8`). So no
+ * block of such a file counts again, and the literal edit of `mr.Button` is
+ * `module-may-leave` until genes-f8vc.14.41 records the module that made
+ * each holder. The literal edit of `ViaBoth` previews (its own request loads
+ * `Codec`), and removing the only inline call is refused.
+ */
+function importHolderGroups(): ReadonlyArray<Group> {
+  return [
+    { name: "probe5-inline-and-import-holder", pack: "mr.reach" },
+    { name: "probe5-inline-and-import-holder-a-package", pack: "a.reach" }
+  ].map(({ name, pack }) => {
+    const folderName = pack.split(".").join("/");
+    return {
+      name,
+      dce: "std" as const,
+      files: {
+        "mr/Main.hx": mainWith([`trace(${pack}.ViaBoth.text());`]),
+        [`${folderName}/Codec.hx`]: `package ${pack};\n\nclass Codec {\n`
+          + "  public static inline function assume<T>(value: T): T {\n    return value;\n  }\n}\n",
+        [`${folderName}/ViaBoth.hx`]: `package ${pack};\n\nclass ViaBoth {\n`
+          + "  public static function text(): String {\n"
+          + "    final join: (String, String) -> String = genes.ts.Imports.namedImport('node:path', 'join');\n"
+          + "    return 'both ' + Codec.assume('value') + ' ' + join('a', 'b');\n  }\n}\n"
+      },
+      steps: [
+        // genes-f8vc.14.41: a preview again once Genes merges only the
+        // holders that `ViaBoth` made.
+        { id: `${name}: literal edit of a module beside the holder (module-may-leave until genes-f8vc.14.41)`,
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "module-may-leave",
+          check: reasonNames(`${pack}.Codec`) },
+        { id: `${name}: literal edit of the module with the holder`,
+          apply: () => editSource(`${folderName}/ViaBoth.hx`, "'both '", "'both! '"),
+          module: `${pack}.ViaBoth`, expect: "preview" },
+        { id: `${name}: the only inline call is removed (module-may-leave)`,
+          apply: () => editSource(`${folderName}/ViaBoth.hx`, "Codec.assume('value')", "'value'"),
+          module: `${pack}.ViaBoth`, expect: "module-may-leave",
+          check: reasonNames(`${pack}.Codec`) }
+      ]
+    };
+  });
+}
+
+/**
+ * A type that a project macro defines with an explicit `moduleDependency`
+ * (review of genes-ts #274, round 2). `mr.reach.Definer` calls
+ * `Gen.companion('on')`, which defines the extern class
+ * `mr.reach.OwnerCompanion` with `Context.defineType(def, 'mr.reach.Owner')`,
+ * a position in `Owner.hx`, and a field of type `mr.reach.Hidden`. Nothing
+ * else names `Hidden`. The macro always returns `'gen'`, so the edit `'on'`
+ * to `'of'` changes no typed code of `Definer`, but a cold build no longer
+ * makes the companion and drops `mr/reach/Hidden.ts`.
+ *
+ * The first row edits `Definer` and keeps the companion: its module request
+ * types `Definer`, so the companion and `Hidden` are loaded and it previews
+ * on every commit. The second row is the case.
+ *
+ * The companion has the file of `mr.reach.Owner`, so that file is an entry
+ * of Haxe's list twice, and the module request counts equal the entries.
+ * On da5b15e7 and on 979f8a64 Genes gave the companion's lines to `Owner`
+ * (`Owner` loads `Hidden`), so the second row previewed
+ * `STALE mr/reach/Hidden.ts`. The true chain is `Definer`, the companion,
+ * `Hidden`. No block of a file that is an entry more than once counts, so
+ * the second row is `module-may-leave`: a module whose file holds a
+ * macro-defined type carries no edge from Haxe's list.
+ */
+function explicitModuleDependencyGroup(): Group {
+  return {
+    name: "probe7-explicit-module-dependency",
+    dce: "std",
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Owner.text());", "trace(mr.reach.Definer.text());"]),
+      "mr/reach/Owner.hx": reachUser("Owner", "owner", "'.'"),
+      "mr/reach/Hidden.hx": "package mr.reach;\n\nclass Hidden {\n  public function new() {}\n}\n",
+      "mr/reach/Definer.hx": reachUser("Definer", "definer", "Gen.companion('on')"),
+      "mr/reach/Gen.hx": "package mr.reach;\n\n#if macro\nimport haxe.macro.Context;\nimport haxe.macro.Expr;\n#end\n\n"
+        + "class Gen {\n"
+        + "  public static macro function companion(flag: haxe.macro.Expr): haxe.macro.Expr {\n"
+        + "    switch flag.expr {\n"
+        + "      case EConst(CString('on', _)):\n        define();\n"
+        + "      default:\n    }\n"
+        + "    return macro 'gen';\n  }\n\n"
+        + "  #if macro\n  static function define(): Void {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Owner.hx'), min: 0, max: 1});\n"
+        + "    Context.defineType({pack: ['mr', 'reach'], name: 'OwnerCompanion', pos: pos, isExtern: true,\n"
+        + "      kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n"
+        + "      kind: FVar(macro : mr.reach.Hidden)}]}, 'mr.reach.Owner');\n"
+        + "  }\n  #end\n}\n"
+    },
+    steps: [
+      // Not a literal edit of `mr.Button`: Haxe then reuses `Definer` from
+      // its cache without running the macro again, so the warm full request
+      // has no companion and no `Hidden` while a cold build has both (a
+      // difference of Haxe itself, whatever Genes does). An edit of
+      // `Definer` makes both builds run the macro.
+      { id: "probe7: literal edit of Definer, which still makes the companion",
+        apply: () => editSource("mr/reach/Definer.hx", "'definer '", "'definer! '"),
+        module: "mr.reach.Definer", expect: "preview" },
+      { id: "probe7: Definer no longer makes the companion (module-may-leave)",
+        apply: () => editSource("mr/reach/Definer.hx", "Gen.companion('on')", "Gen.companion('of')"),
+        module: "mr.reach.Definer", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Hidden") }
+    ]
+  };
+}
+
+/**
+ * `probe7` with a displaced holder (review of genes-ts #274, round 3, Fable
+ * on 932c1823). `mr.reach.OwnerCompanion` keeps the `moduleDependency`
+ * `mr.reach.Owner`, but its position is in `Definer.hx`. `mr.reach.Other`
+ * calls the project macro `Gen.joinFromOwner()`, which returns a
+ * `genes.ts.Imports.namedImport` call positioned in `Owner.hx`, so the
+ * holder has its position in `Owner.hx` but Haxe made it while it typed
+ * `Other`. `mr.reach.Normal` calls `namedImport` the ordinary way.
+ * `Owner.hx` is then an entry twice (`Owner` and the companion), and the
+ * modules with a position in it are `Owner` and the holder, so 932c1823
+ * merged the companion's block into `Owner`, and the second row was
+ * `STALE mr/reach/Hidden.ts`. Now no block of such a file counts, and the
+ * row is `module-may-leave`.
+ */
+function displacedHolderGroup(): Group {
+  return {
+    name: "probe8-displaced-holder-and-module-dependency",
+    dce: "std",
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Owner.text());", "trace(mr.reach.Definer.text());",
+        "trace(mr.reach.Other.text());", "trace(mr.reach.Normal.text());"]),
+      "mr/reach/Owner.hx": reachUser("Owner", "owner", "'.'"),
+      "mr/reach/Hidden.hx": "package mr.reach;\n\nclass Hidden {\n  public function new() {}\n}\n",
+      "mr/reach/Definer.hx": reachUser("Definer", "definer", "Gen.companion('on')"),
+      "mr/reach/Other.hx": "package mr.reach;\n\nclass Other {\n  public static function text(): String {\n"
+        + "    final join: (String, String) -> String = Gen.joinFromOwner();\n"
+        + "    return 'other ' + join('a', 'b');\n  }\n}\n",
+      "mr/reach/Normal.hx": "package mr.reach;\n\nclass Normal {\n  public static function text(): String {\n"
+        + "    final join: (String, String) -> String = genes.ts.Imports.namedImport('node:path', 'join');\n"
+        + "    return 'normal ' + join('a', 'b');\n  }\n}\n",
+      "mr/reach/Gen.hx": "package mr.reach;\n\n#if macro\nimport haxe.macro.Context;\nimport haxe.macro.Expr;\n#end\n\n"
+        + "class Gen {\n"
+        + "  public static macro function companion(flag: haxe.macro.Expr): haxe.macro.Expr {\n"
+        + "    switch flag.expr {\n"
+        + "      case EConst(CString('on', _)):\n        define();\n"
+        + "      default:\n    }\n"
+        + "    return macro 'gen';\n  }\n\n"
+        + "  public static macro function joinFromOwner(): haxe.macro.Expr {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Owner.hx'), min: 0, max: 1});\n"
+        + "    return {expr: ECall(macro genes.ts.Imports.namedImport, [{expr: EConst(CString('node:path', DoubleQuotes)), pos: pos},\n"
+        + "      {expr: EConst(CString('join', DoubleQuotes)), pos: pos}]), pos: pos};\n  }\n\n"
+        + "  #if macro\n  static function define(): Void {\n"
+        + "    final pos = Context.makePosition({file: Context.resolvePath('mr/reach/Definer.hx'), min: 0, max: 1});\n"
+        + "    Context.defineType({pack: ['mr', 'reach'], name: 'OwnerCompanion', pos: pos, isExtern: true,\n"
+        + "      kind: TDClass(), fields: [{name: 'hidden', pos: pos, access: [APublic, AStatic],\n"
+        + "      kind: FVar(macro : mr.reach.Hidden)}]}, 'mr.reach.Owner');\n"
+        + "  }\n  #end\n}\n"
+    },
+    steps: [
+      { id: "probe8: literal edit of Definer, which still makes the companion",
+        apply: () => editSource("mr/reach/Definer.hx", "'definer '", "'definer! '"),
+        module: "mr.reach.Definer", expect: "preview" },
+      { id: "probe8: Definer no longer makes the companion (module-may-leave)",
+        apply: () => editSource("mr/reach/Definer.hx", "Gen.companion('on')", "Gen.companion('of')"),
+        module: "mr.reach.Definer", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Hidden") }
+    ]
+  };
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
@@ -3822,6 +4001,9 @@ const groups: ReadonlyArray<Group> = [
   ...extraRootGroups(),
   ...inlineReachGroups(),
   ...reviewBuildGroups(),
+  ...importHolderGroups(),
+  explicitModuleDependencyGroup(),
+  displacedHolderGroup(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.
