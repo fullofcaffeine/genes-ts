@@ -404,7 +404,9 @@ jobs:
     if: ${{ !cancelled() }}
     # Playwright 1.60 does not support Ubuntu 26.04 from ubuntu-latest.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Job limit: setup, the 30-minute acceptance deadline below, owned cleanup,
+    # and evidence upload. Keep it about ten minutes above that deadline.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -471,7 +473,10 @@ jobs:
         env:
           SKIP_CLASSIC: "1"
           SKIP_TS2HX: "1"
-          GENES_ACCEPTANCE_TIMEOUT_MS: "900000"
+          # Owner deadline for all gates of one shard (30 minutes). The
+          # focused-examples shard takes 13 to 21 minutes under load, and slow
+          # hosted runners need the headroom (genes-59nc).
+          GENES_ACCEPTANCE_TIMEOUT_MS: "1800000"
       - name: Preserve exact shard state and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -524,6 +529,8 @@ jobs:
     name: genes-ts smoke (Node current / next LTS)
     # Module-function checks still use Chromium when SKIP_PLAYWRIGHT is set.
     runs-on: ubuntu-24.04
+    # Job limit: setup, the 75-minute acceptance deadline below, and cleanup.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -554,6 +561,10 @@ jobs:
           SKIP_TS2HX: "1"
           SKIP_PLAYWRIGHT: "1"
           SKIP_COMPILER_SERVER: "1"
+          # Owner deadline for the whole unsharded run (75 minutes). The
+          # 40-minute local default ran out at the last gate on slow hosted
+          # runners, so this lane needs the headroom (genes-59nc).
+          GENES_ACCEPTANCE_TIMEOUT_MS: "4500000"
 
   haxe-preview:
     name: Haxe preview (non-blocking)
