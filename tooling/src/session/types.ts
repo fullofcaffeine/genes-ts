@@ -1,6 +1,7 @@
 import type { HaxeWaitServerEvent } from "../haxe-server/types.js";
 import type { HxmlInventoryOptions } from "../hxml/types.js";
 import type { ReconciliationResult } from "../watch/types.js";
+import type { ProcessCounterDelta } from "./process-counters.js";
 
 export const DEVELOPMENT_SESSION_EVENT_PROTOCOL =
   "genes.tooling.development-session-event" as const;
@@ -340,6 +341,20 @@ export type DevelopmentEventBody<Diagnostic extends JsonValue> =
       readonly module: string | null;
       readonly source: "genes" | "session";
       readonly code: string;
+    }
+  | {
+      /**
+       * Emitted only with `GenesDevelopmentOptions.processCounters`, after a
+       * program request (`request: "program"`, `module` null) or a module
+       * request (`request: "module"`) that ran on the owned server: what the
+       * request cost the server process. A host must ignore an event kind
+       * that it does not know.
+       */
+      readonly kind: "request-measured";
+      readonly revision: number;
+      readonly request: "program" | "module";
+      readonly module: string | null;
+      readonly process: ProcessCounterDelta;
     }
   | {
       /**
@@ -1027,6 +1042,21 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * (without: every 5th). `false` sends none.
    */
   readonly compilerServerIdleCollection?: false | { readonly delayMs?: number };
+
+  /**
+   * True reads the counters of the owned Haxe server before and after each
+   * program request and module request that runs on it
+   * (`readProcessCounters`), and emits a `request-measured` event for each.
+   * While generation reuse is active it also asks Genes for its request
+   * measure (`"requestMeasure": true` in the request descriptor).
+   * Retired instructions repeat within about 2% on a busy host, where wall
+   * time varies by 160%, so a benchmark compares them, not milliseconds.
+   * On macOS without `--experimental-ffi` each read starts a short helper
+   * process (50 to 140 ms per read, before and after the request, outside
+   * its counters); on a Node without `node:ffi` (Node 24) instructions are
+   * unavailable and no helper starts. Default false: no reads.
+   */
+  readonly processCounters?: boolean;
   readonly pollIntervalMs?: number;
   readonly shutdownTimeoutMs?: number;
 }

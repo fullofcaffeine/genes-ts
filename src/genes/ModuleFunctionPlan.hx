@@ -408,8 +408,10 @@ class ModuleFunctionPlan {
           };
         default:
       }
-      if (rejection == null)
+      if (rejection == null) {
+        genes.incremental.RequestMeasure.plannerNode();
         current.iter(visit);
+      }
     }
     visit(expression);
     return rejection;

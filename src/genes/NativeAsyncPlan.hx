@@ -163,6 +163,7 @@ private class NativeAsyncPlanBuilder {
         if (CompilerInternal.isNativeAsyncMarkerCall(expression))
           CompilerDiagnostic.fail('GENES-NATIVE-ASYNC-PLAN-002: native async marker reached an unsupported function context',
             expression.pos);
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(visit);
     }
   }

@@ -74,6 +74,7 @@
     "test:compiler-server": "yarn build:scripts && node scripts/dist/test-compiler-server.js",
     "test:compiler-server:shadow": "yarn build:scripts && node scripts/dist/test-compiler-server-shadow.js",
     "test:compiler-server:module": "yarn build:scripts && node scripts/dist/test-compiler-server-module.js",
+    "compiler-server:pair": "yarn build:scripts && node --experimental-ffi --disable-warning=ExperimentalWarning scripts/dist/compiler-server-pair.js",
     "test:compiler-server:rollback": "yarn build:scripts && node scripts/dist/test-compiler-server.js --rollback-only",
     "test:compiler-server:kept-types": "yarn build:scripts && node scripts/dist/test-compiler-server-kept-types.js",
     "test:compiler-server:after-typing": "yarn build:scripts && node scripts/dist/test-compiler-server-after-typing.js",

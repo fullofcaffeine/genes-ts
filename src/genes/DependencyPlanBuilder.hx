@@ -237,6 +237,7 @@ class DependencyPlanBuilder {
               'runtime.expression-js-require', field.pos);
         default:
       }
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(addJsRequireFromExpr);
     }
 
@@ -330,6 +331,7 @@ class DependencyPlanBuilder {
       if (CompilerInternal.isSideEffectImportMarkerCall(expression))
         return true;
       var found = false;
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(child -> {
         if (!found && containsMarker(child))
           found = true;
@@ -613,6 +615,7 @@ class DependencyPlanBuilder {
             });
         default:
       }
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(visitExpressionTypes);
     }
 

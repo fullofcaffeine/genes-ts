@@ -524,6 +524,33 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["kind", "revision", "request", "module", "process"],
+          "properties": {
+            "kind": { "const": "request-measured" },
+            "revision": { "$ref": "#/$defs/positiveInteger" },
+            "request": { "enum": ["program", "module"] },
+            "module": {
+              "oneOf": [{ "$ref": "#/$defs/moduleName" }, { "type": "null" }]
+            },
+            "process": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["instructions", "cpuMs", "unavailable"],
+              "properties": {
+                "instructions": {
+                  "oneOf": [{ "type": "integer" }, { "type": "null" }]
+                },
+                "cpuMs": { "oneOf": [{ "type": "number" }, { "type": "null" }] },
+                "unavailable": {
+                  "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["kind"],
           "properties": { "kind": { "const": "closed" } }
         }

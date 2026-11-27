@@ -907,6 +907,20 @@ that module and keeps the evidence. The session also skips a build when
 every changed `.hx` file has the bytes that the last accepted program
 request read.
 
+Speed evidence must hold on a loaded host, where the wall time of one
+request varies by 160% or more. A request whose descriptor asks for it
+(`"requestMeasure": true`; opt-in, because it costs 4% to 7% of the retired
+instructions) reports a `measure` (`genes.incremental.RequestMeasure`): exact work counts
+(declarations visited per hook, typed-body copies, printed, planned and
+checked nodes, records read and written), and the CPU time and allocated
+OCaml words of each named phase, from the init macro to the report. The
+session adds the retired instructions of the Haxe server process, read from
+outside before and after each request (`processCounters`,
+`request-measured`). `yarn compiler-server:pair` compares two Genes sources
+by the median pair ratio of A B B A runs, with its 95% interval. Wall time stays a report line, not
+a gate. Field names, units and limits are in
+[`tests/compiler-server/README.md`](../tests/compiler-server/README.md#request-measures-genes-f8vc1433).
+
 The root-scoped design has an explicit upgrade path from the earlier
 entry-scoped session. While holding both lock identities, tooling recovers the
 old journal. It then publishes four small, durable steps:

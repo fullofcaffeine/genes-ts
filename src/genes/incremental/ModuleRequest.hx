@@ -274,6 +274,12 @@ typedef ModuleRequestReport = {
    * them exactly and Genes forgot every record instead.
    */
   final records: String;
+
+  /**
+   * Work counts, allocated words and CPU time of each named phase of this
+   * request (`RequestMeasure`), up to the moment the report was written.
+   */
+  final measure: Null<genes.incremental.RequestMeasure.RequestMeasureReport>;
 }
 
 /**
@@ -399,6 +405,13 @@ typedef ModuleRecordsReport = {
    * (`indexesText`), not the records of the other modules.
    */
   final advancedCheck: String;
+
+  /**
+   * The measure of the whole full request up to this report
+   * (`RequestMeasure`), the record step included. This report is written
+   * after the generation report, so its measure is the more complete one.
+   */
+  final measure: Null<genes.incremental.RequestMeasure.RequestMeasureReport>;
 }
 
 /**
@@ -2343,6 +2356,7 @@ class ModuleRequest {
 
   @:allow(genes.incremental.ProgramRoots)
   static function readSource(file: String): SourceContent {
+    final end = RequestMeasure.open('genes.module.digest');
     final started = haxe.Timer.stamp();
     final readAt = Sys.time() * 1000;
     final first = statusOf(file, readAt);
@@ -2355,6 +2369,7 @@ class ModuleRequest {
     final stat = first != null && second != null
       && sameStatus(first, second) ? second : null;
     digestSeconds += haxe.Timer.stamp() - started;
+    end();
     return {digest: digest, stat: stat};
   }
 
@@ -2568,8 +2583,10 @@ class ModuleRequest {
    * that Haxe typed again.
    */
   static function afterSave(types: Array<Type>): Void {
+    final end = RequestMeasure.open('genes.module.after-save');
     afterSaveSteps(types);
     storeCacheFacts();
+    end();
   }
 
   /** The steps of `afterSave`, which then stores the cache facts that they changed. */
@@ -2673,7 +2690,7 @@ class ModuleRequest {
         // `static final items = []`) closes differently. The next full
         // request must type every module that this request typed again.
         retypeLater(GenerationChangeSet.retypedModules(), descriptor.path);
-        final record = storedKey == null ? null : records.get(module);
+        final record = storedKey == null ? null : recordOf(module);
         if (record != null)
           addRoots(module, own, record.kept);
         rootSeconds += haxe.Timer.stamp() - rootStart;
@@ -3311,7 +3328,7 @@ class ModuleRequest {
       final list = grouped.get(module);
       final own = list == null ? [] : list;
       final kept = keptLines(own);
-      final earlier = storedKey == key ? records.get(module) : null;
+      final earlier = storedKey == key ? recordOf(module) : null;
       final sameEarlier = earlier != null && earlier.epochs == epochs;
       final reuse = sameEarlier && earlier.kept.join('\n') == kept.join('\n');
       final references: ModuleReferences = if (reuse) {
@@ -3362,6 +3379,7 @@ class ModuleRequest {
     storedClassFacts = classFactsOf(types);
     storedInitMacros = initMacros();
     records = made;
+    RequestMeasure.recordsWritten(Lambda.count(made));
     deriveIndexes();
     storedMain = '';
     if (main != null) {
@@ -3370,6 +3388,7 @@ class ModuleRequest {
           case TField(_, FStatic(owner, field)) if (field.get().name == 'main'):
             storedMain = TypeUtil.baseTypeFullName(owner.get());
           default:
+            genes.incremental.RequestMeasure.factNode();
             TypedExprTools.iter(expression, findMain);
         }
       }
@@ -3522,6 +3541,7 @@ class ModuleRequest {
       return;
     }
     final epochs = GenerationChangeSet.epochs(module);
+    RequestMeasure.recordsWritten();
     records.set(module, {
       epochs: epochs,
       kept: keptLines(facts.types),
@@ -4140,7 +4160,7 @@ class ModuleRequest {
         'the session key differs from the one of the stored records');
     if (module == facts.rootModule)
       return refuse('root-module', '$module is the output root module');
-    final record = records.get(module);
+    final record = recordOf(module);
     final entry = GenerationCache.entry(module);
     if (record == null || entry == null)
       return refuse('no-record', 'the last full request emitted no $module');
@@ -4824,7 +4844,7 @@ class ModuleRequest {
       return found == null ? [] : found.filter(name -> name != module);
     }
     function keptMember(target: String, key: String): Bool {
-      final targetRecord = records.get(target);
+      final targetRecord = recordOf(target);
       return targetRecord != null
         && targetRecord.kept.indexOf(keyLine(key)) >= 0;
     }
@@ -4958,7 +4978,7 @@ class ModuleRequest {
     }
     function keptLine(line: String): Bool {
       final space = line.indexOf(' ');
-      final target = records.get(line.substr(0, space));
+      final target = recordOf(line.substr(0, space));
       return target != null && target.kept.indexOf(line.substr(space + 1)) >= 0;
     }
     // A module printed with Haxe's own printer can read any feature without
@@ -5149,7 +5169,7 @@ class ModuleRequest {
     final module = target();
     if (module == null)
       return false;
-    final record = records.get(module);
+    final record = recordOf(module);
     final entry = GenerationCache.entry(module);
     if (record == null || entry == null
       || entry.answers.indexOf(GenerationCache.answerLine('feature', feature,
@@ -5288,6 +5308,7 @@ class ModuleRequest {
     final descriptor = IncrementalRequest.requestedDescriptor();
     if (descriptor == null)
       return;
+    final measure = RequestMeasure.report();
     final hashed = hashedSources.copy();
     hashed.sort(compareStrings);
     final report: ModuleRequestReport = {
@@ -5308,7 +5329,8 @@ class ModuleRequest {
       digestMs: GenerationChangeSet.milliseconds(digestSeconds),
       hashedSources: hashed,
       trustedSources: trustedSources,
-      records: recordsResult
+      records: recordsResult,
+      measure: measure
     };
     settleRetypeMark(descriptor.path);
     save(IncrementalRequest.generationReportPath(descriptor.path),
@@ -5333,7 +5355,8 @@ class ModuleRequest {
       profileMs: GenerationChangeSet.milliseconds(profileSeconds),
       dependencyListMs: GenerationChangeSet.milliseconds(HaxeDependencies.seconds),
       advanced: advanced,
-      advancedCheck: advancedCheck
+      advancedCheck: advancedCheck,
+      measure: RequestMeasure.report()
     };
     save(descriptor.path + '.module-records.json',
       Json.stringify(report, null, '  ') + '\n');
@@ -5413,7 +5436,7 @@ class ModuleRequest {
   static function moduleText(module: String): String {
     final buffer = new StringBuf();
     final epochs = storedEpochs.get(module);
-    final record = records.get(module);
+    final record = recordOf(module);
     final entry = GenerationCache.entry(module);
     final profile = profileCache.get(module);
     // Each copy of the epochs must name the module that Haxe holds now.
@@ -5735,6 +5758,7 @@ class ModuleRequest {
                 useToString(argument.t);
               default:
             }
+            genes.incremental.RequestMeasure.factNode();
             TypedExprTools.iter(expression, visit);
           }
           final name = TypeUtil.baseTypeFullName(cls);
@@ -5744,12 +5768,14 @@ class ModuleRequest {
             skeleton.add('\n');
           }
           function walkField(label: String, field: ClassField): Void {
+            genes.incremental.RequestMeasure.bodyRead(field);
             final body = field.expr();
             if (body != null) {
               visit(body);
               addSkeleton(label, body);
             }
             for (signature in field.overloads.get()) {
+              genes.incremental.RequestMeasure.bodyRead(signature);
               final other = signature.expr();
               if (other != null) {
                 visit(other);
@@ -5859,6 +5885,7 @@ class ModuleRequest {
         case TCall({expr: TIdent('__define_feature__')}, _):
           expression;
         default:
+          genes.incremental.RequestMeasure.factNode();
           TypedExprTools.map(expression, blank);
       }
     }
@@ -6021,6 +6048,7 @@ class ModuleRequest {
     // The copied body and its position go on a line of their own
     // (`BODY_MARK`), so that `signatureOf` can leave them out.
     if (copied) {
+      genes.incremental.RequestMeasure.bodyRead(field);
       final body = field.expr();
       buffer.add('\n$BODY_MARK${field.name} at ${placeText(field.pos)}');
       if (body != null)
@@ -6305,6 +6333,12 @@ class ModuleRequest {
 
   static function clip(line: String): String {
     return line.length <= 160 ? line : line.substr(0, 160) + '...';
+  }
+
+  /** `records.get(module)`, counted as a record read (`RequestMeasure`). */
+  static function recordOf(module: String): Null<ModuleRecord> {
+    RequestMeasure.recordRead();
+    return records.get(module);
   }
 
   static function sortedKeys(map: Map<String, Bool>): Array<String> {

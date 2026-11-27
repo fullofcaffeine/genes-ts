@@ -829,6 +829,7 @@ private class TsBoundaryPlanBuilder {
         planRuntimeByteCacheRead(expression, receiver, field, expected);
         visit(receiver, null, currentReturn, sourceReturn);
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(child -> visit(child, null, currentReturn,
           sourceReturn));
     }

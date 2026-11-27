@@ -166,6 +166,7 @@ class RuntimeTypeOccurrenceCollector {
           .concat([RuntimeType(target), RuntimeType(TypeUtil.bootType)]);
       case other:
         var result = [];
+        genes.incremental.RequestMeasure.plannerNode();
         other.iter(child -> {
           result = result.concat(collect(child, resolveDirectModuleFunction,
             resolveDirectModuleValue, resolveNativeAsyncValue));

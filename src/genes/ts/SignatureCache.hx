@@ -661,6 +661,7 @@ class SignatureCache {
             visit(entry.v, false);
         default:
       }
+      genes.incremental.RequestMeasure.plannerNode();
       haxe.macro.TypedExprTools.iter(e, walk);
     }
     walk(expression);

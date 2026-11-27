@@ -809,6 +809,7 @@ private final class LexicalBindingUsePlanBuilder {
         markOpaque(scopeId);
 
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(child -> visit(child, scopeId, dynamicTokens,
           suppressPromiseNullCast));
     }
