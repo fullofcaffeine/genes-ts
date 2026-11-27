@@ -1179,7 +1179,7 @@ POSIX ownership also assumes that a process-group identifier is not reused by
 an unrelated process group between continuous liveness checks. A stronger
 adversarial non-reuse guarantee needs a different Linux ownership primitive.
 
-One 40-minute deadline owns the complete local or next-LTS serial run. The
+One 40-minute default deadline owns the complete local serial run. The
 initial bound uses ten successful required-job samples. Its p50 was 1,726
 seconds, and its p95 was 1,803
 seconds. Forty minutes adds approximately 33 percent to that whole-job p95.
@@ -1188,12 +1188,25 @@ expires, the runner terminates only the active private process group. The error
 and retained state name the active subgate and its log. `SIGINT` and `SIGTERM`
 use the same owned-tree cleanup before the aggregate exits, so cancelling a
 local run does not leave a compiler server or browser fixture behind. Set
-`GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test or a reviewed local
-diagnostic; serial CI uses the documented default. Each stable hosted shard has
-a 15-minute owner deadline and a 20-minute job limit. This leaves five minutes
-for owned cleanup and evidence upload. These are safety backstops, not compiler
-performance budgets. The focused test-plan route and next-LTS serial lane keep
-their existing outer bounds. Thus, the owner gets the first opportunity to
+`GENES_ACCEPTANCE_TIMEOUT_MS` only for a focused owner test, a reviewed local
+diagnostic, or a reviewed hosted job budget.
+
+Hosted runners can be much slower than these samples. On 2026-11-26 the
+next-LTS serial lane ran out of its 40-minute default at the last gate,
+`examples`, and the focused-examples shard ran out of a 15-minute deadline at
+the same gate (`genes-59nc`). The code was fine in both runs. Thus, the hosted
+budgets now have real headroom:
+
+- Each stable hosted shard has a 30-minute owner deadline and a 40-minute job
+  limit. Locally, the focused-examples shard takes 13 to 21 minutes under host
+  load.
+- The next-LTS serial lane has a 75-minute owner deadline and a 90-minute job
+  limit.
+
+The gap between the owner deadline and the job limit pays for setup, owned
+cleanup, and evidence upload. These are safety backstops, not compiler
+performance budgets. The focused test-plan route keeps its existing outer
+bound. Thus, the owner gets the first opportunity to
 clean its tree and publish evidence.
 
 `test:acceptance` is the normal stable pull-request owner for the focused

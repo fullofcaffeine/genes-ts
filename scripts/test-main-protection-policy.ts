@@ -222,12 +222,18 @@ function main(): void {
   assert(
     shards.includes("fail-fast: false")
       && shards.includes("shard: [compiler, react, output, focused-examples]")
-      && shards.includes("timeout-minutes: 20")
+      && shards.includes("timeout-minutes: 40")
       && shards.includes("- run: yarn test:acceptance ${{ matrix.shard }}")
-      && shards.includes('GENES_ACCEPTANCE_TIMEOUT_MS: "900000"')
+      && shards.includes('GENES_ACCEPTANCE_TIMEOUT_MS: "1800000"')
       && shards.includes("name: genes-acceptance-shard-${{ matrix.shard }}")
       && shards.includes("if-no-files-found: error"),
     "Stable acceptance must keep four bounded non-fail-fast shards with exact evidence"
+  );
+  const nextLts = jobBlock(ci, "genes-ts-smoke-next-lts", "haxe-preview");
+  assert(
+    nextLts.includes("timeout-minutes: 90")
+      && nextLts.includes('GENES_ACCEPTANCE_TIMEOUT_MS: "4500000"'),
+    "The next-LTS serial acceptance must keep its slow-runner deadline below its job limit"
   );
   assert(
     genesTs.includes("name: genes-ts (TS output + todoapp E2E)")
