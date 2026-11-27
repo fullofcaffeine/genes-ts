@@ -3581,11 +3581,247 @@ function caffeineShapedGroup(): Group {
   };
 }
 
+/** A class `mr.reach.<name>` whose `text()` returns `'<word> ' + <use>`. */
+function reachUser(name: string, word: string, use: string): string {
+  return `package mr.reach;\n\nclass ${name} {\n  public static function text(): String {\n`
+    + `    return '${word} ' + ${use};\n  }\n}\n`;
+}
+
+/**
+ * Modules that only an inline call or a macro call brings into the program
+ * (genes-f8vc.14.26). Haxe types each of these calls in the caller and
+ * leaves no reference to the callee's class in the typed body: an inline
+ * function's body or an inline constant's value replaces the call, and a
+ * macro returns other code. Haxe still loads the callee's module, and a
+ * full build writes its file. Before the fix, `DceStdUses.dependenciesOf`
+ * read only typed bodies, so no module that stays was known to load the
+ * callee, and every `-dce std` module request was refused with
+ * `module-may-leave` (measured on Caffeine: 0 of 18 edits previewed). Now
+ * Genes also reads Haxe's own list of the modules that each module loads
+ * (`HaxeDependencies`). The last rows remove the only call: a full build
+ * then drops the callee's file, and the request must still be refused.
+ */
+function inlineReachGroups(): ReadonlyArray<Group> {
+  return [
+    {
+      name: "std-inline-reach",
+      dce: "std",
+      files: {
+        "mr/Main.hx": mainWith([
+          "trace(mr.reach.ViaInline.text());",
+          "trace(mr.reach.ViaFinal.text());",
+          "trace(mr.reach.ViaMacro.text());"
+        ]),
+        "mr/reach/Codec.hx": "package mr.reach;\n\nclass Codec {\n"
+          + "  public static inline function assume<T>(value: T): T {\n    return value;\n  }\n}\n",
+        "mr/reach/Names.hx": "package mr.reach;\n\nclass Names {\n"
+          + "  public static inline final CITATION = 'citation';\n}\n",
+        "mr/reach/Twice.hx": "package mr.reach;\n\nclass Twice {\n"
+          + "  public static macro function twice(value: haxe.macro.Expr): haxe.macro.Expr {\n"
+          + "    return macro $value * 2;\n  }\n}\n",
+        "mr/reach/ViaInline.hx": reachUser("ViaInline", "inline", "Codec.assume('value')"),
+        "mr/reach/ViaFinal.hx": reachUser("ViaFinal", "final", "Names.CITATION"),
+        "mr/reach/ViaMacro.hx": reachUser("ViaMacro", "macro", "Twice.twice(2)")
+      },
+      steps: [
+        { id: "reach: literal edit of a module beside the inline and macro calls",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "reach: literal edit of the module with the inline function call",
+          apply: () => editSource("mr/reach/ViaInline.hx", "'inline '", "'inline! '"),
+          module: "mr.reach.ViaInline", expect: "preview" },
+        { id: "reach: literal edit of the module with the inline constant",
+          apply: () => editSource("mr/reach/ViaFinal.hx", "'final '", "'final! '"),
+          module: "mr.reach.ViaFinal", expect: "preview" },
+        { id: "reach: literal edit of the module with the macro call",
+          apply: () => editSource("mr/reach/ViaMacro.hx", "'macro '", "'macro! '"),
+          module: "mr.reach.ViaMacro", expect: "preview" },
+        { id: "reach: the only inline function call is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaInline.hx", "Codec.assume('value')", "'value'"),
+          module: "mr.reach.ViaInline", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Codec") },
+        { id: "reach: the only inline constant is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaFinal.hx", "Names.CITATION", "'citation'"),
+          module: "mr.reach.ViaFinal", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Names") },
+        { id: "reach: the only macro call is removed (module-may-leave)",
+          apply: () => editSource("mr/reach/ViaMacro.hx", "Twice.twice(2)", "4"),
+          module: "mr.reach.ViaMacro", expect: "module-may-leave",
+          check: reasonNames("mr.reach.Twice") }
+      ]
+    },
+    {
+      // Caffeine's shapes: `genes.ts.Json.value` returns a call of
+      // `Json.checkedValue`, which reaches `genes.ts.JsonCodec` only through
+      // the inline `unsafeAssumeJson`; a module of another package reads a
+      // `public static inline final` (as Caffeine's CmlGraphReadModel reads
+      // `GraphReferenceCard.CitationProperty`); and a Genes macro call
+      // (`genes.ts.TypeArguments.call`) loads its macro class, which
+      // nothing else names. Each one made every request `module-may-leave`.
+      // `genes.js.Async.enable()` gives every class a global build macro, as
+      // Caffeine's development build does. On d64d0ee2, which distrusted
+      // every single line of Haxe's list for a module that ran any build
+      // macro, each preview row here was still `module-may-leave`.
+      name: "std-inline-reach-caffeine-shaped",
+      dce: "std",
+      extraArgs: ["--macro", "genes.js.Async.enable()"],
+      files: {
+        "mr/Main.hx": mainWith(["trace(app.read.ReadModel.text());"]),
+        "app/graph/ReferenceCard.hx": "package app.graph;\n\nclass ReferenceCard {\n"
+          + "  public static inline final CitationProperty = 'citation';\n}\n",
+        // No import line: Haxe loads an imported module with its importer,
+        // so the last row would then keep `app.graph.ReferenceCard`.
+        "app/read/ReadModel.hx": "package app.read;\n\n"
+          + "class ReadModel {\n  public static function text(): String {\n"
+          + "    final value = genes.ts.Json.value({kind: 'note'});\n"
+          + "    return 'read ' + app.graph.ReferenceCard.CitationProperty + ' ' + (value == null ? 'none' : 'json');\n"
+          + "  }\n}\n",
+        "app/read/Typed.hx": "package app.read;\n\nclass Typed {\n"
+          + "  @:ts.explicitTypeArguments\n"
+          + "  static function same<T>(value: T): T {\n    return value;\n  }\n\n"
+          + "  public static function text(): String {\n"
+          + "    return 'typed ' + genes.ts.TypeArguments.call(same('x'), 'w');\n  }\n}\n"
+      },
+      programRoots: ["--macro", "include('app.read', false)"],
+      steps: [
+        { id: "caffeine reach: literal edit of a module of --main",
+          apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+          module: "mr.Button", expect: "preview" },
+        { id: "caffeine reach: literal edit of the module with Json.value and the inline constant",
+          apply: () => editSource("app/read/ReadModel.hx", "'read '", "'read! '"),
+          module: "app.read.ReadModel", expect: "preview" },
+        { id: "caffeine reach: literal edit of the module with the Genes macro call",
+          apply: () => editSource("app/read/Typed.hx", "'typed '", "'typed! '"),
+          module: "app.read.Typed", expect: "preview" },
+        { id: "caffeine reach: structural edit of the module with the Genes macro call",
+          apply: () => {
+            editSource("app/read/Typed.hx", "    return 'typed! ' +",
+              "    return extra() + 'typed! ' +");
+            editSource("app/read/Typed.hx", "  public static function text(): String {",
+              "  static function extra(): String {\n    return '+';\n  }\n\n"
+              + "  public static function text(): String {");
+          },
+          module: "app.read.Typed", expect: "preview" },
+        { id: "caffeine reach: the only read of the inline constant is removed (module-may-leave)",
+          apply: () => editSource("app/read/ReadModel.hx", "app.graph.ReferenceCard.CitationProperty", "'citation'"),
+          module: "app.read.ReadModel", expect: "module-may-leave",
+          check: reasonNames("app.graph.ReferenceCard") }
+      ]
+    }
+  ];
+}
+
+/**
+ * The review rows of genes-ts #272 round 1 (Fable on 7447d44d). `mr.reach.Built`
+ * has `@:build(mr.reach.Model.build())`, and `mr.reach.Model` has a runtime
+ * `label()` and, inside `#if macro`, the static `build()`. So Haxe's list of
+ * `mr.reach.Built` names `mr/reach/Model.hx` for a module of Haxe's macro
+ * context. `mr.reach.User` is the only module that calls `Model.label()`;
+ * the last row removes that call, and a full build then drops
+ * `mr/reach/Model.ts`. `build` is the line that the build macro runs first:
+ *
+ * - `review-plain-build`: nothing (a control; `module-may-leave` on
+ *   7447d44d too, because the metadata named the macro class);
+ * - `review-build-removes-meta`: it removes its own `@:build` metadata, so
+ *   no metadata names the macro class. On 7447d44d the line counted, and
+ *   the preview kept `mr/reach/Model.ts` (`STALE`);
+ * - `review-build-registers-own-file`: it registers `mr/reach/Model.hx` as a
+ *   file that `mr.reach.Built` depends on, so the line is listed twice (a
+ *   macro module and a module that `registerModuleDependency` made). On
+ *   7447d44d "listed twice" counted, and the preview was `STALE` too.
+ *
+ * Now a line counts once only when its file was no module of the macro
+ * context in the request that typed the dependent, twice only when the
+ * module has a macro function, and never when the file is a second entry
+ * of the program's list. Each last row is `module-may-leave`.
+ */
+function reviewBuildGroups(): ReadonlyArray<Group> {
+  const variants: ReadonlyArray<{ readonly name: string, readonly build: string, readonly session?: boolean }> = [
+    { name: "review-plain-build", build: "" },
+    { name: "review-build-removes-meta",
+      build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n" },
+    { name: "review-build-registers-own-file",
+      build: "    haxe.macro.Context.registerModuleDependency(haxe.macro.Context.getLocalModule(),\n"
+        + "      haxe.macro.Context.resolvePath('mr/reach/Model.hx'));\n" },
+    // The same as `review-build-removes-meta` with the `dump-path` that the
+    // Genes development session gives (round 2 of the review): both of
+    // Haxe's lists go to that folder, and no `dump` folder is made in the
+    // working folder.
+    { name: "review-build-removes-meta-session",
+      build: "    haxe.macro.Context.getLocalClass().get().meta.remove(':build');\n", session: true }
+  ];
+  const buildGroups: ReadonlyArray<Group> = variants.map((variant) => ({
+    name: variant.name,
+    dce: "std",
+    ...(variant.session === true ? { extraArgs: SESSION_DUMP_PATH } : {}),
+    files: {
+      "mr/Main.hx": mainWith(["trace(mr.reach.Built.text());", "trace(mr.reach.User.text());"]),
+      "mr/reach/Model.hx": "package mr.reach;\n\nclass Model {\n"
+        + "  public static function label(): String {\n    return 'model';\n  }\n\n"
+        + "  #if macro\n  public static function build(): Array<haxe.macro.Expr.Field> {\n"
+        + variant.build
+        + "    return haxe.macro.Context.getBuildFields();\n  }\n  #end\n}\n",
+      "mr/reach/Built.hx": "package mr.reach;\n\n@:build(mr.reach.Model.build())\nclass Built {\n"
+        + "  public static function text(): String {\n    return 'built';\n  }\n}\n",
+      "mr/reach/User.hx": reachUser("User", "user", "Model.label()")
+    },
+    steps: [
+      { id: `${variant.name}: literal edit of a module beside the build macro`,
+        apply: () => edit("Button.hx", "return 'Save';", "return 'Save!';"),
+        module: "mr.Button", expect: "preview",
+        check: variant.session === true ? sessionDumpFolderOnly : sharedMacroFilesDeleted },
+      { id: `${variant.name}: the only call of Model.label() is removed (module-may-leave)`,
+        apply: () => editSource("mr/reach/User.hx", "Model.label()", "'model'"),
+        module: "mr.reach.User", expect: "module-may-leave",
+        check: reasonNames("mr.reach.Model") }
+    ]
+  }));
+  return buildGroups;
+}
+
+/**
+ * The `dump-path` that the Genes development session gives every build with
+ * the incremental define (`HAXE_DEPENDENCIES_FOLDER` of
+ * `tooling/src/session/effective-invocation.ts`), here a folder beside the
+ * workspace.
+ */
+const SESSION_DUMP_PATH: ReadonlyArray<string> = ["-D", "dump-path=../session-dump"];
+
+/**
+ * A `check` for a request with `SESSION_DUMP_PATH`: Haxe wrote both lists
+ * into that folder, Genes deleted nothing there, and no `dump` folder was
+ * made in the working folder.
+ */
+function sessionDumpFolderOnly(_report: ModuleReport, label: string): void {
+  const folderPath = path.join(workspace, "..", "session-dump");
+  ok(existsSync(path.join(folderPath, "js", "dependencies.dump")),
+    `${label}: the program's list must stay in the session folder`);
+  ok(existsSync(path.join(folderPath, "macro", "dependencies.dump")),
+    `${label}: the macro context's list must be in the session folder`);
+  ok(!existsSync(path.join(workspace, "dump")),
+    `${label}: no dump folder may be made in the working folder`);
+}
+
+/**
+ * A `check` for a request without a session `dump-path`: Genes deleted the
+ * two files of the shared `dump/macro` of the working folder, and left the
+ * folder, so another process that writes there never loses it.
+ */
+function sharedMacroFilesDeleted(_report: ModuleReport, label: string): void {
+  const macroFolder = path.join(workspace, "dump", "macro");
+  ok(existsSync(macroFolder), `${label}: the shared dump/macro folder must stay`);
+  ok(!existsSync(path.join(macroFolder, "dependencies.dump"))
+    && !existsSync(path.join(macroFolder, "dependants.dump")),
+    `${label}: Genes must delete the two files of the shared dump/macro folder`);
+}
+
 const groups: ReadonlyArray<Group> = [
   { name: "base", steps: baseSteps },
   ...chainGroups(),
   ...stdGroups(),
   ...extraRootGroups(),
+  ...inlineReachGroups(),
+  ...reviewBuildGroups(),
   ...privateAccessGroups(),
   {
     // M1: an enum kept only through the parameter type of a private function.

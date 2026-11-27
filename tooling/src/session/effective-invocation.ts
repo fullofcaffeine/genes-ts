@@ -49,6 +49,24 @@ export const COMPILER_DATA_DESCRIPTOR_FILE = "compiler-data-v1.descriptor";
 export const GENERATION_REPORT_FILE = `${INCREMENTAL_DESCRIPTOR_FILE}.report.json`;
 
 /**
+ * The folder, inside the session's fixed request folder, where Haxe writes
+ * its module dependency lists for Genes (`genes.incremental.HaxeDependencies`):
+ * `-D dump-path=<request folder>/haxe-dependencies` in every build that has
+ * the incremental define.
+ *
+ * Why the session gives it: Haxe copies the defines into its macro context
+ * before any init macro runs, so a `dump-path` that Genes sets reaches only
+ * the program's list, and the macro context's list goes to `dump/macro` of
+ * the working folder, which every process there shares. On the command line
+ * the define reaches both, so both lists go to the session's own folder and
+ * Genes deletes nothing outside it. The path is the same in every build,
+ * because `dump-path` is part of Haxe's compilation signature. Users cannot
+ * set `dump`, `dump-dependencies` or `dump-path` themselves
+ * (`FORBIDDEN_DEFINES`).
+ */
+export const HAXE_DEPENDENCIES_FOLDER = "haxe-dependencies";
+
+/**
  * What one Haxe request asks of the Genes incremental path.
  *
  * - `measure` (the default): the descriptor asks for `afterTyping:
@@ -455,9 +473,10 @@ export async function buildEffectiveHaxeInvocationPlan<
  * `.genes/dev/candidates/revision-3-ab/output/index.tsx` in build 3.
  *
  * `incremental` selects the descriptor (`IncrementalBinding`); `none` leaves
- * out the incremental define and its file. `module` also replaces the roots
- * of the program by the module (`moduleRequestArguments`); the defines stay
- * the same, so a module request uses the cache of the program requests.
+ * out the incremental define, its file, and the `dump-path` of Haxe's
+ * dependency lists (`HAXE_DEPENDENCIES_FOLDER`). `module` also replaces the
+ * roots of the program by the module (`moduleRequestArguments`); the defines
+ * stay the same, so a module request uses the cache of the program requests.
  */
 export function bindHaxeInvocation(
   plan: EffectiveHaxeInvocationPlan,
@@ -528,7 +547,12 @@ export function bindHaxeInvocation(
       `${GENES_OUTPUT_DESCRIPTOR_DEFINE}=${outputDescriptor}`,
       ...(incrementalText === null
         ? []
-        : ["-D", `${GENES_DEV_INCREMENTAL_DEFINE}=${incrementalDescriptor}`]),
+        : [
+            "-D",
+            `${GENES_DEV_INCREMENTAL_DEFINE}=${incrementalDescriptor}`,
+            "-D",
+            `dump-path=${path.join(requestRoot, HAXE_DEPENDENCIES_FOLDER)}`,
+          ]),
       ...(compilerDataDescriptorPath === undefined
         ? []
         : ["-D", `${COMPILER_DATA_DEFINE}=${compilerDataDescriptorPath}`]),

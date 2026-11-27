@@ -7938,6 +7938,22 @@ await withHarness(
       false,
       "the cold build has no incremental define",
     );
+    assert.equal(
+      cold.arguments.some((argument) => argument.startsWith("dump-path=")),
+      false,
+      "the cold build has no dump-path for Haxe's dependency lists",
+    );
+    const warm = harness.compiler.invocations.find((invocation) =>
+      invocation.arguments.some((argument) => argument.startsWith("genes.dev_incremental=")),
+    )!;
+    const descriptorArgument = warm.arguments.find((argument) =>
+      argument.startsWith("genes.dev_incremental="),
+    )!;
+    assert.deepEqual(
+      warm.arguments.filter((argument) => argument.startsWith("dump-path=")),
+      [`dump-path=${path.join(path.dirname(descriptorArgument.slice("genes.dev_incremental=".length)), "haxe-dependencies")}`],
+      "a build with the incremental define gives Haxe's dependency lists the session's own folder",
+    );
     const candidates = path.join(harness.root, ".genes/dev/candidates");
     assert.deepEqual(
       path.relative(candidates, cold.candidateOutputFile).split(path.sep).slice(1),
