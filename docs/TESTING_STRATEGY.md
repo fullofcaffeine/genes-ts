@@ -1203,8 +1203,8 @@ budgets now have real headroom:
 - The next-LTS serial lane has a 75-minute owner deadline and a 90-minute job
   limit.
 
-The gap between the owner deadline and the job limit pays for setup, owned
-cleanup, and evidence upload. These are safety backstops, not compiler
+The gap between the owner deadline and the job limit pays for setup and owned
+cleanup, and in the shard lane also for evidence upload. These are safety backstops, not compiler
 performance budgets. The focused test-plan route keeps its existing outer
 bound. Thus, the owner gets the first opportunity to
 clean its tree and publish evidence.

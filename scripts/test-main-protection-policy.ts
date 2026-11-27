@@ -233,7 +233,7 @@ function main(): void {
   assert(
     nextLts.includes("timeout-minutes: 90")
       && nextLts.includes('GENES_ACCEPTANCE_TIMEOUT_MS: "4500000"'),
-    "The next-LTS serial acceptance must keep its slow-runner deadline below its job limit"
+    "The next-LTS serial acceptance must keep its 75-minute slow-runner deadline and its 90-minute job limit"
   );
   assert(
     genesTs.includes("name: genes-ts (TS output + todoapp E2E)")
