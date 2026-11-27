@@ -325,9 +325,10 @@ typedef ShadowReport = {
    * reads the bodies of that module's functions. Example: a one-component
    * edit of Caffeine reports 42 for this reason.
    *
-   * Two reads stay eager and are not counted: the constructor body in
-   * `Module.fieldsOf` (it gives the field its type and position), and the
-   * overload signatures that `PublicMember.capture` reads.
+   * Not counted: the constructor body in `Module.fieldsOf`, which stays
+   * eager (it gives the field its type and position), and the bodies of
+   * overload signatures, which `PublicMember.expr` reads on first use
+   * (genes-gz0l).
    */
   final replayedBodyReads: Int;
 
@@ -1907,9 +1908,9 @@ class IncrementalShadow {
    * replayed module on purpose. Without an active shadow this does nothing.
    *
    * Example: `Module.fieldsOf` calls it the first time a caller reads
-   * `Field.expr` of a field of a class. Bodies that Genes reads at once (the
-   * constructor body, the overload signatures of `PublicMember.capture`)
-   * do not pass through it.
+   * `Field.expr` of a field of a class. The constructor body, which Genes
+   * reads at once, and the bodies of overload signatures, which
+   * `PublicMember.expr` reads, do not pass through it.
    */
   public static function recordBodyRead(module: String): Void {
     final shadow = current;

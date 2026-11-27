@@ -893,11 +893,12 @@ class Module {
    * remain complete because they erase at runtime. DependencyPlan independently
    * retains every type named by those surfaces without broadening classic JS.
    *
-   * Without a surface, a record reads the typed body of its Haxe field only
-   * when a caller first reads `Field.expr`. Two bodies are still read at
-   * once: the constructor body, because its type and position give the
-   * record's `type` and `pos`, and the bodies of overload signatures, which
-   * `PublicMember.capture` reads.
+   * A record reads the typed body of its Haxe field only when a caller
+   * first reads `Field.expr`. A record made from a surface member or an
+   * overload signature reads it through `PublicMember.expr`, which also
+   * reads on first use (genes-gz0l). One body is still read at once: the
+   * constructor body, because its type and position give the record's
+   * `type` and `pos`.
    */
   public static function fieldsOf(cl: ClassType,
       ?publicSurface: PublicSurface, ?surfaceParams: Array<Type>,
@@ -947,7 +948,7 @@ class Module {
           methodKind: null,
           type: member.type,
           meta: member.meta,
-          exprValue: member.expr,
+          readExpr: () -> member.expr,
           pos: member.pos,
           name: 'new',
           isStatic: false,
@@ -985,7 +986,7 @@ class Module {
         meta: member.meta,
         name: member.name,
         type: member.type,
-        exprValue: member.expr,
+        readExpr: () -> member.expr,
         pos: member.pos,
         isStatic: member.isStatic,
         ownership: member.ownership,

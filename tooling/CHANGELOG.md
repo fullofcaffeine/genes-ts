@@ -6,6 +6,36 @@ it.
 
 ## Unreleased
 
+- The development session can show the edited module first
+  (`modulePreview`, G3, genes-f8vc.14.3; needs `generationReuse`). For a
+  save of one `.hx` module it sends a module request on the warm server
+  (the program's arguments without `--main`, class-name roots and
+  `--macro include(...)`, the module as the only root, an output folder of
+  its own, and a request descriptor with `"kind": "module"`), keeps the
+  files that Genes admits in memory, and emits `preview-generated`. The
+  program request follows after the quiet time (`modulePreview.quietMs`,
+  default `debounceMs`) and stays the only writer of the public tree; a
+  refusal (`preview-refused`, with a Genes or session code) starts it at
+  once. At acceptance the session compares each preview file with the
+  candidate and emits `preview-confirmed` or `preview-corrected`; a
+  difference of a preview whose sources did not move since (each later
+  change proven by an admitted preview), or an accepted generation of such
+  sources that changes another Genes file, is counted
+  (`inspect().modulePreview`), its files are kept in
+  `<stateDirectory>/preview-evidence/`, and that module gets no more
+  previews. A save while the module request runs shows no late preview.
+  With the option, while generation reuse is active and the newest revision
+  is accepted, a save that leaves every changed `.hx` file with the bytes of
+  the last accepted build starts no build. Protocol:
+  version 1 gains the four opt-in event kinds and the optional snapshot
+  field `modulePreview` (schema and three vectors); a host without the
+  option sees no change. New API: `ModulePreviewOptions`,
+  `DevelopmentSession.readPreviewFile`, `summarizePreviewTimings` (time to
+  the preview against time to the accepted generation),
+  `SessionCompiler.compileModule` (optional; runs only on the warm server)
+  and `SerializedDirtyLoopOptions.followUpDelayMs`. On a fixture of UI-like
+  modules, 30 of 30 scripted edits were shown as previews, each equal to
+  the program result.
 - The development session talks to its owned Haxe server through one pipe
   that stays open (`haxe --wait stdio`), not through a Node helper and a
   `haxe --connect` client process for each request (parity stage 0,
