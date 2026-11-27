@@ -157,6 +157,7 @@ class TypeEmitter {
           out.push(metaValue);
           continue;
         }
+        genes.incremental.RequestMeasure.bodyRead(field);
         final e = field.expr();
         if (e == null)
           continue;

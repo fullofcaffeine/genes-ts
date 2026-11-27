@@ -90,6 +90,8 @@ export type IncrementalBinding =
        * (`"moduleRecords": true`).
        */
       readonly moduleRecords?: boolean;
+      /** True asks Genes for the request measure (`"requestMeasure": true`). */
+      readonly requestMeasure?: boolean;
     }
   | {
       /**
@@ -100,6 +102,8 @@ export type IncrementalBinding =
       readonly kind: "module";
       /** The Haxe module path, for example `ui.controls.Button`. */
       readonly module: string;
+      /** True asks Genes for the request measure (`"requestMeasure": true`). */
+      readonly requestMeasure?: boolean;
     }
   | { readonly kind: "none" };
 
@@ -139,6 +143,7 @@ export function incrementalDescriptorText(
         afterTyping: "reuse",
         generation: "reuse",
         ...(binding.moduleRecords === true ? { moduleRecords: true } : {}),
+        ...(binding.requestMeasure === true ? { requestMeasure: true } : {}),
         audit: { modules: binding.auditModules, seed: 0 },
       })}\n`;
     case "module":
@@ -152,6 +157,7 @@ export function incrementalDescriptorText(
         module: binding.module,
         afterTyping: "reuse",
         generation: "reuse",
+        ...(binding.requestMeasure === true ? { requestMeasure: true } : {}),
       })}\n`;
   }
 }

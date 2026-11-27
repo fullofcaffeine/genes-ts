@@ -44,9 +44,8 @@ class PlannedTemp {
   public final pos: Position;
   public final rule: String;
 
-  public function new(name: String, kind: PlannedTempKind,
-      local: Null<TVar>, initializer: Null<TypedExpr>, pos: Position,
-      rule: String) {
+  public function new(name: String, kind: PlannedTempKind, local: Null<TVar>,
+      initializer: Null<TypedExpr>, pos: Position, rule: String) {
     this.name = name;
     this.kind = kind;
     this.local = local;
@@ -143,7 +142,7 @@ class TempPlan {
   public function new(localTemps: Map<Int, PlannedTemp>,
       loweredFors: ObjectMap<TypedExpr, LoweredForStatement>,
       loweredValues: ObjectMap<TypedExpr, LoweredValueExpression>,
-      moduleBindings:Array<String>) {
+      moduleBindings: Array<String>) {
     this.localTemps = localTemps;
     this.loweredFors = loweredFors;
     this.loweredValues = loweredValues;
@@ -156,7 +155,7 @@ class TempPlan {
   }
 
   /** Returns compiler-created temporaries emitted in module scope. */
-  public function moduleBindingNames():Array<String> {
+  public function moduleBindingNames(): Array<String> {
     return moduleBindings.copy();
   }
 
@@ -170,9 +169,10 @@ class TempPlan {
     final lowered = loweredFors.get(expression);
     if (lowered != null)
       return lowered;
-    return CompilerDiagnostic.fail(
-      '[GTS-TEMP-PLAN-001] A typed for-loop reached emission '
-      + 'without a shared TempPlan entry.', expression.pos);
+    return
+      CompilerDiagnostic.fail('[GTS-TEMP-PLAN-001] A typed for-loop reached emission '
+      + 'without a shared TempPlan entry.',
+      expression.pos);
   }
 
   /** Returns the preplanned IIFE result binding for a statement used as a value. */
@@ -180,9 +180,10 @@ class TempPlan {
     final lowered = loweredValues.get(expression);
     if (lowered != null)
       return lowered;
-    return CompilerDiagnostic.fail(
-      '[GTS-TEMP-PLAN-003] An expression-valued statement reached emission '
-      + 'without a shared TempPlan entry.', expression.pos);
+    return
+      CompilerDiagnostic.fail('[GTS-TEMP-PLAN-003] An expression-valued statement reached emission '
+      + 'without a shared TempPlan entry.',
+      expression.pos);
   }
 }
 
@@ -203,7 +204,7 @@ private class TempPlanBuilder {
   final localTemps: Map<Int, PlannedTemp> = [];
   final loweredFors = new ObjectMap<TypedExpr, LoweredForStatement>();
   final loweredValues = new ObjectMap<TypedExpr, LoweredValueExpression>();
-  final moduleBindings:Array<String> = [];
+  final moduleBindings: Array<String> = [];
   var iteratorCounter = 0;
 
   public function new() {}
@@ -222,12 +223,11 @@ private class TempPlanBuilder {
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new TempPlan(localTemps, loweredFors, loweredValues,
-      moduleBindings);
+    return new TempPlan(localTemps, loweredFors, loweredValues, moduleBindings);
   }
 
   /** Visits each typed node once and records facts before visiting its children. */
-  function visit(expression: TypedExpr, moduleContext:Bool): Void {
+  function visit(expression: TypedExpr, moduleContext: Bool): Void {
     if (requiresValueResult(expression)) {
       final result = new PlannedTemp("$r0", ValueResult, null, null,
         expression.pos, TempPlan.VALUE_RESULT_RULE);
@@ -252,16 +252,16 @@ private class TempPlanBuilder {
           default:
             final tempName = "$it" + iteratorCounter;
             iteratorCounter++;
-            final temp = new PlannedTemp(tempName,
-              ForIterator, null, iteratorExpression, iteratorExpression.pos,
+            final temp = new PlannedTemp(tempName, ForIterator, null,
+              iteratorExpression, iteratorExpression.pos,
               TempPlan.FOR_ITERATOR_RULE);
             if (moduleContext && moduleBindings.indexOf(tempName) == -1)
               moduleBindings.push(tempName);
             TemporaryIterator(temp);
         };
         loweredFors.set(expression,
-          new LoweredForStatement(variable, iteratorExpression, iterator, body,
-            expression.pos));
+          new LoweredForStatement(variable, iteratorExpression, iterator,
+            body, expression.pos));
         visit(body, moduleContext);
       case TTry(body, catches):
         visit(body, moduleContext);
@@ -270,6 +270,7 @@ private class TempPlanBuilder {
           visit(entry.expr, moduleContext);
         }
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(child -> visit(child, moduleContext));
     }
   }
@@ -277,8 +278,9 @@ private class TempPlanBuilder {
   function classifyLocal(local: TVar, pos: Position): Void {
     if (localTemps.exists(local.id) || !isHaxeGeneratedTemp(local.name))
       return;
-    localTemps.set(local.id, new PlannedTemp(local.name, HaxeGeneratedLocal,
-      local, null, pos, TempPlan.HAXE_LOCAL_RULE));
+    localTemps.set(local.id,
+      new PlannedTemp(local.name, HaxeGeneratedLocal, local, null, pos,
+        TempPlan.HAXE_LOCAL_RULE));
   }
 
   static function isHaxeGeneratedTemp(name: String): Bool {

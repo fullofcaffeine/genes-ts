@@ -1497,3 +1497,166 @@ instead and prints whether the next full request differs from cold (it does:
 the kept class keeps a field that a cold build drops). That line is an
 observation, not a pass condition.
 
+## Request measures (genes-f8vc.14.33)
+
+Wall time on a loaded host varies by 160% or more, so it cannot show that one
+Genes change makes a request cheaper. A request whose descriptor has
+`"requestMeasure": true` therefore reports units that repeat under load, in a
+`measure` field (`genes.incremental.RequestMeasure`). The field is in the
+module request report (`<descriptor>.report.json` of a module request), in the
+generation report of a full request (`<descriptor>.report.json`), and in the
+records report (`<descriptor>.module-records.json`). The records report is
+written last, so it holds the measure of the whole full request. Without the
+descriptor field the reports have `measure: null`, and Genes reads no clock
+and counts nothing.
+
+The measure is opt-in because it costs retired instructions: 6.5% of a full
+request and 4.0% of a module request of the fixture program (medians of 20
+paired runs with `--measure-off-b`; 95% intervals 5.4% to 7.2% and 3.7% to
+4.4%). The development session sets the field with `processCounters: true`
+while generation reuse is active. The cost falls on the phases that start
+most often, so their share is too large: `genes.after-typing.pass.signatureCache`
+starts 69 times in the fixture module request, and each start reads the
+clocks.
+
+| Field | Unit | Meaning |
+| --- | --- | --- |
+| `format` | number | Format of the object, now 1. |
+| `cpuMs` | ms | CPU time of the Haxe process from the start of `Generator.use()` to the report. |
+| `words` | OCaml words | Words that the process allocated in that span (minor plus major minus promoted words of `eval.vm.Gc.counters()`). |
+| `minorCollections` | count | Minor collections in that span. Compare two `words` values only when this count is close too. |
+| `processCpuStartMs`, `processCpuEndMs` | ms | CPU time of the process since it started, when the measure began and at the report. |
+| `unnamedCpuMs` | ms | Self CPU time of the catch-all phases `genes.after-typing`, `genes.on-generate` and `genes.generate`: Genes work that no smaller phase names. |
+| `work` | counts | Exact work counts, below. |
+| `phases[]` | | Each phase once, in start order: `name`, `calls`, self `cpuMs`, self `words`, self `work`. |
+
+Work counts (`work`, also per phase):
+
+| Count | What one unit is |
+| --- | --- |
+| `afterTypingDeclarations` | A declaration that the Genes after-typing walk visited (`AfterTypingPasses.run`). |
+| `generateDeclarations` | A declaration of Haxe's list that the generate hook visited (stamp loop of `Generator.use()`, `Generator.typesPerModule`). |
+| `bodyReads` | A copy of a typed body from Haxe (`ClassField.expr()`). |
+| `bodyFunctions` | A function whose body was copied at least once; `bodyReads / bodyFunctions` is the number of copies per body. |
+| `printerNodes` | A typed expression that a printer printed (`ExprEmitter.emitExpressionPos`). |
+| `plannerNodes` | A typed expression whose children a plan walk visited (each `iter` in `NamePlan`, `TsNarrowingPlan` and the other plans). |
+| `factNodes` | The same for the walks of the incremental checks (`ModuleRequest.referencesOf`, `skeletonOf`, `DceStdUses`). |
+| `recordsRead`, `recordsWritten` | A module record or generation cache entry that the request read or wrote. |
+
+Phases follow the order in which Haxe runs the hooks: `genes.init` (the init
+macro), `haxe.typing`, `genes.after-typing` (the Genes after-typing callbacks),
+`haxe.filters`, `genes.on-generate` (the callbacks before and after Haxe saves
+the class state), `haxe.dce` and `genes.generate`. Haxe 4.3.7 runs
+after-typing callbacks in reverse order of registration and before-save and
+after-save callbacks in order of registration; `Generator.measureHooks`
+explains how the boundaries are placed. An after-typing callback of a macro
+given after `Generator.use()` counts in `haxe.typing`, and one of a macro
+given before it counts in `haxe.filters`.
+
+Nested phases:
+
+- in `genes.after-typing`: `genes.after-typing.stamps` (the change set),
+  `.walk` (with `.members` and one `.pass.<name>` for each class pass, such as
+  `.pass.signatureCache`), one `.declarations.<name>` for each declaration
+  function, `.report` and `.module-directives`;
+- in `genes.on-generate`: `genes.on-generate.stamps` and
+  `genes.module.after-save`;
+- in `genes.generate`: every `genes.util.Timer.timer` phase (for example
+  `genes.plan.inventory`, `genes.emit.implementation`, `emitClass`), and
+  `genes.module.roots`, `genes.module.references`, `genes.module.check`,
+  `genes.records.advance`, `genes.records.store`, `genes.shadow.start` and
+  `genes.shadow.commit`;
+- `genes.module.digest` wherever a source file is read and hashed.
+
+A phase reports its self cost, so the phases add up to `cpuMs` and `words`.
+The two parts of a request outside the measure are `haxe.before-genes`
+(`processCpuStartMs` minus the process CPU time before the request) and
+`haxe.after-genes` (the process CPU time after the request minus
+`processCpuEndMs`). Only a reader that reads the process counters from
+outside can compute them. Haxe's periodic collections land there: one full
+request in three spent 26 to 33 ms of CPU time in `haxe.after-genes`, and one
+module request 344 ms in `haxe.before-genes`.
+
+Retired instructions are read from outside the Haxe process, before and
+after each request (`readProcessCounters` in
+`tooling/src/session/process-counters.ts`): on macOS `proc_pid_rusage`
+(`ri_instructions`, no root) through `node:ffi`; on Linux they are
+unavailable and only the CPU time is read from `/proc`. The development
+session does this with `processCounters: true` and emits `request-measured`.
+
+Limits of `words`: OCaml 5.1 (Haxe 4.3.7) adds the free rest of the minor
+heap to the minor words at each minor collection. Genes empties the minor
+heap when a measure starts (`Gc.minor()`), so equal work in one run gives
+equal words (three equal module requests: 20,554,052 words each). A smaller
+change of work moves `words` in steps of up to one minor heap per
+collection. The self words of a phase include such a step when a collection
+falls in it, so per-phase words differ between runs (`genes.generate` of the
+same module request: 6,149 words in one run, 235,188 in another); the total
+is the stable unit. For small differences use the work counts and the
+instructions.
+
+`words` also grows slowly when equal requests repeat on one server. Equal
+full requests of the fixture grew by about 38,300 words (0.13%) per request,
+mostly in `genes.publish.transaction` (about 33,500, falling back every few
+requests) and `genes.module.after-save` (about 2,700); the cause is not
+known. Module requests on a server of their own did not grow (20,554,399
+and 20,554,221 words, first and last of 40). When one server alternates
+between two argument lists, each module request is preceded by a full
+request, and words grew from 20.79 to 21.85 million over 80 samples. Do not
+compare `words` from different runs; compare A and B inside one paired run.
+
+The module gate checks the measure (group `measure-repeats`). A full request
+without `"requestMeasure"` must report no measure. With it, both reports of a
+full request must carry a measure with every count and the hook phases; the
+`genes.after-typing` span must hold every after-typing declaration, no
+`haxe.*` phase may hold Genes work, and the phases must start in the order
+`genes.after-typing`, `genes.after-typing.walk`, `haxe.filters`. Only the
+order check sees swapped hook marks (the walk keeps its name under any
+parent): with the two after-typing marks swapped on purpose, the group
+failed with "phase start order is haxe.filters, genes.after-typing.walk,
+genes.after-typing". Then the same module request runs four
+times; the last three must give equal counts and phases, and words within
+0.5%.
+
+`yarn compiler-server:pair` compares two Genes sources (`--a=<src>`,
+`--b=<src>`, or `--define-b=<name>` for one source with and without a
+define; `--measure-off-b` measures the cost of the measure). It runs A B B A
+for `--pairs` pairs (default 20) after `--warmup-pairs` dropped pairs
+(default 1), with one warm Haxe server for each side (`--servers=2`, the
+default). With `--servers=1` both sides share one server; each switch then
+starts a new macro state without module records, so a full request comes
+before each module sample. The measured request is a module request of
+`--module` (default `mr.Button`) or the full request itself
+(`--kind=program`, with the rolling replay audit off). For words,
+instructions and CPU time it prints the median pair ratio (B1 + B2) /
+(A1 + A2), its order-statistic 95% interval (the 6th to the 15th of 20
+sorted ratios), and the lowest and highest. B differs from A only when the
+interval leaves out 1. Wall time is a report line. Beside words it prints
+the minor collections of A and B; when the two sides of a pair collected a
+different number of times, it prints "collection counts differ; words not
+compared" instead, because one collection moves words by up to one minor
+heap (about 1.2% of a fixture module request).
+
+Each measured module request repeats a request with no change: Haxe types
+nothing again and every kept bucket of Genes hits. Such numbers compare A
+with B on a no-edit request; they are not the cost of a save. An edit mode
+comes in genes-f8vc.14.40.
+
+Spread of the runner with the same source on both sides (B with an unused
+define, 20 pairs, load 25 to 41), instructions:
+
+| Servers | Median | 95% interval of the median | Lowest to highest |
+| --- | --- | --- | --- |
+| 1 (shared) | 0.9937 | 0.9684 to 1.0425 | 0.9170 to 1.0864 |
+| 2 (one per side) | 0.9983 | 0.9863 to 1.0048 | 0.4987 to 1.0124 |
+
+The lowest single ratio of the two-server run came from a periodic
+collection in `haxe.before-genes`; the median and its interval do not move
+with it.
+
+`--repeat=N` sends N equal module requests on A and prints a row per
+repeat, the spread of each unit, the share of the process CPU time that
+falls in a named phase, and the check of the `genes.after-typing` span.
+Instructions need a built `tooling/dist`; the script runs Node with
+`--experimental-ffi`. Every sample is kept in `.tmp/pair/result.json`. Run
+it at low priority (`nice -n 10`) beside other work.

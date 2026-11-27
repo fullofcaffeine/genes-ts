@@ -547,6 +547,55 @@ async function testSessionCompiler(haxe: string, root: string): Promise<void> {
   assert.equal(compiler.serverRequests, null);
 }
 
+/**
+ * `processCounters: true` (genes-f8vc.14.33): each request on the owned
+ * server returns what it cost the server process. On macOS the retired
+ * instructions come from `proc_pid_rusage` (here through the helper process,
+ * because the test runs without `--experimental-ffi`); on Linux they are
+ * unavailable with a reason, and the CPU time comes from `/proc`.
+ */
+async function testProcessCounters(haxe: string, root: string): Promise<void> {
+  const layout = resolveSessionLayout(root, "haxe-stdio-counters", "dist/counters.js", ".genes/counters");
+  mkdirSync(path.join(root, path.dirname(layout.serverLeaseRelative)), { recursive: true });
+  const events: HaxeWaitServerEvent[] = [];
+  const compiler = new HaxeSessionCompiler(layout, (event) => events.push(event), 2_000, {
+    idleCollection: false,
+    processCounters: true,
+  });
+  mkdirSync(path.join(root, ".genes", "plain"), { recursive: true });
+  const plain = new HaxeSessionCompiler(
+    resolveSessionLayout(root, "haxe-stdio-plain", "dist/plain.js", ".genes/plain"),
+    () => {},
+    2_000,
+    { idleCollection: false },
+  );
+  try {
+    const bound = invocation(haxe, root);
+    for (let build = 0; build < 2; build += 1) {
+      const result = await compiler.compile(bound, "digest", new AbortController().signal);
+      assert.equal(result.mode, "connected", JSON.stringify(events));
+      const process = result.process;
+      assert.notEqual(process, undefined, "a measured request returns its counters");
+      if (os.platform() === "darwin") {
+        assert.equal(process!.unavailable, null);
+        assert.equal(Number.isInteger(process!.instructions) && process!.instructions! > 0, true,
+          `retired instructions: ${String(process!.instructions)}`);
+      } else {
+        assert.equal(process!.instructions, null);
+        assert.equal(typeof process!.unavailable, "string");
+      }
+      if (os.platform() === "darwin" || os.platform() === "linux") {
+        assert.equal(typeof process!.cpuMs === "number" && process!.cpuMs >= 0, true);
+      }
+    }
+    const unmeasured = await plain.compile(bound, "digest", new AbortController().signal);
+    assert.deepEqual(unmeasured, { mode: "connected" }, "without the option nothing is read");
+  } finally {
+    await compiler.close();
+    await plain.close();
+  }
+}
+
 async function main(): Promise<void> {
   testAnswerDecoding();
   await testFrameErrors();
@@ -556,6 +605,8 @@ async function main(): Promise<void> {
     writeFixture(root);
     await testNoOpLatency(haxe, root);
     await testCollectionTiming(haxe, root);
+    // Before `testSessionCompiler`, which leaves a macro that breaks frames.
+    await testProcessCounters(haxe, root);
     await testSessionCompiler(haxe, root);
   } finally {
     rmSync(root, { recursive: true, force: true });

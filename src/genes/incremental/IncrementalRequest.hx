@@ -205,6 +205,16 @@ typedef IncrementalDescriptor = {
   @:optional final recordsText: Bool;
 
   /**
+   * `"requestMeasure": true` (genes-f8vc.14.33): the request writes a
+   * `measure` into its reports (`RequestMeasure`): work counts, allocated
+   * words and CPU time of each named phase. Absent means false, and Genes
+   * reads no clock for it. Opt-in because it costs retired instructions:
+   * 6.5% of a full request and 4.0% of a module request of the fixture
+   * program (medians of 20 paired runs).
+   */
+  @:optional final requestMeasure: Bool;
+
+  /**
    * The rolling replay audit of a `"generation": "reuse"` request
    * (`ReplayAudit`). The decoder fills in the default when the field is
    * absent; read it through `IncrementalRequest.auditSettings`, which also
@@ -545,6 +555,10 @@ class IncrementalRequest {
     if (recordsText != null && !Std.isOfType(recordsText, Bool))
       return Left('the recordsText value of the request descriptor is not '
         + 'true or false');
+    final requestMeasure: Dynamic = Reflect.field(parsed, 'requestMeasure');
+    if (requestMeasure != null && !Std.isOfType(requestMeasure, Bool))
+      return Left('the requestMeasure value of the request descriptor is not '
+        + 'true or false');
     final audit = switch decodeAudit(Reflect.field(parsed, 'audit')) {
       case Left(reason): return Left(reason);
       case Right(settings): settings;
@@ -557,6 +571,7 @@ class IncrementalRequest {
       generation: generation,
       moduleRecords: records == true,
       recordsText: recordsText == true,
+      requestMeasure: requestMeasure == true,
       audit: audit
     });
   }

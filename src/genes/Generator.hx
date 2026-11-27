@@ -21,6 +21,7 @@ import genes.DependencyPlan.DependencyImportSpec;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.incremental.IncrementalShadow;
 import genes.incremental.ModuleRequest;
+import genes.incremental.RequestMeasure;
 import sys.FileSystem;
 
 using Lambda;
@@ -131,6 +132,7 @@ class Generator {
   }
 
   static function generate(api: JSGenApi) {
+    RequestMeasure.mark('genes.generate');
     validateOutputOverrideTiming();
     #if genes_generation_floor
     try {
@@ -155,7 +157,9 @@ class Generator {
     // Without `-D genes.dev_incremental`, or when the request descriptor does
     // not select the shadow, this returns at once and every hook below does
     // nothing, so the request runs exactly as before.
+    final endShadowStartTimer = timer('genes.shadow.start');
     IncrementalShadow.start(outputFile, outputTransaction);
+    endShadowStartTimer();
 
     try {
       removeCompilerSentinel();
@@ -912,10 +916,14 @@ class Generator {
     }
     // Stage 3: compare and store only after the complete tree is public, so
     // a failed request keeps the cache of the last successful generation.
+    final endShadowCommitTimer = timer('genes.shadow.commit');
     IncrementalShadow.committed();
+    endShadowCommitTimer();
     // With `"moduleRecords": true`, keep the facts that a later module
     // request checks (G3); otherwise this returns at once.
+    final endRecordsTimer = timer('genes.records.store');
     ModuleRequest.programCommitted(api.types, api.main, outputFile);
+    endRecordsTimer();
   }
 
   /**
@@ -945,8 +953,10 @@ class Generator {
       output: String, outputTransaction: OutputTransaction,
       target: String): Void {
     final started = haxe.Timer.stamp();
+    final endRootsTimer = timer('genes.module.roots');
     // The roots of dead-code elimination must not reach any printer.
     ModuleRequest.removeRoots();
+    endRootsTimer();
     // The program of this request is only a part of the full program: answer
     // feature questions as a full build would (`featureAnswer`). Every other
     // function is Haxe's own.
@@ -999,8 +1009,10 @@ class Generator {
         case v: v;
       }
     final own = toGenerate.get(target);
+    final endReferencesTimer = timer('genes.module.references');
     final declarations = ModuleRequest.typesOf(api.types, target);
     final references = ModuleRequest.referencesOf(target, declarations);
+    endReferencesTimer();
     var module: Null<Module> = null;
     var exposed = false;
     var emits = false;
@@ -1168,6 +1180,7 @@ class Generator {
     }
 
     final checkStart = haxe.Timer.stamp();
+    final endCheckTimer = timer('genes.module.check');
     final facts: genes.incremental.ModuleRequest.ModuleRequestFacts = {
       module: target,
       rootModule: output,
@@ -1191,6 +1204,7 @@ class Generator {
       runtimeRequests: module == null ? [] : module.internalRuntimeRequests()
     };
     final refusal = ModuleRequest.decide(facts);
+    endCheckTimer();
     final checkSeconds = haxe.Timer.stamp() - checkStart;
     final files = IncrementalShadow.recordedModule(target).files;
     final kept = ModuleRequest.keptLines(declarations).length;
@@ -1215,10 +1229,12 @@ class Generator {
     // genes-f8vc.14.8: the preview is published, so its module's records
     // advance to what a full request stores for these sources. The entry is
     // made while the shadow still holds what this request recorded.
+    final endRecordsTimer = timer('genes.records.advance');
     final entry = IncrementalShadow.previewEntry(target, api.types,
       facts.members, facts.rootFlags);
     IncrementalShadow.committed();
     ModuleRequest.previewCommitted(facts, entry);
+    endRecordsTimer();
     ModuleRequest.writeReport(target, 'preview', null, files, kept,
       haxe.Timer.stamp() - started, checkSeconds);
   }
@@ -1371,6 +1387,7 @@ class Generator {
   static function typesPerModule(types: Array<Type>) {
     final modules = new Map<String, Array<Type>>();
     for (type in types) {
+      RequestMeasure.generateDeclaration();
       switch type {
         case TInst(_.get() => {
           module: module,
@@ -1485,6 +1502,20 @@ class Generator {
         // later lookups change generated code (see `refreshCompilerTypes`).
         // Neither module nor anything that they import reads
         // `genes.generator.active`, so defining it first changes no text.
+        // The request measure starts first (only when the request
+        // descriptor asks for it), with the hook boundaries of
+        // `measureHooks`. Haxe
+        // 4.3.7 runs after-typing callbacks in reverse order of
+        // registration, so this first one runs after every other Genes
+        // after-typing callback; before-save callbacks run in order of
+        // registration, so this one runs before the other Genes ones.
+        final requested = genes.incremental.IncrementalRequest.requestedDescriptor();
+        RequestMeasure.begin(requested != null
+          && requested.requestMeasure == true);
+        if (RequestMeasure.active) {
+          Context.onAfterTyping(_ -> RequestMeasure.mark('haxe.filters'));
+          Context.onGenerate(_ -> RequestMeasure.mark('genes.on-generate'));
+        }
         ModuleRequest.begin();
         TypeUtil.refreshCompilerTypes();
       }
@@ -1517,7 +1548,9 @@ class Generator {
         if (ModuleRequest.skipsGenerationStamps())
           return;
         final pos = Context.currentPos();
+        final endStamps = RequestMeasure.open('genes.on-generate.stamps');
         for (type in types) {
+          RequestMeasure.generateDeclaration();
           switch type {
             case TInst(_.get() => cls, _)
               if (typeScriptProfile && hasRuntimeTypeInfo(cls)):
@@ -1534,11 +1567,53 @@ class Generator {
             default:
           }
         }
+        endStamps();
       });
       Context.onAfterGenerate(removeCompilerSentinel);
       Compiler.setCustomJSGenerator(Generator.generate);
+      if (!alreadyInstalled)
+        measureHooks();
     }
     #end
+  }
+
+  /**
+   * Registers the last hook boundaries of the request measure
+   * (`RequestMeasure`), after every other Genes hook of `use()`; without a
+   * request descriptor it registers nothing.
+   *
+   * Why: the phases of the measure must add up to the request, so that a
+   * report shows which part of its CPU time no phase names. The phases
+   * follow Haxe's order: `genes.init` (this init macro), `haxe.typing`,
+   * `genes.after-typing` (the Genes after-typing callbacks, with
+   * `genes.after-typing.*` inside), `haxe.filters`, `genes.on-generate` (the
+   * callbacks before and after Haxe saves the class state,
+   * `ModuleRequest.afterSave` included), `haxe.dce` (dead-code elimination
+   * and the filters after it) and `genes.generate`.
+   *
+   * Order of callbacks in Haxe 4.3.7 (`Common.compiler_callbacks`): it runs
+   * after-typing callbacks in reverse order of registration
+   * (`Finalization.finalize` walks the list that `add_after_typing`
+   * prepends to), and before-save and after-save callbacks in order of
+   * registration (`run` reverses the list). So the after-typing callback
+   * registered here, last, runs first and starts `genes.after-typing`; the
+   * one registered first in `use()` runs last and starts `haxe.filters`. An
+   * after-typing callback of a macro given after `Generator.use()` runs
+   * before both and counts in `haxe.typing`; one of a macro given before it
+   * counts in `haxe.filters`. The gate `measure-repeats` checks that no
+   * `haxe.*` phase holds a Genes work count.
+   */
+  static function measureHooks(): Void {
+    if (!RequestMeasure.active)
+      return;
+    RequestMeasure.mark('haxe.typing');
+    Context.onAfterTyping(_ -> RequestMeasure.mark('genes.after-typing'));
+    // As `ModuleRequest.install`: a callback registered from inside a first
+    // after-save callback runs after the ones registered before, so this
+    // runs after `ModuleRequest.afterSave`.
+    Context.onGenerate(_ -> Context.onGenerate(_ ->
+      RequestMeasure.mark('haxe.dce'), false),
+      false);
   }
   #end
 

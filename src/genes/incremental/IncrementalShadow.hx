@@ -375,6 +375,14 @@ typedef ShadowReport = {
   final audit: ShadowAuditReport;
 
   final modules: Array<ShadowModuleReport>;
+
+  /**
+   * Work counts, allocated words and CPU time of each named phase of this
+   * request (`RequestMeasure`), up to the moment this report was written.
+   * With `"moduleRecords": true`, the records report written after it holds
+   * the measure of the whole request.
+   */
+  final measure: Null<genes.incremental.RequestMeasure.RequestMeasureReport>;
 }
 
 /**
@@ -2353,7 +2361,8 @@ class IncrementalShadow {
         ms: milliseconds(auditSeconds),
         cacheDropped: auditDropped
       },
-      modules: moduleReports
+      modules: moduleReports,
+      measure: RequestMeasure.report()
     };
     try {
       File.saveContent(reportFile, Json.stringify(report, null, '  ') + '\n');

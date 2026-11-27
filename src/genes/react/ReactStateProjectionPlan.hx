@@ -393,6 +393,7 @@ private final class ReactStateProjectionPlanBuilder {
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
         visit(inner, role, scopeId);
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(child -> visit(child, Read, scopeId));
     }
   }

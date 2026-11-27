@@ -909,6 +909,7 @@ class Module {
     function readBody(field: ClassField): Void->Null<TypedExpr> {
       return () -> {
         genes.incremental.IncrementalShadow.recordBodyRead(cl.module);
+        genes.incremental.RequestMeasure.bodyRead(field);
         return field.expr();
       };
     }
@@ -1046,6 +1047,8 @@ class Module {
     switch cl.constructor {
       case null:
       case ctor:
+        if (genes.incremental.RequestMeasure.active)
+          genes.incremental.RequestMeasure.bodyRead(ctor.get());
         final e = ctor.get().expr();
         fields.push({
           kind: Constructor,

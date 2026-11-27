@@ -3,6 +3,7 @@ package genes;
 #if macro
 import genes.incremental.GenerationChangeSet;
 import genes.incremental.ModuleRequest;
+import genes.incremental.RequestMeasure;
 import genes.incremental.GenerationChangeSet.StampedDeclaration;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -153,6 +154,7 @@ class AfterTypingClass {
     final arrived = stamp;
     if (arrived != null && arrived.arrival == Kept)
       GenerationChangeSet.recordKeptBodyRead();
+    genes.incremental.RequestMeasure.bodyRead(field);
     final body = field.expr();
     known.set(key, body);
     return body;
@@ -273,13 +275,26 @@ class AfterTypingPasses {
     // `observed` is `null` unless this request uses the incremental path.
     // Then it holds, for each class, the copy of the class record that the
     // change set already read, so that the walk does not copy it again.
+    // With a request descriptor, each step is a phase of the request
+    // measure (`RequestMeasure`): `genes.after-typing.stamps`, `.walk`
+    // (with `.members` and one `.pass.<name>` for each class pass inside),
+    // one `.declarations.<name>` for each declaration function, and
+    // `.report`. Without one, `open` returns at once.
+    final endStamps = RequestMeasure.open('genes.after-typing.stamps');
     final observed = GenerationChangeSet.observe(types);
+    endStamps();
+    final endWalk = RequestMeasure.open('genes.after-typing.walk');
+    final passPhases = RequestMeasure.active ? [
+      for (name in classPassNames)
+        'genes.after-typing.pass.$name'
+    ] : null;
     final walkStart = observed == null ? 0.0 : haxe.Timer.stamp();
     // One clock for each pass, only on the incremental path: the report then
     // shows which pass a later slice must make cheaper. Without the define no
     // clock is read.
     final classSeconds = observed == null ? null : [for (_ in classPasses) 0.0];
     for (index => type in types) {
+      RequestMeasure.afterTypingDeclaration();
       switch type {
         case TClassDecl(reference):
           final seen = observed == null ? null : observed[index];
@@ -287,8 +302,11 @@ class AfterTypingPasses {
           final current = seen == null
             || record == null ? new AfterTypingClass(reference.get()) : new AfterTypingClass(record,
               seen.stamp, type, seen.parts);
-          if (current.stamp != null && !ModuleRequest.skipsMemberRead(current))
+          if (current.stamp != null && !ModuleRequest.skipsMemberRead(current)) {
+            final endMembers = RequestMeasure.open('genes.after-typing.members');
             GenerationChangeSet.readMembers(current.memberList);
+            endMembers();
+          }
           if (classSeconds == null) {
             // Without the incremental path no request is a module request,
             // so no pass is skipped (`ModuleRequest.skipsClassPass` would
@@ -303,13 +321,17 @@ class AfterTypingPasses {
                 types))
                 continue;
               final started = haxe.Timer.stamp();
+              final endPass = passPhases == null ? null : RequestMeasure.open(passPhases[index]);
               visit(current);
+              if (endPass != null)
+                endPass();
               classSeconds[index] += haxe.Timer.stamp() - started;
             }
           }
         default:
       }
     }
+    endWalk();
     final declarations: AfterTypingDeclarations = {
       types: types,
       stamps: observed == null ? null : [for (seen in observed) seen.stamp]
@@ -323,11 +345,17 @@ class AfterTypingPasses {
       GenerationChangeSet.passTime(classPassNames[index], seconds, 0.0);
     for (index => visit in declarationPasses) {
       final started = haxe.Timer.stamp();
+      final endDeclarations = RequestMeasure.active ? RequestMeasure.open('genes.after-typing.declarations.'
+        + declarationPassNames[index]) : null;
       visit(declarations);
+      if (endDeclarations != null)
+        endDeclarations();
       GenerationChangeSet.passTime(declarationPassNames[index], 0.0,
         haxe.Timer.stamp() - started);
     }
+    final endReport = RequestMeasure.open('genes.after-typing.report');
     GenerationChangeSet.finish(haxe.Timer.stamp() - walkStart);
+    endReport();
   }
 }
 #end

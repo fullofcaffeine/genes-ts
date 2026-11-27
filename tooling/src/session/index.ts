@@ -46,6 +46,8 @@ export type {
   TimingStatistics,
 } from "./preview-timing.js";
 export { summarizePreviewTimings } from "./preview-timing.js";
+export type { ProcessCounterDelta, ProcessCounters } from "./process-counters.js";
+export { processCounterDelta, readProcessCounters } from "./process-counters.js";
 export {
   createGenesDevelopmentSession,
 } from "./runtime.js";

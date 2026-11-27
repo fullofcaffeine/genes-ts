@@ -105,6 +105,7 @@ private final class LocalBindingPlanBuilder {
         for (argument in arguments)
           visit(argument);
       default:
+        genes.incremental.RequestMeasure.plannerNode();
         expression.iter(visit);
     }
   }

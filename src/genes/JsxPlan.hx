@@ -1400,6 +1400,7 @@ class JsxPlan {
           visitScopes(func.expr, FunctionOwner(func), nestedOrdinal,
             {value: 0});
         default:
+          genes.incremental.RequestMeasure.plannerNode();
           current.iter(child -> visitScopes(child, functionOwner,
             functionOrdinal, blockCounter));
       }
@@ -1853,6 +1854,7 @@ class JsxPlan {
       if (expression == null)
         return;
       visit(expression);
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(walk);
     }
     for (member in module.members) {
@@ -1875,6 +1877,7 @@ class JsxPlan {
       if (expression == null)
         return;
       visit(expression);
+      genes.incremental.RequestMeasure.plannerNode();
       expression.iter(walk);
     }
     visitImplementationRoots(module, walk);
